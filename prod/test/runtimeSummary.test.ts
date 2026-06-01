@@ -1325,6 +1325,55 @@ describe('runtime telemetry summaries', () => {
     );
   });
 
+  it('does not report an energy-buffer construction block when E29N57 has stored energy for build work', () => {
+    const spawn = {
+      id: 'spawn1',
+      name: 'Spawn1',
+      structureType: TEST_GLOBALS.STRUCTURE_SPAWN,
+      store: makeEnergyStore(250, 300)
+    };
+    const storedContainer = {
+      id: 'stored-container1',
+      structureType: TEST_GLOBALS.STRUCTURE_CONTAINER,
+      store: makeEnergyStore(2_069, 2_000)
+    };
+    const worker = {
+      name: 'StoredEnergyBuilder',
+      memory: { role: 'worker', colony: 'E29N57' },
+      store: makeEnergyStore(30, 50),
+      getActiveBodyparts: jest.fn().mockReturnValue(1)
+    } as unknown as Creep;
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      roomName: 'E29N57',
+      includeEventLog: false,
+      structures: [spawn, storedContainer],
+      creeps: [worker],
+      constructionSites: [
+        { id: 'container-site', structureType: TEST_GLOBALS.STRUCTURE_CONTAINER, progress: 500, progressTotal: 5_000 }
+      ]
+    });
+    (colony.room as Room & { energyAvailable: number; energyCapacityAvailable: number }).energyAvailable = 250;
+    (colony.room as Room & { energyAvailable: number; energyCapacityAvailable: number }).energyCapacityAvailable = 1_800;
+    (colony.room.controller as StructureController).level = 5;
+    colony.energyAvailable = 250;
+    colony.energyCapacityAvailable = 1_800;
+
+    emitRuntimeSummary([colony], [worker]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    const productiveEnergy = (room.resources as Record<string, Record<string, unknown>>).productiveEnergy;
+    expect(productiveEnergy.buildBlockedReason).toBe('worker_assignment_gap');
+    expect(productiveEnergy.workerAssignmentBlockedDetail).toBe('unknown');
+    const [blockedWorker] = productiveEnergy.workerAssignmentBlockedWorkers as Array<Record<string, unknown>>;
+    expect(blockedWorker).toMatchObject({
+      name: 'StoredEnergyBuilder',
+      buildBlockedReason: 'build_blocked_unknown'
+    });
+    expect(blockedWorker).not.toHaveProperty('constructionEnergyGate');
+  });
+
   it('marks zero assigned worker tasks as authoritative runtime evidence', () => {
     const colony = makeColony({
       time: RUNTIME_SUMMARY_INTERVAL,

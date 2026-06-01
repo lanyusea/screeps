@@ -3653,6 +3653,13 @@ function checkEnergyBufferForConstructionSpending(room) {
   }
   return observation.currentEnergy >= getConstructionSpendingEnergyThreshold(room);
 }
+function checkEnergyBufferForStoredConstructionSpending(room) {
+  const observation = getRoomSpawnExtensionEnergyObservation(room);
+  if (!observation.known) {
+    return false;
+  }
+  return observation.currentEnergy >= MINIMUM_WORKER_SPAWN_ENERGY && getRoomStoredEnergyAvailableForConstruction(room) >= CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY;
+}
 function checkEnergyBufferForCapacityEnablingConstruction(room, amount) {
   if (checkEnergyBufferForSpending(room, amount)) {
     return true;
@@ -27631,7 +27638,7 @@ function canSpendWorkerEnergyOnConstructionSite(creep, site) {
 }
 function canSpendCreepEnergyOnConstructionSite(creep, site, priorityContext) {
   const carriedEnergy = getUsedEnergy2(creep);
-  return carriedEnergy > 0 && isMissingSpawnRecoveryConstructionSite(creep.room, site) || carriedEnergy > 0 && checkEnergyBufferForConstructionSpending(creep.room) || carriedEnergy > 0 && isExtensionConstructionSite(site) && checkEnergyBufferForExtensionConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && !isExtensionConstructionSite(site) && isCapacityEnablingConstructionSite(site, priorityContext) && checkEnergyBufferForCapacityEnablingConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && canCompleteConstructionSiteWithCarriedEnergy(creep, site) || carriedEnergy > 0 && isLowWorkerThroughputRecoveryConstructionAllowed(creep, site) || carriedEnergy > 0 && hasMinimumWorkerSpawnEnergyForConstruction(creep.room) && isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext);
+  return carriedEnergy > 0 && isMissingSpawnRecoveryConstructionSite(creep.room, site) || carriedEnergy > 0 && checkEnergyBufferForConstructionSpending(creep.room) || carriedEnergy > 0 && checkEnergyBufferForStoredConstructionSpending(creep.room) || carriedEnergy > 0 && isExtensionConstructionSite(site) && checkEnergyBufferForExtensionConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && !isExtensionConstructionSite(site) && isCapacityEnablingConstructionSite(site, priorityContext) && checkEnergyBufferForCapacityEnablingConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && canCompleteConstructionSiteWithCarriedEnergy(creep, site) || carriedEnergy > 0 && isLowWorkerThroughputRecoveryConstructionAllowed(creep, site) || carriedEnergy > 0 && hasMinimumWorkerSpawnEnergyForConstruction(creep.room) && isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext);
 }
 function isLowWorkerThroughputRecoveryConstructionAllowed(creep, site) {
   return site.my !== false && hasLowWorkerThroughputRecoveryPressure(creep);
@@ -28083,8 +28090,7 @@ function shouldDeferIdleSpawnExtensionRefillForBoundedConstruction(creep, spawnO
   return spawnOrExtensionEnergySink !== null && !hasActiveSpawningSpawn(creep.room) && constructionSites.length > 0 && hasSafeStoredEnergyForBoundedConstruction(creep);
 }
 function hasSafeStoredEnergyForBoundedConstruction(creep) {
-  const energyAvailable = getRoomEnergyAvailable10(creep.room);
-  if (energyAvailable === null || energyAvailable < getConstructionSpendingEnergyThreshold(creep.room)) {
+  if (!checkEnergyBufferForStoredConstructionSpending(creep.room)) {
     return false;
   }
   const sameRoomWorkers = getRoomOwnedCreeps(creep.room).filter(
@@ -31940,8 +31946,7 @@ function hasSafeStoredEnergyForBoundedConstruction2(creep, selectedTask) {
   if ((selectedTask == null ? void 0 : selectedTask.type) !== "build") {
     return false;
   }
-  const energyAvailable = getRoomEnergyAvailable12(creep.room);
-  if (energyAvailable === null || energyAvailable < getConstructionSpendingEnergyThreshold(creep.room)) {
+  if (!checkEnergyBufferForStoredConstructionSpending(creep.room)) {
     return false;
   }
   const sameRoomWorkers = getRoomOwnedCreeps2(creep.room).filter(
@@ -39011,7 +39016,7 @@ function selectWorkerAssignmentBlockedDetail(colony, colonyWorkers, roomEnergySt
     return "no_valid_body";
   }
   const energyBuffer = getRoomEnergyBufferHealth(colony.room);
-  if (!energyBuffer.healthy || energyBuffer.currentEnergy < energyBuffer.threshold) {
+  if ((!energyBuffer.healthy || energyBuffer.currentEnergy < energyBuffer.threshold) && !checkEnergyBufferForStoredConstructionSpending(colony.room)) {
     return "energy_buffer_below_threshold";
   }
   if (hasCarriedEnergyWorkerBlockedByConstructionEnergyMargin(colony.room, colonyWorkers, constructionSites)) {
@@ -39107,6 +39112,9 @@ function canSpendWorkerEnergyOnAnyConstructionSiteForTelemetry(room, carriedEner
   return constructionSites.some((site) => canSpendWorkerEnergyOnConstructionSiteForTelemetry(room, carriedEnergy, site));
 }
 function canSpendWorkerEnergyOnConstructionSiteForTelemetry(room, carriedEnergy, constructionSite) {
+  if (checkEnergyBufferForStoredConstructionSpending(room)) {
+    return true;
+  }
   if (!isRecord30(constructionSite)) {
     return checkEnergyBufferForConstructionSpending(room);
   }
@@ -39237,6 +39245,9 @@ function isBuildBlockedByEnergyBuffer(colony, assignedCarriedEnergy) {
   const energyAvailable = getRoomEnergyAvailable13(colony);
   if (energyAvailable <= 0) {
     return true;
+  }
+  if (checkEnergyBufferForStoredConstructionSpending(colony.room)) {
+    return false;
   }
   const buffer = getRoomEnergyBufferHealth(colony.room);
   return buffer.healthy === false && buffer.currentEnergy < buffer.threshold && assignedCarriedEnergy <= 0;

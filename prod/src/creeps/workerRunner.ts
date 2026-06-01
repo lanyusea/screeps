@@ -21,6 +21,7 @@ import {
 import { runUpgrader } from './upgraderRunner';
 import { canCreepPressureTerritoryController } from '../territory/territoryPlanner';
 import {
+  checkEnergyBufferForStoredConstructionSpending,
   getConstructionSpendingEnergyThreshold,
   getEffectiveRoomEnergyBufferThreshold,
   getRoomStoredEnergyAvailableForConstruction
@@ -766,11 +767,7 @@ function hasSafeStoredEnergyForBoundedConstruction(
     return false;
   }
 
-  const energyAvailable = getRoomEnergyAvailable(creep.room);
-  if (
-    energyAvailable === null ||
-    energyAvailable < getConstructionSpendingEnergyThreshold(creep.room)
-  ) {
+  if (!checkEnergyBufferForStoredConstructionSpending(creep.room)) {
     return false;
   }
 

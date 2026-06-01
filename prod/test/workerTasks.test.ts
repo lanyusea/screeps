@@ -12761,6 +12761,44 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'source-container-site1' });
   });
 
+  it('spends carried energy on E29N57 container construction below the general floor when stored surplus protects recovery', () => {
+    const site = {
+      id: 'container-site1',
+      structureType: 'container',
+      progress: 500,
+      progressTotal: 5_000
+    } as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 0);
+    const storedContainer = makeStoredEnergyContainerWithCapacity('stored-container1', 2_069, 2_000);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      constructionSites: [site],
+      controller,
+      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY + 50,
+      energyCapacityAvailable: 1_800,
+      myStructures: [fullSpawn as AnyOwnedStructure],
+      structures: [storedContainer as AnyStructure]
+    });
+    const creep = {
+      name: 'StoredEnergyBuilder',
+      memory: { role: 'worker', colony: 'E29N57' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(30),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+
+    expect(canSpendWorkerEnergyOnConstructionSite(creep, site)).toBe(true);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'container-site1' });
+  });
+
   it('does not count the current build-assigned worker as uncovered construction coverage', () => {
     const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 317, {
