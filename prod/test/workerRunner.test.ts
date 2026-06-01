@@ -4718,6 +4718,135 @@ describe('runWorker', () => {
     expect(transfer).not.toHaveBeenCalled();
   });
 
+  it('does not let spawn reservation refill starve the only E29N57 source-container builder', () => {
+    const source = {
+      id: 'source1',
+      pos: { x: 20, y: 20, roomName: 'E29N57' } as RoomPosition
+    } as Source;
+    const site = {
+      id: 'site1',
+      structureType: 'container',
+      progress: 500,
+      progressTotal: 5_000,
+      pos: { x: 20, y: 21, roomName: 'E29N57' } as RoomPosition
+    } as ConstructionSite;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      spawning: null,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(250),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      }
+    } as unknown as StructureSpawn;
+    const storedContainer = {
+      id: 'stored-container1',
+      structureType: 'container',
+      pos: { x: 20, y: 22, roomName: 'E29N57' } as RoomPosition,
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 1_333 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) =>
+          resource === undefined || resource === RESOURCE_ENERGY ? 2_000 : 0
+        )
+      }
+    } as unknown as StructureContainer;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const roomCreeps: Creep[] = [];
+    const room = {
+      name: 'E29N57',
+      energyAvailable: 650,
+      energyCapacityAvailable: 1_800,
+      controller,
+      find: jest.fn(
+        (type: number, options?: { filter?: (object: AnyOwnedStructure | Creep) => boolean }) => {
+          if (type === FIND_MY_STRUCTURES) {
+            const structures = [spawn] as unknown as AnyOwnedStructure[];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          if (type === FIND_STRUCTURES) {
+            return [spawn, storedContainer];
+          }
+
+          if (type === FIND_MY_CREEPS) {
+            return options?.filter ? roomCreeps.filter(options.filter) : roomCreeps;
+          }
+
+          if (type === FIND_CONSTRUCTION_SITES) {
+            return [site];
+          }
+
+          if (type === FIND_SOURCES) {
+            return [source];
+          }
+
+          return [];
+        }
+      )
+    } as unknown as Room;
+    const build = jest.fn().mockReturnValue(0);
+    const transfer = jest.fn();
+    const creep = {
+      name: 'Builder',
+      memory: { role: 'worker', colony: 'E29N57' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(30),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      build,
+      transfer,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    roomCreeps.push(creep);
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      economy: {
+        spawnEnergyReservation: {
+          updatedAt: 123,
+          rooms: {
+            E29N57: {
+              bodyCost: 800,
+              creepName: 'worker-E29N57-124',
+              reservedAt: 123,
+              reservedEnergy: 800,
+              role: 'worker',
+              roomName: 'E29N57',
+              updatedAt: 123
+            }
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Builder: creep },
+      rooms: { E29N57: room },
+      time: 124,
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'site1') {
+          return site;
+        }
+
+        if (id === 'spawn1') {
+          return spawn;
+        }
+
+        return id === 'stored-container1' ? storedContainer : null;
+      })
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'site1' });
+    expect(creep.memory.workerDispatchDiagnostic?.spawnReservationTask).toBeUndefined();
+    expect(build).toHaveBeenCalledWith(site);
+    expect(transfer).not.toHaveBeenCalled();
+  });
+
   it('keeps E29N57 source-container construction ahead of spawn reservation refill during low-bucket shedding', () => {
     const source = {
       id: 'source1',
