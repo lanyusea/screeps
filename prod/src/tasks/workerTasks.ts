@@ -1957,15 +1957,25 @@ function shouldYieldControllerDowngradeGuardToConstructionBacklog(
   creep: Creep,
   controller: StructureController | undefined
 ): boolean {
+  if (
+    controller?.my !== true ||
+    isControllerDowngradeImminentForLowLoadReturn(controller) ||
+    getUsedEnergy(creep) <= 0 ||
+    getActiveWorkParts(creep) <= 0 ||
+    hasSameRoomWorkerAssignedToTask(creep.room, creep, 'build') ||
+    !hasSpendableConstructionBacklog(creep)
+  ) {
+    return false;
+  }
+
+  if (controller.level === 2) {
+    return hasOtherLoadedWorkerUpgradingController(creep, controller);
+  }
+
   return (
-    controller?.my === true &&
-    controller.level === 2 &&
-    !isControllerDowngradeImminentForLowLoadReturn(controller) &&
-    getUsedEnergy(creep) > 0 &&
-    getActiveWorkParts(creep) > 0 &&
-    hasOtherLoadedWorkerUpgradingController(creep, controller) &&
-    !hasSameRoomWorkerAssignedToTask(creep.room, creep, 'build') &&
-    hasSpendableConstructionBacklog(creep)
+    controller.level >= 3 &&
+    hasHealthyRoomEnergyBuffer(creep.room) &&
+    hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep)
   );
 }
 

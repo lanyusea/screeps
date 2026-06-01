@@ -26542,7 +26542,13 @@ function isControllerDowngradeImminentForLowLoadReturn(controller) {
   return (controller == null ? void 0 : controller.my) === true && typeof controller.ticksToDowngrade === "number" && controller.ticksToDowngrade < LOW_LOAD_CONTROLLER_DOWNGRADE_IMMINENT_TICKS;
 }
 function shouldYieldControllerDowngradeGuardToConstructionBacklog(creep, controller) {
-  return (controller == null ? void 0 : controller.my) === true && controller.level === 2 && !isControllerDowngradeImminentForLowLoadReturn(controller) && getUsedEnergy2(creep) > 0 && getActiveWorkParts2(creep) > 0 && hasOtherLoadedWorkerUpgradingController(creep, controller) && !hasSameRoomWorkerAssignedToTask(creep.room, creep, "build") && hasSpendableConstructionBacklog(creep);
+  if ((controller == null ? void 0 : controller.my) !== true || isControllerDowngradeImminentForLowLoadReturn(controller) || getUsedEnergy2(creep) <= 0 || getActiveWorkParts2(creep) <= 0 || hasSameRoomWorkerAssignedToTask(creep.room, creep, "build") || !hasSpendableConstructionBacklog(creep)) {
+    return false;
+  }
+  if (controller.level === 2) {
+    return hasOtherLoadedWorkerUpgradingController(creep, controller);
+  }
+  return controller.level >= 3 && hasHealthyRoomEnergyBuffer(creep.room) && hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep);
 }
 function hasOtherLoadedWorkerUpgradingController(creep, controller) {
   return getSameRoomLoadedWorkers(creep).some(
