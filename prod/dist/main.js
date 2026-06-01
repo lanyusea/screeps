@@ -25437,6 +25437,10 @@ function selectCriticalCpuWorkerTask(creep) {
   if (missingSpawnConstructionSite) {
     return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: missingSpawnConstructionSite.id });
   }
+  const storedProtectedConstructionTask = selectCriticalCpuStoredProtectedConstructionTask(creep);
+  if (storedProtectedConstructionTask) {
+    return applyMinimumUsefulLoadPolicy(creep, storedProtectedConstructionTask);
+  }
   if (spawnOrExtensionEnergySink) {
     return {
       type: "transfer",
@@ -25458,6 +25462,53 @@ function selectCriticalCpuWorkerTask(creep) {
     });
   }
   return null;
+}
+function selectCriticalCpuStoredProtectedConstructionTask(creep) {
+  const constructionSite = selectCriticalCpuStoredProtectedConstructionSite(creep);
+  return constructionSite ? { type: "build", targetId: constructionSite.id } : null;
+}
+function selectCriticalCpuStoredProtectedConstructionEnergyAcquisitionTask(creep) {
+  const constructionSite = selectCriticalCpuStoredProtectedConstructionEnergyAcquisitionSite(creep);
+  if (!constructionSite) {
+    return null;
+  }
+  const candidates = findBuilderEnergyAcquisitionCandidates(creep, constructionSite);
+  if (candidates.length === 0) {
+    return null;
+  }
+  return candidates.sort(compareBuilderEnergyAcquisitionCandidates)[0].task;
+}
+function selectCriticalCpuStoredProtectedConstructionEnergyAcquisitionSite(creep) {
+  const constructionSites = findConstructionSites(creep.room);
+  if (constructionSites.length === 0) {
+    return null;
+  }
+  const constructionReservationContext = createConstructionReservationContext(creep.room);
+  const priorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const storedProtectedSourceContainerSites = constructionSites.filter(
+    (site) => canSpendOnStoredProtectedSourceContainerConstruction(creep, site, priorityContext)
+  );
+  return selectUnreservedConstructionBacklogEnergyTarget(
+    creep,
+    storedProtectedSourceContainerSites,
+    constructionReservationContext,
+    priorityContext
+  );
+}
+function selectCriticalCpuStoredProtectedConstructionSite(creep) {
+  const constructionSites = findConstructionSites(creep.room);
+  if (constructionSites.length === 0) {
+    return null;
+  }
+  const constructionReservationContext = createConstructionReservationContext(creep.room);
+  const priorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  return selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    (site) => canSpendOnStoredProtectedSourceContainerConstruction(creep, site, priorityContext),
+    { priorityContext }
+  );
 }
 function selectCriticalCpuEnergyAcquisitionTask(creep) {
   var _a;
@@ -25486,7 +25537,10 @@ function selectCriticalCpuEnergyAcquisitionTask(creep) {
   if (controller && shouldGuardControllerDowngradeForWorkerLoad(creep, controller) && canUpgradeController(controller)) {
     return selectWorkerEnergyCriticalAcquisitionTask(creep);
   }
-  return hasCriticalCpuRepairDemand(creep) ? selectWorkerEnergyCriticalAcquisitionTask(creep) : null;
+  if (hasCriticalCpuRepairDemand(creep)) {
+    return selectWorkerEnergyCriticalAcquisitionTask(creep);
+  }
+  return selectCriticalCpuStoredProtectedConstructionEnergyAcquisitionTask(creep);
 }
 function hasCriticalCpuRepairDemand(creep) {
   return selectCriticalOwnedSpawnRepairTarget(creep) !== null || selectEmergencyOwnedRampartRepairTarget(creep) !== null || selectThreatenedBarrierRepairTarget(creep) !== null || selectCriticalInfrastructureRepairTarget(creep) !== null;
@@ -27679,6 +27733,13 @@ function isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext
   }
   return isRoadConstructionSite2(site) && priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.energyStarvedCriticalRoad;
 }
+function canSpendOnStoredProtectedSourceContainerConstruction(creep, site, priorityContext) {
+  return isSourceContainerConstructionSite2(site, priorityContext) && !hasVisibleHostilePresence3(creep.room) && checkEnergyBufferForStoredConstructionSpending(creep.room) && hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep) && !hasSameRoomWorkerAssignedToTask(creep.room, creep, "build");
+}
+function isSourceContainerConstructionSite2(site, priorityContext) {
+  const priority = getConstructionSiteImpactPriority(site, priorityContext);
+  return isContainerConstructionSite3(site) && (priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.sourceContainer || priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.energyStarvedSourceContainer);
+}
 function getUnreservedConstructionProgressForWorker(creep, site, constructionReservationContext) {
   const remainingProgress = getConstructionSiteRemainingProgress2(site);
   if (!Number.isFinite(remainingProgress)) {
@@ -28093,16 +28154,16 @@ function hasSafeStoredEnergyForBoundedConstruction(creep) {
   if (!checkEnergyBufferForStoredConstructionSpending(creep.room)) {
     return false;
   }
-  const sameRoomWorkers = getRoomOwnedCreeps(creep.room).filter(
-    (worker) => isProductiveSameRoomWorker(worker, creep.room)
-  );
-  if (sameRoomWorkers.length < SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS) {
+  if (!hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep)) {
     return false;
   }
   if (hasSameRoomWorkerAssignedToTask(creep.room, creep, "build")) {
     return false;
   }
   return getRoomStoredEnergyAvailableForConstruction(creep.room) >= SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORED_SURPLUS;
+}
+function hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep) {
+  return getRoomOwnedCreeps(creep.room).filter((worker) => isProductiveSameRoomWorker(worker, creep.room)).length >= SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS;
 }
 function hasHealthyRoomEnergyBuffer(room) {
   const energyAvailable = getRoomEnergyAvailable10(room);
