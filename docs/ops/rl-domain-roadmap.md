@@ -67,7 +67,7 @@ Current lane identities include:
 
 Smoke-scale evidence cannot close scale-first training work. The current `5 workers x 5 repetitions x 500 ticks = 25 env rows / 12,500 simulator ticks` shape is smoke-only; validation requires >=200 env rows and >=200k ticks, and the scale/cadence atomic issues own the minimum acceptable 8c16g utilization ladder.
 
-Policy-family-aware execution starts with `top.construction` as the existing `construction-priority` bridge and `role.worker-task` as the first lower-level surface. These labels are routing metadata only; reward, scorecard, canary, rollout, and feedback gates remain unchanged.
+Policy-family-aware execution starts with `top.construction` as the existing `construction-priority` bridge and `role.worker-task`, `role.source-harvester`, and `role.defender-micro` as the first role-scoped surfaces. These labels are routing metadata only; reward, scorecard, canary, rollout, and feedback gates remain unchanged. Evidence from #1583's bounded `top.construction` canary is not role-policy completion evidence for #1585.
 
 ## Current issue map
 
@@ -125,7 +125,7 @@ Accepted input classes:
 A tick sample must expose:
 
 - observation: tick, room, shard, energy, workers/tasks, spawn state, controller, resources, combat, CPU, reliability, monitor counters;
-- action labels: high-level offline labels such as `construction-priority` and `expansion-remote-candidate`, always `liveEffect: false`;
+- action labels: high-level offline labels such as `construction-priority` and `expansion-remote-candidate`, plus future role-scoped labels that preserve `policyFamily`, `rolePolicy`, and `trainingRole`; always `liveEffect: false`;
 - reward components: reliability, territory, resources, kills; scalar reward remains `null` until an experiment card explicitly preserves this order.
 
 Generated datasets stay local derived artifacts by default:

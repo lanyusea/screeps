@@ -38,6 +38,7 @@ Top-level policy families:
 Role and lower-level policy families:
 
 - `role.worker-task`
+- `role.source-harvester`
 - `role.tower-action`
 - `role.hauler-routing`
 - `role.builder-repair`
@@ -52,8 +53,9 @@ Role and lower-level policy families:
 The first durable slice is plumbing, not a behavior rollout.
 
 - `top.construction` bridges the existing `construction-priority` candidate stream into the top-level hierarchy.
-- `role.worker-task` is the first low-level policy surface for later dataset, training, scorecard, and canary work.
+- `role.worker-task`, `role.source-harvester`, and `role.defender-micro` are the initial role-policy lanes for later dataset, training, scorecard, and canary work.
 - `role.tower-action` is recognized as a route fallback for tower-action policy-surface findings, but it does not authorize live tower behavior changes.
+- Top-level `construction-priority` or `top.construction` canary evidence remains high-level policy evidence only. It must not be counted as role-policy completion for worker-task, source-harvester, or defender-micro lanes.
 
 When explicit route fields are absent, the only initial fallback mappings are:
 
@@ -61,6 +63,10 @@ When explicit route fields are absent, the only initial fallback mappings are:
 | --- | --- |
 | `construction-priority` | `top.construction` |
 | `worker-task` | `role.worker-task` |
+| `source-harvester` | `role.source-harvester` |
+| `harvester` | `role.source-harvester` |
+| `defender-micro` | `role.defender-micro` |
+| `defender` | `role.defender-micro` |
 | `tower-action` | `role.tower-action` |
 
 All other parameter surfaces keep the existing `parameterSurface` behavior without inventing a policy-family route.

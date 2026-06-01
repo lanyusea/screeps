@@ -125,6 +125,10 @@ class RlDatasetExportTest(unittest.TestCase):
             [label["surface"] for label in row["actionLabels"]],
             ["construction-priority", "expansion-remote-candidate"],
         )
+        self.assertEqual(
+            [label["policyFamily"] for label in row["actionLabels"]],
+            ["top.construction", "top.remote-expansion"],
+        )
         self.assertEqual(row["observation"]["resources"]["harvestedThisTick"], 80)
         self.assertEqual(row["reward"]["components"]["resources"]["harvestedThisTick"], 80)
         self.assertEqual(row["reward"]["components"]["resources"]["harvestedEnergy"], 80)
@@ -133,6 +137,11 @@ class RlDatasetExportTest(unittest.TestCase):
             "expansion-remote-candidate",
         ])
         self.assertFalse(run_manifest["strategy"]["liveEffect"])
+        self.assertEqual(
+            [lane["policyFamily"] for lane in run_manifest["rolePolicyLanes"]["initialLanes"]],
+            ["role.worker-task", "role.source-harvester", "role.defender-micro"],
+        )
+        self.assertEqual(run_manifest["rolePolicyMetadata"]["rolePolicyFamilies"], [])
         self.assertEqual(kpi_windows["input"]["runtimeSummaryCount"], 1)
         self.assertEqual(kpi_windows["resources"]["totals"]["latest"]["storedEnergy"], 420)
         self.assertEqual(kpi_windows["resources"]["totals"]["latest"]["harvestedThisTick"], 80)

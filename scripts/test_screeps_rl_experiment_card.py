@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import screeps_rl_experiment_card as card_helper
+import screeps_rl_role_policy_lanes as role_policy_lanes
 import screeps_rl_simulator_harness as harness
 import screeps_rl_training_runner as runner
 
@@ -100,6 +101,63 @@ class RlExperimentCardTest(unittest.TestCase):
             card["scenario"]["suitability"]["classification"],
             "not_suitable_for_territory_combat_differentiation",
         )
+        self.assertEqual(card["policyFamily"], "top.construction")
+        role_policy_lanes.validate_lane_contract(card["role_policy_lanes"])
+        self.assertEqual(
+            [lane["policyFamily"] for lane in card["role_policy_lanes"]["initialLanes"]],
+            ["role.worker-task", "role.source-harvester", "role.defender-micro"],
+        )
+
+    def test_role_scoped_strategy_variant_requires_lane_metadata(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-role-policy-missing",
+            code_commit="b" * 40,
+            training_approach="bandit",
+            created_at="2026-05-16T10:09:35Z",
+        )
+        card["strategy_variants"] = [
+            {
+                "id": "role.worker-task.shadow-candidate.v1",
+                "policyFamily": "role.worker-task",
+                "rolloutStatus": "shadow",
+                "parameters": {},
+            }
+        ]
+
+        with self.assertRaisesRegex(card_helper.CardValidationError, "requires rolePolicy"):
+            card_helper.validate_card(card)
+
+    def test_mixed_role_scoped_strategy_variants_require_meta_policy_reason(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-role-policy-mixed",
+            code_commit="c" * 40,
+            training_approach="bandit",
+            created_at="2026-05-16T10:09:35Z",
+        )
+        card["strategy_variants"] = [
+            {
+                "id": "role.worker-task.shadow-candidate.v1",
+                "policyFamily": "role.worker-task",
+                "rolePolicy": "worker-task",
+                "trainingRole": "worker",
+                "rolloutStatus": "shadow",
+                "parameters": {},
+            },
+            {
+                "id": "role.defender-micro.shadow-candidate.v1",
+                "policyFamily": "role.defender-micro",
+                "rolePolicy": "defender-micro",
+                "trainingRole": "defender",
+                "rolloutStatus": "shadow",
+                "parameters": {},
+            },
+        ]
+
+        with self.assertRaisesRegex(card_helper.CardValidationError, "multiple role policy families"):
+            card_helper.validate_card(card)
+
+        card["metaPolicyReason"] = "explicit meta-policy lane comparison fixture"
+        card_helper.validate_card(card)
 
     def test_policy_gradient_construction_priority_card_is_runner_valid(self) -> None:
         card = card_helper.build_card(

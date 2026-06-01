@@ -38,6 +38,7 @@ class ScreepsRlActLoopPlannerTest(unittest.TestCase):
 
         policy_delta = plan["nextPolicyDelta"]
         self.assertEqual(policy_delta["parameterSurface"], "construction-priority")
+        self.assertEqual(policy_delta["policyFamily"], "top.construction")
         self.assertEqual(policy_delta["boundsStatus"], "present")
         self.assertEqual(
             [item["name"] for item in policy_delta["bounds"]],
@@ -51,7 +52,12 @@ class ScreepsRlActLoopPlannerTest(unittest.TestCase):
         self.assertEqual(card_delta["datasetRunId"], "rl-loop-b-sample-000001")
         self.assertEqual(card_delta["status"], "shadow")
         self.assertEqual(card_delta["deltas"]["policy"]["parameterSurface"], "construction-priority")
+        self.assertEqual(card_delta["deltas"]["policy"]["policyFamily"], "top.construction")
         self.assertFalse(card_delta["safety"]["liveEffect"])
+        self.assertEqual(
+            [lane["policyFamily"] for lane in plan["rolePolicyLanes"]["initialLanes"]],
+            ["role.worker-task", "role.source-harvester", "role.defender-micro"],
+        )
 
         feedback = plan["feedbackIngestion"]
         self.assertEqual(feedback["finding"]["state"], "observed")
@@ -91,6 +97,34 @@ class ScreepsRlActLoopPlannerTest(unittest.TestCase):
         self.assertEqual(plan["finding"]["classification"], "policy_parameterization_gap")
         self.assertIsNone(plan["nextScenarioDelta"])
         self.assertEqual(plan["nextPolicyDelta"]["parameterSurface"], "construction-priority")
+
+    def test_role_policy_surface_fallback_preserves_route_metadata(self) -> None:
+        plan = planner.build_plan(
+            {
+                "title": "Worker task selection needs role-scoped bounds",
+                "classification": "policy_parameterization_gap",
+                "parameterSurface": {
+                    "name": "worker-task",
+                    "bounds": [
+                        {
+                            "name": "repairPriority",
+                            "min": 0,
+                            "max": 10,
+                            "step": 1,
+                        }
+                    ],
+                },
+            }
+        )
+
+        policy_delta = plan["nextPolicyDelta"]
+        self.assertEqual(policy_delta["policyFamily"], "role.worker-task")
+        self.assertEqual(policy_delta["rolePolicy"], "worker-task")
+        self.assertEqual(policy_delta["trainingRole"], "worker")
+        self.assertEqual(
+            plan["nextExperimentCardDelta"]["deltas"]["policy"]["policyFamily"],
+            "role.worker-task",
+        )
 
     def test_unknown_source_scenario_uses_registered_default_target(self) -> None:
         plan = planner.build_plan(
