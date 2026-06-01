@@ -2713,6 +2713,41 @@ class RlExperimentCardTest(unittest.TestCase):
 
         card_helper.validate_card(card)
 
+    def test_validate_rejects_policy_gradient_scale_environments_above_workers(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-scale-workers",
+            code_commit="1" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+            simulation_repetitions=1,
+            simulation_scale_environments=5,
+        )
+        card["simulation"]["workers"] = 1
+
+        with self.assertRaisesRegex(card_helper.CardValidationError, "simulation\\.workers >="):
+            card_helper.validate_card(card)
+
+    def test_validate_rejects_policy_gradient_min_concurrent_above_workers_without_scale(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-min-workers",
+            code_commit="1" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+        )
+        card["simulation"]["min_concurrent_environments"] = 5
+
+        with self.assertRaisesRegex(card_helper.CardValidationError, "simulation\\.workers >="):
+            card_helper.validate_card(card)
+
+        with self.assertRaisesRegex(card_helper.CardValidationError, "simulation\\.workers >="):
+            card_helper.build_card(
+                dataset_run_id="rl-policy-gradient-generated-min-workers",
+                code_commit="1" * 40,
+                training_approach="policy_gradient",
+                created_at="2026-05-17T00:25:00Z",
+                simulation_min_concurrent_environments=5,
+            )
+
     def test_validate_rejects_simulation_min_concurrent_above_scale_environments(self) -> None:
         for index, (scale_field, min_field) in enumerate((
             ("scale_environments", "min_concurrent_environments"),
@@ -2924,6 +2959,41 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(config.repetitions, 20)
         self.assertEqual(generated["training_approach"], "policy_gradient")
         self.assertEqual(generated["policy_gradient"]["target_family"], "construction-priority")
+
+    def test_cli_policy_gradient_scale_environments_defaults_workers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "card.json"
+            exit_code = card_helper.main(
+                [
+                    "--dataset-run-id",
+                    "rl-policy-gradient-cli-scale",
+                    "--code-commit",
+                    "3" * 40,
+                    "--training-approach",
+                    "policy_gradient",
+                    "--created-at",
+                    "2026-05-17T00:25:00Z",
+                    "--repetitions",
+                    "1",
+                    "--scale-environments",
+                    "5",
+                    "--output",
+                    str(output_path),
+                ],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+                repo_root=REPO_ROOT,
+            )
+            generated = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 0)
+        card_helper.validate_card(generated)
+        runner.validate_experiment_card(generated)
+        config = runner.simulation_config_from_card(generated)
+        self.assertEqual(config.workers, 5)
+        self.assertEqual(config.repetitions, 4)
+        self.assertEqual(config.scale_environments, 5)
+        self.assertIsNone(config.min_concurrent_environments)
 
 
 if __name__ == "__main__":

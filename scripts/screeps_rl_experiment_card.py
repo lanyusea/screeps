@@ -97,6 +97,10 @@ POLICY_GRADIENT_SIMULATION_REPETITIONS = POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_C
 POLICY_GRADIENT_UPDATE_ALGORITHM = "reinforce_v1"
 POLICY_GRADIENT_UPDATE_LEARNING_RATE = 1
 POLICY_GRADIENT_UPDATE_ESTIMATOR = "score_function_reinforce_v1"
+POLICY_GRADIENT_WORKER_CONCURRENCY_ERROR = (
+    "policy_gradient cards require simulation.workers >= simulation.min_concurrent_environments "
+    "(or simulation.scale_environments when min_concurrent_environments is omitted)"
+)
 LOOP_A_LOCAL_FALLBACK_TICKS = POLICY_GRADIENT_MIN_SIMULATION_TICKS
 LOOP_A_LOCAL_FALLBACK_MAX_TICKS = 5000
 LOOP_A_LOCAL_FALLBACK_REPETITIONS = POLICY_GRADIENT_SIMULATION_REPETITIONS
@@ -906,6 +910,8 @@ def build_card(
         else None
     )
     if training_approach == "policy_gradient":
+        if simulation_workers is None and scale_environments is not None:
+            workers = max(workers, scale_environments)
         ticks = max(ticks, POLICY_GRADIENT_MIN_SIMULATION_TICKS)
         if scale_environments is None:
             repetitions = max(repetitions, POLICY_GRADIENT_SIMULATION_REPETITIONS)
@@ -2622,6 +2628,13 @@ def validate_policy_gradient_simulation(raw: Any, required_samples_per_candidate
     required_samples = required_samples_per_candidate or POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE
     repetitions = positive_int(raw.get("repetitions"))
     scale_environments = policy_gradient_simulation_scale_environments(raw)
+    min_concurrent_environments = positive_int(
+        first_present(raw, ("min_concurrent_environments", "minConcurrentEnvironments"))
+    )
+    worker_floor = policy_gradient_worker_concurrency_floor(scale_environments, min_concurrent_environments)
+    workers = positive_int(raw.get("workers"))
+    if workers is None or (worker_floor is not None and workers < worker_floor):
+        raise CardValidationError(POLICY_GRADIENT_WORKER_CONCURRENCY_ERROR)
     requested_samples = repetitions * scale_environments if repetitions is not None else None
     if requested_samples is None or requested_samples < required_samples:
         raise CardValidationError(
@@ -2639,6 +2652,13 @@ def policy_gradient_simulation_scale_environments(raw: JsonObject) -> int:
     if scale_environments is None:
         raise CardValidationError("simulation.scale_environments must be a positive integer")
     return scale_environments
+
+
+def policy_gradient_worker_concurrency_floor(
+    scale_environments: int | None,
+    min_concurrent_environments: int | None,
+) -> int | None:
+    return min_concurrent_environments if min_concurrent_environments is not None else scale_environments
 
 
 def positive_int(value: Any) -> int | None:
