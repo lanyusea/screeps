@@ -5221,7 +5221,7 @@ def _launcher_cli_result_summary(result: JsonObject) -> JsonObject:
     return summary
 
 
-def _self_heal_fixture_place_spawn_room_busy(
+def _adopt_private_fixture_owner(
     smoke: Any,
     compose: list[str],
     cfg: Any,
@@ -5230,11 +5230,13 @@ def _self_heal_fixture_place_spawn_room_busy(
     room: str,
     worker_index: int,
     variant_id: str,
+    phase: str,
+    debug_message: str,
 ) -> JsonObject:
     identity = _private_map_fixture_owner_identity(map_source_file, room)
     if identity is None:
         return {
-            "phase": "place-spawn-room-busy-self-heal",
+            "phase": phase,
             "classification": "skipped",
             "reason": "target room is not an owned private-map fixture room",
         }
@@ -5243,7 +5245,7 @@ def _self_heal_fixture_place_spawn_room_busy(
     target_username = _non_empty_text(getattr(cfg, "username", None))
     if target_username is None:
         summary: JsonObject = {
-            "phase": "place-spawn-room-busy-self-heal",
+            "phase": phase,
             "classification": "skipped",
             "reason": "cfg.username is not set; cannot adopt fixture owner",
             "room": room,
@@ -5256,7 +5258,7 @@ def _self_heal_fixture_place_spawn_room_busy(
     _debug_worker_phase(
         worker_index,
         variant_id,
-        "place-spawn room busy; adopting private fixture owner",
+        debug_message,
         room=room,
         fixtureOwnerId=fixture_owner_id,
         targetUsername=target_username,
@@ -5269,7 +5271,7 @@ def _self_heal_fixture_place_spawn_room_busy(
         "adopt private fixture owner",
     )
     summary: JsonObject = {
-        "phase": "place-spawn-room-busy-self-heal",
+        "phase": phase,
         "classification": "fixture_owner_adopted",
         "room": room,
         "fixtureOwnerId": fixture_owner_id,
@@ -5279,6 +5281,113 @@ def _self_heal_fixture_place_spawn_room_busy(
     if fixture_owner_username is not None:
         summary["fixtureOwnerUsername"] = fixture_owner_username
     return summary
+
+
+def _self_heal_fixture_place_spawn_room_busy(
+    smoke: Any,
+    compose: list[str],
+    cfg: Any,
+    *,
+    map_source_file: Path,
+    room: str,
+    worker_index: int,
+    variant_id: str,
+) -> JsonObject:
+    return _adopt_private_fixture_owner(
+        smoke,
+        compose,
+        cfg,
+        map_source_file=map_source_file,
+        room=room,
+        worker_index=worker_index,
+        variant_id=variant_id,
+        phase="place-spawn-room-busy-self-heal",
+        debug_message="place-spawn room busy; adopting private fixture owner",
+    )
+
+
+def _preinitialize_fixture_owned_room_for_spawn(
+    smoke: Any,
+    compose: list[str],
+    cfg: Any,
+    *,
+    map_source_file: Path,
+    room: str,
+    worker_index: int,
+    variant_id: str,
+) -> JsonObject | None:
+    if _private_map_fixture_owner_identity(map_source_file, room) is None:
+        return None
+    try:
+        adoption = _adopt_private_fixture_owner(
+            smoke,
+            compose,
+            cfg,
+            map_source_file=map_source_file,
+            room=room,
+            worker_index=worker_index,
+            variant_id=variant_id,
+            phase="fixture-owned-room-preinitialization",
+            debug_message="preinitializing fixture-owned room; adopting private fixture owner",
+        )
+    except Exception as exc:  # noqa: BLE001 - preflight adoption is an optimization; preserve retry-guarded place-spawn.
+        _debug_worker_phase(
+            worker_index,
+            variant_id,
+            "fixture-owned room preinitialization failed; falling back to place-spawn",
+            room=room,
+            error=_safe_text(exc, 360),
+        )
+        return None
+    if adoption.get("classification") != "fixture_owner_adopted":
+        return None
+    return {
+        "phase": "place-spawn",
+        "classification": "already_playing",
+        "reason": "private fixture room already has owned anchor state",
+        "skippedPlaceSpawn": True,
+        "fixtureOwnerAdoption": adoption,
+    }
+
+
+def _initialize_spawn_for_private_simulator(
+    smoke: Any,
+    cfg: Any,
+    token: str,
+    *,
+    compose: list[str],
+    map_source_file: Path,
+    room: str,
+    worker_index: int,
+    variant_id: str,
+) -> tuple[str, JsonObject]:
+    preinitialized = _preinitialize_fixture_owned_room_for_spawn(
+        smoke,
+        compose,
+        cfg,
+        map_source_file=map_source_file,
+        room=room,
+        worker_index=worker_index,
+        variant_id=variant_id,
+    )
+    if preinitialized is not None:
+        return token, preinitialized
+    return _place_spawn_with_retry(
+        smoke,
+        cfg,
+        token,
+        worker_index=worker_index,
+        variant_id=variant_id,
+        room_busy_self_healer=lambda attempt, summary: _self_heal_fixture_place_spawn_room_busy(
+            smoke,
+            compose,
+            cfg,
+            map_source_file=map_source_file,
+            room=room,
+            worker_index=worker_index,
+            variant_id=variant_id,
+        ),
+    )
 
 
 def _private_map_fixture_room_summaries(map_source_file: Path) -> dict[str, JsonObject]:
@@ -6645,21 +6754,17 @@ def _run_variant(
             output_path=safe_run_root / "active_code_readback.json",
         )
 
-        token, place_spawn = _place_spawn_with_retry(
+        if compose is None:
+            raise RuntimeError("compose command was not initialized before spawn initialization")
+        token, place_spawn = _initialize_spawn_for_private_simulator(
             smoke,
             cfg,
             token,
+            compose=compose,
+            map_source_file=scenario_map_source_file,
+            room=room,
             worker_index=worker_index,
             variant_id=variant_id,
-            room_busy_self_healer=lambda attempt, summary: _self_heal_fixture_place_spawn_room_busy(
-                smoke,
-                compose,
-                cfg,
-                map_source_file=scenario_map_source_file,
-                room=room,
-                worker_index=worker_index,
-                variant_id=variant_id,
-            ),
         )
 
         initial_state = smoke.http_json(
