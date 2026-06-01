@@ -1076,7 +1076,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
             code_commit="b" * 40,
             training_approach="policy_gradient",
             created_at="2026-05-18T10:26:30Z",
-            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_V0_ID,
             require_multi_tier_scenario=True,
         )
         simulator_results: dict[str, JsonObject] = {}
@@ -1117,6 +1117,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertEqual(territory_result["metrics"]["kills"]["ownLosses"], 4)
         self.assertTrue(territory_result["multiTierActivationSamples"][0]["passesActivation"])
         territory_trace = territory_result["multiTierActivationTraces"][0]
+        self.assertEqual(territory_trace["policyActivation"]["objectiveSignalSource"], "offline_shadow_projection")
         self.assertEqual(territory_trace["policyActivation"]["hostileKillsSource"], "projectedEvidence")
         self.assertEqual(
             territory_trace["evidenceWarnings"],
