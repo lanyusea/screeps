@@ -741,6 +741,63 @@ def official_mmo_control_forbidden(value: Any) -> bool:
     return value is False or (isinstance(value, str) and value.startswith("forbidden"))
 
 
+def dataset_source_diagnostics(
+    dataset_summary: JsonObject,
+    run_manifest: JsonObject,
+    *,
+    sample_count: int,
+    min_samples: int,
+) -> JsonObject:
+    source = run_manifest.get("source") if isinstance(run_manifest.get("source"), dict) else {}
+    input_paths = source.get("inputPaths") if isinstance(source.get("inputPaths"), list) else []
+    source_artifact_count = dataset_summary.get("sourceArtifactCount")
+    runtime_summary_count = dataset_summary.get("runtimeSummaryArtifactCount")
+    skipped_sample_count = dataset_summary.get("skippedSampleCount")
+    skipped_sample_reasons = dataset_summary.get("skippedSampleReasons")
+
+    if sample_count >= min_samples:
+        return {
+            "status": "pass",
+            "classification": "sample_floor_satisfied",
+            "inputPaths": input_paths,
+        }
+
+    if source_artifact_count == 0:
+        classification = "no_source_artifacts_scanned"
+        recommended_action = (
+            "Point the full E1 gate at runtime-summary source artifacts, such as "
+            "runtime-artifacts/runtime-summary-console, instead of an empty or generated gate-data directory."
+        )
+    elif runtime_summary_count == 0:
+        classification = "no_runtime_summary_artifacts"
+        recommended_action = (
+            "Use the same runtime-summary console source window that feeds the passing E1-lite gate; "
+            "generated gate-data and dataset directories are outputs, not full-gate input evidence."
+        )
+    elif isinstance(skipped_sample_count, int) and skipped_sample_count > 0 and sample_count == 0:
+        classification = "all_runtime_samples_filtered"
+        recommended_action = (
+            "Refresh or narrow the runtime-summary source window so the full gate has current samples "
+            "for the configured home room."
+        )
+    else:
+        classification = "insufficient_runtime_samples"
+        recommended_action = "Collect more current runtime-summary samples before treating the full E1 gate as fresh."
+
+    return {
+        "status": "blocked",
+        "classification": classification,
+        "recommendedAction": recommended_action,
+        "inputPaths": input_paths,
+        "scannedFiles": source.get("scannedFiles"),
+        "sourceArtifactCount": source_artifact_count,
+        "runtimeSummaryArtifactCount": runtime_summary_count,
+        "skippedFileCount": source.get("skippedFileCount"),
+        "skippedSampleCount": skipped_sample_count,
+        "skippedSampleReasons": skipped_sample_reasons,
+    }
+
+
 def evaluate_dataset_readiness(
     dataset_summary: JsonObject,
     file_paths: dict[str, Path],
@@ -750,6 +807,17 @@ def evaluate_dataset_readiness(
     min_samples: int,
 ) -> JsonObject:
     sample_count = int(dataset_summary.get("sampleCount", 0)) if isinstance(dataset_summary.get("sampleCount"), int) else 0
+    runtime_summary_count = (
+        int(dataset_summary.get("runtimeSummaryArtifactCount", 0))
+        if isinstance(dataset_summary.get("runtimeSummaryArtifactCount"), int)
+        else 0
+    )
+    diagnostics = dataset_source_diagnostics(
+        dataset_summary,
+        run_manifest,
+        sample_count=sample_count,
+        min_samples=min_samples,
+    )
     files_to_check = ("scenarioManifest", "runManifest", "sourceIndex", "ticks", "kpiWindows", "episodes", "datasetCard")
     checks: list[JsonObject] = [
         pass_fail_check(
@@ -765,6 +833,17 @@ def evaluate_dataset_readiness(
             actual=run_manifest.get("type"),
         ),
     ]
+    if sample_count < min_samples:
+        checks.append(
+            pass_fail_check(
+                "runtime_summary_artifacts_present",
+                runtime_summary_count > 0,
+                actual=runtime_summary_count,
+                required=">0",
+                classification=diagnostics.get("classification"),
+                recommendedAction=diagnostics.get("recommendedAction"),
+            )
+        )
     for key in files_to_check:
         checks.append(
             pass_fail_check(
@@ -797,6 +876,7 @@ def evaluate_dataset_readiness(
         "splitCounts": dataset_summary.get("splitCounts"),
         "runId": dataset_summary.get("runId"),
         "runDir": dataset_export.display_path(file_paths["runDir"]),
+        "diagnostics": diagnostics,
     }
 
 
@@ -1607,6 +1687,129 @@ def write_output(payload: JsonObject, output: Path | None, stdout: TextIO) -> No
     write_json_atomic(output, payload)
 
 
+def cli_failure_created_at(args: argparse.Namespace) -> str:
+    created_at = getattr(args, "created_at", None)
+    if isinstance(created_at, str) and parse_iso_utc_timestamp(created_at) is not None:
+        return created_at
+    return utc_now_iso()
+
+
+def cli_failure_gate_id(args: argparse.Namespace, repo: Path, created_at: str) -> str:
+    gate_id = getattr(args, "gate_id", None)
+    if isinstance(gate_id, str) and gate_id:
+        validate_gate_id(gate_id)
+        return gate_id
+    bot_commit = getattr(args, "bot_commit", None) or dataset_export.git_commit(repo)
+    return default_gate_id(
+        created_at=created_at,
+        input_paths=getattr(args, "paths", []),
+        candidate_config=getattr(args, "candidate_config", None),
+        baseline_kpi=getattr(args, "baseline_kpi", None),
+        current_kpi=getattr(args, "current_kpi", None),
+        bot_commit=bot_commit,
+    )
+
+
+def build_cli_failure_report(
+    args: argparse.Namespace,
+    error: Exception,
+    *,
+    repo: Path,
+    created_at: str,
+    gate_id: str,
+    gate_dir: Path,
+) -> JsonObject:
+    report_path = gate_dir / "gate_report.json"
+    summary_path = gate_dir / "gate_summary.json"
+    redacted_error = dataset_export.redact_text(str(error))
+    bot_commit = getattr(args, "bot_commit", None) or dataset_export.git_commit(repo)
+    input_paths = [
+        dataset_export.display_path(path)
+        for path in resolve_input_paths(getattr(args, "paths", []), repo)
+    ]
+    failure = {
+        "status": "fail",
+        "stage": "full_gate_execution",
+        "errorClass": error.__class__.__name__,
+        "error": redacted_error,
+        "recommendedAction": (
+            "Inspect this executionFailure block and rerun the full E1 gate after correcting the input "
+            "or configuration error. The CLI persists this report before returning non-zero so the "
+            "control loop does not treat the gate directory as silently empty."
+        ),
+    }
+    blocking_reason = {
+        "gate": "execution",
+        "name": "full_gate_execution",
+        "status": "fail",
+        "errorClass": failure["errorClass"],
+        "error": redacted_error,
+    }
+    return {
+        "ok": False,
+        "type": REPORT_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "gateId": gate_id,
+        "createdAt": created_at,
+        "owningIssue": "#409",
+        "mode": "candidate" if getattr(args, "candidate_config", None) is not None else "current-bot-behavior",
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+        "input": {
+            "paths": input_paths,
+            "candidateConfig": dataset_export.display_path(getattr(args, "candidate_config", None))
+            if getattr(args, "candidate_config", None) is not None
+            else None,
+            "baselineKpi": dataset_export.display_path(getattr(args, "baseline_kpi", None))
+            if getattr(args, "baseline_kpi", None) is not None
+            else None,
+            "currentKpi": dataset_export.display_path(getattr(args, "current_kpi", None))
+            if getattr(args, "current_kpi", None) is not None
+            else None,
+            "botCommit": bot_commit,
+        },
+        "datasetGate": {
+            "status": "fail",
+            "checks": [
+                pass_fail_check(
+                    "gate_execution_completed",
+                    False,
+                    errorClass=failure["errorClass"],
+                    error=redacted_error,
+                )
+            ],
+        },
+        "executionFailure": failure,
+        "blockingReasons": [blocking_reason],
+        "outputs": {
+            "gateDir": dataset_export.display_path(gate_dir),
+            "reportPath": dataset_export.display_path(report_path),
+            "summaryPath": dataset_export.display_path(summary_path),
+        },
+        "reportPath": dataset_export.display_path(report_path),
+    }
+
+
+def persist_cli_failure_report(args: argparse.Namespace, error: Exception, stderr: TextIO) -> None:
+    if getattr(args, "command", None) != "run":
+        return
+    try:
+        repo = (getattr(args, "repo_root", None) or Path.cwd()).expanduser().resolve()
+        created_at = cli_failure_created_at(args)
+        gate_id = cli_failure_gate_id(args, repo, created_at)
+        out_dir = resolve_path_against_repo(getattr(args, "out_dir", DEFAULT_OUT_DIR), repo)
+        gate_dir = out_dir / gate_id
+        gate_dir.mkdir(parents=True, exist_ok=True)
+        report = build_cli_failure_report(args, error, repo=repo, created_at=created_at, gate_id=gate_id, gate_dir=gate_dir)
+        write_json_atomic(gate_dir / "gate_report.json", report)
+        write_json_atomic(gate_dir / "gate_summary.json", build_summary(report))
+        stderr.write(f"failure report: {dataset_export.display_path(gate_dir / 'gate_report.json')}\n")
+    except Exception as report_error:  # noqa: BLE001 - best-effort diagnostics must not hide the original error
+        stderr.write(f"warning: could not write failure report: {dataset_export.redact_text(str(report_error))}\n")
+
+
 def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: TextIO = sys.stderr) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1653,9 +1856,11 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: Tex
 
         parser.error(f"unsupported command: {args.command}")
     except (DatasetGateError, conclusion_registry.ConclusionRegistryError) as error:
+        persist_cli_failure_report(args, error, stderr)
         stderr.write(f"error: {error}\n")
         return 2
     except (RuntimeError, OSError, mmo_validator.ValidationConfigError) as error:
+        persist_cli_failure_report(args, error, stderr)
         stderr.write(f"error: {dataset_export.redact_text(str(error))}\n")
         return 2
 
