@@ -1569,6 +1569,73 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(summary["source_gate"]["gate_id"], gate_id)
         self.assertEqual(summary["source_gate"]["dataset_run_id"], dataset_run_id)
 
+    def test_loop_a_local_fallback_accepts_fresh_hash_dataset_gate_when_complete(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_root = root / "runtime-artifacts"
+            gate_id = "rl-gate-065c36f76111"
+            dataset_run_id = "rl-57c9b9540796"
+            gate_path = runtime_root / "rl-dataset-gates" / gate_id / "gate_report.json"
+            output_path = runtime_root / "rl-experiment-cards" / "experiment_card.json"
+            gate_path.parent.mkdir(parents=True)
+            gate_path.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": True,
+                        "gateId": gate_id,
+                        "createdAt": "2026-06-01T07:55:24Z",
+                        "mode": "current-bot-behavior",
+                        "dataset": {"ok": True, "runId": dataset_run_id, "sampleCount": 200},
+                        "datasetGate": {"status": "pass", "sampleCount": 200},
+                        "quality_checks": {
+                            "status": "pass",
+                            "samples_accepted": 200,
+                            "samples_rejected": 0,
+                            "acceptance_rate": 1.0,
+                        },
+                        "shadowEvaluation": {"status": "pass", "ok": True},
+                        "blockingReasons": [],
+                        "outputs": {"gateDir": f"runtime-artifacts/rl-dataset-gates/{gate_id}"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            selected = card_helper.select_accepted_dataset_gate(
+                runtime_root,
+                reference_time="2026-06-01T08:00:00Z",
+                max_age_hours=card_helper.E1_GATE_FRESHNESS_HOURS,
+            )
+            stdout = io.StringIO()
+            with mock.patch.object(card_helper, "utc_now_iso", return_value="2026-06-01T08:00:00Z"):
+                exit_code = card_helper.main(
+                    [
+                        "--loop-a-local-fallback",
+                        "--source-gate-id",
+                        gate_id,
+                        "--dataset-gate-root",
+                        str(runtime_root),
+                        "--code-commit",
+                        "8" * 40,
+                        "--created-at",
+                        "2026-06-01T08:00:00Z",
+                        "--output",
+                        str(output_path),
+                    ],
+                    stdout=stdout,
+                    stderr=io.StringIO(),
+                    repo_root=REPO_ROOT,
+                )
+            summary = json.loads(stdout.getvalue())
+
+        self.assertEqual(selected["gate_id"], gate_id)
+        self.assertEqual(selected["dataset_run_id"], dataset_run_id)
+        self.assertTrue(selected["gate_report_path"].endswith(f"rl-dataset-gates/{gate_id}/gate_report.json"))
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(summary["source_gate"]["gate_id"], gate_id)
+        self.assertEqual(summary["source_gate"]["dataset_run_id"], dataset_run_id)
+
     def test_fresh_dataset_gate_selection_requires_reference_time(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             runtime_root = Path(temp_dir) / "runtime-artifacts"

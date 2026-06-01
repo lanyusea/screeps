@@ -2139,7 +2139,9 @@ def is_canonical_e1_current_gate_data_report(payload: JsonObject, path: Path | N
         return False
     if not gate_report_path_matches_payload(payload, path):
         return False
-    return gate_data_current_report_source(payload, path)
+    if gate_data_current_report_source(payload, path):
+        return True
+    return is_fully_accepted_e1_current_gate(payload)
 
 
 def gate_data_current_report_source(payload: JsonObject, path: Path | None = None) -> bool:
