@@ -30,7 +30,12 @@ export interface StorageWithdrawalOptions {
   allowBelowReserve?: boolean;
 }
 
-type StructureConstantGlobal = 'STRUCTURE_EXTENSION' | 'STRUCTURE_SPAWN' | 'STRUCTURE_STORAGE';
+type StructureConstantGlobal =
+  | 'STRUCTURE_CONTAINER'
+  | 'STRUCTURE_EXTENSION'
+  | 'STRUCTURE_SPAWN'
+  | 'STRUCTURE_STORAGE'
+  | 'STRUCTURE_TERMINAL';
 type FindConstantGlobal = 'FIND_MY_STRUCTURES' | 'FIND_STRUCTURES';
 
 interface EnergyObservation {
@@ -188,6 +193,35 @@ export function getStorageEnergyAvailableForWithdrawal(
   }
 
   return Math.max(0, storedEnergy - getStorageEnergyReserve(room));
+}
+
+export function getRoomStoredEnergyAvailableForConstruction(room: Room): number {
+  if (room.controller?.my !== true) {
+    return 0;
+  }
+
+  return findRoomStructures(room).reduce<number>((total, structure) => {
+    const storedEnergy = getStoredEnergy(structure);
+    if (storedEnergy <= 0) {
+      return total;
+    }
+
+    if (matchesStructureType(structure.structureType, 'STRUCTURE_STORAGE', 'storage')) {
+      return (
+        total +
+        getStorageEnergyAvailableForWithdrawal(room, structure as StructureStorage, storedEnergy)
+      );
+    }
+
+    if (
+      matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container') ||
+      matchesStructureType(structure.structureType, 'STRUCTURE_TERMINAL', 'terminal')
+    ) {
+      return total + storedEnergy;
+    }
+
+    return total;
+  }, 0);
 }
 
 export function getRoomEnergyBufferHealth(room: Room): EnergyBufferHealth {

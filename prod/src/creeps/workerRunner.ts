@@ -23,7 +23,7 @@ import { canCreepPressureTerritoryController } from '../territory/territoryPlann
 import {
   getConstructionSpendingEnergyThreshold,
   getEffectiveRoomEnergyBufferThreshold,
-  getStorageEnergyAvailableForWithdrawal
+  getRoomStoredEnergyAvailableForConstruction
 } from '../economy/energyBuffer';
 import { getSpawnEnergyWithdrawalAmount, isSpawnEnergySource } from '../economy/spawnEnergyBuffer';
 import {
@@ -75,7 +75,7 @@ const RANGED_WORK_MOVE_RANGE = 3;
 const EXACT_POSITION_MOVE_RANGE = 0;
 const MIN_HAULER_DROPPED_ENERGY = 25;
 const SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS = 2;
-const SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORAGE_SURPLUS = 300;
+const SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORED_SURPLUS = 300;
 
 interface WorkerTaskSelectionNullLoopState {
   lastNullSelectionTick: number;
@@ -786,8 +786,8 @@ function hasSafeStoredEnergyForBoundedConstruction(
   }
 
   return (
-    getStorageEnergyAvailableForWithdrawal(creep.room) >=
-    SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORAGE_SURPLUS
+    getRoomStoredEnergyAvailableForConstruction(creep.room) >=
+    SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORED_SURPLUS
   );
 }
 
