@@ -58,6 +58,8 @@ WORKER_ASSIGNMENT_GAP_BLOCKED_REASON = "worker_assignment_gap"
 WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND = "worker_assignment_gap_sustained"
 WORKER_ASSIGNMENT_GAP_REQUIRED_TICKS = 100
 WORKER_ASSIGNMENT_GAP_RECOVERY_TICK_TOLERANCE = 0
+WORKER_ASSIGNMENT_STALL_KIND = "worker_assignment_stall"
+WORKER_ASSIGNMENT_STALL_REQUIRED_TICKS = 100
 RUNTIME_SUMMARY_TICK_METADATA_KEY = "__runtimeSummaryTick"
 RUNTIME_SUMMARY_ARTIFACT_TIMESTAMP_METADATA_KEY = "__runtimeSummaryArtifactTimestamp"
 RUNTIME_SUMMARY_SOURCE_METADATA_KEY = "__runtimeSummarySource"
@@ -83,6 +85,15 @@ WORKER_ASSIGNMENT_BLOCKED_WORKERS_EVIDENCE_PATHS = (
     ("workerAssignmentBlockedWorkers",),
     ("resources", "productiveEnergy", "workerAssignmentBlockedWorkers"),
     ("productiveEnergy", "workerAssignmentBlockedWorkers"),
+)
+PRODUCTIVE_ASSIGNMENT_COUNT_PATHS = (
+    ("workerAssignmentEvidence", "productiveAssignmentCount"),
+    ("resources", "productiveEnergy", "productiveAssignmentCount"),
+    ("productiveEnergy", "productiveAssignmentCount"),
+    ("productiveAssignmentCount",),
+    ("resources", "productiveEnergy", "assignedWorkerCount"),
+    ("productiveEnergy", "assignedWorkerCount"),
+    ("assignedWorkerCount",),
 )
 WORKER_ASSIGNMENT_BLOCKED_WORKER_STRING_FIELDS = (
     "name",
@@ -129,6 +140,10 @@ EXTENSION_BOOTSTRAP_PROGRESS_STALL_TICKS = 100
 CONSTRUCTION_DEADLOCK_ROUTES = [
     {"issue": "#906", "topic": "gameplay_behavior_metric"},
     {"issue": "#1025", "topic": "construction_deadlock_ticks"},
+]
+WORKER_ASSIGNMENT_STALL_ROUTES = [
+    {"issue": "#1573", "topic": "worker_deadlock_alert"},
+    {"issue": "#906", "topic": "gameplay_behavior_metric"},
 ]
 
 ROOM_SIZE = 50
@@ -262,6 +277,17 @@ TACTICAL_CATEGORY_RULES: dict[str, dict[str, Any]] = {
         "decision": "codex_hotfix",
         "actions": ["capture_runtime_context", "inspect_resource_state", "start_hotfix_gate"],
     },
+    WORKER_ASSIGNMENT_STALL_KIND: {
+        "severity": "warning",
+        "decision": "open_issue_or_codex_hotfix",
+        "actions": ["capture_runtime_context", "inspect_resource_state", "open_incident_issue"],
+        "metadata": {
+            "metric": "workerAssignmentEvidence.productiveAssignmentCount",
+            "related_issues": ["#1573", "#906"],
+            "thresholds": {"P2": WORKER_ASSIGNMENT_STALL_REQUIRED_TICKS},
+            "routes_to": WORKER_ASSIGNMENT_STALL_ROUTES,
+        },
+    },
     "downgrade_risk": {
         "severity": "high",
         "decision": "owner_action_or_codex_hotfix",
@@ -364,6 +390,7 @@ TACTICAL_REASON_CATEGORY_MAP = {
     "postdeploy_room_dead": ["room_dead", "spawn_collapse"],
     EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND: [EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND],
     WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND: [WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND],
+    WORKER_ASSIGNMENT_STALL_KIND: [WORKER_ASSIGNMENT_STALL_KIND],
     "postdeploy_no_owned_spawn": ["spawn_collapse"],
     "owned_spawns=0": ["spawn_collapse"],
     "controller_downgrade_risk": ["downgrade_risk"],
@@ -1244,6 +1271,15 @@ def construction_deadlock_metadata() -> dict[str, Any]:
     }
 
 
+def worker_assignment_stall_metadata() -> dict[str, Any]:
+    return {
+        "metric": "workerAssignmentEvidence.productiveAssignmentCount",
+        "related_issues": [str(route["issue"]) for route in WORKER_ASSIGNMENT_STALL_ROUTES],
+        "thresholds": {"P2": WORKER_ASSIGNMENT_STALL_REQUIRED_TICKS},
+        "routes_to": [dict(route) for route in WORKER_ASSIGNMENT_STALL_ROUTES],
+    }
+
+
 def format_energy_value(value: int | float | None) -> str:
     if value is None:
         return "unknown"
@@ -1686,13 +1722,30 @@ def runtime_assigned_worker_task_count(room: dict[str, Any]) -> int | float:
     return sum(number_value(task_counts.get(task_name)) or 0 for task_name in ASSIGNED_WORKER_TASK_NAMES)
 
 
-def runtime_assigned_productive_worker_count(room: dict[str, Any]) -> int | float | None:
+def runtime_productive_assignment_count(room: dict[str, Any] | None) -> int | float | None:
+    if not isinstance(room, dict):
+        return None
     return first_number_value(
         room,
-        ("assignedWorkerCount",),
-        ("resources", "productiveEnergy", "assignedWorkerCount"),
-        ("productiveEnergy", "assignedWorkerCount"),
+        *PRODUCTIVE_ASSIGNMENT_COUNT_PATHS,
     )
+
+
+def runtime_assigned_productive_worker_count(room: dict[str, Any]) -> int | float | None:
+    return runtime_productive_assignment_count(room)
+
+
+def runtime_worker_assignment_blocked_detail(room: dict[str, Any] | None) -> str | None:
+    if not isinstance(room, dict):
+        return None
+    detail = explicit_worker_assignment_blocked_detail(room)
+    return detail.strip() if isinstance(detail, str) and detail.strip() else None
+
+
+def runtime_worker_assignment_blocked_workers(room: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(room, dict):
+        return []
+    return explicit_worker_assignment_blocked_workers(room) or []
 
 
 def runtime_worker_assignment_evidence_available(room: dict[str, Any] | None) -> bool:
@@ -1918,6 +1971,8 @@ def worker_assignment_gap_active(
     site_count = runtime_construction_site_count(runtime_room)
     if site_count is None:
         site_count = metrics_site_count
+    if worker_assignment_stall_evidence(runtime_room, metrics) is not None:
+        return False, None, site_count
     runtime_assignment_evidence_available = runtime_worker_assignment_evidence_available(runtime_room)
     runtime_blocked_reason = runtime_build_blocked_reason(runtime_room) if runtime_assignment_evidence_available else None
     blocked_reason = runtime_blocked_reason or metrics.build_blocked_reason
@@ -2003,6 +2058,112 @@ def detect_worker_assignment_gap_sustained_reason(
     state = worker_assignment_gap_next_state(worker_assignment_gap_previous_state(previous_rule_state), current_tick)
     if state["consecutive_ticks"] > WORKER_ASSIGNMENT_GAP_REQUIRED_TICKS:
         return build_worker_assignment_gap_sustained_reason(ref, blocked_reason, construction_site_count, state), state
+    return None, state
+
+
+def worker_assignment_stall_evidence(
+    runtime_room: dict[str, Any] | None,
+    metrics: RoomSummaryMetrics,
+) -> dict[str, Any] | None:
+    if not isinstance(runtime_room, dict):
+        return None
+    if not runtime_worker_assignment_evidence_available(runtime_room):
+        return None
+
+    blocked_detail = runtime_worker_assignment_blocked_detail(runtime_room)
+    if blocked_detail is None:
+        return None
+
+    productive_assignment_count = runtime_productive_assignment_count(runtime_room)
+    if productive_assignment_count != 0:
+        return None
+
+    construction_site_count = runtime_construction_site_count(runtime_room)
+    if construction_site_count is None:
+        construction_site_count = len(metrics.construction_sites)
+    pending_build_progress = runtime_pending_build_progress(runtime_room)
+    if pending_build_progress is None:
+        pending_build_progress = metrics.pending_build_progress
+    if construction_site_count <= 0 and pending_build_progress <= 0:
+        return None
+
+    build_count = runtime_task_count(runtime_room, "build")
+    if build_count is None:
+        build_count = metrics.task_counts.get("build")
+    if build_count is not None and build_count > 0:
+        return None
+
+    runtime_gap_blocked_reason = runtime_build_blocked_reason(runtime_room)
+    if runtime_gap_blocked_reason == WORKER_ASSIGNMENT_GAP_BLOCKED_REASON:
+        return None
+    build_blocked_reason = runtime_gap_blocked_reason or metrics.build_blocked_reason
+
+    task_counts = dict(as_dict(runtime_room.get("taskCounts"))) or dict(metrics.task_counts)
+    evidence = {
+        "workerAssignmentBlockedDetail": blocked_detail,
+        "productiveAssignmentCount": productive_assignment_count,
+        "build": build_count,
+        "task_counts": task_counts,
+        "constructionSiteCount": construction_site_count,
+        "pendingBuildProgress": pending_build_progress,
+        "constructionDeadlockTicks": runtime_construction_deadlock_ticks(runtime_room),
+        "buildBlockedReason": build_blocked_reason,
+        "runtimeSummaryTick": runtime_summary_room_tick(runtime_room),
+    }
+    blocked_workers = runtime_worker_assignment_blocked_workers(runtime_room)
+    if blocked_workers:
+        evidence["workerAssignmentBlockedWorkers"] = blocked_workers
+    artifact_timestamp = runtime_room.get(RUNTIME_SUMMARY_ARTIFACT_TIMESTAMP_METADATA_KEY)
+    if isinstance(artifact_timestamp, str) and artifact_timestamp:
+        evidence["runtimeSummaryArtifactTimestamp"] = artifact_timestamp
+    return evidence
+
+
+def build_worker_assignment_stall_reason(
+    ref: RoomRef,
+    evidence: dict[str, Any],
+    state: dict[str, int],
+) -> dict[str, Any]:
+    blocked_detail = evidence["workerAssignmentBlockedDetail"]
+    return {
+        "kind": WORKER_ASSIGNMENT_STALL_KIND,
+        "room": ref.key,
+        "shard": ref.shard,
+        "room_name": ref.room,
+        "severity": "warning",
+        "priority": "P2",
+        **evidence,
+        "blocked_detail": blocked_detail,
+        "threshold": WORKER_ASSIGNMENT_STALL_REQUIRED_TICKS,
+        "start_tick": state["start_tick"],
+        "current_tick": state["last_tick"],
+        "consecutive_ticks": state["consecutive_ticks"],
+        "metadata": worker_assignment_stall_metadata(),
+        "message": (
+            f"{WORKER_ASSIGNMENT_STALL_KIND} in {ref.key}: "
+            f"productiveAssignmentCount=0, workerAssignmentBlockedDetail={blocked_detail}, "
+            f"pendingBuildProgress={format_energy_value(evidence.get('pendingBuildProgress'))} "
+            f"for {state['consecutive_ticks']} ticks."
+        ),
+        "signature": f"{WORKER_ASSIGNMENT_STALL_KIND}:{ref.key}",
+    }
+
+
+def detect_worker_assignment_stall_reason(
+    ref: RoomRef,
+    runtime_room: dict[str, Any] | None,
+    metrics: RoomSummaryMetrics,
+    previous_rule_state: Any,
+    current_tick_value: Any,
+) -> tuple[dict[str, Any] | None, dict[str, int] | int]:
+    evidence = worker_assignment_stall_evidence(runtime_room, metrics)
+    current_tick = tick_number(current_tick_value)
+    if evidence is None or current_tick is None:
+        return None, 0
+
+    state = worker_assignment_gap_next_state(worker_assignment_gap_previous_state(previous_rule_state), current_tick)
+    if state["consecutive_ticks"] > WORKER_ASSIGNMENT_STALL_REQUIRED_TICKS:
+        return build_worker_assignment_stall_reason(ref, evidence, state), state
     return None, state
 
 
@@ -2233,6 +2394,18 @@ def evaluate_room_alert(
     rule_counts[EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND] = extension_bootstrap_state
     if extension_count_zero_candidate is not None:
         detected.append(extension_count_zero_candidate)
+
+    previous_worker_assignment_stall_state = rule_counts.get(WORKER_ASSIGNMENT_STALL_KIND)
+    worker_assignment_stall_candidate, worker_assignment_stall_state = detect_worker_assignment_stall_reason(
+        snapshot.ref,
+        runtime_room_summary,
+        current_metrics,
+        previous_worker_assignment_stall_state,
+        snapshot.tick,
+    )
+    rule_counts[WORKER_ASSIGNMENT_STALL_KIND] = worker_assignment_stall_state
+    if worker_assignment_stall_candidate is not None:
+        detected.append(worker_assignment_stall_candidate)
 
     previous_worker_assignment_gap_state = rule_counts.get(WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND)
     worker_assignment_gap_candidate, worker_assignment_gap_state = detect_worker_assignment_gap_sustained_reason(

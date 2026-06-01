@@ -3462,6 +3462,247 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
             174,
         )
 
+    def test_productive_assignment_stall_summary_alerts_after_100_ticks(self) -> None:
+        blocked_workers = [{"name": "WorkerA", "task": "build", "carriedEnergy": 0}]
+        runtime_room = {
+            "roomName": "E29N57",
+            "shard": "shardX",
+            monitor.RUNTIME_SUMMARY_TICK_METADATA_KEY: 123000,
+            monitor.RUNTIME_SUMMARY_ARTIFACT_TIMESTAMP_METADATA_KEY: "2026-06-01T00:00:00Z",
+            "workerAssignmentEvidenceAvailable": True,
+            "workerAssignmentEvidence": {
+                "source": "runtime-summary",
+                "available": True,
+                "tick": 123000,
+                "workerCount": 2,
+                "assignedTaskCount": 0,
+                "productiveAssignmentCount": 0,
+            },
+            "taskCounts": {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 2},
+            "constructionSiteCount": 9,
+            "pendingBuildProgress": 4500,
+            "workerAssignmentBlockedDetail": "spawn_reserving_energy",
+            "workerAssignmentBlockedWorkers": blocked_workers,
+            "resources": {
+                "productiveEnergy": {
+                    "constructionSiteCount": 9,
+                    "pendingBuildProgress": 4500,
+                    "workerAssignmentBlockedDetail": "spawn_reserving_energy",
+                    "workerAssignmentBlockedWorkers": blocked_workers,
+                }
+            },
+        }
+        objects = {
+            "spawn1": {
+                "type": "spawn",
+                "my": True,
+                "owner": {"username": "lanyusea"},
+                "x": 17,
+                "y": 24,
+                "hits": 5000,
+                "hitsMax": 5000,
+            },
+            "extension1": {
+                "type": "extension",
+                "my": True,
+                "owner": {"username": "lanyusea"},
+                "x": 18,
+                "y": 24,
+                "hits": 1000,
+                "hitsMax": 1000,
+            },
+            "ctrl": {
+                "type": "controller",
+                "my": True,
+                "owner": {"username": "lanyusea"},
+                "level": 2,
+                "x": 5,
+                "y": 36,
+            },
+            "worker-1": {
+                "type": "creep",
+                "my": True,
+                "owner": {"username": "lanyusea"},
+                "name": "WorkerA",
+                "memory": {"role": "worker"},
+            },
+            "worker-2": {
+                "type": "creep",
+                "my": True,
+                "owner": {"username": "lanyusea"},
+                "name": "WorkerB",
+                "memory": {"role": "worker"},
+            },
+            "site1": {
+                "type": "constructionSite",
+                "my": True,
+                "owner": {"username": "lanyusea"},
+                "structureType": "extension",
+                "progress": 0,
+                "progressTotal": 4500,
+                "x": 19,
+                "y": 24,
+            },
+        }
+        first_snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E29N57"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(objects),
+            tick=123000,
+            owner="lanyusea",
+            info={"energyAvailable": 300},
+            expected_owner="lanyusea",
+        )
+        second_snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E29N57"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(objects),
+            tick=123101,
+            owner="lanyusea",
+            info={"energyAvailable": 300},
+            expected_owner="lanyusea",
+        )
+
+        first_emitted, first_suppressed, first_state = monitor.evaluate_room_alert(
+            first_snapshot,
+            {"baseline_established": True, "owner": "lanyusea"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+        second_emitted, second_suppressed, second_state = monitor.evaluate_room_alert(
+            second_snapshot,
+            first_state,
+            now=200,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(first_emitted, [])
+        self.assertEqual(first_suppressed, [])
+        self.assertEqual(second_suppressed, [])
+        self.assertNotIn(monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND, [reason["kind"] for reason in second_emitted])
+        stall_reason = next(reason for reason in second_emitted if reason["kind"] == monitor.WORKER_ASSIGNMENT_STALL_KIND)
+        self.assertEqual(stall_reason["room"], "shardX/E29N57")
+        self.assertEqual(stall_reason["shard"], "shardX")
+        self.assertEqual(stall_reason["workerAssignmentBlockedDetail"], "spawn_reserving_energy")
+        self.assertEqual(stall_reason["blocked_detail"], "spawn_reserving_energy")
+        self.assertEqual(stall_reason["productiveAssignmentCount"], 0)
+        self.assertEqual(stall_reason["pendingBuildProgress"], 4500)
+        self.assertEqual(stall_reason["constructionSiteCount"], 9)
+        self.assertEqual(stall_reason["build"], 0)
+        self.assertEqual(stall_reason["workerAssignmentBlockedWorkers"], blocked_workers)
+        self.assertEqual(stall_reason["consecutive_ticks"], 101)
+        self.assertEqual(
+            second_state["rule_counts"][monitor.WORKER_ASSIGNMENT_STALL_KIND]["consecutive_ticks"],
+            101,
+        )
+
+        report = monitor.build_tactical_response_report(
+            {"ok": True, "mode": "alert", "alert": True, "reasons": [stall_reason], "rooms": ["shardX/E29N57"]}
+        )
+        self.assertTrue(report["emergency"])
+        self.assertEqual(report["severity"], "warning")
+        self.assertEqual(report["priority"], "P2")
+        self.assertEqual(report["categories"], [monitor.WORKER_ASSIGNMENT_STALL_KIND])
+        self.assertEqual(report["triggers"][0]["reason_kind"], monitor.WORKER_ASSIGNMENT_STALL_KIND)
+        self.assertIn("#1573", report["triggers"][0]["metadata"]["related_issues"])
+
+    def test_productive_assignment_stall_missing_or_healthy_evidence_stays_silent(self) -> None:
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "worker1": {
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "name": "worker1",
+                    "memory": {"role": "worker"},
+                },
+                "site1": {
+                    "type": "constructionSite",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "structureType": "road",
+                    "progress": 0,
+                    "progressTotal": 50,
+                    "x": 24,
+                    "y": 24,
+                },
+            },
+            tick=1101,
+        )
+        base_room = {
+            "roomName": "E26S49",
+            "shard": "shardX",
+            monitor.RUNTIME_SUMMARY_TICK_METADATA_KEY: 1101,
+            "workerAssignmentEvidenceAvailable": True,
+            "taskCounts": {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 1},
+            "constructionSiteCount": 1,
+            "pendingBuildProgress": 50,
+        }
+        cases = {
+            "missing productive assignment count": {
+                **base_room,
+                "workerAssignmentBlockedDetail": "spawn_reserving_energy",
+            },
+            "missing blocked detail": {
+                **base_room,
+                "workerAssignmentEvidence": {
+                    "source": "runtime-summary",
+                    "available": True,
+                    "tick": 1101,
+                    "workerCount": 1,
+                    "assignedTaskCount": 0,
+                    "productiveAssignmentCount": 0,
+                },
+            },
+            "productive assignment recovered": {
+                **base_room,
+                "workerAssignmentEvidence": {
+                    "source": "runtime-summary",
+                    "available": True,
+                    "tick": 1101,
+                    "workerCount": 1,
+                    "assignedTaskCount": 1,
+                    "productiveAssignmentCount": 1,
+                },
+                "workerAssignmentBlockedDetail": "spawn_reserving_energy",
+            },
+        }
+
+        for name, runtime_room in cases.items():
+            with self.subTest(name=name):
+                emitted, suppressed, next_state = monitor.evaluate_room_alert(
+                    snapshot,
+                    {
+                        "baseline_established": True,
+                        "owner": "owner",
+                        "rule_counts": {
+                            monitor.WORKER_ASSIGNMENT_STALL_KIND: {
+                                "start_tick": 1000,
+                                "last_tick": 1100,
+                                "consecutive_ticks": 100,
+                            }
+                        },
+                    },
+                    now=100,
+                    debounce_seconds=300,
+                    runtime_room_summary=runtime_room,
+                )
+
+                self.assertEqual(suppressed, [])
+                self.assertNotIn(monitor.WORKER_ASSIGNMENT_STALL_KIND, [reason["kind"] for reason in emitted])
+                self.assertEqual(next_state["rule_counts"][monitor.WORKER_ASSIGNMENT_STALL_KIND], 0)
+
     def test_legacy_monitor_summary_blocked_worker_detail_allows_worker_gap_recovery(self) -> None:
         runtime_room = {
             "roomName": "E29N55",
