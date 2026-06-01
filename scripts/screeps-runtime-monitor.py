@@ -2230,9 +2230,9 @@ def worker_assignment_capture_window_evidence(
     if len(captures) < WORKER_ASSIGNMENT_STALL_REQUIRED_CONSECUTIVE_CAPTURES:
         return None
 
-    evidence = worker_assignment_deadlock_evidence(runtime_room, metrics)
+    evidence = worker_assignment_stall_evidence(runtime_room, metrics)
     if evidence is None:
-        evidence = worker_assignment_deadlock_evidence(captures[0], metrics)
+        evidence = worker_assignment_stall_evidence(captures[0], metrics)
     if evidence is None:
         return None
 
@@ -4240,7 +4240,13 @@ def runtime_summary_capture_history_entry(room: dict[str, Any]) -> dict[str, Any
     blocked_workers = runtime_worker_assignment_blocked_workers(room)
     if blocked_workers:
         entry["workerAssignmentBlockedWorkers"] = blocked_workers
-    worker_count = first_number_value(room, ("workerCount",), ("workerAssignmentEvidence", "workerCount"))
+    worker_count = first_number_value(
+        room,
+        ("workerCount",),
+        ("workerAssignmentEvidence", "workerCount"),
+        ("resources", "productiveEnergy", "workerCount"),
+        ("productiveEnergy", "workerCount"),
+    )
     if worker_count is not None:
         entry["workerCount"] = worker_count
 
