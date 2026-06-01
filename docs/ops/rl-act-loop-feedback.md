@@ -44,7 +44,7 @@ Each plan emits:
 - `feedbackIngestion`: current state for finding -> decision -> card -> training -> scorecard -> rollout feedback.
 - `decision`, `status`, and `blockingReasons`: fields that the SQLite/Grafana ingestion path can count through `metric_iteration_decisions`.
 
-Policy-family routing follows `docs/ops/rl-policy-family-flywheel.md`: no new cron lanes, flexible `policyFamily` / `topAgent` / `rolePolicy` fields, and fallback only from known `parameterSurface` names such as `construction-priority -> top.construction`.
+Policy-family routing follows `docs/ops/rl-policy-family-flywheel.md`: no new cron lanes, flexible `policyFamily` / `topAgent` / `rolePolicy` / `trainingRole` fields, and fallback only from known `parameterSurface` names such as `construction-priority -> top.construction` or `worker-task -> role.worker-task`.
 
 Allowed classifications:
 
@@ -83,8 +83,11 @@ The fixture `scripts/fixtures/rl/act-loop-mixed-unproven-policy-advantage.json` 
 
 - `nextScenarioDelta.targetScenarioId = "multi-tier-territory-combat-v0"`
 - `nextPolicyDelta.parameterSurface = "construction-priority"` with bounded weights
+- `nextPolicyDelta.policyFamily = "top.construction"`; this is high-level canary evidence and not role-policy completion evidence
 - `nextExperimentCardDelta.trainingApproach = "policy_gradient"`
 - no `nextRewardDecision`, because the evidence does not justify reward tuning yet
+
+Issue #1583 can produce bounded `top.construction` canary evidence. Issue #1585 requires separate `role.worker-task`, `role.source-harvester`, and `role.defender-micro` lane metadata and scorecards before any role-policy completion claim.
 
 ## Verification
 

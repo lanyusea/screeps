@@ -1,0 +1,54 @@
+{
+  "type": "screeps-rl-evaluation-scorecard",
+  "schemaVersion": 1,
+  "runId": "rl-scorecard-role-source-harvester-fixture",
+  "timestamp": "2026-06-01T00:00:00Z",
+  "fixtureOnly": true,
+  "noLiveComputeRun": true,
+  "liveEffect": false,
+  "officialMmoWrites": false,
+  "officialMmoWritesAllowed": false,
+  "rolePolicyMetadata": {
+    "candidate": {
+      "policyFamily": "role.source-harvester",
+      "rolePolicy": "source-harvester",
+      "trainingRole": "source-harvester"
+    },
+    "baseline": {
+      "policyFamily": "role.source-harvester",
+      "rolePolicy": "source-harvester",
+      "trainingRole": "source-harvester"
+    },
+    "rolePolicyFamilies": [
+      "role.source-harvester"
+    ],
+    "liveEffect": false,
+    "officialMmoWrites": false,
+    "officialMmoWritesAllowed": false
+  },
+  "candidate": {
+    "id": "role.source-harvester.shadow-candidate.v1",
+    "policyFamily": "role.source-harvester",
+    "rolePolicy": "source-harvester",
+    "trainingRole": "source-harvester",
+    "runtimeParameterInjection": {
+      "status": "missing",
+      "runtimeParameterInjection": false,
+      "policyUpdateEligible": false,
+      "reason": "fixture has no runtime parameter injection evidence"
+    }
+  },
+  "baseline": {
+    "id": "role.source-harvester.heuristic-baseline.v1",
+    "policyFamily": "role.source-harvester",
+    "rolePolicy": "source-harvester",
+    "trainingRole": "source-harvester"
+  },
+  "overallGate": {
+    "status": "HOLD",
+    "rationale": "deterministic role-policy fixture only; no live compute was run",
+    "requiredActions": [
+      "Collect offline/private/shadow source-harvester evidence before any role-policy completion claim."
+    ]
+  }
+}

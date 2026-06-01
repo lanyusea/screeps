@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import html
 import json
@@ -16,6 +17,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence, TextIO
+
+import screeps_rl_role_policy_lanes as role_policy_lanes
 
 
 SCHEMA_VERSION = 1
@@ -699,6 +702,8 @@ def collect_artifact_bundle(
     identifiers: list[str] = []
     commits: list[str] = []
     runtime_injection_evidence: list[JsonObject] = []
+    policy_metadata_rows: list[JsonObject] = []
+    mixed_role_policy_reasons: list[str] = []
 
     while queue:
         path = queue.pop(0).resolve()
@@ -727,6 +732,12 @@ def collect_artifact_bundle(
                 runtime_injection_evidence.extend(extract_runtime_parameter_injection_evidence(payload, source))
                 identifiers.extend(extract_identifiers(payload, role))
                 commits.extend(extract_commits(payload, role))
+                policy_metadata = role_policy_lanes.lane_metadata(payload)
+                if policy_metadata:
+                    policy_metadata_rows.append({"source": source, **policy_metadata})
+                mixed_reason = role_policy_lanes.explicit_mixed_role_policy_reason(payload)
+                if mixed_reason is not None:
+                    mixed_role_policy_reasons.append(mixed_reason)
                 for referenced in collect_referenced_paths(payload, path.parent, repo_root):
                     if referenced not in seen_files and referenced not in queue:
                         queue.append(referenced)
@@ -743,13 +754,50 @@ def collect_artifact_bundle(
     metrics = accumulator.summarize()
     resolved_id = explicit_id or first_text(identifiers) or default_bundle_id(root, metrics)
     resolved_commit = explicit_commit or first_text(commits)
+    mixed_role_policy_reason = first_text(mixed_role_policy_reasons)
+    validate_bundle_policy_metadata(
+        policy_metadata_rows,
+        role,
+        mixed_role_policy_reason=mixed_role_policy_reason,
+    )
+    policy_metadata = first_policy_metadata(policy_metadata_rows)
     return {
         "id": resolved_id,
         "commit": resolved_commit,
         "artifacts": artifacts,
         "metrics": metrics,
         "runtimeParameterInjection": summarize_runtime_parameter_injection(runtime_injection_evidence),
+        "policyMetadata": policy_metadata,
+        "policyFamily": policy_metadata.get("policyFamily"),
+        "rolePolicy": policy_metadata.get("rolePolicy"),
+        "trainingRole": policy_metadata.get("trainingRole"),
+        "mixedRolePolicyReason": mixed_role_policy_reason,
     }
+
+
+def validate_bundle_policy_metadata(
+    rows: Sequence[JsonObject],
+    role: str,
+    *,
+    mixed_role_policy_reason: str | None = None,
+) -> None:
+    parent = {"mixedRolePolicyReason": mixed_role_policy_reason} if mixed_role_policy_reason is not None else None
+    try:
+        role_policy_lanes.validate_role_policy_collection(
+            rows,
+            context=f"{role}.policyMetadata",
+            parent=parent,
+        )
+    except role_policy_lanes.RolePolicyLaneError as error:
+        raise ScorecardError(str(error)) from error
+
+
+def first_policy_metadata(rows: Sequence[JsonObject]) -> JsonObject:
+    for row in rows:
+        metadata = role_policy_lanes.lane_metadata(row)
+        if metadata:
+            return metadata
+    return {}
 
 
 def first_text(values: Sequence[str]) -> str | None:
@@ -1865,6 +1913,7 @@ def build_scorecard(
         explicit_id=baseline_id,
         explicit_commit=baseline_commit,
     )
+    validate_scorecard_policy_metadata(candidate, baseline)
     resolved_run_id = run_id or default_scorecard_run_id(created, candidate, baseline)
     dimensions = {
         key: compare_dimension(spec, candidate, baseline)
@@ -1876,7 +1925,17 @@ def build_scorecard(
         "schemaVersion": SCHEMA_VERSION,
         "runId": resolved_run_id,
         "timestamp": created,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+            "allowedUse": "offline/private/shadow candidate-vs-baseline scorecard evidence only",
+        },
         "scorecardContract": overall_gate["scorecardContract"],
+        "rolePolicyMetadata": scorecard_role_policy_metadata(candidate, baseline),
         "candidate": public_bundle(candidate),
         "baseline": public_bundle(baseline),
         "dimensions": dimensions,
@@ -1885,11 +1944,69 @@ def build_scorecard(
     }
 
 
+def validate_scorecard_policy_metadata(candidate: JsonObject, baseline: JsonObject) -> None:
+    candidate_metadata = candidate.get("policyMetadata") if isinstance(candidate.get("policyMetadata"), dict) else {}
+    baseline_metadata = baseline.get("policyMetadata") if isinstance(baseline.get("policyMetadata"), dict) else {}
+    parent = {
+        "mixedRolePolicyReason": candidate.get("mixedRolePolicyReason") or baseline.get("mixedRolePolicyReason")
+    }
+    try:
+        role_policy_lanes.validate_role_policy_collection(
+            [candidate_metadata, baseline_metadata],
+            context="scorecard.policyMetadata",
+            parent=parent,
+        )
+    except role_policy_lanes.RolePolicyLaneError as error:
+        raise ScorecardError(str(error)) from error
+
+    candidate_family = candidate_metadata.get("policyFamily")
+    baseline_family = baseline_metadata.get("policyFamily")
+    if role_policy_lanes.is_role_policy_family(candidate_family) and not role_policy_lanes.is_role_policy_family(baseline_family):
+        raise ScorecardError("role-scoped candidate scorecard baseline omits role policyFamily")
+    if role_policy_lanes.is_role_policy_family(baseline_family) and not role_policy_lanes.is_role_policy_family(candidate_family):
+        raise ScorecardError("role-scoped baseline scorecard candidate omits role policyFamily")
+    if (
+        role_policy_lanes.is_role_policy_family(candidate_family)
+        and role_policy_lanes.is_role_policy_family(baseline_family)
+        and candidate_family != baseline_family
+        and role_policy_lanes.explicit_mixed_role_policy_reason(parent) is None
+    ):
+        raise ScorecardError(
+            "candidate and baseline role policyFamily differ without explicit meta-policy reason: "
+            f"{candidate_family} vs {baseline_family}"
+        )
+
+
+def scorecard_role_policy_metadata(candidate: JsonObject, baseline: JsonObject) -> JsonObject:
+    return {
+        "candidate": copy_metadata(candidate),
+        "baseline": copy_metadata(baseline),
+        "rolePolicyFamilies": sorted(
+            {
+                family
+                for family in (candidate.get("policyFamily"), baseline.get("policyFamily"))
+                if role_policy_lanes.is_role_policy_family(family)
+            }
+        ),
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+    }
+
+
+def copy_metadata(bundle: JsonObject) -> JsonObject:
+    metadata = bundle.get("policyMetadata")
+    return copy.deepcopy(metadata) if isinstance(metadata, dict) else {}
+
+
 def public_bundle(bundle: JsonObject) -> JsonObject:
     return {
         "id": bundle.get("id"),
         "commit": bundle.get("commit"),
         "artifacts": bundle.get("artifacts", []),
+        "policyFamily": bundle.get("policyFamily"),
+        "rolePolicy": bundle.get("rolePolicy"),
+        "trainingRole": bundle.get("trainingRole"),
         "runtimeParameterInjection": bundle.get("runtimeParameterInjection"),
     }
 

@@ -29,6 +29,7 @@ import screeps_secret_env
 import screeps_rl_simulator_harness as simulator_harness
 import screeps_rl_scale_gates as scale_gates
 import screeps_rl_scorecard as scorecard_helper
+import screeps_rl_role_policy_lanes as role_policy_lanes
 
 
 SCHEMA_VERSION = 1
@@ -130,6 +131,7 @@ class StrategyVariant:
     candidate_policy_id: str | None = None
     family: str | None = None
     policy_family: str | None = None
+    role_policy: str | None = None
     parameter_evidence: JsonObject | None = None
     rollout_status: str | None = None
     source_strategy_id: str | None = None
@@ -149,6 +151,8 @@ class StrategyVariant:
             payload["family"] = self.family
         if self.policy_family:
             payload["policyFamily"] = self.policy_family
+        if self.role_policy:
+            payload["rolePolicy"] = self.role_policy
         if self.parameter_evidence is not None:
             payload["parameterEvidence"] = copy.deepcopy(self.parameter_evidence)
         if self.rollout_status:
@@ -342,11 +346,20 @@ def validate_experiment_card(card: JsonObject) -> None:
         raise TrainingCardError("reward_model.scalar_weighted_sum_authorized must be false unless explicitly authorized")
 
     validate_card_supply(card)
+    validate_role_policy_lane_contract(card)
     validate_scenario_metadata(card, error_cls=TrainingCardError, require_presence=True)
 
     raw_variants = raw_variant_definitions(card)
     if not isinstance(raw_variants, list) or len(raw_variants) == 0:
         raise TrainingCardError("experiment card must define at least one strategy variant")
+    try:
+        role_policy_lanes.validate_role_policy_collection(
+            [item for item in raw_variants if isinstance(item, dict)],
+            context="strategy_variants",
+            parent=card,
+        )
+    except role_policy_lanes.RolePolicyLaneError as error:
+        raise TrainingCardError(str(error)) from error
 
     simulation = raw_mapping(card.get("simulation", card.get("simulator", {})), "simulation")
     ticks = positive_int_value(simulation["ticks"]) if "ticks" in simulation else None
@@ -523,6 +536,16 @@ def validate_card_supply(card: JsonObject) -> None:
             raise TrainingCardError("consumed Loop A card supply requires consumed_by_report_id")
 
 
+def validate_role_policy_lane_contract(card: JsonObject) -> None:
+    contract = first_present(card, ("role_policy_lanes", "rolePolicyLanes", "policyLaneContract"))
+    if contract is None:
+        return
+    try:
+        role_policy_lanes.validate_lane_contract(contract, "role_policy_lanes")
+    except role_policy_lanes.RolePolicyLaneError as error:
+        raise TrainingCardError(str(error)) from error
+
+
 def raw_variant_definitions(card: JsonObject) -> Any:
     for key in ("strategy_variants", "strategyVariants", "variants"):
         if key in card:
@@ -563,7 +586,24 @@ def load_strategy_variants(card: JsonObject, registry_path: Path | None = None) 
             raise TrainingCardError(f"duplicate strategy variant id: {variant.id}")
         seen.add(variant.id)
         variants.append(variant)
+    validate_role_policy_variants(variants, context="strategy_variants", parent=card)
     return variants
+
+
+def validate_role_policy_variants(
+    variants: Sequence[StrategyVariant],
+    *,
+    context: str,
+    parent: JsonObject | None = None,
+) -> None:
+    try:
+        role_policy_lanes.validate_role_policy_collection(
+            [variant.to_json() for variant in variants],
+            context=context,
+            parent=parent,
+        )
+    except role_policy_lanes.RolePolicyLaneError as error:
+        raise TrainingCardError(str(error)) from error
 
 
 def apply_policy_gradient_candidate_vectors_to_variants(
@@ -644,6 +684,11 @@ def policy_gradient_candidate_vector_variant(
             or text_or_none(candidate.get("policy_family"))
             or variant.policy_family
         ),
+        role_policy=(
+            text_or_none(candidate.get("rolePolicy"))
+            or text_or_none(candidate.get("role_policy"))
+            or variant.role_policy
+        ),
         parameter_evidence=copy.deepcopy(parameter_evidence)
         if parameter_evidence is not None
         else copy.deepcopy(variant.parameter_evidence),
@@ -697,6 +742,7 @@ def expand_scale_environment_strategy_variants(
                 candidate_policy_id=base.candidate_policy_id,
                 family=base.family,
                 policy_family=base.policy_family,
+                role_policy=base.role_policy,
                 parameter_evidence=copy.deepcopy(base.parameter_evidence),
                 rollout_status=base.rollout_status,
                 source_strategy_id=base.source_strategy_id,
@@ -739,6 +785,11 @@ def normalize_variant(raw: Any, registry: dict[str, StrategyVariant]) -> Strateg
         or text_or_none(raw.get("policy_family"))
         or (registry_variant.policy_family if registry_variant else None)
     )
+    role_policy = (
+        text_or_none(raw.get("rolePolicy"))
+        or text_or_none(raw.get("role_policy"))
+        or (registry_variant.role_policy if registry_variant else None)
+    )
     parameter_evidence = first_mapping(raw, ("parameterEvidence", "parameter_evidence"))
     rollout_status = (
         text_or_none(raw.get("rolloutStatus"))
@@ -746,18 +797,35 @@ def normalize_variant(raw: Any, registry: dict[str, StrategyVariant]) -> Strateg
         or (registry_variant.rollout_status if registry_variant else None)
     )
     title = text_or_none(raw.get("title")) or (registry_variant.title if registry_variant else None)
+    training_role = (
+        text_or_none(raw.get("trainingRole"))
+        or text_or_none(raw.get("training_role"))
+        or (registry_variant.training_role if registry_variant else None)
+    )
+    try:
+        role_policy_lanes.validate_role_policy_metadata(
+            {
+                "policyFamily": policy_family,
+                "rolePolicy": role_policy,
+                "trainingRole": training_role,
+            },
+            f"strategy variant {variant_id}",
+        )
+    except role_policy_lanes.RolePolicyLaneError as error:
+        raise TrainingCardError(str(error)) from error
     return StrategyVariant(
         id=variant_id,
         parameters=dict(sorted(parameters.items())),
         candidate_policy_id=candidate_policy_id,
         family=family,
         policy_family=policy_family,
+        role_policy=role_policy,
         parameter_evidence=copy.deepcopy(parameter_evidence) if parameter_evidence is not None else None,
         rollout_status=rollout_status,
         source_strategy_id=source_strategy_id,
         source=source,
         title=title,
-        training_role=text_or_none(raw.get("trainingRole")) or text_or_none(raw.get("training_role")),
+        training_role=training_role,
     )
 
 
@@ -782,8 +850,10 @@ def load_strategy_registry(path: Path) -> dict[str, StrategyVariant]:
             parameters=parameters,
             family=regex_group(r"\bfamily:\s*['\"]([^'\"]+)['\"]", block),
             policy_family=regex_group(r"\bpolicyFamily:\s*['\"]([^'\"]+)['\"]", block),
+            role_policy=regex_group(r"\brolePolicy:\s*['\"]([^'\"]+)['\"]", block),
             rollout_status=regex_group(r"\brolloutStatus:\s*['\"]([^'\"]+)['\"]", block),
             title=regex_group(r"\btitle:\s*['\"]([^'\"]+)['\"]", block),
+            training_role=regex_group(r"\btrainingRole:\s*['\"]([^'\"]+)['\"]", block),
             source="registry",
         )
     return registry
@@ -1064,8 +1134,10 @@ def run_training_experiment(
     card = load_experiment_card(card_path)
     variants = load_strategy_variants(card, registry_path=registry_path)
     variants = apply_policy_gradient_candidate_vectors_to_variants(card, variants)
+    validate_role_policy_variants(variants, context="policy_gradient.candidate_parameter_vectors", parent=card)
     config = simulation_config_from_card(card)
     variants = expand_scale_environment_strategy_variants(variants, config.scale_environments)
+    validate_role_policy_variants(variants, context="expanded_strategy_variants", parent=card)
     reward_options = reward_options_from_card(card)
     resolved_report_id = report_id or default_report_id(card, variants, config)
     validate_report_id(resolved_report_id)
@@ -1444,7 +1516,7 @@ def build_report_runtime_parameter_injection_summary(
                 "parametersSha256": injection.get("parametersSha256"),
                 "reason": injection.get("reason"),
             }
-            for field in ("candidatePolicyId", "sourceStrategyId", "family"):
+            for field in ("candidatePolicyId", "sourceStrategyId", "family", "policyFamily", "rolePolicy", "trainingRole"):
                 value = injection.get(field)
                 if value is None:
                     value = result.get(field)
@@ -1853,6 +1925,14 @@ def build_training_report(
         report["policyUpdate"] = policy_update
     if scalar_weighted_reward is not None:
         report["conclusionRegistryUpdate"] = scalar_weighted_reward_conclusion_registry_update(report)
+    role_policy_summary = role_policy_lanes.summarize_role_policy_collection(results, parent=card)
+    report["rolePolicies"] = role_policy_summary["rolePolicies"]
+    report["trainingRoles"] = role_policy_summary["trainingRoles"]
+    report["rolePolicyMetadata"] = role_policy_summary
+    report["rolePolicyLanes"] = copy.deepcopy(
+        first_present(card, ("role_policy_lanes", "rolePolicyLanes", "policyLaneContract"))
+        or role_policy_lanes.role_policy_contract()
+    )
     return report
 
 
@@ -4391,6 +4471,8 @@ def build_candidate_scorecard_readiness_for_pair(
     baseline_rank: int | None,
 ) -> JsonObject:
     report_runtime_parameter_injection = report.get("runtimeParameterInjection")
+    candidate_metadata = role_policy_metadata_for_variant(report, candidate_id)
+    baseline_metadata = role_policy_metadata_for_variant(report, baseline_id)
     scorecard_id = candidate_scorecard_id(report, candidate_id, baseline_id)
     runtime_parameter_injection = candidate_scorecard_runtime_parameter_injection(report, candidate_id)
     runtime_ready = scorecard_runtime_injection_ready(runtime_parameter_injection)
@@ -4444,6 +4526,11 @@ def build_candidate_scorecard_readiness_for_pair(
         "candidateRank": candidate_rank,
         "baselineRank": baseline_rank,
         "comparisonKey": f"{candidate_id}::vs::{baseline_id}",
+        "policyFamily": candidate_metadata.get("policyFamily"),
+        "rolePolicy": candidate_metadata.get("rolePolicy"),
+        "trainingRole": candidate_metadata.get("trainingRole"),
+        "candidatePolicyMetadata": candidate_metadata,
+        "baselinePolicyMetadata": baseline_metadata,
         "runtimeParameterInjection": runtime_ready,
         "runtimeParameterConsumption": runtime_consumed,
         "injectedVariantCount": injected_count,
@@ -4779,6 +4866,16 @@ def variant_result_by_id(report: JsonObject, variant_id: str) -> JsonObject | No
     return None
 
 
+def role_policy_metadata_for_variant(report: JsonObject, variant_id: str) -> JsonObject:
+    result = variant_result_by_id(report, variant_id)
+    if isinstance(result, dict):
+        return role_policy_lanes.lane_metadata(result)
+    for variant in report.get("strategyVariants", []):
+        if isinstance(variant, dict) and text_or_none(variant.get("id")) == variant_id:
+            return role_policy_lanes.lane_metadata(variant)
+    return {}
+
+
 def scorecard_projection_payload(
     report: JsonObject,
     *,
@@ -4788,6 +4885,7 @@ def scorecard_projection_payload(
     runtime_parameter_injection: Any,
 ) -> JsonObject:
     variant_id = text_or_none(result.get("variantId")) or "unknown"
+    lane_metadata = role_policy_lanes.lane_metadata(result)
     payload: JsonObject = {
         "type": REPORT_TYPE,
         "schemaVersion": SCHEMA_VERSION,
@@ -4798,6 +4896,9 @@ def scorecard_projection_payload(
         "baselineId": variant_id if role == "baseline" else peer_variant_id,
         "strategyVariantId": variant_id,
         "peerStrategyVariantId": peer_variant_id,
+        "policyFamily": lane_metadata.get("policyFamily"),
+        "rolePolicy": lane_metadata.get("rolePolicy"),
+        "trainingRole": lane_metadata.get("trainingRole"),
         "artifactCount": result.get("sampleCount", 1),
         "metricsByCategory": scorecard_metrics_by_category(result),
         "liveEffect": False,
@@ -5067,6 +5168,8 @@ def summarize_variant(
         summary["scalarWeightedReward"] = copy.deepcopy(scalar_reward)
     if variant.policy_family:
         summary["policyFamily"] = variant.policy_family
+    if variant.role_policy:
+        summary["rolePolicy"] = variant.role_policy
     if variant.candidate_policy_id:
         summary["candidatePolicyId"] = variant.candidate_policy_id
     if variant.source_strategy_id:
@@ -6373,6 +6476,10 @@ def rank_variant_results(results: Sequence[JsonObject]) -> list[JsonObject]:
         )
         if isinstance(result.get("policyFamily"), str):
             ranking[-1]["policyFamily"] = result["policyFamily"]
+        if isinstance(result.get("rolePolicy"), str):
+            ranking[-1]["rolePolicy"] = result["rolePolicy"]
+        if isinstance(result.get("trainingRole"), str):
+            ranking[-1]["trainingRole"] = result["trainingRole"]
     return ranking
 
 
@@ -6469,6 +6576,9 @@ def build_shadow_compatible_model_reports(
         reports.append(
             {
                 "family": "rl-training",
+                "policyFamily": item.get("policyFamily"),
+                "rolePolicy": item.get("rolePolicy"),
+                "trainingRole": item.get("trainingRole"),
                 "incumbentStrategyId": incumbent,
                 "candidateStrategyId": variant_id,
                 "rankingDiffCount": 1 if incumbent_rank is not None and item["rank"] != incumbent_rank else 0,
@@ -6821,8 +6931,12 @@ def summarize_card(
         "codeCommit": card.get("code_commit", card.get("codeCommit")),
         "trainingApproach": card.get("training_approach", card.get("trainingApproach")),
         "status": card.get("status", "shadow"),
+        "policyFamily": card.get("policyFamily", card.get("policy_family")),
         "safety": card.get("safety"),
     }
+    contract = first_present(card, ("role_policy_lanes", "rolePolicyLanes", "policyLaneContract"))
+    if isinstance(contract, dict):
+        summary["rolePolicyLanes"] = copy.deepcopy(contract)
     policy_gradient = policy_gradient_metadata_from_card(
         card,
         runtime_parameter_injection=runtime_parameter_injection,
@@ -7392,6 +7506,9 @@ def build_generation_summary(report: JsonObject) -> JsonObject:
         "scorecardArtifactPath": report.get("scorecardArtifactPath"),
         "candidateScorecard": copy.deepcopy(report.get("candidateScorecard")),
         "candidateScorecards": copy.deepcopy(report.get("candidateScorecards")),
+        "rolePolicies": copy.deepcopy(report.get("rolePolicies", [])),
+        "trainingRoles": copy.deepcopy(report.get("trainingRoles", [])),
+        "rolePolicyMetadata": copy.deepcopy(report.get("rolePolicyMetadata")),
         "scalarWeightedReward": copy.deepcopy(report.get("scalarWeightedReward")),
         "conclusionRegistryUpdate": copy.deepcopy(report.get("conclusionRegistryUpdate")),
         "warnings": report["warnings"],

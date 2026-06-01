@@ -13,6 +13,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Sequence, TextIO
 
+import screeps_rl_role_policy_lanes as role_policy_lanes
+
 
 PLAN_TYPE = "screeps-rl-act-loop-plan"
 BATCH_TYPE = "screeps-rl-act-loop-plan-batch"
@@ -48,7 +50,7 @@ POLICY_SURFACE_NAME_ALIASES = (
     "targetFamily",
     "target_family",
 )
-POLICY_ROUTE_FIELDS = ("policyFamily", "topAgent", "rolePolicy", "level")
+POLICY_ROUTE_FIELDS = ("policyFamily", "topAgent", "rolePolicy", "trainingRole", "level")
 POLICY_ROUTE_ALIASES: dict[str, tuple[str, ...]] = {
     "policyFamily": (
         "policyFamily",
@@ -58,11 +60,17 @@ POLICY_ROUTE_ALIASES: dict[str, tuple[str, ...]] = {
     ),
     "topAgent": ("topAgent", "top_agent"),
     "rolePolicy": ("rolePolicy", "role_policy"),
+    "trainingRole": ("trainingRole", "training_role"),
     "level": ("level",),
 }
 POLICY_FAMILY_FALLBACKS = {
     "constructionpriority": "top.construction",
     "workertask": "role.worker-task",
+    "worker": "role.worker-task",
+    "sourceharvester": "role.source-harvester",
+    "harvester": "role.source-harvester",
+    "defendermicro": "role.defender-micro",
+    "defender": "role.defender-micro",
     "toweraction": "role.tower-action",
 }
 
@@ -623,13 +631,22 @@ def explicit_policy_route(raw: JsonObject) -> JsonObject:
 def infer_policy_route(raw: JsonObject) -> JsonObject:
     route = explicit_policy_route(raw)
     if "policyFamily" in route:
-        return route
+        return complete_policy_route(route)
     surface = explicit_policy_surface(raw)
     if not surface:
-        return route
+        return complete_policy_route(route)
     policy_family = POLICY_FAMILY_FALLBACKS.get(normalize_key(surface))
     if policy_family:
         route["policyFamily"] = policy_family
+    return complete_policy_route(route)
+
+
+def complete_policy_route(route: JsonObject) -> JsonObject:
+    completed = role_policy_lanes.complete_lane_metadata(route)
+    if completed:
+        merged = dict(route)
+        merged.update(completed)
+        return merged
     return route
 
 
@@ -1113,6 +1130,7 @@ def build_plan(raw: JsonObject, *, source_artifact: str | None = None) -> JsonOb
         "nextScenarioDelta": scenario_delta,
         "nextPolicyDelta": policy_delta,
         "nextExperimentCardDelta": card_delta,
+        "rolePolicyLanes": role_policy_lanes.role_policy_contract(),
         "feedbackIngestion": build_feedback_state(
             raw,
             finding=finding,

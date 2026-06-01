@@ -1,0 +1,54 @@
+{
+  "type": "screeps-rl-evaluation-scorecard",
+  "schemaVersion": 1,
+  "runId": "rl-scorecard-role-worker-task-fixture",
+  "timestamp": "2026-06-01T00:00:00Z",
+  "fixtureOnly": true,
+  "noLiveComputeRun": true,
+  "liveEffect": false,
+  "officialMmoWrites": false,
+  "officialMmoWritesAllowed": false,
+  "rolePolicyMetadata": {
+    "candidate": {
+      "policyFamily": "role.worker-task",
+      "rolePolicy": "worker-task",
+      "trainingRole": "worker"
+    },
+    "baseline": {
+      "policyFamily": "role.worker-task",
+      "rolePolicy": "worker-task",
+      "trainingRole": "worker"
+    },
+    "rolePolicyFamilies": [
+      "role.worker-task"
+    ],
+    "liveEffect": false,
+    "officialMmoWrites": false,
+    "officialMmoWritesAllowed": false
+  },
+  "candidate": {
+    "id": "role.worker-task.shadow-candidate.v1",
+    "policyFamily": "role.worker-task",
+    "rolePolicy": "worker-task",
+    "trainingRole": "worker",
+    "runtimeParameterInjection": {
+      "status": "missing",
+      "runtimeParameterInjection": false,
+      "policyUpdateEligible": false,
+      "reason": "fixture has no runtime parameter injection evidence"
+    }
+  },
+  "baseline": {
+    "id": "role.worker-task.heuristic-baseline.v1",
+    "policyFamily": "role.worker-task",
+    "rolePolicy": "worker-task",
+    "trainingRole": "worker"
+  },
+  "overallGate": {
+    "status": "HOLD",
+    "rationale": "deterministic role-policy fixture only; no live compute was run",
+    "requiredActions": [
+      "Collect offline/private/shadow candidate-vs-baseline evidence before any role-policy completion claim."
+    ]
+  }
+}
