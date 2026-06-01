@@ -89,11 +89,34 @@ def load_registry(path: Path) -> JsonObject:
     return parsed
 
 
+def merge_normalized_record_maps(sources: Sequence[dict[str, JsonObject]]) -> dict[str, JsonObject]:
+    records: dict[str, JsonObject] = {}
+    for source in sources:
+        for conclusion_id, record in source.items():
+            if conclusion_id in records:
+                raise ConclusionRegistryError(f"duplicate conclusionId {conclusion_id!r} in conclusions payload")
+            records[conclusion_id] = record
+    return records
+
+
 def normalize_conclusions(value: Any) -> dict[str, JsonObject]:
     if value is None:
         return {}
-    if isinstance(value, dict) and "conclusions" in value and "conclusionId" not in value:
-        return normalize_conclusions(value.get("conclusions"))
+    if isinstance(value, dict):
+        if isinstance(value.get("conclusionId"), str):
+            conclusion_id = value["conclusionId"]
+            if not conclusion_id:
+                raise ConclusionRegistryError("each conclusion record must have a non-empty conclusionId")
+            record = dict(value)
+            return {conclusion_id: record}
+
+        registry_sources = [
+            normalize_conclusions(value[key])
+            for key in ("conclusions", "entries")
+            if key in value
+        ]
+        if registry_sources:
+            return merge_normalized_record_maps(registry_sources)
 
     items: list[tuple[str | None, Any]]
     if isinstance(value, dict):
@@ -125,6 +148,7 @@ def merge_registry_payload(
     owner_cron: str,
     updated_at: str,
     updated_by: str | None = None,
+    prune_omitted_owner_records: bool = True,
 ) -> JsonObject:
     if not owner_cron:
         raise ConclusionRegistryError("owner_cron must be non-empty")
@@ -132,14 +156,17 @@ def merge_registry_payload(
         raise ConclusionRegistryError("updated_at must be non-empty")
 
     existing_payload = existing or {}
-    existing_records = normalize_conclusions(existing_payload.get("conclusions"))
+    existing_records = normalize_conclusions(existing_payload)
     incoming_records = normalize_conclusions(producer_conclusions)
 
-    merged = {
-        conclusion_id: record
-        for conclusion_id, record in existing_records.items()
-        if conclusion_id in incoming_records or record.get("ownerCron") != owner_cron
-    }
+    if prune_omitted_owner_records:
+        merged = {
+            conclusion_id: record
+            for conclusion_id, record in existing_records.items()
+            if conclusion_id in incoming_records or record.get("ownerCron") != owner_cron
+        }
+    else:
+        merged = dict(existing_records)
     new_count = 0
     closed_this_window = 0
     for conclusion_id, incoming in incoming_records.items():
@@ -495,6 +522,7 @@ def merge_registry_file(
     owner_cron: str,
     updated_at: str,
     updated_by: str | None = None,
+    prune_omitted_owner_records: bool = True,
 ) -> JsonObject:
     with locked_registry(path):
         merged = merge_registry_payload(
@@ -503,6 +531,7 @@ def merge_registry_file(
             owner_cron=owner_cron,
             updated_at=updated_at,
             updated_by=updated_by,
+            prune_omitted_owner_records=prune_omitted_owner_records,
         )
         write_json_atomic(path, merged)
     return merged
