@@ -221,6 +221,52 @@ class RlExperimentCardTest(unittest.TestCase):
             self.assertFalse(card["safety"][field])
             self.assertFalse(scenario["safety"][field])
 
+    def test_scalar_weighted_reward_authorization_is_policy_gradient_shadow_only(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-scalar-000001",
+            code_commit="c" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-06-01T16:20:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            scalar_weighted_sum_authorized=True,
+        )
+
+        card_helper.validate_card(card)
+        runner.validate_experiment_card(card)
+
+        reward_model = card["reward_model"]
+        scalar = reward_model["scalar_weighted_sum"]
+        self.assertTrue(reward_model["scalar_weighted_sum_authorized"])
+        self.assertEqual(reward_model["scalar_weighted_sum_use"], card_helper.SCALAR_WEIGHTED_SUM_USE)
+        self.assertEqual(
+            scalar["component_order"],
+            ["reliability", "territory", "resources", "kills", "activation"],
+        )
+        self.assertEqual(scalar["component_weights"]["epsilon_activation"], 1)
+        self.assertEqual(scalar["ranking_reward_model"], "lexicographic")
+        self.assertFalse(card["liveEffect"])
+        self.assertFalse(card["officialMmoWrites"])
+        self.assertFalse(card["officialMmoWritesAllowed"])
+        self.assertFalse(card["safety"]["liveEffect"])
+        self.assertFalse(card["safety"]["officialMmoWrites"])
+        self.assertFalse(card["safety"]["officialMmoWritesAllowed"])
+        self.assertTrue(card["safety"]["ood_rejection"])
+        self.assertTrue(card["safety"]["conservative_actions_only"])
+
+    def test_scalar_weighted_reward_authorization_rejects_non_policy_gradient(self) -> None:
+        with self.assertRaisesRegex(
+            card_helper.CardValidationError,
+            "requires training_approach=policy_gradient",
+        ):
+            card_helper.build_card(
+                dataset_run_id="rl-bandit-scalar-000001",
+                code_commit="c" * 40,
+                training_approach="bandit",
+                created_at="2026-06-01T16:21:00Z",
+                scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+                scalar_weighted_sum_authorized=True,
+            )
+
     def test_multi_tier_v0_scenario_remains_selectable_for_compatibility(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-policy-gradient-multitier-v0",
