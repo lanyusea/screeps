@@ -1013,6 +1013,58 @@ describe('runWorker', () => {
     expect(harvest).not.toHaveBeenCalled();
   });
 
+  it('does not use the idle fallback to start noncritical harvest during low-bucket recovery', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      controller: {
+        my: true,
+        level: 4,
+        ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+      } as StructureController,
+      find: jest.fn((type: number) => (type === FIND_SOURCES ? [source] : []))
+    } as unknown as Room;
+    const harvest = jest.fn().mockReturnValue(0);
+    const creep = {
+      name: 'Worker1',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        workerTaskSelectionNullLoop: {
+          lastNullSelectionTick: 899,
+          nullSelectionCount: 10,
+          fallbackAttempts: 0,
+          idleStartTick: 890
+        }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      harvest,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      time: 900,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(18),
+        limit: 70,
+        bucket: 961,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : null)) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toBeUndefined();
+    expect(harvest).not.toHaveBeenCalled();
+  });
+
   it('moves to collect a score target at exact range without pickup', () => {
     const score = makeScoreTarget('score1');
     const pickup = jest.fn();

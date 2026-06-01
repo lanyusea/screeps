@@ -53,7 +53,7 @@ import {
   recordCreepBehaviorWork,
   type RuntimeEnergyAcquisitionMethod
 } from '../telemetry/behaviorTelemetry';
-import { getRuntimeCpuBudget, isRuntimeCpuBucketLow } from '../runtime/cpuBudget';
+import { getRuntimeCpuBudget, isRuntimeCpuBucketLow, shouldShedNonessentialCpuWork } from '../runtime/cpuBudget';
 import { isColonyRoomThreatened } from '../defense/colonyThreats';
 
 type TransferSinkStructureConstantGlobal =
@@ -864,7 +864,7 @@ function fallbackToEnergyOnNullSelectionLoop(
     return selectedTask;
   }
 
-  if (getRuntimeCpuBudget().critical) {
+  if (shouldShedNonessentialCpuWork(getRuntimeCpuBudget())) {
     return null;
   }
 
