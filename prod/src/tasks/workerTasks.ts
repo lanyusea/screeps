@@ -1466,7 +1466,27 @@ function shouldYieldControllerSustainUpgradeToConstruction(
   creep: Creep,
   sustain: CreepControllerSustainMemory
 ): boolean {
-  return sustain.homeRoom !== sustain.targetRoom && hasVisibleOwnedConstructionDemand(creep.room);
+  if (!hasVisibleOwnedConstructionDemand(creep.room)) {
+    return false;
+  }
+
+  if (sustain.homeRoom !== sustain.targetRoom) {
+    return true;
+  }
+
+  return shouldYieldLocalControllerSustainUpgradeToConstruction(creep);
+}
+
+function shouldYieldLocalControllerSustainUpgradeToConstruction(creep: Creep): boolean {
+  return (
+    creep.room.controller?.my === true &&
+    !isControllerDowngradeImminentForLowLoadReturn(creep.room.controller) &&
+    !hasVisibleHostilePresence(creep.room) &&
+    !hasActiveSpawningSpawn(creep.room) &&
+    !hasSameRoomWorkerAssignedToTask(creep.room, creep, 'build') &&
+    hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep) &&
+    hasSpendableConstructionBacklog(creep)
+  );
 }
 
 function hasVisibleOwnedConstructionDemand(room: Room | undefined): boolean {

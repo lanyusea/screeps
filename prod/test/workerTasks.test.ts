@@ -13079,6 +13079,104 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'container-site1' });
   });
 
+  it('uses one local E29N57 controller sustain upgrader on uncovered construction backlog before routine upgrade', () => {
+    const site = {
+      id: 'container-site1',
+      structureType: 'container',
+      progress: 510,
+      progressTotal: 5_000
+    } as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 0, { spawning: null });
+    const storedContainer = makeStoredEnergyContainerWithCapacity('stored-container1', 2_234, 2_500);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 650,
+      energyCapacityAvailable: 1_800,
+      myStructures: [fullSpawn as AnyOwnedStructure],
+      structures: [fullSpawn as unknown as AnyStructure, storedContainer as AnyStructure]
+    });
+    const sustainUpgrader = {
+      name: 'SustainUpgrader',
+      memory: {
+        role: 'worker',
+        colony: 'E29N57',
+        controllerSustain: { homeRoom: 'E29N57', targetRoom: 'E29N57', role: 'upgrader' }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(30),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    const controllerCoverage = makeLoadedWorker(room, {
+      type: 'upgrade',
+      targetId: 'controller1' as Id<StructureController>
+    });
+    setGameCreeps({ SustainUpgrader: sustainUpgrader, ControllerCoverage: controllerCoverage });
+
+    expect(selectWorkerTask(sustainUpgrader)).toEqual({ type: 'build', targetId: 'container-site1' });
+  });
+
+  it('keeps local E29N57 controller sustain upgrading when construction already has builder coverage', () => {
+    const site = {
+      id: 'container-site1',
+      structureType: 'container',
+      progress: 510,
+      progressTotal: 5_000
+    } as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 0, { spawning: null });
+    const storedContainer = makeStoredEnergyContainerWithCapacity('stored-container1', 2_234, 2_500);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 650,
+      energyCapacityAvailable: 1_800,
+      myStructures: [fullSpawn as AnyOwnedStructure],
+      structures: [fullSpawn as unknown as AnyStructure, storedContainer as AnyStructure]
+    });
+    const coveredBuilder = {
+      name: 'CoveredBuilder',
+      memory: {
+        role: 'worker',
+        colony: 'E29N57',
+        task: { type: 'build', targetId: 'container-site1' as Id<ConstructionSite> }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(30) },
+      room
+    } as unknown as Creep;
+    const sustainUpgrader = {
+      name: 'SustainUpgrader',
+      memory: {
+        role: 'worker',
+        colony: 'E29N57',
+        controllerSustain: { homeRoom: 'E29N57', targetRoom: 'E29N57', role: 'upgrader' }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(30),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ CoveredBuilder: coveredBuilder, SustainUpgrader: sustainUpgrader });
+
+    expect(selectWorkerTask(sustainUpgrader)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
   it('does not count the current build-assigned worker as uncovered construction coverage', () => {
     const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 317, {
