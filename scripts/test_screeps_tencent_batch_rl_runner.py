@@ -868,6 +868,42 @@ def write_post_fix_validation_in_progress_summary(artifact_root: Path, run_id: s
     return summary_path
 
 
+def write_post_fix_validation_remote_timeout_summary(artifact_root: Path, run_id: str) -> Path:
+    summary_path = write_post_fix_validation_summary(
+        artifact_root,
+        run_id,
+        final_status="failed",
+        failure_class="remote_training_timeout",
+    )
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["startedAt"] = "2026-05-30T00:00:03Z"
+    summary["finishedAt"] = "2026-05-30T00:02:03Z"
+    timeout_tail = "validation heartbeat: environmentsStarted=5 environmentsCompleted=0"
+    remote_failure = summary["outputs"]["remoteTrainingFailure"]
+    remote_failure["returncode"] = runner.PROCESS_TIMEOUT_RETURN_CODE
+    remote_failure["controllerTimedOut"] = True
+    remote_failure["diagnostics"]["training-stderr.log"]["tail"] = timeout_tail
+    remote_failure["diagnostics"]["training-stderr.log"]["bytes"] = len(timeout_tail)
+    summary["outputs"]["error"] = (
+        "BatchRunError: remote_training failed with exit 124: "
+        "training-stderr.log: validation heartbeat"
+    )
+    summary["steps"][0]["returncode"] = runner.PROCESS_TIMEOUT_RETURN_CODE
+    summary["steps"][0]["stderr_tail"] = timeout_tail
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    return summary_path
+
+
+def write_post_fix_validation_recovery_remote_timeout_summary(artifact_root: Path, run_id: str) -> Path:
+    summary_path = write_post_fix_validation_remote_timeout_summary(artifact_root, run_id)
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    launch_guard = summary["outputs"]["launchGuard"]
+    launch_guard["status"] = runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_RECOVERY_ALLOWED_STATUS
+    launch_guard["postFixValidation"]["status"] = "recovery_allowed"
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    return summary_path
+
+
 def write_invalid_run_id_validation_admission_failure_summary(artifact_root: Path, run_id: str) -> Path:
     summary_path = write_post_fix_validation_pre_scale_admission_failure_summary(
         artifact_root,
@@ -4176,6 +4212,131 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(summary["outputs"]["launchGuard"]["postFixValidation"]["status"], "recovery_allowed")
         self.assertTrue(summary["execution"]["computeAttempted"])
 
+    def test_paid_failure_recurrence_guard_allows_explicit_recovery_after_remote_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD):
+                write_tencent_failure_summary(artifact_root, f"tencent-pg-room-busy-{index}")
+            write_post_fix_validation_remote_timeout_summary(
+                artifact_root,
+                "postfix-room-busy-validation-timeout",
+            )
+            args = runner.parse_cli_args([
+                "run-single",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+                "--training-approach",
+                "policy_gradient",
+                "--scenario-id",
+                runner.MULTI_TIER_SCENARIO_ID,
+                "--ticks",
+                "500",
+                "--workers",
+                "5",
+                "--scale-environments",
+                "5",
+                "--repetitions",
+                "5",
+                "--postfix-validation-signature",
+                runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+            ])
+            artifact_dir = artifact_root / "new-run"
+
+            with mock.patch.object(
+                runner,
+                "paid_failure_recurrence_known_fix_status",
+                return_value={
+                    "signature": runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+                    "issue": "#1501",
+                    "pullRequest": "#1504",
+                    "mergeCommit": "95f960b2",
+                    "present": True,
+                    "evidence": "merge commit 95f960b2 is reachable from HEAD",
+                },
+            ):
+                events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
+
+        self.assertIn("scale_up", events)
+        self.assertIn("remote_training", events)
+        self.assertFalse(guard["blocked"])
+        self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_RECOVERY_ALLOWED_STATUS)
+        recovery = guard["postFixValidation"]["recoveryEligibility"]
+        self.assertTrue(recovery["eligible"])
+        self.assertEqual(recovery["recoveryClass"], "remote_training_timeout")
+        self.assertEqual(
+            guard["postFixValidation"]["priorAttempt"]["remoteTrainingFailureClass"],
+            "remote_training_timeout",
+        )
+        self.assertIn("explicitly sized timeout", guard["nextAction"])
+        self.assertEqual(controller.final_status, "completed")
+        self.assertEqual(summary["outputs"]["launchGuard"]["postFixValidation"]["status"], "recovery_allowed")
+
+    def test_paid_failure_recurrence_guard_allows_timeout_fix_after_timed_out_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD):
+                write_tencent_failure_summary(artifact_root, f"tencent-pg-room-busy-{index}")
+            pre_scale_attempt_path = write_post_fix_validation_pre_scale_admission_failure_summary(
+                artifact_root,
+                "tencent-postfix-room-busy-v1",
+            )
+            timeout_attempt_path = write_post_fix_validation_recovery_remote_timeout_summary(
+                artifact_root,
+                "postfix-room-busy-validation-timeout",
+            )
+            pre_scale_attempt = json.loads(pre_scale_attempt_path.read_text(encoding="utf-8"))
+            timeout_attempt = json.loads(timeout_attempt_path.read_text(encoding="utf-8"))
+            self.assertGreater(timeout_attempt["finishedAt"], pre_scale_attempt["finishedAt"])
+            args = runner.parse_cli_args([
+                "run-single",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+                "--training-approach",
+                "policy_gradient",
+                "--scenario-id",
+                runner.MULTI_TIER_SCENARIO_ID,
+                "--ticks",
+                "500",
+                "--workers",
+                "5",
+                "--scale-environments",
+                "5",
+                "--repetitions",
+                "5",
+                "--postfix-validation-signature",
+                runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+            ])
+            artifact_dir = artifact_root / "new-run"
+
+            with mock.patch.object(
+                runner,
+                "paid_failure_recurrence_known_fix_status",
+                return_value={
+                    "signature": runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+                    "issue": "#1501",
+                    "pullRequest": "#1504",
+                    "mergeCommit": "95f960b2",
+                    "present": True,
+                    "evidence": "merge commit 95f960b2 is reachable from HEAD",
+                },
+            ):
+                events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
+
+        self.assertIn("scale_up", events)
+        self.assertFalse(guard["blocked"])
+        self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_RECOVERY_ALLOWED_STATUS)
+        recovery = guard["postFixValidation"]["recoveryEligibility"]
+        self.assertTrue(recovery["eligible"])
+        self.assertEqual(recovery["recoveryClass"], "remote_training_timeout_after_recovery")
+        self.assertEqual(recovery["priorRecoveryAttemptRunId"], "postfix-room-busy-validation-timeout")
+        self.assertIn("explicitly sized timeout", guard["nextAction"])
+        self.assertEqual(controller.final_status, "completed")
+        self.assertEqual(summary["outputs"]["launchGuard"]["postFixValidation"]["status"], "recovery_allowed")
+
     def test_paid_failure_recurrence_guard_ignores_preflight_only_recovery_admission(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             artifact_root = Path(temp_dir) / "batch-runs"
@@ -6017,6 +6178,149 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertNotIn("tail-secret", stderr["tail"])
         self.assertNotIn("old failure marker", stderr["tail"])
 
+    def test_remote_training_failure_diagnostics_summarizes_repetition_progress(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            remote = root / "remote"
+            remote.mkdir()
+            for filename in runner.REMOTE_TRAINING_DIAGNOSTIC_FILES:
+                (remote / filename).write_text("", encoding="utf-8")
+            simulator_root = remote / "simulator-artifacts"
+            for run_id, successful, failed, ticks, seconds in (
+                ("run-test-r01", 5, 0, 10000, 640.25),
+                ("run-test-r02", 4, 1, 9600, 690.5),
+            ):
+                run_dir = simulator_root / run_id
+                run_dir.mkdir(parents=True)
+                (run_dir / "run_summary.json").write_text(
+                    json.dumps({
+                        "runId": run_id,
+                        "ok": failed == 0,
+                        "successful": successful,
+                        "failed": failed,
+                        "total_environments": successful + failed,
+                        "total_ticks": ticks,
+                        "wallClockSeconds": seconds,
+                        "variants": [{} for _ in range(successful + failed)],
+                    }),
+                    encoding="utf-8",
+                )
+
+            diagnostics = runner.remote_training_failure_diagnostics(
+                root,
+                runner.PROCESS_TIMEOUT_RETURN_CODE,
+                run_id="run-test",
+                controller_timed_out=True,
+            )
+
+        self.assertEqual(diagnostics["failureClass"], "remote_training_timeout")
+        self.assertIn(
+            "simulator-artifacts/run-test-r01/run_summary.json",
+            diagnostics["diagnostics"],
+        )
+        progress = diagnostics["partialSimulatorProgress"]
+        self.assertEqual(progress["runSummaryCount"], 2)
+        self.assertEqual(progress["completedEnvironmentRows"], 10)
+        self.assertEqual(progress["successfulEnvironmentRows"], 9)
+        self.assertEqual(progress["failedEnvironmentRows"], 1)
+        self.assertEqual(progress["ticksRun"], 19600)
+        self.assertEqual(progress["wallClockSeconds"], 1330.75)
+
+    def test_remote_training_partial_progress_counts_terminal_rows_not_planned_total(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = root / "remote" / "simulator-artifacts" / "run-test"
+            run_dir.mkdir(parents=True)
+            (run_dir / "run_summary.json").write_text(
+                json.dumps({
+                    "runId": "run-test",
+                    "ok": False,
+                    "successful": 2,
+                    "failed": 1,
+                    "total_environments": 5,
+                    "total_ticks": 1234,
+                    "wallClockSeconds": 12.3456,
+                    "variants": [{}, {}, {}, {}, {}],
+                }),
+                encoding="utf-8",
+            )
+
+            progress = runner.remote_training_partial_simulator_progress(root, "run-test")
+
+        self.assertIsNotNone(progress)
+        assert progress is not None
+        self.assertEqual(progress["completedEnvironmentRows"], 3)
+        self.assertEqual(progress["successfulEnvironmentRows"], 2)
+        self.assertEqual(progress["failedEnvironmentRows"], 1)
+        self.assertEqual(progress["runSummaries"][0]["totalEnvironments"], 5)
+        self.assertEqual(progress["runSummaries"][0]["wallClockSeconds"], 12.346)
+
+        execution = runner.controller_execution_summary(
+            controller_args(),
+            steps=[],
+            result={"remoteTrainingFailure": {"partialSimulatorProgress": progress}},
+            scaled_up=False,
+            instance_id=None,
+        )
+        self.assertEqual(execution["environmentsRun"], 3)
+
+    def test_remote_training_partial_progress_normalizes_non_finite_wall_clock_seconds(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            simulator_root = root / "remote" / "simulator-artifacts"
+            for run_id, seconds in (("run-test-r01", float("nan")), ("run-test-r02", float("inf"))):
+                run_dir = simulator_root / run_id
+                run_dir.mkdir(parents=True)
+                (run_dir / "run_summary.json").write_text(
+                    json.dumps({
+                        "runId": run_id,
+                        "ok": True,
+                        "successful": 1,
+                        "failed": 0,
+                        "total_environments": 1,
+                        "total_ticks": 100,
+                        "wallClockSeconds": seconds,
+                    }),
+                    encoding="utf-8",
+                )
+
+            progress = runner.remote_training_partial_simulator_progress(root, "run-test")
+
+        self.assertIsNotNone(progress)
+        assert progress is not None
+        self.assertEqual(progress["wallClockSeconds"], 0.0)
+        self.assertEqual([summary["wallClockSeconds"] for summary in progress["runSummaries"]], [0.0, 0.0])
+        self.assertEqual(progress["completedEnvironmentRows"], 2)
+        encoded = runner.canonical_json({"partialSimulatorProgress": progress})
+        self.assertNotIn("NaN", encoded)
+        self.assertNotIn("Infinity", encoded)
+
+    def test_canonical_json_rejects_non_finite_numbers(self) -> None:
+        with self.assertRaises(ValueError):
+            runner.canonical_json({"wallClockSeconds": float("nan")})
+
+    def test_controller_execution_summary_uses_partial_timeout_progress_when_no_report(self) -> None:
+        args = controller_args()
+        result = {
+            "remoteTrainingFailure": {
+                "failureClass": "remote_training_timeout",
+                "partialSimulatorProgress": {
+                    "completedEnvironmentRows": 10,
+                },
+            }
+        }
+
+        execution = runner.controller_execution_summary(
+            args,
+            steps=[],
+            result=result,
+            scaled_up=False,
+            instance_id=None,
+        )
+
+        self.assertEqual(execution["environmentsRun"], 10)
+        self.assertFalse(execution["trainingReportProduced"])
+
     def test_collect_remote_artifacts_tolerates_missing_partial_diagnostics(self) -> None:
         args = controller_args()
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -6050,7 +6354,10 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             "for simulator_file in run_summary.json resource_guard_failure.json setup_failure.json run_failure.json owned_room_scorecard.json",
             scripts[0],
         )
-        self.assertIn('for simulator_run_id in "$RUN_ID" "$RUN_ID-pre-scale-smoke"', scripts[0])
+        self.assertIn(
+            'for simulator_dir in "simulator-artifacts/$RUN_ID" "simulator-artifacts/$RUN_ID-pre-scale-smoke" "simulator-artifacts/$RUN_ID"-r*',
+            scripts[0],
+        )
 
     def test_generate_experiment_card_passes_multi_tier_scenario_request(self) -> None:
         args = controller_args()
