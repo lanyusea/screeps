@@ -6375,7 +6375,16 @@ cli:
                 return {
                     "status": 200,
                     "elapsed_seconds": 0.02,
-                    "response_excerpt": '{"ok":true,"adoptedObjects":5,"activeUser":true}',
+                    "response_excerpt": json.dumps(
+                        {
+                            "ok": True,
+                            "adoptedObjects": 5,
+                            "rewrittenOwnerReferences": 5,
+                            "rewrittenAnchorReferences": 2,
+                            "activeUser": True,
+                        },
+                        sort_keys=True,
+                    ),
                 }
 
         smoke = FakeSmoke()
@@ -6406,6 +6415,297 @@ cli:
         self.assertIn("fixtureOwnerRefs.has", smoke.expressions[0])
         self.assertIn("ACTIVE_ROOMS", smoke.expressions[0])
         debug_phase.assert_called_once()
+
+    def test_fixture_owned_anchor_preinitialization_adopts_owner_and_skips_place_spawn(self) -> None:
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.expressions: list[str] = []
+
+            def run_launcher_cli(
+                self,
+                compose: list[str],
+                cfg: argparse.Namespace,
+                expression: str,
+            ) -> dict[str, object]:
+                _ = compose, cfg
+                self.expressions.append(expression)
+                return {
+                    "status": 200,
+                    "elapsed_seconds": 0.02,
+                    "response_excerpt": json.dumps(
+                        {
+                            "ok": True,
+                            "adoptedObjects": 5,
+                            "rewrittenOwnerReferences": 5,
+                            "rewrittenAnchorReferences": 2,
+                            "activeUser": True,
+                        },
+                        sort_keys=True,
+                    ),
+                }
+
+        smoke = FakeSmoke()
+        cfg = argparse.Namespace(username="rl-sim-fixture")
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v1.map.json")
+
+        with mock.patch.object(harness, "_debug_worker_phase"):
+            summary = harness._preinitialize_fixture_owned_room_for_spawn(
+                smoke,
+                ["compose"],
+                cfg,
+                map_source_file=fixture_path,
+                room="E1S1",
+                worker_index=0,
+                variant_id="variant-a",
+            )
+
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertEqual(summary["classification"], "already_playing")
+        self.assertTrue(summary["skippedPlaceSpawn"])
+        self.assertEqual(summary["reason"], "private fixture room already has owned anchor state")
+        self.assertEqual(summary["fixtureOwnerAdoption"]["classification"], "fixture_owner_adopted")
+        self.assertEqual(summary["fixtureOwnerAdoption"]["targetUsername"], "rl-sim-fixture")
+        self.assertEqual(
+            summary["fixtureOwnerAdoption"]["result"]["responsePayload"]["rewrittenAnchorReferences"],
+            2,
+        )
+        self.assertEqual(len(smoke.expressions), 1)
+        self.assertIn("fixtureOwnerRefs.has", smoke.expressions[0])
+        self.assertIn("rewrittenAnchorReferences", smoke.expressions[0])
+
+    def test_fixture_owned_anchor_preinitialization_falls_back_without_anchor_rewrite_evidence(self) -> None:
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.expressions: list[str] = []
+
+            def run_launcher_cli(
+                self,
+                compose: list[str],
+                cfg: argparse.Namespace,
+                expression: str,
+            ) -> dict[str, object]:
+                _ = compose, cfg
+                self.expressions.append(expression)
+                return {
+                    "status": 200,
+                    "elapsed_seconds": 0.02,
+                    "response_excerpt": json.dumps(
+                        {
+                            "ok": True,
+                            "adoptedObjects": 0,
+                            "reboundControllers": 0,
+                            "reservationUpdates": 0,
+                            "rewrittenOwnerReferences": 0,
+                            "rewrittenAnchorReferences": 0,
+                            "activeUser": True,
+                        },
+                        sort_keys=True,
+                    ),
+                }
+
+        smoke = FakeSmoke()
+        cfg = argparse.Namespace(username="rl-sim-fixture")
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v1.map.json")
+
+        with mock.patch.object(harness, "_debug_worker_phase"):
+            summary = harness._preinitialize_fixture_owned_room_for_spawn(
+                smoke,
+                ["compose"],
+                cfg,
+                map_source_file=fixture_path,
+                room="E1S1",
+                worker_index=0,
+                variant_id="variant-a",
+            )
+
+        self.assertIsNone(summary)
+        self.assertEqual(len(smoke.expressions), 1)
+
+    def test_fixture_owned_anchor_preinitialization_falls_back_for_reservation_only_rewrite(self) -> None:
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.expressions: list[str] = []
+
+            def run_launcher_cli(
+                self,
+                compose: list[str],
+                cfg: argparse.Namespace,
+                expression: str,
+            ) -> dict[str, object]:
+                _ = compose, cfg
+                self.expressions.append(expression)
+                return {
+                    "status": 200,
+                    "elapsed_seconds": 0.02,
+                    "response_excerpt": json.dumps(
+                        {
+                            "ok": True,
+                            "adoptedObjects": 0,
+                            "reboundControllers": 0,
+                            "reservationUpdates": 1,
+                            "rewrittenOwnerReferences": 1,
+                            "rewrittenAnchorReferences": 0,
+                            "activeUser": True,
+                        },
+                        sort_keys=True,
+                    ),
+                }
+
+        fixture = {
+            "type": harness.PRIVATE_MAP_FIXTURE_TYPE,
+            "owner": {"id": "owner", "username": "rl-owner"},
+            "rooms": [
+                {
+                    "room": "E1S1",
+                    "objects": [
+                        {
+                            "_id": "controller-reserved",
+                            "type": "controller",
+                            "reservation": {"user": "owner"},
+                        }
+                    ],
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture_path = Path(temp_dir) / "map.json"
+            fixture_path.write_text(json.dumps(fixture, sort_keys=True), encoding="utf-8")
+            smoke = FakeSmoke()
+            cfg = argparse.Namespace(username="rl-sim-fixture")
+
+            with mock.patch.object(harness, "_debug_worker_phase"):
+                summary = harness._preinitialize_fixture_owned_room_for_spawn(
+                    smoke,
+                    ["compose"],
+                    cfg,
+                    map_source_file=fixture_path,
+                    room="E1S1",
+                    worker_index=0,
+                    variant_id="variant-a",
+                )
+
+        self.assertIsNone(summary)
+        self.assertEqual(len(smoke.expressions), 1)
+
+    def test_fixture_owned_anchor_preinitialization_skips_neutral_rooms(self) -> None:
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.expressions: list[str] = []
+
+            def run_launcher_cli(
+                self,
+                compose: list[str],
+                cfg: argparse.Namespace,
+                expression: str,
+            ) -> dict[str, object]:
+                _ = compose, cfg
+                self.expressions.append(expression)
+                return {"status": 200}
+
+        smoke = FakeSmoke()
+        cfg = argparse.Namespace(username="rl-sim-fixture")
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v1.map.json")
+
+        summary = harness._preinitialize_fixture_owned_room_for_spawn(
+            smoke,
+            ["compose"],
+            cfg,
+            map_source_file=fixture_path,
+            room="E2S1",
+            worker_index=0,
+            variant_id="variant-a",
+        )
+
+        self.assertIsNone(summary)
+        self.assertEqual(smoke.expressions, [])
+
+    def test_fixture_owned_anchor_preinitialization_falls_back_on_launcher_error(self) -> None:
+        class FakeSmoke:
+            def run_launcher_cli(
+                self,
+                compose: list[str],
+                cfg: argparse.Namespace,
+                expression: str,
+            ) -> dict[str, object]:
+                _ = compose, cfg, expression
+                raise RuntimeError("temporary launcher CLI failure")
+
+        cfg = argparse.Namespace(username="rl-sim-fixture")
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v1.map.json")
+
+        with mock.patch.object(harness, "_debug_worker_phase") as debug_phase:
+            summary = harness._preinitialize_fixture_owned_room_for_spawn(
+                FakeSmoke(),
+                ["compose"],
+                cfg,
+                map_source_file=fixture_path,
+                room="E1S1",
+                worker_index=0,
+                variant_id="variant-a",
+            )
+
+        self.assertIsNone(summary)
+        self.assertGreaterEqual(debug_phase.call_count, 2)
+        self.assertEqual(debug_phase.call_args.args[2], "fixture-owned room preinitialization failed; falling back to place-spawn")
+
+    def test_initialize_spawn_skips_place_spawn_for_fixture_owned_anchor(self) -> None:
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.expressions: list[str] = []
+                self.place_spawn_calls = 0
+
+            def run_launcher_cli(
+                self,
+                compose: list[str],
+                cfg: argparse.Namespace,
+                expression: str,
+            ) -> dict[str, object]:
+                _ = compose, cfg
+                self.expressions.append(expression)
+                return {
+                    "status": 200,
+                    "elapsed_seconds": 0.02,
+                    "response_excerpt": json.dumps(
+                        {
+                            "ok": True,
+                            "adoptedObjects": 5,
+                            "rewrittenOwnerReferences": 5,
+                            "rewrittenAnchorReferences": 2,
+                            "activeUser": True,
+                        },
+                        sort_keys=True,
+                    ),
+                }
+
+            def http_json(self, method: str, base_url: str, path: str, *args: object, **kwargs: object) -> object:
+                _ = method, base_url, args, kwargs
+                if path == "/api/game/place-spawn":
+                    self.place_spawn_calls += 1
+                raise AssertionError(f"unexpected HTTP call: {path}")
+
+        smoke = FakeSmoke()
+        cfg = argparse.Namespace(username="rl-sim-fixture", server_url="http://127.0.0.1", room="E1S1")
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v1.map.json")
+
+        with mock.patch.object(harness, "_debug_worker_phase"):
+            token, summary = harness._initialize_spawn_for_private_simulator(
+                smoke,
+                cfg,
+                "initial-token",
+                compose=["compose"],
+                map_source_file=fixture_path,
+                room="E1S1",
+                worker_index=0,
+                variant_id="variant-a",
+            )
+
+        self.assertEqual(token, "initial-token")
+        self.assertEqual(summary["classification"], "already_playing")
+        self.assertTrue(summary["skippedPlaceSpawn"])
+        self.assertEqual(summary["fixtureOwnerAdoption"]["classification"], "fixture_owner_adopted")
+        self.assertEqual(smoke.place_spawn_calls, 0)
+        self.assertEqual(len(smoke.expressions), 1)
 
     def test_fixture_room_busy_self_healer_skips_without_target_username(self) -> None:
         class FakeSmoke:
