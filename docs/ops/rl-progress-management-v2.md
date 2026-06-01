@@ -25,6 +25,7 @@ Domain = RL flywheel
 Status in {Ready, In progress, In review}
 Issue/PR is open
 Issue number != 879
+Issue number != 1589   (unless running the bounded PM-contract migration)
 ```
 
 Sort executable work by:

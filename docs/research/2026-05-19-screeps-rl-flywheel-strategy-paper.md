@@ -5,7 +5,7 @@
 Status: historical RL strategy paper; strategy content remains useful, but active project management is superseded by `docs/ops/rl-progress-management-v2.md`.
 Date: 2026-05-19  
 Scope: Screeps: World official MMO bot, private/offline simulator training, Tencent batch compute, scorecard-gated rollout, and online-feedback-driven self-iteration.  
-Primary tracking now: Project `screeps` atomic Issues/PRs with `Domain = RL flywheel`; #879 is historical context only and #1589 is migration-only.
+For current authoritative tracking, use Project `screeps` atomic Issues/PRs with `Domain = RL flywheel`; #879 is historical context only and #1589 is migration-only.
 Supersedes as the strategy foundation: `docs/research/2026-04-29-screeps-rl-self-evolving-strategy-paper.md`; superseded for active PM by `docs/ops/rl-progress-management-v2.md`.
 
 ## Abstract
@@ -569,9 +569,9 @@ Required views:
 6. **Scorecard:** current decision and missing evidence.
 7. **Safety:** live/official write flags, OOD/conservative status.
 8. **Feedback Act:** finding -> decision -> card -> training -> scorecard trace.
-9. **Project state:** #879 and leaf blockers with Status/Evidence/Next action.
+9. **Project state:** atomic Project `screeps` items with `Domain = RL flywheel`, `Status`, `Evidence`, `Next action`, and `Blocked by`.
 
-Current status: SQLite exists and is populated; the live owner-facing Grafana/dashboard process was not running in the audit. #1237 owns restoration.
+Historical status: SQLite exists and is populated; this 2026-05-19 paper no longer owns active PM routing. Use `docs/ops/rl-progress-management-v2.md` plus live Project `Domain = RL flywheel` Issues/PRs for current state.
 
 ## 15. Safety policy
 
@@ -588,22 +588,13 @@ Hard rules:
 
 ## 16. Maintenance contract
 
-This paper is now the canonical RL strategy document. It must be updated when any of the following change:
+This paper is historical/context-only for active PM. It remains useful strategy background, but the authoritative current routing contract is `docs/ops/rl-progress-management-v2.md` plus live Project `screeps` Issues/PRs with `Domain = RL flywheel`. PRs that change reward policy, policy surfaces, experiment cards, Tencent batch shape, scorecards, observability, or live influence should update the current contract/runbooks when they affect active routing; update this paper only when preserving historical strategy context requires it.
 
-- reward component order, weighting, or decision workflow;
-- policy action surface or candidate identity scheme;
-- experiment card schema or safety fields;
-- Tencent batch shape, utilization thresholds, or billing guard;
-- scorecard contract or rollout thresholds;
-- online feedback/Act loop structure;
-- observability/Grafana data model;
-- official MMO live influence policy.
+## 17. Historical roadmap at the time of this paper
 
-PRs that change those areas should either update this paper or explicitly state why the paper remains accurate.
+The immediate ordering below is preserved as historical context from the 2026-05-19 reset. Do not use this section as the active queue; translate any still-valid item into the smallest open Project `Domain = RL flywheel` issue/PR.
 
-## 17. Current roadmap to closure
-
-Immediate ordering:
+Historical ordering:
 
 1. Finish #1229 runtime candidate-parameter injection.
 2. Land #1235/#1241 documentation and stage-gate contract.
@@ -614,7 +605,7 @@ Immediate ordering:
 7. Generate #1238 #924-compatible candidate scorecard.
 8. If scorecard permits, wire #1239 safe canary/rollback.
 9. Trace first online finding through #1240 into a reward/scenario/policy update and new experiment card.
-10. Keep #879 open until this loop has repeated without owner prompting.
+10. Historical 2026-05-19 note: #879 was then left open until the loop repeated without owner prompting; this is superseded by `docs/ops/rl-progress-management-v2.md`, which forbids #879 as an active queue or completion proxy.
 
 ## 18. Why this design is advanced and robust
 
@@ -647,4 +638,4 @@ The current project has most of the foundation. The remaining work is to make th
 - Simulator harness: `scripts/screeps_rl_simulator_harness.py`.
 - Historical validator: `scripts/screeps_rl_mmo_validator.py`.
 - Rollout manager: `scripts/screeps_rl_rollout_manager.py`, `docs/ops/rl-rollout-rollback.md`.
-- Active product issues: #879, #1032, #1228/#1229, #1231, #1232, #1233, #1234, #1235, #1236, #1237, #1238, #1239, #1240, #1241.
+- Historical 2026-05-19 issue map: #879, #1032, #1228/#1229, #1231, #1232, #1233, #1234, #1235, #1236, #1237, #1238, #1239, #1240, #1241. Current active ownership must be read from Project `screeps` atomic Issues/PRs with `Domain = RL flywheel`, excluding #879 and excluding #1589 except during its bounded PM-contract migration.
