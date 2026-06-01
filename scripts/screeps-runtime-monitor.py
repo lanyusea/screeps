@@ -2222,12 +2222,25 @@ def worker_assignment_capture_paths(captures: list[dict[str, Any]]) -> list[str]
     return paths
 
 
+def worker_assignment_capture_window_is_fresh(captures: list[dict[str, Any]], current_tick_value: Any) -> bool:
+    if not captures:
+        return False
+    current_tick = tick_number(current_tick_value)
+    latest_capture_tick = tick_number(captures[0].get("runtimeSummaryTick"))
+    if current_tick is None or latest_capture_tick is None:
+        return False
+    return latest_capture_tick >= current_tick
+
+
 def worker_assignment_capture_window_evidence(
     runtime_room: dict[str, Any] | None,
     metrics: RoomSummaryMetrics,
+    current_tick_value: Any,
 ) -> tuple[dict[str, Any], dict[str, int]] | None:
     captures = worker_assignment_deadlock_consecutive_captures(runtime_room)
     if len(captures) < WORKER_ASSIGNMENT_STALL_REQUIRED_CONSECUTIVE_CAPTURES:
+        return None
+    if not worker_assignment_capture_window_is_fresh(captures, current_tick_value):
         return None
 
     evidence = worker_assignment_stall_evidence(runtime_room, metrics)
@@ -2293,7 +2306,7 @@ def detect_worker_assignment_stall_reason(
     previous_rule_state: Any,
     current_tick_value: Any,
 ) -> tuple[dict[str, Any] | None, dict[str, int] | int]:
-    capture_window = worker_assignment_capture_window_evidence(runtime_room, metrics)
+    capture_window = worker_assignment_capture_window_evidence(runtime_room, metrics, current_tick_value)
     if capture_window is not None:
         evidence, state = capture_window
         return build_worker_assignment_stall_reason(ref, evidence, state), state

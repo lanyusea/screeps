@@ -3771,6 +3771,54 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertIn("#1580", report["triggers"][0]["metadata"]["related_issues"])
         self.assertIn("#1553", report["triggers"][0]["metadata"]["related_issues"])
 
+    def test_worker_deadlock_console_capture_window_requires_fresh_latest_capture(self) -> None:
+        room = "E29N57"
+        ticks = [1630662, 1630668, 1630675, 1630685]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            for index, tick in enumerate(ticks, start=1):
+                (runtime_dir / f"runtime-summary-console-20260601T00000{index}Z.log").write_text(
+                    "#runtime-summary "
+                    + json.dumps(
+                        worker_deadlock_runtime_summary_payload(
+                            room,
+                            tick,
+                            productive_assignment_count=0,
+                            blocked_detail="spawn_reserving_energy",
+                        )
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+            (runtime_dir / "runtime-summary-console-20260601T000100Z.log").write_text(
+                "#cpu-summary " + json.dumps({"used": 4.2, "limit": 70, "bucket": 9000, "pressure": "normal"}) + "\n",
+                encoding="utf-8",
+            )
+
+            warnings: list[str] = []
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room=room)],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        runtime_room = runtime_rooms[f"shardX/{room}"]
+        self.assertEqual(
+            runtime_room[monitor.RUNTIME_SUMMARY_CAPTURE_HISTORY_METADATA_KEY][0]["runtimeSummaryTick"],
+            ticks[-1],
+        )
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            make_owned_worker_room_snapshot(room, ticks[-1] + 25),
+            {"baseline_established": True, "owner": "lanyusea"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertNotIn(monitor.WORKER_ASSIGNMENT_STALL_KIND, [reason["kind"] for reason in emitted])
+
     def test_worker_deadlock_console_capture_without_build_backlog_stays_silent(self) -> None:
         room = "E29N57"
         ticks = [1630662, 1630668, 1630675, 1630685]
@@ -3915,6 +3963,51 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
 
         self.assertEqual(suppressed, [])
         self.assertNotIn(monitor.WORKER_ASSIGNMENT_STALL_KIND, [reason["kind"] for reason in emitted])
+
+    def test_worker_deadlock_console_capture_prefers_top_level_worker_count(self) -> None:
+        room = "E29N57"
+        ticks = [1630662, 1630668, 1630675, 1630685]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            for index, tick in enumerate(ticks, start=1):
+                payload = worker_deadlock_runtime_summary_payload(
+                    room,
+                    tick,
+                    productive_assignment_count=0,
+                    blocked_detail="spawn_reserving_energy",
+                )
+                room_summary = payload["rooms"][0]
+                room_summary["workerAssignmentEvidence"].pop("workerCount", None)
+                room_summary["resources"]["productiveEnergy"]["workerCount"] = 0
+                (runtime_dir / f"runtime-summary-console-20260601T00000{index}Z.log").write_text(
+                    "#runtime-summary " + json.dumps(payload) + "\n",
+                    encoding="utf-8",
+                )
+
+            warnings: list[str] = []
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room=room)],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        runtime_room = runtime_rooms[f"shardX/{room}"]
+        self.assertEqual(
+            runtime_room[monitor.RUNTIME_SUMMARY_CAPTURE_HISTORY_METADATA_KEY][0]["workerCount"],
+            2,
+        )
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            make_owned_worker_room_snapshot(room, ticks[-1]),
+            {"baseline_established": True, "owner": "lanyusea"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        stall_reason = next(reason for reason in emitted if reason["kind"] == monitor.WORKER_ASSIGNMENT_STALL_KIND)
+        self.assertEqual(stall_reason["workerCount"], 2)
 
     def test_worker_deadlock_console_capture_transient_window_stays_silent(self) -> None:
         room = "E29N57"
