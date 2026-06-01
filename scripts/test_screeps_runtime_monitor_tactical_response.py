@@ -200,6 +200,94 @@ def make_snapshot(objects: dict[str, dict[str, object]], tick: int | str | None 
     )
 
 
+def make_owned_worker_room_snapshot(room: str, tick: int) -> monitor.RoomSnapshot:
+    return monitor.RoomSnapshot(
+        ref=monitor.RoomRef("shardX", room),
+        terrain="0" * monitor.TERRAIN_CELLS,
+        objects=monitor.normalize_objects(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "lanyusea"},
+                    "x": 17,
+                    "y": 24,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "worker1": {
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "lanyusea"},
+                    "name": "WorkerA",
+                    "memory": {"role": "worker"},
+                },
+                "site1": {
+                    "type": "constructionSite",
+                    "my": True,
+                    "owner": {"username": "lanyusea"},
+                    "structureType": "extension",
+                    "progress": 0,
+                    "progressTotal": 4500,
+                    "x": 19,
+                    "y": 24,
+                },
+            }
+        ),
+        tick=tick,
+        owner="lanyusea",
+        info={"energyAvailable": 1650},
+        expected_owner="lanyusea",
+    )
+
+
+def worker_deadlock_runtime_summary_payload(
+    room: str,
+    tick: int,
+    productive_assignment_count: int,
+    blocked_detail: str | None,
+) -> dict[str, object]:
+    productive_task_count = max(0, min(2, productive_assignment_count))
+    task_counts = {
+        "harvest": 0,
+        "transfer": 0,
+        "build": productive_task_count,
+        "repair": 0,
+        "upgrade": 0,
+        "none": max(0, 2 - productive_task_count),
+    }
+    worker_assignment_evidence = {
+        "source": "runtime-summary",
+        "available": True,
+        "tick": tick,
+        "workerCount": 2,
+        "assignedTaskCount": productive_assignment_count,
+        "productiveAssignmentCount": productive_assignment_count,
+    }
+    productive_energy: dict[str, object] = {
+        "constructionSiteCount": 1,
+        "pendingBuildProgress": 4500,
+        "productiveAssignmentCount": productive_assignment_count,
+    }
+    room_summary: dict[str, object] = {
+        "roomName": room,
+        "shard": "shardX",
+        "workerAssignmentEvidenceAvailable": True,
+        "workerAssignmentEvidence": worker_assignment_evidence,
+        "workerCount": 2,
+        "taskCounts": task_counts,
+        "constructionSiteCount": 1,
+        "pendingBuildProgress": 4500,
+        "productiveAssignmentCount": productive_assignment_count,
+        "resources": {"productiveEnergy": productive_energy},
+    }
+    if blocked_detail is not None:
+        room_summary["workerAssignmentBlockedDetail"] = blocked_detail
+        room_summary["workerAssignmentBlockedWorkers"] = [{"name": "WorkerA", "task": "build", "carriedEnergy": 0}]
+        productive_energy["workerAssignmentBlockedDetail"] = blocked_detail
+    return {"type": "runtime-summary", "tick": tick, "rooms": [room_summary]}
+
+
 def make_worker_assignment_gap_metrics() -> monitor.RoomSummaryMetrics:
     return monitor.RoomSummaryMetrics(
         structures=[],
@@ -3616,6 +3704,356 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(report["categories"], [monitor.WORKER_ASSIGNMENT_STALL_KIND])
         self.assertEqual(report["triggers"][0]["reason_kind"], monitor.WORKER_ASSIGNMENT_STALL_KIND)
         self.assertIn("#1573", report["triggers"][0]["metadata"]["related_issues"])
+
+    def test_persistent_worker_deadlock_console_captures_alert_after_four_captures(self) -> None:
+        room = "E29N57"
+        ticks = [1630662, 1630668, 1630675, 1630685]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            paths: list[Path] = []
+            for index, tick in enumerate(ticks, start=1):
+                path = runtime_dir / f"runtime-summary-console-20260601T00000{index}Z.log"
+                path.write_text(
+                    "#runtime-summary "
+                    + json.dumps(
+                        worker_deadlock_runtime_summary_payload(
+                            room,
+                            tick,
+                            productive_assignment_count=0,
+                            blocked_detail="spawn_reserving_energy",
+                        )
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                paths.append(path)
+
+            warnings: list[str] = []
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room=room)],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        runtime_room = runtime_rooms[f"shardX/{room}"]
+        self.assertEqual(runtime_room[monitor.RUNTIME_SUMMARY_TICK_METADATA_KEY], ticks[-1])
+        self.assertEqual(
+            len(runtime_room[monitor.RUNTIME_SUMMARY_CAPTURE_HISTORY_METADATA_KEY]),
+            monitor.WORKER_ASSIGNMENT_STALL_REQUIRED_CONSECUTIVE_CAPTURES,
+        )
+
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            make_owned_worker_room_snapshot(room, ticks[-1]),
+            {"baseline_established": True, "owner": "lanyusea"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        stall_reason = next(reason for reason in emitted if reason["kind"] == monitor.WORKER_ASSIGNMENT_STALL_KIND)
+        self.assertEqual(stall_reason["room"], f"shardX/{room}")
+        self.assertEqual(stall_reason["workerAssignmentBlockedDetail"], "spawn_reserving_energy")
+        self.assertEqual(stall_reason["productiveAssignmentCount"], 0)
+        self.assertEqual(stall_reason["consecutiveCaptures"], 4)
+        self.assertEqual(stall_reason["thresholdCaptures"], 4)
+        self.assertEqual(stall_reason["runtimeSummaryTick"], ticks[-1])
+        self.assertEqual(stall_reason["runtimeSummaryCaptures"][0]["runtimeSummaryTick"], ticks[-1])
+        self.assertEqual(set(stall_reason["runtimeSummaryCapturePaths"]), {str(path) for path in paths})
+        self.assertIn("Codex triage", stall_reason["next_action"])
+        self.assertIs(stall_reason["owner_ping"], False)
+
+        report = monitor.build_tactical_response_report(
+            {"ok": True, "mode": "alert", "alert": True, "reasons": [stall_reason], "rooms": [f"shardX/{room}"]}
+        )
+        self.assertEqual(report["priority"], "P2")
+        self.assertIn("#1580", report["triggers"][0]["metadata"]["related_issues"])
+        self.assertIn("#1553", report["triggers"][0]["metadata"]["related_issues"])
+
+    def test_worker_deadlock_console_capture_window_requires_fresh_latest_capture(self) -> None:
+        room = "E29N57"
+        ticks = [1630662, 1630668, 1630675, 1630685]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            for index, tick in enumerate(ticks, start=1):
+                (runtime_dir / f"runtime-summary-console-20260601T00000{index}Z.log").write_text(
+                    "#runtime-summary "
+                    + json.dumps(
+                        worker_deadlock_runtime_summary_payload(
+                            room,
+                            tick,
+                            productive_assignment_count=0,
+                            blocked_detail="spawn_reserving_energy",
+                        )
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+            (runtime_dir / "runtime-summary-console-20260601T000100Z.log").write_text(
+                "#cpu-summary " + json.dumps({"used": 4.2, "limit": 70, "bucket": 9000, "pressure": "normal"}) + "\n",
+                encoding="utf-8",
+            )
+
+            warnings: list[str] = []
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room=room)],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        runtime_room = runtime_rooms[f"shardX/{room}"]
+        self.assertEqual(
+            runtime_room[monitor.RUNTIME_SUMMARY_CAPTURE_HISTORY_METADATA_KEY][0]["runtimeSummaryTick"],
+            ticks[-1],
+        )
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            make_owned_worker_room_snapshot(room, ticks[-1] + 25),
+            {"baseline_established": True, "owner": "lanyusea"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertNotIn(monitor.WORKER_ASSIGNMENT_STALL_KIND, [reason["kind"] for reason in emitted])
+
+    def test_worker_deadlock_console_capture_without_build_backlog_stays_silent(self) -> None:
+        room = "E29N57"
+        ticks = [1630662, 1630668, 1630675, 1630685]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            for index, tick in enumerate(ticks, start=1):
+                payload = worker_deadlock_runtime_summary_payload(
+                    room,
+                    tick,
+                    productive_assignment_count=0,
+                    blocked_detail="spawn_reserving_energy",
+                )
+                room_summary = payload["rooms"][0]
+                productive_energy = room_summary["resources"]["productiveEnergy"]
+                room_summary["constructionSiteCount"] = 0
+                room_summary["pendingBuildProgress"] = 0
+                productive_energy["constructionSiteCount"] = 0
+                productive_energy["pendingBuildProgress"] = 0
+                (runtime_dir / f"runtime-summary-console-20260601T00000{index}Z.log").write_text(
+                    "#runtime-summary " + json.dumps(payload) + "\n",
+                    encoding="utf-8",
+                )
+
+            warnings: list[str] = []
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room=room)],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            make_owned_worker_room_snapshot(room, ticks[-1]),
+            {"baseline_established": True, "owner": "lanyusea"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_rooms[f"shardX/{room}"],
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertNotIn(monitor.WORKER_ASSIGNMENT_STALL_KIND, [reason["kind"] for reason in emitted])
+
+    def test_worker_deadlock_console_capture_gap_window_stays_silent(self) -> None:
+        room = "E29N57"
+        ticks = [1630662, 1630668, 1630675, 1630685]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            for index, tick in enumerate(ticks, start=1):
+                payload = worker_deadlock_runtime_summary_payload(
+                    room,
+                    tick,
+                    productive_assignment_count=0,
+                    blocked_detail="spawn_reserving_energy",
+                )
+                room_summary = payload["rooms"][0]
+                productive_energy = room_summary["resources"]["productiveEnergy"]
+                room_summary["buildBlockedReason"] = monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON
+                productive_energy["buildBlockedReason"] = monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON
+                (runtime_dir / f"runtime-summary-console-20260601T00000{index}Z.log").write_text(
+                    "#runtime-summary " + json.dumps(payload) + "\n",
+                    encoding="utf-8",
+                )
+
+            warnings: list[str] = []
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room=room)],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            make_owned_worker_room_snapshot(room, ticks[-1]),
+            {"baseline_established": True, "owner": "lanyusea"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_rooms[f"shardX/{room}"],
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertNotIn(monitor.WORKER_ASSIGNMENT_STALL_KIND, [reason["kind"] for reason in emitted])
+
+    def test_worker_deadlock_console_capture_nested_zero_worker_count_stays_silent(self) -> None:
+        room = "E29N57"
+        ticks = [1630662, 1630668, 1630675, 1630685]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            for index, tick in enumerate(ticks, start=1):
+                payload = {
+                    "type": "runtime-summary",
+                    "tick": tick,
+                    "rooms": [
+                        {
+                            "roomName": room,
+                            "shard": "shardX",
+                            "workerAssignmentEvidenceAvailable": True,
+                            "taskCounts": {
+                                "harvest": 0,
+                                "transfer": 0,
+                                "build": 0,
+                                "repair": 0,
+                                "upgrade": 0,
+                                "none": 0,
+                            },
+                            "resources": {
+                                "productiveEnergy": {
+                                    "workerCount": 0,
+                                    "constructionSiteCount": 1,
+                                    "pendingBuildProgress": 4500,
+                                    "productiveAssignmentCount": 0,
+                                    "workerAssignmentBlockedDetail": "spawn_reserving_energy",
+                                }
+                            },
+                        }
+                    ],
+                }
+                (runtime_dir / f"runtime-summary-console-20260601T00000{index}Z.log").write_text(
+                    "#runtime-summary " + json.dumps(payload) + "\n",
+                    encoding="utf-8",
+                )
+
+            warnings: list[str] = []
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room=room)],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        runtime_room = runtime_rooms[f"shardX/{room}"]
+        self.assertEqual(
+            runtime_room[monitor.RUNTIME_SUMMARY_CAPTURE_HISTORY_METADATA_KEY][0]["workerCount"],
+            0,
+        )
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            make_owned_worker_room_snapshot(room, ticks[-1]),
+            {"baseline_established": True, "owner": "lanyusea"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertNotIn(monitor.WORKER_ASSIGNMENT_STALL_KIND, [reason["kind"] for reason in emitted])
+
+    def test_worker_deadlock_console_capture_prefers_top_level_worker_count(self) -> None:
+        room = "E29N57"
+        ticks = [1630662, 1630668, 1630675, 1630685]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            for index, tick in enumerate(ticks, start=1):
+                payload = worker_deadlock_runtime_summary_payload(
+                    room,
+                    tick,
+                    productive_assignment_count=0,
+                    blocked_detail="spawn_reserving_energy",
+                )
+                room_summary = payload["rooms"][0]
+                room_summary["workerAssignmentEvidence"].pop("workerCount", None)
+                room_summary["resources"]["productiveEnergy"]["workerCount"] = 0
+                (runtime_dir / f"runtime-summary-console-20260601T00000{index}Z.log").write_text(
+                    "#runtime-summary " + json.dumps(payload) + "\n",
+                    encoding="utf-8",
+                )
+
+            warnings: list[str] = []
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room=room)],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        runtime_room = runtime_rooms[f"shardX/{room}"]
+        self.assertEqual(
+            runtime_room[monitor.RUNTIME_SUMMARY_CAPTURE_HISTORY_METADATA_KEY][0]["workerCount"],
+            2,
+        )
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            make_owned_worker_room_snapshot(room, ticks[-1]),
+            {"baseline_established": True, "owner": "lanyusea"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        stall_reason = next(reason for reason in emitted if reason["kind"] == monitor.WORKER_ASSIGNMENT_STALL_KIND)
+        self.assertEqual(stall_reason["workerCount"], 2)
+
+    def test_worker_deadlock_console_capture_transient_window_stays_silent(self) -> None:
+        room = "E29N57"
+        captures = [
+            (1630662, 0, "spawn_reserving_energy"),
+            (1630668, 0, "spawn_reserving_energy"),
+            (1630675, 1, None),
+            (1630680, 0, "spawn_reserving_energy"),
+            (1630685, 0, "spawn_reserving_energy"),
+            (1630690, 0, "spawn_reserving_energy"),
+        ]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            for index, (tick, productive_count, blocked_detail) in enumerate(captures, start=1):
+                (runtime_dir / f"runtime-summary-console-20260601T00000{index}Z.log").write_text(
+                    "#runtime-summary "
+                    + json.dumps(
+                        worker_deadlock_runtime_summary_payload(
+                            room,
+                            tick,
+                            productive_assignment_count=productive_count,
+                            blocked_detail=blocked_detail,
+                        )
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+            warnings: list[str] = []
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room=room)],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            make_owned_worker_room_snapshot(room, captures[-1][0]),
+            {"baseline_established": True, "owner": "lanyusea"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_rooms[f"shardX/{room}"],
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertNotIn(monitor.WORKER_ASSIGNMENT_STALL_KIND, [reason["kind"] for reason in emitted])
 
     def test_productive_assignment_stall_stale_runtime_summary_does_not_age(self) -> None:
         runtime_room = {
