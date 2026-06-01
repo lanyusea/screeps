@@ -864,7 +864,7 @@ class RlExperimentCardTest(unittest.TestCase):
         runner.validate_experiment_card(generated)
         config = runner.simulation_config_from_card(generated)
         self.assertEqual(config.workers, 2)
-        self.assertEqual(config.repetitions, 10)
+        self.assertEqual(config.repetitions, 20)
         self.assertEqual(config.ticks, card_helper.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
         self.assertEqual(config.scale_environments, 2)
         self.assertEqual(config.min_concurrent_environments, 2)
@@ -2727,6 +2727,29 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertGreaterEqual(config.ticks, card_helper.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
         self.assertGreaterEqual(config.repetitions, 20)
 
+    def test_policy_gradient_card_generation_floors_scaled_four_variant_sample_plan(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-scaled-four-variants",
+            code_commit="1" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+            simulation_repetitions=10,
+            simulation_workers=2,
+            simulation_scale_environments=2,
+            simulation_min_concurrent_environments=2,
+        )
+        config = runner.simulation_config_from_card(card)
+        plan = card_helper.policy_gradient_trust_sample_plan(
+            repetitions=config.repetitions,
+            scale_environments=config.scale_environments,
+            variant_count=len(card["strategy_variants"]),
+            required_samples_per_candidate=20,
+        )
+
+        self.assertEqual(len(card["strategy_variants"]), 4)
+        self.assertEqual(config.repetitions, 20)
+        self.assertGreaterEqual(plan["minimumSamplesPerCandidate"], 20)
+
     def test_non_policy_gradient_card_preserves_requested_short_horizon(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-bandit-short-horizon",
@@ -2773,12 +2796,46 @@ class RlExperimentCardTest(unittest.TestCase):
             training_approach="policy_gradient",
             created_at="2026-05-17T00:25:00Z",
         )
-        card["simulation"]["workers"] = 5
-        card["simulation"]["repetitions"] = 4
-        card["simulation"]["scale_environments"] = 5
-        card["simulation"]["min_concurrent_environments"] = 5
+        card["simulation"]["workers"] = 10
+        card["simulation"]["repetitions"] = 10
+        card["simulation"]["scale_environments"] = 10
+        card["simulation"]["min_concurrent_environments"] = 10
 
         card_helper.validate_card(card)
+
+    def test_validate_rejects_policy_gradient_total_scale_budget_that_under_samples_four_variants(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-total-scale-under-samples",
+            code_commit="1" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+            simulation_repetitions=10,
+            simulation_workers=2,
+            simulation_scale_environments=2,
+            simulation_min_concurrent_environments=2,
+        )
+        card["simulation"]["repetitions"] = 10
+
+        with self.assertRaisesRegex(
+            card_helper.CardValidationError,
+            "requested samples per candidate >= 20",
+        ):
+            card_helper.validate_card(card)
+
+    def test_policy_gradient_sample_plan_counts_expanded_rows_per_variant(self) -> None:
+        plan = card_helper.policy_gradient_trust_sample_plan(
+            repetitions=10,
+            scale_environments=2,
+            variant_count=4,
+            required_samples_per_candidate=20,
+        )
+
+        self.assertEqual(plan["expandedRowCount"], 4)
+        self.assertEqual(plan["rowsPerCandidate"], [1, 1, 1, 1])
+        self.assertEqual(plan["samplesPerCandidate"], [10, 10, 10, 10])
+        self.assertEqual(plan["minimumSamplesPerCandidate"], 10)
+        self.assertEqual(plan["requiredRepetitions"], 20)
+        self.assertEqual(plan["minimumTotalSamples"], 80)
 
     def test_validate_rejects_policy_gradient_scale_environments_above_workers(self) -> None:
         card = card_helper.build_card(
@@ -3058,7 +3115,7 @@ class RlExperimentCardTest(unittest.TestCase):
         runner.validate_experiment_card(generated)
         config = runner.simulation_config_from_card(generated)
         self.assertEqual(config.workers, 5)
-        self.assertEqual(config.repetitions, 4)
+        self.assertEqual(config.repetitions, 20)
         self.assertEqual(config.scale_environments, 5)
         self.assertIsNone(config.min_concurrent_environments)
 

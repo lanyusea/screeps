@@ -523,6 +523,25 @@ class RlTrainingRunnerTest(unittest.TestCase):
         ):
             runner.validate_experiment_card(card)
 
+    def test_experiment_card_validation_rejects_scaled_policy_gradient_under_sample_plan(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-policy-gradient-under-sampled-scale",
+            code_commit="a" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:19:45Z",
+            simulation_repetitions=10,
+            simulation_workers=2,
+            simulation_scale_environments=2,
+            simulation_min_concurrent_environments=2,
+        )
+        card["simulation"]["repetitions"] = 10
+
+        with self.assertRaisesRegex(
+            runner.TrainingCardError,
+            "planned minimum is 10 .*requires simulation\\.repetitions >= 20",
+        ):
+            runner.validate_experiment_card(card)
+
     def test_experiment_card_validation_rejects_inconsistent_scenario_suitability(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-training-scenario-invalid",
@@ -2920,6 +2939,7 @@ export const STRATEGY_REGISTRY = [
             update["gradientEstimation"]["schemeIdentity"]["estimator"],
             runner.POLICY_GRADIENT_LEXICOGRAPHIC_REINFORCE_ESTIMATOR,
         )
+
         self.assertEqual(
             update["gradientEstimation"]["schemeIdentity"]["gradientReward"],
             runner.POLICY_GRADIENT_LEXICOGRAPHIC_PER_TIER_REWARD,
@@ -2965,6 +2985,59 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(update["promotionGate"]["officialMmoWritesAllowed"])
         self.assertTrue(update["nextCandidatePolicy"]["trustedGradientUpdate"])
         self.assertFalse(update["nextCandidatePolicy"]["liveEffect"])
+
+    def test_gradient_stability_records_insufficient_samples_for_four_candidate_validation_plan(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-four-candidate-samples",
+            code_commit="1" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+            simulation_repetitions=10,
+            simulation_workers=2,
+            simulation_scale_environments=2,
+            simulation_min_concurrent_environments=2,
+        )
+        policy_gradient = card["policy_gradient"]
+        parameter_space = runner.policy_update_parameter_space(policy_gradient)
+        candidates: list[JsonObject] = []
+        samples: list[JsonObject] = []
+        for candidate in policy_gradient["candidate_parameter_vectors"]:
+            row = {
+                "candidatePolicyId": candidate["candidatePolicyId"],
+                "strategyVariantId": candidate["strategyVariantId"],
+                "parameters": candidate["parameters"],
+                "returnSampleCount": 10,
+            }
+            candidates.append(row)
+            for _index in range(10):
+                samples.append(
+                    {
+                        "candidatePolicyId": candidate["candidatePolicyId"],
+                        "strategyVariantId": candidate["strategyVariantId"],
+                        "parameters": candidate["parameters"],
+                        "returnTuple": [1, 0, 0, 0],
+                    }
+                )
+
+        stability = runner.policy_update_gradient_stability_gate(
+            policy_gradient=policy_gradient,
+            parameter_space=parameter_space,
+            candidates=candidates,
+            samples=samples,
+            anchor_parameters=candidates[0]["parameters"],
+            return_baseline=[1, 0, 0, 0],
+            gradient={},
+            selected_reward_tier_by_parameter={},
+        )
+
+        self.assertEqual(stability["classification"], "insufficient_sample_high_variance")
+        self.assertEqual(stability["minimumSamplesPerCandidate"], 20)
+        self.assertEqual(stability["minimumTotalSamples"], 80)
+        self.assertEqual(stability["totalReturnSampleCount"], 40)
+        self.assertEqual(set(stability["sampleCountByCandidate"].values()), {10})
+        self.assertEqual(len(stability["insufficientCandidates"]), 4)
+        self.assertIn("fewer Monte Carlo return samples per candidate", stability["reason"])
+        self.assertFalse(stability["trustedGradientUpdate"])
 
     def test_reinforce_gradient_stability_trusts_same_scheme_previous_gradient(self) -> None:
         policy_gradient = reinforce_stability_policy_gradient()

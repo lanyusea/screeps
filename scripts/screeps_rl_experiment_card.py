@@ -960,6 +960,16 @@ def build_card(
         policy_gradient = policy_gradient_block(registry_path or DEFAULT_STRATEGY_REGISTRY_PATH)
         card["policy_gradient"] = policy_gradient
         card["strategy_variants"] = policy_gradient_strategy_variants(policy_gradient)
+        trust_samples = validate_policy_gradient(policy_gradient)
+        sample_plan = policy_gradient_trust_sample_plan(
+            repetitions=positive_int(card["simulation"]["repetitions"]),
+            scale_environments=positive_int(
+                first_present(card["simulation"], ("scale_environments", "scaleEnvironments"))
+            ),
+            variant_count=len(card["strategy_variants"]),
+            required_samples_per_candidate=trust_samples,
+        )
+        card["simulation"]["repetitions"] = sample_plan["requiredRepetitions"]
     if loop_a_card_supply:
         card["card_supply"] = loop_a_card_supply_block(
             dataset_run_id=dataset_run_id,
@@ -1355,7 +1365,11 @@ def validate_card(raw: Any) -> None:
     if policy_gradient is not None:
         policy_gradient_trust_samples = validate_policy_gradient(policy_gradient)
     if training_approach == "policy_gradient":
-        validate_policy_gradient_simulation(simulation, policy_gradient_trust_samples)
+        validate_policy_gradient_simulation(
+            simulation,
+            policy_gradient_trust_samples,
+            variant_count=len(strategy_variants) if isinstance(strategy_variants, list) else 0,
+        )
         validate_policy_gradient_strategy_variants(policy_gradient, strategy_variants)
 
 
@@ -2619,7 +2633,12 @@ def validate_simulation(raw: Any) -> None:
             raise CardValidationError(f"simulation.{field} must be a non-empty string")
 
 
-def validate_policy_gradient_simulation(raw: Any, required_samples_per_candidate: int | None = None) -> None:
+def validate_policy_gradient_simulation(
+    raw: Any,
+    required_samples_per_candidate: int | None = None,
+    *,
+    variant_count: int = 1,
+) -> None:
     if not isinstance(raw, dict):
         raise CardValidationError("simulation must be a JSON object")
     ticks = positive_int(raw.get("ticks"))
@@ -2637,13 +2656,60 @@ def validate_policy_gradient_simulation(raw: Any, required_samples_per_candidate
     workers = positive_int(raw.get("workers"))
     if workers is None or (worker_floor is not None and workers < worker_floor):
         raise CardValidationError(POLICY_GRADIENT_WORKER_CONCURRENCY_ERROR)
-    requested_samples = repetitions * scale_environments if repetitions is not None else None
-    if requested_samples is None or requested_samples < required_samples:
+    sample_plan = policy_gradient_trust_sample_plan(
+        repetitions=repetitions,
+        scale_environments=scale_environments,
+        variant_count=variant_count,
+        required_samples_per_candidate=required_samples,
+    )
+    if sample_plan["minimumSamplesPerCandidate"] < required_samples:
         raise CardValidationError(
             "policy_gradient cards require "
             f"requested samples per candidate >= {required_samples} to satisfy gradient_trust_gate "
-            "(simulation.repetitions * simulation.scale_environments)"
+            "(per-candidate expanded simulator rows * simulation.repetitions); "
+            f"planned minimum is {sample_plan['minimumSamplesPerCandidate']} with "
+            f"{sample_plan['variantCount']} variant(s), {sample_plan['expandedRowCount']} expanded row(s), "
+            f"and {sample_plan['repetitions']} repetition(s); "
+            f"requires simulation.repetitions >= {sample_plan['requiredRepetitions']}"
         )
+
+
+def policy_gradient_trust_sample_plan(
+    *,
+    repetitions: int | None,
+    scale_environments: int | None,
+    variant_count: int,
+    required_samples_per_candidate: int,
+) -> JsonObject:
+    """Plan the minimum return samples each candidate receives after row expansion."""
+    safe_variant_count = max(1, variant_count)
+    safe_repetitions = repetitions if repetitions is not None and repetitions > 0 else 0
+    safe_scale_environments = scale_environments if scale_environments is not None and scale_environments > 0 else None
+    row_count = max(safe_scale_environments or safe_variant_count, safe_variant_count)
+    rows_by_candidate = [0 for _index in range(safe_variant_count)]
+    for row_index in range(row_count):
+        rows_by_candidate[row_index % safe_variant_count] += 1
+    samples_by_candidate = [row_count_for_candidate * safe_repetitions for row_count_for_candidate in rows_by_candidate]
+    min_rows_per_candidate = min(rows_by_candidate) if rows_by_candidate else 0
+    required_repetitions = (
+        math.ceil(required_samples_per_candidate / min_rows_per_candidate)
+        if min_rows_per_candidate > 0
+        else required_samples_per_candidate
+    )
+    return {
+        "variantCount": safe_variant_count,
+        "repetitions": safe_repetitions,
+        "scaleEnvironments": safe_scale_environments,
+        "expandedRowCount": row_count,
+        "rowsPerCandidate": rows_by_candidate,
+        "minimumRowsPerCandidate": min_rows_per_candidate,
+        "samplesPerCandidate": samples_by_candidate,
+        "minimumSamplesPerCandidate": min(samples_by_candidate) if samples_by_candidate else 0,
+        "requiredSamplesPerCandidate": required_samples_per_candidate,
+        "requiredRepetitions": max(safe_repetitions, required_repetitions),
+        "minimumTotalSamples": required_samples_per_candidate * safe_variant_count,
+        "requestedTotalSamples": sum(samples_by_candidate),
+    }
 
 
 def policy_gradient_simulation_scale_environments(raw: JsonObject) -> int:
