@@ -459,6 +459,45 @@ class RlConclusionRegistryTest(unittest.TestCase):
         self.assertEqual(list(single_record), ["TOP-LEVEL-SINGLE"])
         self.assertEqual(single_record["TOP-LEVEL-SINGLE"]["status"], "VALIDATING")
 
+    def test_merge_registry_file_accepts_metadata_only_existing_registry(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "conclusion-registry.json"
+            path.write_text(
+                registry.canonical_json(
+                    {
+                        "schemaVersion": 1,
+                        "registryType": "rl-conclusion-registry",
+                        "lastUpdatedAt": "2026-05-31T00:00:00Z",
+                        "updatedBy": "bootstrap",
+                        "summary": {"total": 0},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            merged = registry.merge_registry_file(
+                path,
+                [
+                    {
+                        "conclusionId": "E1-GATE-STATUS",
+                        "status": "OPEN",
+                        "statement": "Metadata-only registry can receive its first conclusion.",
+                    },
+                ],
+                owner_cron="d6cff532edd4",
+                updated_at="2026-06-01T00:00:00Z",
+            )
+            saved = read_json(path)
+
+        self.assertEqual(saved, merged)
+        self.assertEqual(saved["schemaVersion"], 1)
+        self.assertEqual(saved["registryType"], "rl-conclusion-registry")
+        self.assertEqual(list(saved["conclusions"]), ["E1-GATE-STATUS"])
+        self.assertNotIn("summary", saved["conclusions"])
+        self.assertEqual(saved["conclusions"]["E1-GATE-STATUS"]["ownerCron"], "d6cff532edd4")
+        self.assertEqual(saved["summary"]["total"], 1)
+        self.assertEqual(saved["summary"]["new"], 1)
+
     def test_loop_b_append_update_preserves_existing_entries_shape_records(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "conclusion-registry.json"

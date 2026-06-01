@@ -16,6 +16,17 @@ from typing import Any, Sequence
 
 SCHEMA_VERSION = 1
 REGISTRY_TYPE = "rl-conclusion-registry"
+REGISTRY_METADATA_KEYS = frozenset(
+    (
+        "schemaVersion",
+        "registryType",
+        "type",
+        "lastUpdatedAt",
+        "updatedAt",
+        "updatedBy",
+        "summary",
+    )
+)
 CONCLUSION_STATUSES = ("OPEN", "STALE", "ACTIONED", "VALIDATING", "CLOSED", "ESCALATED")
 ACTIONABLE_STALE_SEVERITIES = ("P0", "P1")
 ACTIONABLE_STALE_STATUSES = ("OPEN", "STALE")
@@ -99,6 +110,10 @@ def merge_normalized_record_maps(sources: Sequence[dict[str, JsonObject]]) -> di
     return records
 
 
+def is_metadata_only_registry_payload(value: JsonObject) -> bool:
+    return bool(value) and all(key in REGISTRY_METADATA_KEYS for key in value)
+
+
 def normalize_conclusions(value: Any) -> dict[str, JsonObject]:
     if value is None:
         return {}
@@ -117,6 +132,8 @@ def normalize_conclusions(value: Any) -> dict[str, JsonObject]:
         ]
         if registry_sources:
             return merge_normalized_record_maps(registry_sources)
+        if is_metadata_only_registry_payload(value):
+            return {}
 
     items: list[tuple[str | None, Any]]
     if isinstance(value, dict):
