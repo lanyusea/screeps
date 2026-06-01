@@ -12720,6 +12720,79 @@ describe('selectWorkerTask', () => {
     expect(selectedTask).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
+  it('keeps RCL3 construction yield above the downgrade guard when CPU is healthy', () => {
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [site],
+      controller,
+      energyAvailable: 909,
+      energyCapacityAvailable: 1_800,
+      myStructures: [fullSpawn as AnyOwnedStructure]
+    });
+    const builder = {
+      name: 'BuilderCandidate',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    const idleWorker = {
+      name: 'IdleWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ BuilderCandidate: builder, IdleWorker: idleWorker });
+
+    expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'wall-site1' });
+  });
+
+  it('keeps the downgrade guard upgrading under low-bucket shedding when construction yield would idle', () => {
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [site],
+      controller,
+      energyAvailable: 909,
+      energyCapacityAvailable: 1_800,
+      myStructures: [fullSpawn as AnyOwnedStructure]
+    });
+    const builder = {
+      name: 'LowBucketBuilder',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    const idleWorker = {
+      name: 'IdleWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ LowBucketBuilder: builder, IdleWorker: idleWorker });
+    setCpuBucket(948);
+
+    expect(selectWorkerTask(builder)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
   it('reserves a loaded worker for container construction when container surplus protects recovery energy', () => {
     const site = {
       id: 'source-container-site1',
