@@ -278,6 +278,45 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
             self.assertEqual(baseline_metrics[metric]["target"], expected_value)
         self.assertFalse(rollout_decision_exists)
 
+    def test_empty_full_gate_input_reports_actionable_source_diagnostics(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            generated_gate_data = root / "runtime-artifacts" / "rl-control-loop" / "gate-data" / "rl-empty"
+            generated_gate_data.mkdir(parents=True)
+            write_json(generated_gate_data / "gate_summary.json", {"type": "not-a-runtime-summary"})
+
+            report = gate.run_gate(
+                [str(generated_gate_data)],
+                out_dir=root / "gates",
+                gate_id="gate-empty-input",
+                created_at="2026-05-31T02:19:40Z",
+                dataset_out_dir=root / "datasets",
+                skip_shadow_report=True,
+                bot_commit="a" * 40,
+                eval_ratio_value=0,
+                repo_root=root,
+            )
+            saved_report = read_json(root / "gates" / "gate-empty-input" / "gate_report.json")
+
+        self.assertFalse(report["ok"])
+        self.assertFalse(saved_report["ok"])
+        self.assertEqual(report["datasetGate"]["sampleCount"], 0)
+        diagnostics = report["datasetGate"]["diagnostics"]
+        self.assertEqual(diagnostics["status"], "blocked")
+        self.assertEqual(diagnostics["classification"], "no_runtime_summary_artifacts")
+        self.assertIn("runtime-summary console", diagnostics["recommendedAction"])
+        self.assertEqual(diagnostics["runtimeSummaryArtifactCount"], 0)
+        failed_checks = {
+            check["name"]: check
+            for check in report["datasetGate"]["checks"]
+            if check["status"] == "fail"
+        }
+        self.assertIn("minimum_samples", failed_checks)
+        self.assertEqual(
+            failed_checks["runtime_summary_artifacts_present"]["classification"],
+            "no_runtime_summary_artifacts",
+        )
+
     def test_run_rejects_dead_room_dataset_samples(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -624,6 +663,113 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
         self.assertEqual(report["quality_checks"]["home_room"], "W1N1")
         self.assertEqual(report["quality_checks"]["samples_rejected"], 1)
         self.assertIn("no_owned_spawns", report["quality_checks"]["rejection_reasons"])
+
+    def test_cli_persists_failure_report_when_full_gate_errors_before_report_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact = root / "runtime.log"
+            artifact.write_text(runtime_line(runtime_payload(100)), encoding="utf-8")
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with mock.patch.object(
+                gate.dataset_export,
+                "build_dataset",
+                side_effect=RuntimeError("simulated full gate dataset failure"),
+            ):
+                exit_code = gate.main(
+                    [
+                        "run",
+                        str(artifact),
+                        "--out-dir",
+                        str(root / "gates"),
+                        "--gate-id",
+                        "gate-dataset-crash",
+                        "--dataset-out-dir",
+                        str(root / "datasets"),
+                        "--skip-shadow-report",
+                        "--bot-commit",
+                        "b" * 40,
+                        "--eval-ratio",
+                        "0",
+                    ],
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+
+            report_path = root / "gates" / "gate-dataset-crash" / "gate_report.json"
+            summary_path = root / "gates" / "gate-dataset-crash" / "gate_summary.json"
+            report = read_json(report_path)
+            summary = read_json(summary_path)
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("failure report:", stderr.getvalue())
+        self.assertIn("simulated full gate dataset failure", stderr.getvalue())
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["executionFailure"]["stage"], "full_gate_execution")
+        self.assertEqual(report["executionFailure"]["errorClass"], "RuntimeError")
+        self.assertIn("simulated full gate dataset failure", report["executionFailure"]["error"])
+        self.assertEqual(report["datasetGate"]["status"], "fail")
+        self.assertEqual(summary["blockingReasons"][0]["gate"], "execution")
+        self.assertNotIn("postReportFailure", report)
+
+    def test_cli_preserves_completed_gate_artifacts_when_post_report_registry_update_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            control_loop = artifact_root / "rl-control-loop"
+            registry_path = control_loop / "conclusion-registry.json"
+            registry_path.parent.mkdir(parents=True, exist_ok=True)
+            registry_path.write_text("{not valid json", encoding="utf-8")
+            artifact = root / "runtime.log"
+            artifact.write_text(runtime_line(runtime_payload(100)), encoding="utf-8")
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            exit_code = gate.main(
+                [
+                    "run",
+                    str(artifact),
+                    "--out-dir",
+                    str(control_loop / "gate-data"),
+                    "--gate-id",
+                    "gate-registry-crash",
+                    "--created-at",
+                    "2026-05-23T00:00:00Z",
+                    "--dataset-out-dir",
+                    str(artifact_root / "rl-datasets"),
+                    "--skip-shadow-report",
+                    "--bot-commit",
+                    "c" * 40,
+                    "--eval-ratio",
+                    "0",
+                    "--repo-root",
+                    str(root),
+                ],
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+            report_path = control_loop / "gate-data" / "gate-registry-crash" / "gate_report.json"
+            summary_path = control_loop / "gate-data" / "gate-registry-crash" / "gate_summary.json"
+            report = read_json(report_path)
+            summary = read_json(summary_path)
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("preserved completed gate artifacts", stderr.getvalue())
+        self.assertIn("not valid JSON", stderr.getvalue())
+        self.assertNotIn("failure report:", stderr.getvalue())
+        self.assertNotIn("executionFailure", report)
+        self.assertIn("dataset", report)
+        self.assertIn("quality_checks", report)
+        self.assertEqual(summary["datasetRunId"], report["dataset"]["runId"])
+        self.assertEqual(summary["sampleCount"], report["datasetGate"]["sampleCount"])
+        self.assertEqual(report["postReportFailure"]["stage"], "post_report_persistence")
+        self.assertEqual(report["postReportFailure"]["errorClass"], "ConclusionRegistryError")
+        self.assertIn("not valid JSON", report["postReportFailure"]["error"])
+        self.assertEqual(summary["postReportFailure"], report["postReportFailure"])
 
     def test_gate_data_out_dir_merges_e1_conclusions_without_dropping_loop_b_records(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
