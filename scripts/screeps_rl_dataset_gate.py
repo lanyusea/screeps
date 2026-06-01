@@ -1792,6 +1792,52 @@ def build_cli_failure_report(
     }
 
 
+def build_post_report_failure(error: Exception) -> JsonObject:
+    redacted_error = dataset_export.redact_text(str(error))
+    return {
+        "status": "fail",
+        "stage": "post_report_persistence",
+        "errorClass": error.__class__.__name__,
+        "error": redacted_error,
+        "recommendedAction": (
+            "The gate report was already written and has been preserved. Inspect this postReportFailure "
+            "block, correct the post-report persistence error, and rerun the full E1 gate if registry "
+            "or wrapper evidence must be refreshed."
+        ),
+    }
+
+
+def preserve_completed_gate_artifacts(report_path: Path, summary_path: Path, error: Exception, stderr: TextIO) -> bool:
+    if not report_path.exists() and not summary_path.exists():
+        return False
+
+    post_report_failure = build_post_report_failure(error)
+    preserved_paths: list[Path] = []
+    report: JsonObject | None = None
+
+    if report_path.exists():
+        report = load_json(report_path)
+        report["postReportFailure"] = post_report_failure
+        write_json_atomic(report_path, report)
+        preserved_paths.append(report_path)
+
+    if summary_path.exists():
+        summary = load_json(summary_path)
+    elif report is not None:
+        summary = build_summary(report)
+    else:
+        summary = None
+
+    if summary is not None:
+        summary["postReportFailure"] = post_report_failure
+        write_json_atomic(summary_path, summary)
+        preserved_paths.append(summary_path)
+
+    displayed_paths = ", ".join(dataset_export.display_path(path) for path in preserved_paths)
+    stderr.write(f"preserved completed gate artifacts after post-report failure: {displayed_paths}\n")
+    return True
+
+
 def persist_cli_failure_report(args: argparse.Namespace, error: Exception, stderr: TextIO) -> None:
     if getattr(args, "command", None) != "run":
         return
@@ -1802,10 +1848,14 @@ def persist_cli_failure_report(args: argparse.Namespace, error: Exception, stder
         out_dir = resolve_path_against_repo(getattr(args, "out_dir", DEFAULT_OUT_DIR), repo)
         gate_dir = out_dir / gate_id
         gate_dir.mkdir(parents=True, exist_ok=True)
+        report_path = gate_dir / "gate_report.json"
+        summary_path = gate_dir / "gate_summary.json"
+        if preserve_completed_gate_artifacts(report_path, summary_path, error, stderr):
+            return
         report = build_cli_failure_report(args, error, repo=repo, created_at=created_at, gate_id=gate_id, gate_dir=gate_dir)
-        write_json_atomic(gate_dir / "gate_report.json", report)
-        write_json_atomic(gate_dir / "gate_summary.json", build_summary(report))
-        stderr.write(f"failure report: {dataset_export.display_path(gate_dir / 'gate_report.json')}\n")
+        write_json_atomic(report_path, report)
+        write_json_atomic(summary_path, build_summary(report))
+        stderr.write(f"failure report: {dataset_export.display_path(report_path)}\n")
     except Exception as report_error:  # noqa: BLE001 - best-effort diagnostics must not hide the original error
         stderr.write(f"warning: could not write failure report: {dataset_export.redact_text(str(report_error))}\n")
 
