@@ -66,6 +66,7 @@ import {
 import {
   buildRuntimeCpuTelemetrySummary,
   getRuntimeCpuBudget,
+  shouldShedNonessentialCpuWork,
   shouldThrottleRuntimeSummaryCadence,
   type RuntimeCpuAlert,
   type RuntimeCpuPressure,
@@ -809,7 +810,7 @@ export function emitRuntimeSummary(
   creepsByColony ??= groupCreepsByColony(creeps, colonies);
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
   const persistOccupationRecommendations = options.persistOccupationRecommendations !== false;
-  const includeOptionalSummary = !cpuBudget.lowCpuLimit && !cpuBudget.critical;
+  const includeOptionalSummary = !cpuBudget.lowCpuLimit && !shouldShedNonessentialCpuWork(cpuBudget);
   const rooms = colonies.map((colony) =>
     summarizeRoom(
       colony,
@@ -840,8 +841,16 @@ export function shouldEmitRuntimeSummary(
   events: RuntimeTelemetryEvent[],
   cpuBudget = getRuntimeCpuBudget()
 ): boolean {
-  if (cpuBudget.critical) {
-    return hasCriticalRuntimeSummaryEvent(events);
+  if (shouldShedNonessentialCpuWork(cpuBudget)) {
+    if (hasCriticalRuntimeSummaryEvent(events)) {
+      return true;
+    }
+
+    if (cpuBudget.critical) {
+      return false;
+    }
+
+    return tick > 0 && tick % DEGRADED_RUNTIME_SUMMARY_INTERVAL === 0;
   }
 
   if (events.length > 0) {
