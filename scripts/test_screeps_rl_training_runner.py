@@ -1722,6 +1722,8 @@ export const STRATEGY_REGISTRY = [
         card = base_card()
         card["strategy_variants"][0]["policyFamily"] = "top.construction"
         card["strategy_variants"][1]["policy_family"] = "role.worker-task"
+        card["strategy_variants"][1]["role_policy"] = "worker-task"
+        card["strategy_variants"][1]["training_role"] = "worker"
         start = tick(1, [room("W1N1", energy=100)])
         baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=300, harvested=100)])])
         candidate = variant_result("candidate", [start, tick(2, [room("W1N1", energy=900, harvested=100)])])
@@ -1742,12 +1744,71 @@ export const STRATEGY_REGISTRY = [
         ranking_by_id = {item["variantId"]: item for item in report["ranking"]}
         self.assertEqual(strategy_by_id["baseline"]["policyFamily"], "top.construction")
         self.assertEqual(strategy_by_id["candidate"]["policyFamily"], "role.worker-task")
+        self.assertEqual(strategy_by_id["candidate"]["rolePolicy"], "worker-task")
+        self.assertEqual(strategy_by_id["candidate"]["trainingRole"], "worker")
         self.assertEqual(result_by_id["baseline"]["policyFamily"], "top.construction")
         self.assertEqual(result_by_id["candidate"]["policyFamily"], "role.worker-task")
+        self.assertEqual(result_by_id["candidate"]["rolePolicy"], "worker-task")
+        self.assertEqual(result_by_id["candidate"]["trainingRole"], "worker")
         self.assertEqual(ranking_by_id["baseline"]["policyFamily"], "top.construction")
         self.assertEqual(ranking_by_id["candidate"]["policyFamily"], "role.worker-task")
+        self.assertEqual(ranking_by_id["candidate"]["rolePolicy"], "worker-task")
+        self.assertEqual(ranking_by_id["candidate"]["trainingRole"], "worker")
         self.assertEqual(report["policyFamilies"], ["role.worker-task", "top.construction"])
+        self.assertEqual(report["rolePolicies"], ["worker-task"])
+        self.assertEqual(report["trainingRoles"], ["worker"])
         self.assertEqual(report["modelFamilies"], ["test-family"])
+
+    def test_multiple_role_policy_families_require_meta_policy_reason(self) -> None:
+        card = base_card(["worker", "defender"])
+        card["strategy_variants"][0].update(
+            {
+                "policyFamily": "role.worker-task",
+                "rolePolicy": "worker-task",
+                "trainingRole": "worker",
+            }
+        )
+        card["strategy_variants"][1].update(
+            {
+                "policyFamily": "role.defender-micro",
+                "rolePolicy": "defender-micro",
+                "trainingRole": "defender",
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            write_json(card_path, card)
+            with self.assertRaisesRegex(runner.TrainingCardError, "multiple role policy families"):
+                runner.run_training_experiment(
+                    card_path,
+                    root / "reports",
+                    report_id="mixed-role-policy",
+                    simulator_runner=MockSimulator(
+                        {
+                            "worker": variant_result("worker", [tick(1, [room("W1N1")])]),
+                            "defender": variant_result("defender", [tick(1, [room("W1N1")])]),
+                        }
+                    ),
+                )
+
+            card["metaPolicyReason"] = "explicit meta-policy training fixture"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="mixed-role-policy-with-reason",
+                simulator_runner=MockSimulator(
+                    {
+                        "worker": variant_result("worker", [tick(1, [room("W1N1")])]),
+                        "defender": variant_result("defender", [tick(1, [room("W1N1")])]),
+                    }
+                ),
+            )
+
+        self.assertEqual(report["rolePolicies"], ["defender-micro", "worker-task"])
+        self.assertEqual(report["rolePolicyMetadata"]["mixedRolePolicyReason"], "explicit meta-policy training fixture")
 
     def test_equal_reward_tuple_does_not_count_as_top_change(self) -> None:
         start = tick(1, [room("W1N1", energy=100)])

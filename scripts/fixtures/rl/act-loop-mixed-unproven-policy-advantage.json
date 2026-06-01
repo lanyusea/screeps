@@ -5,6 +5,8 @@
   "onlineUtilityStatus": "MIXED",
   "candidateId": "construction-priority.pg.territory-seed.v1",
   "incumbentId": "construction-priority.incumbent.v1",
+  "policyFamily": "top.construction",
+  "metaPolicyReason": "Top-level construction-priority Loop B canary evidence; not role-policy completion evidence.",
   "datasetRunId": "rl-loop-b-sample-000001",
   "evidenceWindow": "2026-05-19T12:00:00Z..2026-05-19T20:00:00Z",
   "scenarioEvidence": {

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence, TextIO
 
 import screeps_runtime_kpi_reducer as reducer
+import screeps_rl_role_policy_lanes as role_policy_lanes
 import screeps_world_profiles as world_profiles
 
 
@@ -1105,6 +1106,7 @@ def build_action_labels(room: JsonObject) -> list[JsonObject]:
                     "surface": "construction-priority",
                     "sourceDecisionField": "constructionPriority.nextPrimary",
                     "registryFamily": "construction-priority",
+                    "policyFamily": "top.construction",
                     "rolloutStatus": "offline-shadow-label",
                     "label": redact_text(candidate["buildItem"]),
                     "room": redact_text(candidate.get("room")) if isinstance(candidate.get("room"), str) else room.get("roomName"),
@@ -1127,6 +1129,7 @@ def build_action_labels(room: JsonObject) -> list[JsonObject]:
                     "surface": "expansion-remote-candidate",
                     "sourceDecisionField": "territoryRecommendation.next",
                     "registryFamily": "expansion-remote-candidate",
+                    "policyFamily": "top.remote-expansion",
                     "rolloutStatus": "offline-shadow-label",
                     "label": action,
                     "targetRoom": redact_text(candidate["roomName"]),
@@ -1441,6 +1444,17 @@ def build_run_manifest(
             if isinstance(label, dict) and isinstance(label.get("surface"), str)
         }
     )
+    action_labels = [
+        label
+        for row in rows
+        for label in row.get("actionLabels", [])
+        if isinstance(label, dict)
+    ]
+    role_policy_lanes.validate_role_policy_collection(
+        action_labels,
+        context="run_manifest.actionLabels",
+    )
+    role_policy_summary = role_policy_lanes.summarize_role_policy_collection(action_labels)
     return {
         "type": RUN_MANIFEST_TYPE,
         "schemaVersion": SCHEMA_VERSION,
@@ -1462,6 +1476,8 @@ def build_run_manifest(
             "shadowReports": scan.strategy_shadow_reports,
             "liveEffect": False,
         },
+        "rolePolicyLanes": role_policy_lanes.role_policy_contract(),
+        "rolePolicyMetadata": role_policy_summary,
         "split": {
             "method": "sha256-threshold",
             "seed": split_seed,

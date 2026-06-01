@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence, TextIO
 
+import screeps_rl_role_policy_lanes as role_policy_lanes
+
 
 TRAINING_APPROACHES = ("bandit", "evolutionary", "policy_gradient")
 DATASET_RUN_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -114,6 +116,7 @@ E1_GATE_FRESHNESS_HOURS = 36.0
 JsonObject = dict[str, Any]
 
 CONSTRUCTION_PRIORITY_FAMILY = "construction-priority"
+TOP_CONSTRUCTION_POLICY_FAMILY = "top.construction"
 CONSTRUCTION_PRIORITY_REGISTRY_IDS = (
     "construction-priority.incumbent.v1",
     "construction-priority.territory-shadow.v1",
@@ -970,7 +973,9 @@ def build_card(
         "officialMmoWrites": False,
         "officialMmoWritesAllowed": False,
         "ood_rejection": True,
+        "policyFamily": TOP_CONSTRUCTION_POLICY_FAMILY,
         "reward_model": reward_model(scalar_weighted_sum_authorized=scalar_weighted_sum_authorized),
+        "role_policy_lanes": role_policy_lanes.role_policy_contract(),
         "scenario": scenario,
         "safety": safety_block(),
         "simulation": simulation_block(
@@ -1097,6 +1102,7 @@ def policy_gradient_block(registry_path: Path) -> JsonObject:
     return {
         "type": "construction-priority-policy-gradient-card",
         "target_family": CONSTRUCTION_PRIORITY_FAMILY,
+        "policyFamily": TOP_CONSTRUCTION_POLICY_FAMILY,
         "candidate_policy_id_field": "candidatePolicyId",
         "source_registry": repo_relative(registry_path),
         "owning_issues": ["#1032", "#879", "#924"],
@@ -1161,6 +1167,8 @@ def policy_gradient_strategy_variants(policy_gradient: JsonObject) -> list[JsonO
                 "candidatePolicyId": candidate.get("candidatePolicyId"),
                 "sourceStrategyId": candidate.get("sourceStrategyId"),
                 "family": candidate.get("family"),
+                "policyFamily": candidate.get("policyFamily"),
+                "rolePolicy": candidate.get("rolePolicy"),
                 "rolloutStatus": candidate.get("rolloutStatus"),
                 "title": candidate.get("title"),
                 "trainingRole": "policy_gradient_candidate",
@@ -1250,6 +1258,7 @@ def policy_gradient_candidate(
         "strategyVariantId": candidate_policy_id,
         "sourceStrategyId": source_strategy_id,
         "family": CONSTRUCTION_PRIORITY_FAMILY,
+        "policyFamily": TOP_CONSTRUCTION_POLICY_FAMILY,
         "rolloutStatus": rollout_status,
         "title": title,
         "parameters": parameter_vector,
@@ -1388,8 +1397,9 @@ def validate_card(raw: Any) -> None:
     validate_card_supply(raw)
     validate_source_gate(raw)
     validate_scenario(raw)
+    validate_role_policy_lane_contract(raw)
     strategy_variants = first_present(raw, ("strategy_variants", "strategyVariants", "variants"))
-    validate_strategy_variants(strategy_variants)
+    validate_strategy_variants(strategy_variants, parent=raw)
     simulation = first_present(raw, ("simulation", "simulator"))
     validate_simulation(simulation)
     policy_gradient = first_present(raw, ("policy_gradient", "policyGradient"))
@@ -1453,6 +1463,16 @@ def validate_card_supply(card: JsonObject) -> None:
         validate_created_at(consumed_at)
         if not isinstance(raw.get("consumed_by_report_id"), str) or not raw.get("consumed_by_report_id"):
             raise CardValidationError("consumed Loop A card supply requires consumed_by_report_id")
+
+
+def validate_role_policy_lane_contract(card: JsonObject) -> None:
+    contract = first_present(card, ("role_policy_lanes", "rolePolicyLanes", "policyLaneContract"))
+    if contract is None:
+        return
+    try:
+        role_policy_lanes.validate_lane_contract(contract, "role_policy_lanes")
+    except role_policy_lanes.RolePolicyLaneError as error:
+        raise CardValidationError(str(error)) from error
 
 
 def validate_source_gate(card: JsonObject) -> None:
@@ -2463,19 +2483,33 @@ def validate_scalar_weighted_sum_authorization(
         raise CardValidationError("reward_model.scalar_weighted_sum weights must preserve lexicographic dominance")
 
 
-def validate_strategy_variants(raw: Any) -> None:
+def validate_strategy_variants(raw: Any, *, parent: JsonObject | None = None) -> None:
     if not isinstance(raw, list) or len(raw) == 0:
         raise CardValidationError("strategy_variants must contain at least one registry id or inline variant")
+    inline_variants: list[JsonObject] = []
     for index, item in enumerate(raw):
         if isinstance(item, str):
             validate_strategy_id(item, f"strategy_variants[{index}]")
             continue
         if not isinstance(item, dict):
             raise CardValidationError(f"strategy_variants[{index}] must be a string or JSON object")
+        inline_variants.append(item)
         variant_id = item.get("id")
         if not isinstance(variant_id, str) or not variant_id:
             raise CardValidationError(f"strategy_variants[{index}].id must be a non-empty string")
         validate_strategy_id(variant_id, f"strategy_variants[{index}].id")
+        try:
+            role_policy_lanes.validate_role_policy_metadata(item, f"strategy_variants[{index}]")
+        except role_policy_lanes.RolePolicyLaneError as error:
+            raise CardValidationError(str(error)) from error
+    try:
+        role_policy_lanes.validate_role_policy_collection(
+            inline_variants,
+            context="strategy_variants",
+            parent=parent,
+        )
+    except role_policy_lanes.RolePolicyLaneError as error:
+        raise CardValidationError(str(error)) from error
 
 
 def validate_strategy_id(value: str, label: str) -> None:
@@ -2513,6 +2547,14 @@ def validate_policy_gradient(raw: Any) -> int:
         if candidate_policy_id in candidate_ids:
             raise CardValidationError(f"duplicate policy_gradient candidatePolicyId: {candidate_policy_id}")
         candidate_ids.add(candidate_policy_id)
+    try:
+        role_policy_lanes.validate_role_policy_collection(
+            candidates,
+            context="policy_gradient.candidate_parameter_vectors",
+            parent=raw,
+        )
+    except role_policy_lanes.RolePolicyLaneError as error:
+        raise CardValidationError(str(error)) from error
 
     required_samples_per_candidate = validate_policy_gradient_update(first_present(raw, ("policy_update", "policyUpdate")))
 
@@ -2667,6 +2709,10 @@ def validate_policy_gradient_candidate(raw: Any, index: int) -> None:
     validate_strategy_id(raw["sourceStrategyId"], f"policy_gradient.candidate_parameter_vectors[{index}].sourceStrategyId")
     if raw["family"] != CONSTRUCTION_PRIORITY_FAMILY:
         raise CardValidationError(f"policy_gradient.candidate_parameter_vectors[{index}].family must be construction-priority")
+    try:
+        role_policy_lanes.validate_role_policy_metadata(raw, f"policy_gradient.candidate_parameter_vectors[{index}]")
+    except role_policy_lanes.RolePolicyLaneError as error:
+        raise CardValidationError(str(error)) from error
     parameters = raw.get("parameters")
     if not isinstance(parameters, dict):
         raise CardValidationError(f"policy_gradient.candidate_parameter_vectors[{index}].parameters must be an object")
