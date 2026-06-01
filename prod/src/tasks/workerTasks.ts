@@ -307,6 +307,10 @@ interface SourceContainerWithdrawalContext {
   sources: Source[];
 }
 
+interface ControllerDowngradeGuardOptions {
+  allowConstructionBacklogYield?: boolean;
+}
+
 let nearTermSpawnExtensionRefillReserveCache: NearTermSpawnExtensionRefillReserveCache | null = null;
 let interRoomLiveTransferCandidateCache: LiveTransferCandidateCache | null = null;
 let interRoomHaulReservationCache: InterRoomHaulReservationCache | null = null;
@@ -348,7 +352,7 @@ function selectCriticalCpuWorkerTask(creep: Creep): CreepTaskMemory | null {
   const controller = creep.room.controller;
   if (
     controller &&
-    shouldGuardControllerDowngradeForWorkerLoad(creep, controller) &&
+    shouldGuardControllerDowngradeForWorkerLoad(creep, controller, { allowConstructionBacklogYield: false }) &&
     canUpgradeController(controller)
   ) {
     return { type: 'upgrade', targetId: controller.id };
@@ -526,7 +530,7 @@ function selectCriticalCpuEnergyAcquisitionTask(
   const controller = creep.room.controller;
   if (
     controller &&
-    shouldGuardControllerDowngradeForWorkerLoad(creep, controller) &&
+    shouldGuardControllerDowngradeForWorkerLoad(creep, controller, { allowConstructionBacklogYield: false }) &&
     canUpgradeController(controller)
   ) {
     return selectWorkerEnergyCriticalAcquisitionTask(creep);
@@ -1930,13 +1934,17 @@ function isWorkerRefillBoundOrReservableForSpawnExtensionDelivery(
 
 function shouldGuardControllerDowngradeForWorkerLoad(
   creep: Creep,
-  controller: StructureController | undefined
+  controller: StructureController | undefined,
+  options: ControllerDowngradeGuardOptions = {}
 ): boolean {
   if (!shouldGuardControllerDowngrade(controller)) {
     return false;
   }
 
-  if (shouldYieldControllerDowngradeGuardToConstructionBacklog(creep, controller)) {
+  if (
+    (options.allowConstructionBacklogYield ?? true) &&
+    shouldYieldControllerDowngradeGuardToConstructionBacklog(creep, controller)
+  ) {
     return false;
   }
 
@@ -1957,15 +1965,25 @@ function shouldYieldControllerDowngradeGuardToConstructionBacklog(
   creep: Creep,
   controller: StructureController | undefined
 ): boolean {
+  if (
+    controller?.my !== true ||
+    isControllerDowngradeImminentForLowLoadReturn(controller) ||
+    getUsedEnergy(creep) <= 0 ||
+    getActiveWorkParts(creep) <= 0 ||
+    hasSameRoomWorkerAssignedToTask(creep.room, creep, 'build') ||
+    !hasSpendableConstructionBacklog(creep)
+  ) {
+    return false;
+  }
+
+  if (controller.level === 2) {
+    return hasOtherLoadedWorkerUpgradingController(creep, controller);
+  }
+
   return (
-    controller?.my === true &&
-    controller.level === 2 &&
-    !isControllerDowngradeImminentForLowLoadReturn(controller) &&
-    getUsedEnergy(creep) > 0 &&
-    getActiveWorkParts(creep) > 0 &&
-    hasOtherLoadedWorkerUpgradingController(creep, controller) &&
-    !hasSameRoomWorkerAssignedToTask(creep.room, creep, 'build') &&
-    hasSpendableConstructionBacklog(creep)
+    controller.level >= 3 &&
+    hasHealthyRoomEnergyBuffer(creep.room) &&
+    hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep)
   );
 }
 
