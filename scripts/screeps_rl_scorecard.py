@@ -754,7 +754,12 @@ def collect_artifact_bundle(
     metrics = accumulator.summarize()
     resolved_id = explicit_id or first_text(identifiers) or default_bundle_id(root, metrics)
     resolved_commit = explicit_commit or first_text(commits)
-    validate_bundle_policy_metadata(policy_metadata_rows, role)
+    mixed_role_policy_reason = first_text(mixed_role_policy_reasons)
+    validate_bundle_policy_metadata(
+        policy_metadata_rows,
+        role,
+        mixed_role_policy_reason=mixed_role_policy_reason,
+    )
     policy_metadata = first_policy_metadata(policy_metadata_rows)
     return {
         "id": resolved_id,
@@ -766,15 +771,22 @@ def collect_artifact_bundle(
         "policyFamily": policy_metadata.get("policyFamily"),
         "rolePolicy": policy_metadata.get("rolePolicy"),
         "trainingRole": policy_metadata.get("trainingRole"),
-        "mixedRolePolicyReason": first_text(mixed_role_policy_reasons),
+        "mixedRolePolicyReason": mixed_role_policy_reason,
     }
 
 
-def validate_bundle_policy_metadata(rows: Sequence[JsonObject], role: str) -> None:
+def validate_bundle_policy_metadata(
+    rows: Sequence[JsonObject],
+    role: str,
+    *,
+    mixed_role_policy_reason: str | None = None,
+) -> None:
+    parent = {"mixedRolePolicyReason": mixed_role_policy_reason} if mixed_role_policy_reason is not None else None
     try:
         role_policy_lanes.validate_role_policy_collection(
             rows,
             context=f"{role}.policyMetadata",
+            parent=parent,
         )
     except role_policy_lanes.RolePolicyLaneError as error:
         raise ScorecardError(str(error)) from error

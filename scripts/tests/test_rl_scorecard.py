@@ -321,6 +321,55 @@ def test_scorecard_rejects_mixed_role_families_without_meta_reason(tmp_path: Pat
         raise AssertionError("mixed role policy families should fail scorecard validation")
 
 
+def test_scorecard_accepts_mixed_role_bundle_with_meta_reason(tmp_path: Path) -> None:
+    baseline_gate = write_bundle(tmp_path / "baseline", candidate=False)
+    candidate_gate = write_bundle(tmp_path / "candidate", candidate=True)
+    reason = "explicit meta-policy scorecard bundle for cross-role comparison"
+    write_role_policy_metadata(
+        baseline_gate.parent,
+        policy_family="role.worker-task",
+        role_policy="worker-task",
+        training_role="worker",
+    )
+    write_role_policy_metadata(
+        candidate_gate.parent,
+        policy_family="role.worker-task",
+        role_policy="worker-task",
+        training_role="worker",
+    )
+    write_json(
+        candidate_gate.parent / "zz-defender-policy-metadata.json",
+        {
+            "type": "screeps-rl-role-policy-scorecard-source",
+            "policyFamily": "role.defender-micro",
+            "rolePolicy": "defender-micro",
+            "trainingRole": "defender",
+            "metaPolicyReason": reason,
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        },
+    )
+
+    candidate_bundle = scorecard.collect_artifact_bundle(
+        candidate_gate.parent,
+        role="candidate",
+        repo_root=tmp_path,
+    )
+    report = scorecard.build_scorecard(
+        candidate_path=candidate_gate.parent,
+        baseline_path=baseline_gate.parent,
+        repo_root=tmp_path,
+        timestamp="2026-05-11T00:00:00Z",
+        run_id="scorecard-role-mixed-with-reason",
+    )
+
+    assert candidate_bundle["mixedRolePolicyReason"] == reason
+    assert report["overallGate"]["status"] == "PASS"
+    assert report["candidate"]["policyFamily"] == "role.worker-task"
+    assert report["baseline"]["policyFamily"] == "role.worker-task"
+
+
 def test_scorecard_holds_when_runtime_consumption_evidence_is_omitted(tmp_path: Path) -> None:
     baseline = write_bundle(tmp_path / "baseline", candidate=False)
     candidate = write_bundle(tmp_path / "candidate", candidate=True)
