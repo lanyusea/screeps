@@ -108,6 +108,78 @@ describe('claimed room construction planner', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(33, 21, STRUCTURE_EXTENSION);
   });
 
+  it('requests E29N55 RCL6 storage construction when no storage or storage site exists', () => {
+    const { room, colony } = makeColony({
+      roomName: 'E29N55',
+      controllerLevel: 6,
+      energyAvailable: 7_750,
+      energyCapacityAvailable: 2_300,
+      spawnPosition: { x: 17, y: 24 },
+      structures: makeMatureRcl6Infrastructure('E29N55'),
+      sources: []
+    });
+
+    const result = planClaimedRoomConstruction(colony);
+
+    expect(result.yielded).toBe(false);
+    expect(result.placements).toContainEqual(
+      expect.objectContaining({
+        priority: 'storage',
+        roomName: 'E29N55',
+        structureType: TEST_GLOBALS.STRUCTURE_STORAGE,
+        result: OK_CODE,
+        energyReserved: 50
+      })
+    );
+    expect(
+      room.createConstructionSite.mock.calls.filter(([, , structureType]) => structureType === STRUCTURE_STORAGE)
+    ).toHaveLength(1);
+  });
+
+  it('does not request duplicate RCL6 storage construction when storage already exists', () => {
+    const { room, colony } = makeColony({
+      roomName: 'E29N55',
+      controllerLevel: 6,
+      energyAvailable: 7_750,
+      energyCapacityAvailable: 2_300,
+      spawnPosition: { x: 17, y: 24 },
+      structures: [
+        ...makeMatureRcl6Infrastructure('E29N55'),
+        makeStructure('storage-existing', TEST_GLOBALS.STRUCTURE_STORAGE, 17, 23, 'E29N55')
+      ],
+      sources: []
+    });
+
+    const result = planClaimedRoomConstruction(colony);
+
+    expect(result.placements.some((placement) => placement.priority === 'storage')).toBe(false);
+    expect(
+      room.createConstructionSite.mock.calls.filter(([, , structureType]) => structureType === STRUCTURE_STORAGE)
+    ).toHaveLength(0);
+  });
+
+  it('does not request duplicate RCL6 storage construction when a storage site already exists', () => {
+    const { room, colony } = makeColony({
+      roomName: 'E29N55',
+      controllerLevel: 6,
+      energyAvailable: 7_750,
+      energyCapacityAvailable: 2_300,
+      spawnPosition: { x: 17, y: 24 },
+      structures: makeMatureRcl6Infrastructure('E29N55'),
+      constructionSites: [
+        makeConstructionSite('storage-pending', TEST_GLOBALS.STRUCTURE_STORAGE, 17, 23, 'E29N55')
+      ],
+      sources: []
+    });
+
+    const result = planClaimedRoomConstruction(colony);
+
+    expect(result.placements.some((placement) => placement.priority === 'storage')).toBe(false);
+    expect(
+      room.createConstructionSite.mock.calls.filter(([, , structureType]) => structureType === STRUCTURE_STORAGE)
+    ).toHaveLength(0);
+  });
+
   it('seeds an E29N56 RCL2 first extension site below the energy reserve without reserving energy', () => {
     const { room, colony } = makeColony({
       roomName: 'E29N56',
@@ -539,6 +611,46 @@ function makeExtensions(count: number, roomName = 'W2N1'): Structure[] {
   return Array.from({ length: count }, (_, index) =>
     makeStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 35 + index, 35, roomName)
   );
+}
+
+function makeMatureRcl6Infrastructure(roomName = 'W2N1'): Structure[] {
+  const extensions = Array.from({ length: 40 }, (_unused, index) =>
+    makeStructure(
+      `extension-${index}`,
+      TEST_GLOBALS.STRUCTURE_EXTENSION,
+      30 + (index % 8),
+      30 + Math.floor(index / 8),
+      roomName
+    )
+  );
+  const containers = Array.from({ length: 5 }, (_unused, index) =>
+    makeStructure(`container-${index}`, TEST_GLOBALS.STRUCTURE_CONTAINER, 22 + index, 22, roomName)
+  );
+  const towers = [
+    makeStructure('tower-1', TEST_GLOBALS.STRUCTURE_TOWER, 20, 24, roomName),
+    makeStructure('tower-2', TEST_GLOBALS.STRUCTURE_TOWER, 20, 25, roomName)
+  ];
+  const coveredDefenseAnchors = [
+    makeStructure('spawn-rampart', TEST_GLOBALS.STRUCTURE_RAMPART, 17, 24, roomName),
+    makeStructure('tower-1-rampart', TEST_GLOBALS.STRUCTURE_RAMPART, 20, 24, roomName),
+    makeStructure('tower-2-rampart', TEST_GLOBALS.STRUCTURE_RAMPART, 20, 25, roomName),
+    makeStructure('controller-rampart', TEST_GLOBALS.STRUCTURE_RAMPART, 24, 24, roomName),
+    ...containers.map((container, index) =>
+      makeStructure(
+        `container-${index}-rampart`,
+        TEST_GLOBALS.STRUCTURE_RAMPART,
+        container.pos.x,
+        container.pos.y,
+        roomName
+      )
+    ),
+    makeStructure('spawn-wall-nw', TEST_GLOBALS.STRUCTURE_WALL, 16, 23, roomName),
+    makeStructure('spawn-wall-ne', TEST_GLOBALS.STRUCTURE_WALL, 18, 23, roomName),
+    makeStructure('spawn-wall-sw', TEST_GLOBALS.STRUCTURE_WALL, 16, 25, roomName),
+    makeStructure('spawn-wall-se', TEST_GLOBALS.STRUCTURE_WALL, 18, 25, roomName)
+  ];
+
+  return [...extensions, ...containers, ...towers, ...coveredDefenseAnchors];
 }
 
 function makeSource(id: string, x: number, y: number, roomName = 'W2N1'): Source {
