@@ -31946,7 +31946,12 @@ function hasSafeStoredEnergyForBoundedConstruction2(creep, selectedTask) {
   if ((selectedTask == null ? void 0 : selectedTask.type) !== "build") {
     return false;
   }
-  if (!checkEnergyBufferForStoredConstructionSpending(creep.room)) {
+  const energyAvailable = getRoomEnergyAvailable12(creep.room);
+  if (energyAvailable === null || energyAvailable < MINIMUM_WORKER_SPAWN_ENERGY) {
+    return false;
+  }
+  const storedEnergy = getRoomStoredEnergyAvailableForConstruction(creep.room);
+  if (storedEnergy < CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY) {
     return false;
   }
   const sameRoomWorkers = getRoomOwnedCreeps2(creep.room).filter(
@@ -31958,7 +31963,7 @@ function hasSafeStoredEnergyForBoundedConstruction2(creep, selectedTask) {
   if (hasOtherSameRoomBuildAssignment(creep)) {
     return false;
   }
-  return getRoomStoredEnergyAvailableForConstruction(creep.room) >= SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORED_SURPLUS2;
+  return storedEnergy >= SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORED_SURPLUS2;
 }
 function hasOtherSameRoomBuildAssignment(creep) {
   return getRoomOwnedCreeps2(creep.room).some((worker) => {
@@ -39016,7 +39021,8 @@ function selectWorkerAssignmentBlockedDetail(colony, colonyWorkers, roomEnergySt
     return "no_valid_body";
   }
   const energyBuffer = getRoomEnergyBufferHealth(colony.room);
-  if ((!energyBuffer.healthy || energyBuffer.currentEnergy < energyBuffer.threshold) && !checkEnergyBufferForStoredConstructionSpending(colony.room)) {
+  const allowsStoredConstructionSpending = checkEnergyBufferForStoredConstructionSpending(colony.room);
+  if ((!energyBuffer.healthy || energyBuffer.currentEnergy < energyBuffer.threshold) && !allowsStoredConstructionSpending) {
     return "energy_buffer_below_threshold";
   }
   if (hasCarriedEnergyWorkerBlockedByConstructionEnergyMargin(colony.room, colonyWorkers, constructionSites)) {
@@ -39025,7 +39031,7 @@ function selectWorkerAssignmentBlockedDetail(colony, colonyWorkers, roomEnergySt
   if (colonyWorkers.every((worker) => getFreeEnergyCapacityInStore(worker) <= 0)) {
     return "room_capacity_full";
   }
-  if (hasSpawnReservedConstructionEnergy(colony, roomEnergyStructures, energyBuffer)) {
+  if (!allowsStoredConstructionSpending && hasSpawnReservedConstructionEnergy(colony, roomEnergyStructures, energyBuffer)) {
     return "spawn_reserving_energy";
   }
   return "unknown";

@@ -12769,7 +12769,7 @@ describe('selectWorkerTask', () => {
       progressTotal: 5_000
     } as ConstructionSite;
     const fullSpawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 0);
-    const storedContainer = makeStoredEnergyContainerWithCapacity('stored-container1', 2_069, 2_000);
+    const storedContainer = makeStoredEnergyContainerWithCapacity('stored-container1', 2_000, 2_000);
     const controller = {
       id: 'controller1',
       my: true,

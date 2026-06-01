@@ -2552,9 +2552,10 @@ function selectWorkerAssignmentBlockedDetail(
   }
 
   const energyBuffer = getRoomEnergyBufferHealth(colony.room);
+  const allowsStoredConstructionSpending = checkEnergyBufferForStoredConstructionSpending(colony.room);
   if (
     (!energyBuffer.healthy || energyBuffer.currentEnergy < energyBuffer.threshold) &&
-    !checkEnergyBufferForStoredConstructionSpending(colony.room)
+    !allowsStoredConstructionSpending
   ) {
     return 'energy_buffer_below_threshold';
   }
@@ -2567,7 +2568,10 @@ function selectWorkerAssignmentBlockedDetail(
     return 'room_capacity_full';
   }
 
-  if (hasSpawnReservedConstructionEnergy(colony, roomEnergyStructures, energyBuffer)) {
+  if (
+    !allowsStoredConstructionSpending &&
+    hasSpawnReservedConstructionEnergy(colony, roomEnergyStructures, energyBuffer)
+  ) {
     return 'spawn_reserving_energy';
   }
 

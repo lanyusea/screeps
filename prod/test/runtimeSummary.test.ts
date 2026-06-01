@@ -1325,17 +1325,27 @@ describe('runtime telemetry summaries', () => {
     );
   });
 
-  it('does not report an energy-buffer construction block when E29N57 has stored energy for build work', () => {
+  it('does not report an energy-buffer or spawn-reservation construction block when E29N57 has stored energy for build work', () => {
     const spawn = {
       id: 'spawn1',
       name: 'Spawn1',
       structureType: TEST_GLOBALS.STRUCTURE_SPAWN,
-      store: makeEnergyStore(250, 300)
+      store: makeEnergyStore(300, 300)
     };
+    const extensions = Array.from({ length: 30 }, (_, index) => ({
+      id: `extension${index + 1}`,
+      structureType: TEST_GLOBALS.STRUCTURE_EXTENSION,
+      store: makeEnergyStore(index < 11 ? 50 : 0, 50)
+    }));
     const storedContainer = {
       id: 'stored-container1',
       structureType: TEST_GLOBALS.STRUCTURE_CONTAINER,
-      store: makeEnergyStore(2_069, 2_000)
+      store: makeEnergyStore(2_000, 2_000)
+    };
+    const storage = {
+      id: 'storage1',
+      structureType: TEST_GLOBALS.STRUCTURE_STORAGE,
+      store: makeEnergyStore(69, 10_000)
     };
     const worker = {
       name: 'StoredEnergyBuilder',
@@ -1347,16 +1357,16 @@ describe('runtime telemetry summaries', () => {
       time: RUNTIME_SUMMARY_INTERVAL,
       roomName: 'E29N57',
       includeEventLog: false,
-      structures: [spawn, storedContainer],
+      structures: [spawn, ...extensions, storedContainer, storage],
       creeps: [worker],
       constructionSites: [
         { id: 'container-site', structureType: TEST_GLOBALS.STRUCTURE_CONTAINER, progress: 500, progressTotal: 5_000 }
       ]
     });
-    (colony.room as Room & { energyAvailable: number; energyCapacityAvailable: number }).energyAvailable = 250;
+    (colony.room as Room & { energyAvailable: number; energyCapacityAvailable: number }).energyAvailable = 850;
     (colony.room as Room & { energyAvailable: number; energyCapacityAvailable: number }).energyCapacityAvailable = 1_800;
     (colony.room.controller as StructureController).level = 5;
-    colony.energyAvailable = 250;
+    colony.energyAvailable = 850;
     colony.energyCapacityAvailable = 1_800;
 
     emitRuntimeSummary([colony], [worker]);

@@ -21,10 +21,11 @@ import {
 import { runUpgrader } from './upgraderRunner';
 import { canCreepPressureTerritoryController } from '../territory/territoryPlanner';
 import {
-  checkEnergyBufferForStoredConstructionSpending,
+  CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY,
   getConstructionSpendingEnergyThreshold,
   getEffectiveRoomEnergyBufferThreshold,
-  getRoomStoredEnergyAvailableForConstruction
+  getRoomStoredEnergyAvailableForConstruction,
+  MINIMUM_WORKER_SPAWN_ENERGY
 } from '../economy/energyBuffer';
 import { getSpawnEnergyWithdrawalAmount, isSpawnEnergySource } from '../economy/spawnEnergyBuffer';
 import {
@@ -767,7 +768,13 @@ function hasSafeStoredEnergyForBoundedConstruction(
     return false;
   }
 
-  if (!checkEnergyBufferForStoredConstructionSpending(creep.room)) {
+  const energyAvailable = getRoomEnergyAvailable(creep.room);
+  if (energyAvailable === null || energyAvailable < MINIMUM_WORKER_SPAWN_ENERGY) {
+    return false;
+  }
+
+  const storedEnergy = getRoomStoredEnergyAvailableForConstruction(creep.room);
+  if (storedEnergy < CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY) {
     return false;
   }
 
@@ -782,10 +789,7 @@ function hasSafeStoredEnergyForBoundedConstruction(
     return false;
   }
 
-  return (
-    getRoomStoredEnergyAvailableForConstruction(creep.room) >=
-    SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORED_SURPLUS
-  );
+  return storedEnergy >= SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORED_SURPLUS;
 }
 
 function hasOtherSameRoomBuildAssignment(creep: Creep): boolean {

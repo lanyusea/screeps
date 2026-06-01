@@ -4610,7 +4610,7 @@ describe('runWorker', () => {
       id: 'stored-container1',
       structureType: 'container',
       store: {
-        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 2_069 : 0)),
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 1_900 : 0)),
         getCapacity: jest.fn((resource?: ResourceConstant) =>
           resource === undefined || resource === RESOURCE_ENERGY ? 2_000 : 0
         )
