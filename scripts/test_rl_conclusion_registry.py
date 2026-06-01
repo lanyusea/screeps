@@ -402,6 +402,197 @@ class RlConclusionRegistryTest(unittest.TestCase):
                 }
             )
 
+        with self.assertRaisesRegex(registry.ConclusionRegistryError, "DUPLICATE-ID"):
+            registry.normalize_conclusions(
+                {
+                    "schemaVersion": 1,
+                    "registryType": "rl-conclusion-registry",
+                    "conclusions": {
+                        "DUPLICATE-ID": {"conclusionId": "DUPLICATE-ID", "status": "OPEN"},
+                    },
+                    "entries": [
+                        {"conclusionId": "DUPLICATE-ID", "status": "CLOSED"},
+                    ],
+                }
+            )
+
+    def test_normalize_conclusions_accepts_mixed_registry_shapes(self) -> None:
+        records = registry.normalize_conclusions(
+            {
+                "schemaVersion": 1,
+                "type": "screeps-rl-conclusion-registry",
+                "conclusions": {
+                    "CANONICAL-DICT": {
+                        "conclusionId": "CANONICAL-DICT",
+                        "status": "ACTIONED",
+                    },
+                },
+                "entries": [
+                    {
+                        "conclusionId": "LEGACY-ENTRY-LIST",
+                        "status": "OPEN",
+                    },
+                    {
+                        "conclusionId": "LEGACY-ENTRY-STALE",
+                        "status": "STALE",
+                    },
+                ],
+            }
+        )
+
+        self.assertEqual(
+            sorted(records),
+            ["CANONICAL-DICT", "LEGACY-ENTRY-LIST", "LEGACY-ENTRY-STALE"],
+        )
+        self.assertEqual(records["CANONICAL-DICT"]["status"], "ACTIONED")
+        self.assertEqual(records["LEGACY-ENTRY-LIST"]["status"], "OPEN")
+        self.assertEqual(records["LEGACY-ENTRY-STALE"]["status"], "STALE")
+
+        single_record = registry.normalize_conclusions(
+            {
+                "conclusionId": "TOP-LEVEL-SINGLE",
+                "status": "VALIDATING",
+                "statement": "Single producer conclusion payload.",
+            }
+        )
+
+        self.assertEqual(list(single_record), ["TOP-LEVEL-SINGLE"])
+        self.assertEqual(single_record["TOP-LEVEL-SINGLE"]["status"], "VALIDATING")
+
+    def test_merge_registry_file_accepts_metadata_only_existing_registry(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "conclusion-registry.json"
+            path.write_text(
+                registry.canonical_json(
+                    {
+                        "schemaVersion": 1,
+                        "registryType": "rl-conclusion-registry",
+                        "lastUpdatedAt": "2026-05-31T00:00:00Z",
+                        "updatedBy": "bootstrap",
+                        "summary": {"total": 0},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            merged = registry.merge_registry_file(
+                path,
+                [
+                    {
+                        "conclusionId": "E1-GATE-STATUS",
+                        "status": "OPEN",
+                        "statement": "Metadata-only registry can receive its first conclusion.",
+                    },
+                ],
+                owner_cron="d6cff532edd4",
+                updated_at="2026-06-01T00:00:00Z",
+            )
+            saved = read_json(path)
+
+        self.assertEqual(saved, merged)
+        self.assertEqual(saved["schemaVersion"], 1)
+        self.assertEqual(saved["registryType"], "rl-conclusion-registry")
+        self.assertEqual(list(saved["conclusions"]), ["E1-GATE-STATUS"])
+        self.assertNotIn("summary", saved["conclusions"])
+        self.assertEqual(saved["conclusions"]["E1-GATE-STATUS"]["ownerCron"], "d6cff532edd4")
+        self.assertEqual(saved["summary"]["total"], 1)
+        self.assertEqual(saved["summary"]["new"], 1)
+
+    def test_loop_b_append_update_preserves_existing_entries_shape_records(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "conclusion-registry.json"
+            path.write_text(
+                registry.canonical_json(
+                    {
+                        "schemaVersion": 1,
+                        "type": "screeps-rl-conclusion-registry",
+                        "updatedAt": "2026-06-01T02:00:00Z",
+                        "entries": [
+                            {
+                                "conclusionId": "LOOP-B-OLDER-OPEN",
+                                "ownerCron": "01609968392a",
+                                "status": "OPEN",
+                                "severity": "P0",
+                                "statement": "Older Loop B conclusion must remain visible.",
+                            },
+                            {
+                                "conclusionId": "LOOP-B-ACTIONED",
+                                "ownerCron": "01609968392a",
+                                "status": "ACTIONED",
+                                "severity": "P1",
+                                "statement": "Loop B action remains in follow-up.",
+                            },
+                            {
+                                "conclusionId": "STEWARD-STALE",
+                                "ownerCron": "aed8362e4501",
+                                "status": "STALE",
+                                "severity": "P0",
+                                "statement": "Steward stale backlog item must remain visible.",
+                            },
+                            {
+                                "conclusionId": "E1-VALIDATING",
+                                "ownerCron": "d6cff532edd4",
+                                "status": "VALIDATING",
+                                "severity": "P1",
+                                "statement": "E1 validation must remain visible.",
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            merged = registry.merge_registry_file(
+                path,
+                {
+                    "conclusionId": "LOOP-B-NEW-UNPROVEN",
+                    "status": "OPEN",
+                    "severity": "P0",
+                    "statement": "New Loop B report remains unproven.",
+                },
+                owner_cron="01609968392a",
+                updated_at="2026-06-01T02:59:07Z",
+                updated_by="01609968392a",
+                prune_omitted_owner_records=False,
+            )
+            saved = read_json(path)
+
+        self.assertEqual(saved, merged)
+        conclusions = saved["conclusions"]
+        self.assertEqual(
+            sorted(conclusions),
+            [
+                "E1-VALIDATING",
+                "LOOP-B-ACTIONED",
+                "LOOP-B-NEW-UNPROVEN",
+                "LOOP-B-OLDER-OPEN",
+                "STEWARD-STALE",
+            ],
+        )
+        self.assertEqual(conclusions["LOOP-B-OLDER-OPEN"]["ownerCron"], "01609968392a")
+        self.assertEqual(conclusions["LOOP-B-ACTIONED"]["status"], "ACTIONED")
+        self.assertEqual(conclusions["STEWARD-STALE"]["ownerCron"], "aed8362e4501")
+        self.assertEqual(conclusions["E1-VALIDATING"]["status"], "VALIDATING")
+        self.assertEqual(conclusions["LOOP-B-NEW-UNPROVEN"]["ownerCron"], "01609968392a")
+        self.assertEqual(conclusions["LOOP-B-NEW-UNPROVEN"]["lastSeenAt"], "2026-06-01T02:59:07Z")
+        self.assertEqual(merged["summary"]["total"], 5)
+        self.assertEqual(merged["summary"]["new"], 1)
+        self.assertEqual(merged["summary"]["open"], 2)
+        self.assertEqual(merged["summary"]["actioned"], 1)
+        self.assertEqual(merged["summary"]["validating"], 1)
+        self.assertEqual(merged["summary"]["staleOrEscalated"], 1)
+        self.assertEqual(
+            merged["summary"]["countsByStatus"],
+            {
+                "ACTIONED": 1,
+                "CLOSED": 0,
+                "ESCALATED": 0,
+                "OPEN": 2,
+                "STALE": 1,
+                "VALIDATING": 1,
+            },
+        )
+
     @unittest.skipIf(os.name == "nt", "POSIX file mode preservation test")
     def test_merge_registry_file_preserves_existing_permissions(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
