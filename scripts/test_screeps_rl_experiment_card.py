@@ -795,6 +795,87 @@ class RlExperimentCardTest(unittest.TestCase):
             with self.assertRaises(card_helper.CardValidationError):
                 card_helper.validate_card(nested_live_regression)
 
+    def test_cli_writes_degraded_loop_a_local_fallback_resource_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_root = root / "runtime-artifacts"
+            gate_id = "rl-gate-e40f73af6f71"
+            dataset_run_id = "rl-b3d6e3a2af75"
+            gate_path = runtime_root / "rl-control-loop" / "gate-data" / gate_id / "gate_report.json"
+            output_path = runtime_root / "rl-experiment-cards" / "experiment_card.json"
+            gate_path.parent.mkdir(parents=True)
+            gate_path.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": True,
+                        "gateId": gate_id,
+                        "createdAt": "2026-05-30T18:08:37Z",
+                        "dataset": {"ok": True, "runId": dataset_run_id, "sampleCount": 200},
+                        "datasetGate": {"status": "pass", "sampleCount": 200},
+                        "quality_checks": {
+                            "status": "pass",
+                            "samples_accepted": 200,
+                            "samples_rejected": 0,
+                            "acceptance_rate": 1.0,
+                        },
+                        "shadowEvaluation": {"status": "pass", "ok": True},
+                        "blockingReasons": [],
+                        "outputs": {"gateDir": f"runtime-artifacts/rl-control-loop/gate-data/{gate_id}"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            exit_code = card_helper.main(
+                [
+                    "--loop-a-local-fallback",
+                    "--degraded-local-fallback-profile",
+                    "--source-gate-id",
+                    gate_id,
+                    "--dataset-gate-root",
+                    str(runtime_root),
+                    "--code-commit",
+                    "7" * 40,
+                    "--created-at",
+                    "2026-05-31T21:06:00Z",
+                    "--ticks",
+                    "2000",
+                    "--repetitions",
+                    "10",
+                    "--workers",
+                    "2",
+                    "--output",
+                    str(output_path),
+                ],
+                stdout=stdout,
+                stderr=io.StringIO(),
+                repo_root=REPO_ROOT,
+            )
+            summary = json.loads(stdout.getvalue())
+            generated = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(summary["loop_a_local_fallback"])
+        self.assertEqual(summary["source_gate"]["gate_id"], gate_id)
+        self.assertEqual(summary["source_gate"]["dataset_run_id"], dataset_run_id)
+        card_helper.validate_card(generated)
+        runner.validate_experiment_card(generated)
+        config = runner.simulation_config_from_card(generated)
+        self.assertEqual(config.workers, 2)
+        self.assertEqual(config.repetitions, 10)
+        self.assertEqual(config.ticks, card_helper.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
+        self.assertEqual(config.scale_environments, 2)
+        self.assertEqual(config.min_concurrent_environments, 2)
+        self.assertEqual(generated["dataset_run_id"], dataset_run_id)
+        self.assertEqual(generated["source_gate"]["gate_id"], gate_id)
+        self.assertEqual(generated["training_approach"], "policy_gradient")
+        self.assertEqual(generated["simulation"]["scale_environments"], 2)
+        self.assertEqual(generated["simulation"]["min_concurrent_environments"], 2)
+        self.assertEqual(generated["card_supply"]["state"], "available")
+        self.assertTrue(generated["card_supply"]["available_for_training"])
+
     def test_loop_a_local_fallback_rejects_explicit_single_room_scenario(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -2632,6 +2713,68 @@ class RlExperimentCardTest(unittest.TestCase):
 
         card_helper.validate_card(card)
 
+    def test_validate_rejects_policy_gradient_scale_environments_above_workers(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-scale-workers",
+            code_commit="1" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+            simulation_repetitions=1,
+            simulation_scale_environments=5,
+        )
+        card["simulation"]["workers"] = 1
+
+        with self.assertRaisesRegex(card_helper.CardValidationError, "simulation\\.workers >="):
+            card_helper.validate_card(card)
+
+    def test_validate_rejects_policy_gradient_min_concurrent_above_workers_without_scale(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-min-workers",
+            code_commit="1" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+        )
+        card["simulation"]["min_concurrent_environments"] = 5
+
+        with self.assertRaisesRegex(card_helper.CardValidationError, "simulation\\.workers >="):
+            card_helper.validate_card(card)
+
+        with self.assertRaisesRegex(card_helper.CardValidationError, "simulation\\.workers >="):
+            card_helper.build_card(
+                dataset_run_id="rl-policy-gradient-generated-min-workers",
+                code_commit="1" * 40,
+                training_approach="policy_gradient",
+                created_at="2026-05-17T00:25:00Z",
+                simulation_min_concurrent_environments=5,
+            )
+
+    def test_validate_rejects_simulation_min_concurrent_above_scale_environments(self) -> None:
+        for index, (scale_field, min_field) in enumerate((
+            ("scale_environments", "min_concurrent_environments"),
+            ("scaleEnvironments", "minConcurrentEnvironments"),
+        ), start=1):
+            with self.subTest(scale_field=scale_field, min_field=min_field):
+                card = card_helper.build_card(
+                    dataset_run_id=f"rl-simulation-concurrency-{index}",
+                    code_commit="1" * 40,
+                    training_approach="policy_gradient",
+                    created_at="2026-05-17T00:25:00Z",
+                    simulation_scale_environments=2,
+                    simulation_min_concurrent_environments=2,
+                )
+                simulation = card.pop("simulation")
+                simulation[scale_field] = simulation.pop("scale_environments")
+                simulation[min_field] = 10
+                if min_field != "min_concurrent_environments":
+                    simulation.pop("min_concurrent_environments")
+                card["simulation"] = simulation
+
+                with self.assertRaisesRegex(
+                    card_helper.CardValidationError,
+                    "min_concurrent_environments must be <= simulation\\.scale_environments",
+                ):
+                    card_helper.validate_card(card)
+
     def test_validate_rejects_policy_gradient_below_target_trust_sample_budget(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-policy-gradient-high-target",
@@ -2816,6 +2959,41 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(config.repetitions, 20)
         self.assertEqual(generated["training_approach"], "policy_gradient")
         self.assertEqual(generated["policy_gradient"]["target_family"], "construction-priority")
+
+    def test_cli_policy_gradient_scale_environments_defaults_workers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "card.json"
+            exit_code = card_helper.main(
+                [
+                    "--dataset-run-id",
+                    "rl-policy-gradient-cli-scale",
+                    "--code-commit",
+                    "3" * 40,
+                    "--training-approach",
+                    "policy_gradient",
+                    "--created-at",
+                    "2026-05-17T00:25:00Z",
+                    "--repetitions",
+                    "1",
+                    "--scale-environments",
+                    "5",
+                    "--output",
+                    str(output_path),
+                ],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+                repo_root=REPO_ROOT,
+            )
+            generated = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 0)
+        card_helper.validate_card(generated)
+        runner.validate_experiment_card(generated)
+        config = runner.simulation_config_from_card(generated)
+        self.assertEqual(config.workers, 5)
+        self.assertEqual(config.repetitions, 4)
+        self.assertEqual(config.scale_environments, 5)
+        self.assertIsNone(config.min_concurrent_environments)
 
 
 if __name__ == "__main__":
