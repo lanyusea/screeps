@@ -60,8 +60,13 @@ WORKER_ASSIGNMENT_GAP_REQUIRED_TICKS = 100
 WORKER_ASSIGNMENT_GAP_RECOVERY_TICK_TOLERANCE = 0
 WORKER_ASSIGNMENT_STALL_KIND = "worker_assignment_stall"
 WORKER_ASSIGNMENT_STALL_REQUIRED_TICKS = 100
+WORKER_ASSIGNMENT_STALL_REQUIRED_CONSECUTIVE_CAPTURES = 4
+RUNTIME_SUMMARY_CAPTURE_HISTORY_LIMIT = 12
 RUNTIME_SUMMARY_TICK_METADATA_KEY = "__runtimeSummaryTick"
 RUNTIME_SUMMARY_ARTIFACT_TIMESTAMP_METADATA_KEY = "__runtimeSummaryArtifactTimestamp"
+RUNTIME_SUMMARY_ARTIFACT_PATH_METADATA_KEY = "__runtimeSummaryArtifactPath"
+RUNTIME_SUMMARY_ARTIFACT_LINE_METADATA_KEY = "__runtimeSummaryArtifactLine"
+RUNTIME_SUMMARY_CAPTURE_HISTORY_METADATA_KEY = "__runtimeSummaryCaptureHistory"
 RUNTIME_SUMMARY_SOURCE_METADATA_KEY = "__runtimeSummarySource"
 RUNTIME_SUMMARY_CPU_METADATA_KEY = "__runtimeSummaryCpu"
 MONITOR_RUNTIME_SUMMARY_SOURCE = "screeps-runtime-monitor"
@@ -142,6 +147,8 @@ CONSTRUCTION_DEADLOCK_ROUTES = [
     {"issue": "#1025", "topic": "construction_deadlock_ticks"},
 ]
 WORKER_ASSIGNMENT_STALL_ROUTES = [
+    {"issue": "#1580", "topic": "worker_deadlock_alert"},
+    {"issue": "#1553", "topic": "e29n57_worker_deadlock"},
     {"issue": "#1573", "topic": "worker_deadlock_alert"},
     {"issue": "#906", "topic": "gameplay_behavior_metric"},
 ]
@@ -283,8 +290,11 @@ TACTICAL_CATEGORY_RULES: dict[str, dict[str, Any]] = {
         "actions": ["capture_runtime_context", "inspect_resource_state", "open_incident_issue"],
         "metadata": {
             "metric": "workerAssignmentEvidence.productiveAssignmentCount",
-            "related_issues": ["#1573", "#906"],
-            "thresholds": {"P2": WORKER_ASSIGNMENT_STALL_REQUIRED_TICKS},
+            "related_issues": ["#1580", "#1553", "#1573", "#906"],
+            "thresholds": {
+                "P2_ticks": WORKER_ASSIGNMENT_STALL_REQUIRED_TICKS,
+                "P2_consecutive_captures": WORKER_ASSIGNMENT_STALL_REQUIRED_CONSECUTIVE_CAPTURES,
+            },
             "routes_to": WORKER_ASSIGNMENT_STALL_ROUTES,
         },
     },
@@ -1275,7 +1285,10 @@ def worker_assignment_stall_metadata() -> dict[str, Any]:
     return {
         "metric": "workerAssignmentEvidence.productiveAssignmentCount",
         "related_issues": [str(route["issue"]) for route in WORKER_ASSIGNMENT_STALL_ROUTES],
-        "thresholds": {"P2": WORKER_ASSIGNMENT_STALL_REQUIRED_TICKS},
+        "thresholds": {
+            "P2_ticks": WORKER_ASSIGNMENT_STALL_REQUIRED_TICKS,
+            "P2_consecutive_captures": WORKER_ASSIGNMENT_STALL_REQUIRED_CONSECUTIVE_CAPTURES,
+        },
         "routes_to": [dict(route) for route in WORKER_ASSIGNMENT_STALL_ROUTES],
     }
 
@@ -2061,7 +2074,7 @@ def detect_worker_assignment_gap_sustained_reason(
     return None, state
 
 
-def worker_assignment_stall_evidence(
+def worker_assignment_deadlock_evidence(
     runtime_room: dict[str, Any] | None,
     metrics: RoomSummaryMetrics,
 ) -> dict[str, Any] | None:
@@ -2078,30 +2091,35 @@ def worker_assignment_stall_evidence(
     if productive_assignment_count != 0:
         return None
 
+    worker_count = first_number_value(
+        runtime_room,
+        ("workerCount",),
+        ("workerAssignmentEvidence", "workerCount"),
+        ("resources", "productiveEnergy", "workerCount"),
+        ("productiveEnergy", "workerCount"),
+    )
+    if worker_count is not None and worker_count <= 0:
+        return None
+
     construction_site_count = runtime_construction_site_count(runtime_room)
     if construction_site_count is None:
         construction_site_count = len(metrics.construction_sites)
     pending_build_progress = runtime_pending_build_progress(runtime_room)
     if pending_build_progress is None:
         pending_build_progress = metrics.pending_build_progress
-    if construction_site_count <= 0 and pending_build_progress <= 0:
-        return None
 
     build_count = runtime_task_count(runtime_room, "build")
     if build_count is None:
         build_count = metrics.task_counts.get("build")
-    if build_count is not None and build_count > 0:
-        return None
 
     runtime_gap_blocked_reason = runtime_build_blocked_reason(runtime_room)
-    if runtime_gap_blocked_reason == WORKER_ASSIGNMENT_GAP_BLOCKED_REASON:
-        return None
     build_blocked_reason = runtime_gap_blocked_reason or metrics.build_blocked_reason
 
     task_counts = dict(as_dict(runtime_room.get("taskCounts"))) or dict(metrics.task_counts)
     evidence = {
         "workerAssignmentBlockedDetail": blocked_detail,
         "productiveAssignmentCount": productive_assignment_count,
+        "workerCount": worker_count,
         "build": build_count,
         "task_counts": task_counts,
         "constructionSiteCount": construction_site_count,
@@ -2114,9 +2132,115 @@ def worker_assignment_stall_evidence(
     if blocked_workers:
         evidence["workerAssignmentBlockedWorkers"] = blocked_workers
     artifact_timestamp = runtime_room.get(RUNTIME_SUMMARY_ARTIFACT_TIMESTAMP_METADATA_KEY)
-    if isinstance(artifact_timestamp, str) and artifact_timestamp:
+    if isinstance(artifact_timestamp, (int, float, str)) and artifact_timestamp:
         evidence["runtimeSummaryArtifactTimestamp"] = artifact_timestamp
+    artifact_path = runtime_room.get(RUNTIME_SUMMARY_ARTIFACT_PATH_METADATA_KEY)
+    if isinstance(artifact_path, str) and artifact_path:
+        evidence["runtimeSummaryArtifactPath"] = artifact_path
+    artifact_line = number_value(runtime_room.get(RUNTIME_SUMMARY_ARTIFACT_LINE_METADATA_KEY))
+    if artifact_line is not None:
+        evidence["runtimeSummaryArtifactLine"] = int(artifact_line)
     return evidence
+
+
+def worker_assignment_stall_evidence(
+    runtime_room: dict[str, Any] | None,
+    metrics: RoomSummaryMetrics,
+) -> dict[str, Any] | None:
+    evidence = worker_assignment_deadlock_evidence(runtime_room, metrics)
+    if evidence is None:
+        return None
+
+    if evidence["constructionSiteCount"] <= 0 and evidence["pendingBuildProgress"] <= 0:
+        return None
+    build_count = evidence.get("build")
+    if build_count is not None and build_count > 0:
+        return None
+    if runtime_build_blocked_reason(runtime_room) == WORKER_ASSIGNMENT_GAP_BLOCKED_REASON:
+        return None
+    return evidence
+
+
+def runtime_summary_capture_history(runtime_room: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(runtime_room, dict):
+        return []
+    value = runtime_room.get(RUNTIME_SUMMARY_CAPTURE_HISTORY_METADATA_KEY)
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def worker_assignment_deadlock_capture_matches(capture: dict[str, Any]) -> bool:
+    if not runtime_worker_assignment_evidence_available(capture):
+        return False
+    if runtime_productive_assignment_count(capture) != 0:
+        return False
+    if runtime_worker_assignment_blocked_detail(capture) is None:
+        return False
+    worker_count = first_number_value(capture, ("workerCount",), ("workerAssignmentEvidence", "workerCount"))
+    return worker_count is None or worker_count > 0
+
+
+def worker_assignment_deadlock_consecutive_captures(
+    runtime_room: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    captures = runtime_summary_capture_history(runtime_room)
+    if not captures:
+        return []
+    consecutive: list[dict[str, Any]] = []
+    for capture in captures:
+        if not worker_assignment_deadlock_capture_matches(capture):
+            break
+        consecutive.append(capture)
+    return consecutive
+
+
+def worker_assignment_capture_state(captures: list[dict[str, Any]], current_tick_value: Any) -> dict[str, int]:
+    current_tick = tick_number(captures[0].get("runtimeSummaryTick")) if captures else None
+    start_tick = tick_number(captures[-1].get("runtimeSummaryTick")) if captures else None
+    if current_tick is None:
+        current_tick = tick_number(current_tick_value)
+    if start_tick is None:
+        start_tick = current_tick
+    if current_tick is None:
+        current_tick = start_tick if start_tick is not None else 0
+    if start_tick is None:
+        start_tick = current_tick
+    return {
+        "start_tick": start_tick,
+        "last_tick": current_tick,
+        "consecutive_ticks": max(0, current_tick - start_tick),
+    }
+
+
+def worker_assignment_capture_paths(captures: list[dict[str, Any]]) -> list[str]:
+    paths: list[str] = []
+    for capture in captures:
+        path = capture.get("path")
+        if isinstance(path, str) and path and path not in paths:
+            paths.append(path)
+    return paths
+
+
+def worker_assignment_capture_window_evidence(
+    runtime_room: dict[str, Any] | None,
+    metrics: RoomSummaryMetrics,
+) -> tuple[dict[str, Any], dict[str, int]] | None:
+    captures = worker_assignment_deadlock_consecutive_captures(runtime_room)
+    if len(captures) < WORKER_ASSIGNMENT_STALL_REQUIRED_CONSECUTIVE_CAPTURES:
+        return None
+
+    evidence = worker_assignment_deadlock_evidence(runtime_room, metrics)
+    if evidence is None:
+        evidence = worker_assignment_deadlock_evidence(captures[0], metrics)
+    if evidence is None:
+        return None
+
+    evidence["consecutiveCaptures"] = len(captures)
+    evidence["thresholdCaptures"] = WORKER_ASSIGNMENT_STALL_REQUIRED_CONSECUTIVE_CAPTURES
+    evidence["runtimeSummaryCaptures"] = captures
+    evidence["runtimeSummaryCapturePaths"] = worker_assignment_capture_paths(captures)
+    return evidence, worker_assignment_capture_state(captures, evidence.get("runtimeSummaryTick"))
 
 
 def build_worker_assignment_stall_reason(
@@ -2125,6 +2249,14 @@ def build_worker_assignment_stall_reason(
     state: dict[str, int],
 ) -> dict[str, Any]:
     blocked_detail = evidence["workerAssignmentBlockedDetail"]
+    consecutive_captures = number_value(evidence.get("consecutiveCaptures"))
+    if consecutive_captures is not None:
+        duration = (
+            f"across {format_energy_value(consecutive_captures)} consecutive runtime-summary captures "
+            f"(threshold>{WORKER_ASSIGNMENT_STALL_REQUIRED_CONSECUTIVE_CAPTURES - 1})."
+        )
+    else:
+        duration = f"for {state['consecutive_ticks']} ticks."
     return {
         "kind": WORKER_ASSIGNMENT_STALL_KIND,
         "room": ref.key,
@@ -2138,12 +2270,17 @@ def build_worker_assignment_stall_reason(
         "start_tick": state["start_tick"],
         "current_tick": state["last_tick"],
         "consecutive_ticks": state["consecutive_ticks"],
+        "next_action": (
+            "Codex triage: inspect worker dispatch and spawn energy reservation for the affected room; "
+            "verify productiveAssignmentCount recovers above 0 in fresh runtime-summary captures."
+        ),
+        "owner_ping": False,
         "metadata": worker_assignment_stall_metadata(),
         "message": (
             f"{WORKER_ASSIGNMENT_STALL_KIND} in {ref.key}: "
             f"productiveAssignmentCount=0, workerAssignmentBlockedDetail={blocked_detail}, "
             f"pendingBuildProgress={format_energy_value(evidence.get('pendingBuildProgress'))} "
-            f"for {state['consecutive_ticks']} ticks."
+            f"{duration}"
         ),
         "signature": f"{WORKER_ASSIGNMENT_STALL_KIND}:{ref.key}",
     }
@@ -2156,6 +2293,11 @@ def detect_worker_assignment_stall_reason(
     previous_rule_state: Any,
     current_tick_value: Any,
 ) -> tuple[dict[str, Any] | None, dict[str, int] | int]:
+    capture_window = worker_assignment_capture_window_evidence(runtime_room, metrics)
+    if capture_window is not None:
+        evidence, state = capture_window
+        return build_worker_assignment_stall_reason(ref, evidence, state), state
+
     evidence = worker_assignment_stall_evidence(runtime_room, metrics)
     if evidence is None:
         return None, 0
@@ -2400,9 +2542,14 @@ def evaluate_room_alert(
         detected.append(extension_count_zero_candidate)
 
     previous_worker_assignment_stall_state = rule_counts.get(WORKER_ASSIGNMENT_STALL_KIND)
+    owned_room_for_worker_alerts = bool(
+        current_owned_spawns > 0
+        or current_owned_creeps > 0
+        or (expected_owner is not None and snapshot.owner == expected_owner)
+    )
     worker_assignment_stall_candidate, worker_assignment_stall_state = detect_worker_assignment_stall_reason(
         snapshot.ref,
-        runtime_room_summary,
+        runtime_room_summary if owned_room_for_worker_alerts else None,
         current_metrics,
         previous_worker_assignment_stall_state,
         snapshot.tick,
@@ -3888,6 +4035,9 @@ def runtime_summary_room_has_monitor_alert_fields(room: dict[str, Any], payload:
         runtime_summary_room_has_worker_idle_fields(room)
         or runtime_summary_room_has_cpu_fields(room)
         or runtime_summary_payload_has_cpu_fields(payload)
+        or runtime_productive_assignment_count(room) is not None
+        or runtime_worker_assignment_blocked_detail(room) is not None
+        or bool(runtime_worker_assignment_blocked_workers(room))
     )
 
 
@@ -3987,7 +4137,12 @@ def runtime_summary_candidate_key(
     )
 
 
-def runtime_summary_room_with_metadata(payload: dict[str, Any], path: Path, room: dict[str, Any]) -> dict[str, Any]:
+def runtime_summary_room_with_metadata(
+    payload: dict[str, Any],
+    path: Path,
+    room: dict[str, Any],
+    line_index: int | None = None,
+) -> dict[str, Any]:
     result = dict(room)
     tick = runtime_summary_payload_tick(payload)
     if tick is not None:
@@ -3995,6 +4150,9 @@ def runtime_summary_room_with_metadata(payload: dict[str, Any], path: Path, room
     timestamp = runtime_summary_artifact_timestamp(path)
     if timestamp is not None:
         result[RUNTIME_SUMMARY_ARTIFACT_TIMESTAMP_METADATA_KEY] = timestamp
+    result[RUNTIME_SUMMARY_ARTIFACT_PATH_METADATA_KEY] = str(path)
+    if line_index is not None:
+        result[RUNTIME_SUMMARY_ARTIFACT_LINE_METADATA_KEY] = line_index + 1
     source = payload.get("source")
     if isinstance(source, str) and source:
         result[RUNTIME_SUMMARY_SOURCE_METADATA_KEY] = source
@@ -4050,6 +4208,90 @@ def runtime_summary_room_with_cpu_fields(base: dict[str, Any], cpu_room: dict[st
     return result
 
 
+def runtime_summary_capture_history_entry(room: dict[str, Any]) -> dict[str, Any]:
+    entry: dict[str, Any] = {}
+    for source_key, target_key in (
+        ("room", "room"),
+        ("roomName", "roomName"),
+        ("shard", "shard"),
+        (RUNTIME_SUMMARY_SOURCE_METADATA_KEY, "source"),
+        (RUNTIME_SUMMARY_ARTIFACT_PATH_METADATA_KEY, "path"),
+    ):
+        value = room.get(source_key)
+        if isinstance(value, str) and value:
+            entry[target_key] = value
+
+    tick = runtime_summary_room_tick(room)
+    if tick is not None:
+        entry["runtimeSummaryTick"] = tick
+    timestamp = room.get(RUNTIME_SUMMARY_ARTIFACT_TIMESTAMP_METADATA_KEY)
+    if isinstance(timestamp, (int, float, str)):
+        entry["runtimeSummaryArtifactTimestamp"] = timestamp
+    line_number = number_value(room.get(RUNTIME_SUMMARY_ARTIFACT_LINE_METADATA_KEY))
+    if line_number is not None:
+        entry["line"] = int(line_number)
+
+    productive_assignment_count = runtime_productive_assignment_count(room)
+    if productive_assignment_count is not None:
+        entry["productiveAssignmentCount"] = productive_assignment_count
+    blocked_detail = runtime_worker_assignment_blocked_detail(room)
+    if blocked_detail is not None:
+        entry["workerAssignmentBlockedDetail"] = blocked_detail
+    blocked_workers = runtime_worker_assignment_blocked_workers(room)
+    if blocked_workers:
+        entry["workerAssignmentBlockedWorkers"] = blocked_workers
+    worker_count = first_number_value(room, ("workerCount",), ("workerAssignmentEvidence", "workerCount"))
+    if worker_count is not None:
+        entry["workerCount"] = worker_count
+
+    task_counts = as_dict(room.get("taskCounts"))
+    if task_counts:
+        entry["taskCounts"] = dict(task_counts)
+    build_count = runtime_task_count(room, "build")
+    if build_count is not None:
+        entry["build"] = build_count
+    construction_site_count = runtime_construction_site_count(room)
+    if construction_site_count is not None:
+        entry["constructionSiteCount"] = construction_site_count
+    pending_build_progress = runtime_pending_build_progress(room)
+    if pending_build_progress is not None:
+        entry["pendingBuildProgress"] = pending_build_progress
+    build_blocked_reason = runtime_build_blocked_reason(room)
+    if build_blocked_reason is not None:
+        entry["buildBlockedReason"] = build_blocked_reason
+
+    return entry
+
+
+def runtime_summary_capture_history_key(entry: dict[str, Any]) -> tuple[bool, int, bool, float, int, str]:
+    tick = tick_number(entry.get("runtimeSummaryTick"))
+    timestamp = number_value(entry.get("runtimeSummaryArtifactTimestamp"))
+    line_number = number_value(entry.get("line"))
+    path = entry.get("path")
+    return (
+        tick is not None,
+        tick if tick is not None else -1,
+        timestamp is not None,
+        timestamp if timestamp is not None else -1.0,
+        int(line_number) if line_number is not None else -1,
+        path if isinstance(path, str) else "",
+    )
+
+
+def attach_runtime_summary_capture_history(
+    room: dict[str, Any],
+    history: list[dict[str, Any]],
+) -> dict[str, Any]:
+    result = dict(room)
+    if history:
+        result[RUNTIME_SUMMARY_CAPTURE_HISTORY_METADATA_KEY] = sorted(
+            history,
+            key=runtime_summary_capture_history_key,
+            reverse=True,
+        )[:RUNTIME_SUMMARY_CAPTURE_HISTORY_LIMIT]
+    return result
+
+
 def load_latest_runtime_room_summaries(
     runtime_summary_dir: Path,
     refs: list[RoomRef],
@@ -4071,6 +4313,7 @@ def load_latest_runtime_room_summaries(
     runtime_cpu_freshness_keys: dict[str, tuple[bool, float, int, bool, int, str]] = {}
     cpu_result: dict[str, dict[str, Any]] = {}
     cpu_freshness_keys: dict[str, tuple[bool, float, int, bool, int, str]] = {}
+    capture_history: dict[str, list[dict[str, Any]]] = {}
     for path in paths:
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
@@ -4091,7 +4334,7 @@ def load_latest_runtime_room_summaries(
                     if candidate_freshness_key <= cpu_freshness_keys.get(ref.key, (False, -1.0, -1, False, -1, "")):
                         continue
                     room = runtime_cpu_summary_room(ref, cpu)
-                    cpu_result[ref.key] = runtime_summary_room_with_metadata(cpu_payload, path, room)
+                    cpu_result[ref.key] = runtime_summary_room_with_metadata(cpu_payload, path, room, line_index)
                     cpu_freshness_keys[ref.key] = candidate_freshness_key
                 continue
 
@@ -4113,7 +4356,8 @@ def load_latest_runtime_room_summaries(
                     ):
                         continue
                     candidate_key = runtime_summary_candidate_key(payload, path, line_index, room)
-                    candidate_room = runtime_summary_room_with_metadata(payload, path, room)
+                    candidate_room = runtime_summary_room_with_metadata(payload, path, room, line_index)
+                    capture_history.setdefault(ref.key, []).append(runtime_summary_capture_history_entry(candidate_room))
                     if runtime_summary_room_has_cpu_fields(room) or runtime_summary_payload_has_cpu_fields(payload):
                         if candidate_freshness_key > cpu_freshness_keys.get(ref.key, (False, -1.0, -1, False, -1, "")):
                             cpu_result[ref.key] = candidate_room
@@ -4130,20 +4374,24 @@ def load_latest_runtime_room_summaries(
     for ref in refs:
         runtime_room = runtime_result.get(ref.key)
         cpu_room = cpu_result.get(ref.key)
+        history = capture_history.get(ref.key, [])
         if runtime_room is None and cpu_room is None:
             continue
         if runtime_room is None:
-            result[ref.key] = dict(cpu_room) if cpu_room is not None else {}
+            result[ref.key] = attach_runtime_summary_capture_history(dict(cpu_room) if cpu_room is not None else {}, history)
             continue
         if cpu_room is None:
-            result[ref.key] = dict(runtime_room)
+            result[ref.key] = attach_runtime_summary_capture_history(runtime_room, history)
             continue
         cpu_key = cpu_freshness_keys.get(ref.key)
         runtime_cpu_key = runtime_cpu_freshness_keys.get(ref.key)
         if cpu_key is not None and (runtime_cpu_key is None or cpu_key > runtime_cpu_key):
-            result[ref.key] = runtime_summary_room_with_cpu_fields(runtime_room, cpu_room)
+            result[ref.key] = attach_runtime_summary_capture_history(
+                runtime_summary_room_with_cpu_fields(runtime_room, cpu_room),
+                history,
+            )
         else:
-            result[ref.key] = dict(runtime_room)
+            result[ref.key] = attach_runtime_summary_capture_history(runtime_room, history)
     return result
 
 
