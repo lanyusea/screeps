@@ -6,7 +6,7 @@ Canonical PDCA Act-loop registry for RL reward components, weights, penalties, v
 - **Replacement container issue:** #967 (#907 replacement — YAML schema + change-control gate)
 - **Previous registry issue:** #959
 - **Previous reward-decision issue:** #907, closed after PR #961 merged
-- **Umbrella:** #879 (ALL IN RL)
+- **Historical context:** #879 (quarantined; not an active reward-decision container or progress proxy)
 - **Machine-readable schema:** `docs/ops/rl-reward-schema.yaml` (v1, #967)
 - **Last updated:** 2026-06-01
 
@@ -180,7 +180,7 @@ These are registry entries from v2 or this v3 Act container. `PROPOSED` entries 
 
 ## Related Issues and PRs
 
-- #879 - ALL IN RL umbrella
+- #879 - historical ALL IN RL context only; not an active reward-decision container, queue, or completion proxy
 - #906 - Gameplay metric taxonomy and coverage gaps
 - #907 - Previous reward-decision container, closed after #961
 - #924 - Candidate-vs-baseline scorecard

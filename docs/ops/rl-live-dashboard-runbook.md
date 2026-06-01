@@ -1,6 +1,6 @@
 # RL Live Dashboard Runbook
 
-Status: issue #1474 real-Grafana contract for the #879 RL evidence loop. This supersedes the one-time #1184 local foundation and the closed #1237/#1381/#1388/#1464 chain without reopening those issues.
+Status: issue #1474 real-Grafana contract for RL evidence surfaces. This supersedes the one-time #1184 local foundation and the closed #1237/#1381/#1388/#1464 chain without reopening those issues. Active RL progress is managed through Project `screeps` atomic issues with `Domain = RL flywheel`; #879 is historical context only.
 
 This runbook has two explicitly separate surfaces:
 
@@ -176,11 +176,11 @@ The live page and `/api/summary` cover:
 | Tencent batch utilization | Latest controller summaries under `runtime-artifacts/tencent-cloud/batch-runs/`. |
 | Safety flags | Tencent run safety flags, required scorecard evidence, scorecard safety regressions, and card-supply status. |
 | SQLite freshness | Required table presence, row counts, and latest observation timestamp from `rl_metrics.sqlite`. |
-| #879 flywheel stages | Explicit construction-landed, training-running, online-proven, and self-iterating states. |
-| Project gates | Local evidence status for #879, #1032, #1229, #1233, and #1234. |
+| RL flywheel stages | Explicit construction-landed, training-running, online-proven, and self-iterating states, grouped by atomic issue/lane when available. |
+| Project gates | Local evidence status for active `Domain = RL flywheel` atomic issues; #879 is not an active gate. |
 | #924 scorecard | Latest scorecard status, required actions, missing evidence, safety regressions, candidate, and baseline. |
 
-Owner evidence for #879 can be copied from `/api/summary` and from `npm run rl-dashboard-live:acceptance` PASS output:
+Owner evidence for an observability atomic issue can be copied from `/api/summary` and from `npm run rl-dashboard-live:acceptance` PASS output:
 
 ```text
 dashboardUrl
@@ -207,7 +207,7 @@ runtime-artifacts/rl-dashboard.html
 
 Use this static command when refreshing local RL evidence for the GitHub Pages roadmap. Do not schedule or attach a Discord roadmap update for this artifact.
 
-## Actual Grafana Coverage And #879 Evidence
+## Actual Grafana Coverage And Atomic Evidence
 
 The actual Grafana dashboard is provisioned from `docs/ops/grafana/screeps-rl-gameplay-metrics.json` and is grounded in the SQLite tables created by `scripts/screeps_rl_metrics_ingestor.py`. Its starter panels cover:
 
@@ -220,9 +220,9 @@ The actual Grafana dashboard is provisioned from `docs/ops/grafana/screeps-rl-ga
 | E1 dataset gates | `rl_dataset_gate_metrics`. |
 | Loop A training execution | `rl_training_execution_metrics`. |
 | Loop B policy advantage | `rl_policy_advantage_metrics`. |
-| #879 iteration decisions | `metric_iteration_decisions`. |
+| RL iteration decisions | `metric_iteration_decisions`. |
 
-#879 evidence is honest only when it states which surface was checked:
+Evidence is honest only when it states which surface and which atomic issue/lane were checked:
 
 - Python fallback evidence: `http://127.0.0.1:8765/`, `/api/summary`, `/healthz`, and `npm run rl-dashboard-live:acceptance`.
 - Actual Grafana evidence: `http://127.0.0.1:3000/`, the dashboard path, `frser-sqlite-datasource` provisioning, `runtime-artifacts/rl-metrics/rl_metrics.sqlite` datasource path, and `npm run rl-grafana:validate` `PASS`.
@@ -232,14 +232,14 @@ A Python dashboard-equivalent health or acceptance PASS must not be described as
 
 ## Historical #1381 Closure Gate
 
-Issue #1381 was a false-completion repair for closed #1184/#1237/#1350. Keep this as a historical guardrail only; #1474 work must not reopen #1381 or the closed predecessor chain. Do **not** close it on a code merge, a runbook update, `npm run rl-metrics-refresh`, static HTML generation, or SQLite file existence alone. Closure required all of the following live evidence in #879/#1381 Project Evidence:
+Issue #1381 was a false-completion repair for closed #1184/#1237/#1350. Keep this as a historical guardrail only; #1474 work must not reopen #1381 or the closed predecessor chain. Do **not** close it on a code merge, a runbook update, `npm run rl-metrics-refresh`, static HTML generation, or SQLite file existence alone. Historical closure required all of the following live evidence on the relevant dashboard/observability atomic issue:
 
 1. A running dashboard process/listener at the owner-facing URL (`http://127.0.0.1:8765/` by default).
 2. `npm run rl-dashboard-live:health` output showing `/healthz` with `ok=true`.
 3. `npm run rl-dashboard-live:acceptance` output with `ok=true` / `message=PASS`.
 4. `/api/summary` evidence including `dashboardUrl`, `db.path`, `db.tables`, `db.latestObservedAt`, `refresh.lastRefreshOk=true`, and `refresh.lastRefreshAt`.
 5. Visible dashboard/API sections for E1 gate, Loop A, Loop B, Tencent utilization, scorecard, safety, and Project gates.
-6. The #879 Project item Evidence and Next action fields updated with the health/acceptance timestamp, DB counts/freshness, and remaining RL flywheel blocker if any.
+6. The relevant atomic issue's Project item Evidence and Next action fields updated with the health/acceptance timestamp, DB counts/freshness, and remaining RL flywheel blocker if any.
 
 A one-time foreground proof is acceptable for local QA, but durable owner-facing operation must include an explicit process owner/launch recipe or service handoff before the work is considered operationally complete.
 
