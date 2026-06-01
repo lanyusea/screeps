@@ -1425,6 +1425,41 @@ cli:
         self.assertFalse(activation["safety"]["officialMmoWrites"])
         self.assertFalse(activation["safety"]["officialMmoWritesAllowed"])
 
+    def test_multi_tier_policy_activation_projects_with_null_evidence_errors(self) -> None:
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v1.map.json")
+        fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
+        tick_log = [
+            {"tick": 1, "rooms": {"E1S1": copy.deepcopy(fixture_summaries["E1S1"])}},
+            {"tick": 2, "rooms": {"E1S1": copy.deepcopy(fixture_summaries["E1S1"])}},
+        ]
+        for tick_entry in tick_log:
+            harness._merge_fixture_room_summaries_into_tick(tick_entry, fixture_summaries)
+        strategy_variant = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 22,
+                "resourceSignalWeight": 3,
+                "killSignalWeight": 5,
+                "riskPenalty": 4,
+            },
+        }
+
+        activation = harness.build_multi_tier_policy_activation_evidence(
+            tick_log,
+            strategy_variant,
+            fixture_summaries,
+            anchor_room="E1S1",
+            evidence_errors=None,
+            allow_offline_projection=True,
+        )
+
+        self.assertIsNotNone(activation)
+        assert activation is not None
+        self.assertEqual(activation["objectiveSignalSource"], "offline_shadow_projection")
+        self.assertIn("projectedEvidence", activation)
+        self.assertNotIn("evidenceWarnings", activation)
+
     def test_multi_tier_policy_activation_projects_offline_hostile_engagement_metrics(self) -> None:
         fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
         fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)

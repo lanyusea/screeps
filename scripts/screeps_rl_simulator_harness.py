@@ -5620,7 +5620,7 @@ def build_multi_tier_policy_activation_evidence(
     target_room = activation.get("targetRoom")
     if not isinstance(target_room, str):
         return None
-    evidence_warnings = [_safe_text(error, 240) for error in evidence_errors if str(error).strip()]
+    evidence_warnings = [_safe_text(error, 240) for error in (evidence_errors or ()) if str(error).strip()]
     if evidence_warnings:
         activation["evidenceWarnings"] = evidence_warnings[:5]
     observed = _multi_tier_policy_activation_observed_evidence(tick_log, target_room)
