@@ -3371,6 +3371,52 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(report["scalarWeightedReward"]["liveEffect"])
         self.assertFalse(report["officialMmoWrites"])
 
+    def test_scalar_activation_trace_stays_on_original_attempt_after_failure(self) -> None:
+        card = base_card(["candidate"])
+        card["reward_model"] = card_helper.reward_model(scalar_weighted_sum_authorized=True)
+        variant = runner.StrategyVariant(
+            id="candidate",
+            family="test-family",
+            parameters={},
+            rollout_status="shadow",
+        )
+        failed_run = variant_result("candidate", [])
+        failed_run["variant_run_id"] = "run-candidate-failed"
+        failed_run["ok"] = False
+        failed_run["error"] = "simulator failed before activation evidence"
+        successful_run = variant_result(
+            "candidate",
+            [
+                tick(1, [room("E1S1", energy=100)]),
+                tick(2, [room("E1S1", energy=100)]),
+            ],
+        )
+        successful_run["variant_run_id"] = "run-candidate-success"
+        successful_run["policyActivation"] = {
+            "type": "screeps-rl-multi-tier-policy-activation",
+            "policyAction": "test-activation",
+            "executionAction": "test-activation",
+            "objectiveSignalSource": "offline_shadow_projection",
+            "activationScore": 22.25,
+            "threshold": 10,
+            "reason": "deterministic scalar reward activation test",
+        }
+
+        result = runner.summarize_variant(
+            variant,
+            [failed_run, successful_run],
+            runner.reward_options_from_card(card),
+        )
+
+        scalar = result["reward"]["scalarWeightedSum"]
+        self.assertEqual(result["reward"]["samples"][0], [0, None, None, None])
+        self.assertEqual([trace["sampleIndex"] for trace in result["multiTierActivationTraces"]], [0])
+        self.assertEqual(scalar["activationScoreSamples"], [0, 22.25])
+        self.assertEqual(
+            [row["componentValuesByRewardTier"]["activation"] for row in scalar["sampleComponents"]],
+            [0, 22.25],
+        )
+
     def test_policy_gradient_scalar_estimator_preserves_large_source_weight_scale(self) -> None:
         policy_gradient = {
             "policyUpdate": {

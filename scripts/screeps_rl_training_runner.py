@@ -5100,18 +5100,18 @@ def build_scalar_weighted_reward_summary(
         return None
 
     activation_by_attempt: list[JsonObject | None] = []
-    trace_by_sample_index: dict[int, JsonObject] = {}
-    for trace in activation_traces:
-        sample_index = int_or_none(trace.get("sampleIndex")) if isinstance(trace, dict) else None
-        if sample_index is not None:
-            trace_by_sample_index[sample_index] = trace
+    trace_by_attempt: list[JsonObject | None] = []
     successful_index = 0
     for metrics in metrics_by_attempt:
         if metrics is None:
             activation_by_attempt.append(None)
+            trace_by_attempt.append(None)
             continue
         activation_by_attempt.append(
             activation_samples[successful_index] if successful_index < len(activation_samples) else None
+        )
+        trace_by_attempt.append(
+            activation_traces[successful_index] if successful_index < len(activation_traces) else None
         )
         successful_index += 1
 
@@ -5125,7 +5125,7 @@ def build_scalar_weighted_reward_summary(
         activation_sample = (
             activation_by_attempt[sample_index] if sample_index < len(activation_by_attempt) else None
         )
-        trace = trace_by_sample_index.get(sample_index)
+        trace = trace_by_attempt[sample_index] if sample_index < len(trace_by_attempt) else None
         activation_score = scalar_activation_score(activation_sample, trace)
         activation_scores.append(round_policy_number(activation_score))
         components = scalar_reward_component_values(reward_sample, activation_score)
