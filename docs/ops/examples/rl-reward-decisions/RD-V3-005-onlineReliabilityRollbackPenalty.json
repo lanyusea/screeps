@@ -1,0 +1,145 @@
+{
+  "rewardDecisionId": "RD-V3-005-onlineReliabilityRollbackPenalty",
+  "title": "Proposal: online reliability rollback penalty gate",
+  "state": "proposed",
+  "linkedGitHubIssue": "https://github.com/lanyusea/screeps/issues/1558",
+  "linkedMetricEvidence": [
+    "https://github.com/lanyusea/screeps/issues/907",
+    "https://github.com/lanyusea/screeps/issues/924",
+    "https://github.com/lanyusea/screeps/issues/1536",
+    "https://github.com/lanyusea/screeps/issues/1548",
+    "runtime-artifacts/rl-control-loop/20260531T194800Z-policy-advantage.json",
+    "Loop B policy online advantage report 2026-05-31T19:48:00Z: construction-priority.territory-shadow.v1 and expansion-remote.territory-shadow.v1 passed offline/shadow evaluation but were rolled back in official MMO because online reliability dropped about 17-18%, above the configured 10% rollback threshold.",
+    "Runtime console ticks 1623386-1623404 disabled the candidate families after reliability drops around 17.0-18.4% versus the 10.0% threshold."
+  ],
+  "linkedDashboardPanels": [
+    "Loop B policy advantage: rl_policy_advantage_metrics",
+    "#924 candidate-vs-baseline scorecard: reliability delta and rollback threshold",
+    "runtime rollback console evidence ticks 1623386-1623404"
+  ],
+  "problemStatement": "Offline/shadow evaluation can currently admit candidate families that later fail online reliability. In the 2026-05-31 Loop B window, construction-priority.territory-shadow.v1 and expansion-remote.territory-shadow.v1 passed offline/shadow evaluation but were disabled after official MMO reliability dropped about 17-18%, exceeding the configured 10% rollback threshold. A durable reward-governance decision is needed so future #924 candidate-vs-baseline comparisons reject this failure mode before candidate admission proceeds.",
+  "hypothesis": "Treating online or shadow reliability regression as a fail-closed candidate admission gate, rather than a compensable reward term, will prevent promotion of candidates whose reliability drop exceeds the configured rollback threshold while preserving the project priority order: reliability/safety first, then territory, resources, and kills.",
+  "currentRewardCoverage": "Reliability is already documented as a safety floor in reward and rollout guidance, and #924 is the candidate-vs-baseline scorecard contract. No accepted reward component currently turns online rollback evidence into a durable admission rejection rule for candidate families that pass offline/shadow utility but fail online reliability. This record is proposal-only and does not authorize live reward changes, official MMO learned-policy writes, or paid Tencent validation.",
+  "proposedChangeType": "candidate_admission_gate_primary",
+  "component": "online-reliability-rollback-penalty",
+  "direction": "hard_gate; fail closed when online or shadow reliability drop exceeds the configured rollback threshold, currently 10.0% versus baseline",
+  "expectedBehaviorChange": "The #924 candidate-vs-baseline scorecard rejects or marks ROLLBACK_REQUIRED for a candidate family when online or shadow reliability drop exceeds the configured rollback threshold, even if offline utility, territory, resource, or kill metrics improve. The first implementation recommendation is candidate admission/scorecard gating only. Reward shaping and scenario weighting remain future shadow-only follow-ups unless later evidence supports them.",
+  "riskAndRegressions": [
+    "A reliability gate with ambiguous baseline/candidate windows can reject useful candidates or pass unsafe candidates for the wrong reason.",
+    "Reward shaping based directly on online rollback could overfit to a small rollback window before enough shadow evidence exists.",
+    "Scenario weighting could hide reliability failures if it changes dataset mix before the #924 scorecard gate is enforced.",
+    "Paid Tencent validation while #1548, #1536, or Tencent recurrence gates are blocked would violate the current compute safety boundary.",
+    "Any live learned-policy write or official MMO control surface would exceed this offline/shadow governance record."
+  ],
+  "validationWindows": [
+    {
+      "name": "loop_b_rollback_evidence_replay",
+      "minimumDurationHours": 0,
+      "requiredEvidence": [
+        "runtime-artifacts/rl-control-loop/20260531T194800Z-policy-advantage.json or newer policy advantage artifact referencing the same rollback window",
+        "candidate families construction-priority.territory-shadow.v1 and expansion-remote.territory-shadow.v1",
+        "console rollback ticks 1623386-1623404",
+        "reported reliability drops around 17.0-18.4%",
+        "configured rollback threshold 10.0%",
+        "scorecard outcome would fail closed for both candidate families"
+      ]
+    },
+    {
+      "name": "candidate_vs_baseline_scorecard_gate",
+      "minimumDurationHours": 8,
+      "requiredEvidence": [
+        "#924-compatible candidate-vs-baseline scorecard artifact",
+        "baseline reliability and candidate reliability over the same comparison window",
+        "computed reliability drop or reliability delta",
+        "configured rollback threshold",
+        "fail-closed result when reliability fields, baseline windows, candidate windows, or threshold are missing",
+        "CPU bucket, loop exception, telemetry freshness, room survival, and spawn survival non-regression",
+        "liveEffect:false",
+        "officialMmoWrites:false",
+        "officialMmoWritesAllowed:false"
+      ]
+    },
+    {
+      "name": "post_gate_experiment_card",
+      "minimumDurationHours": 8,
+      "requiredEvidence": [
+        "created only after #1548, #1536, and Tencent recurrence gates are unblocked",
+        "no paid Tencent compute before those gates clear",
+        "offline/shadow-only experiment card comparing incumbent baseline against the gated candidate family",
+        "candidate admission gate enabled before any reward shaping or scenario weighting trial",
+        "explicit rollbackThresholdPct and reliabilityDeltaPct fields",
+        "no official MMO learned-policy writes"
+      ]
+    }
+  ],
+  "acceptanceCriteria": [
+    "Proposal remains offline/shadow governance only until a later owner/steward decision approves implementation.",
+    "#924 candidate-vs-baseline scorecards fail closed when online or shadow reliability drop exceeds the configured rollback threshold; default threshold is 10.0% until superseded by another decision.",
+    "The 2026-05-31 Loop B rollback evidence would be rejected by the gate because both construction-priority.territory-shadow.v1 and expansion-remote.territory-shadow.v1 dropped reliability about 17.0-18.4%, above the 10.0% threshold.",
+    "First implementation is candidate admission/scorecard gating. Reward shaping and scenario weighting are not accepted by this decision and remain future shadow-only follow-ups.",
+    "Validation covers reliability delta, #924 scorecard outcome, rollback threshold, CPU bucket, loop exceptions, telemetry freshness, room survival, spawn survival, and no official MMO learned-policy writes.",
+    "No paid Tencent validation runs while #1548, #1536, or Tencent recurrence gates are blocked.",
+    "All validation artifacts preserve liveEffect:false, officialMmoWrites:false, officialMmoWritesAllowed:false, and all live-control safety flags false."
+  ],
+  "rollbackCriteria": [
+    "Owner-independent rejection: candidate reliability drop exceeds the configured rollback threshold in online or shadow evidence.",
+    "Owner-independent rejection: #924 scorecard lacks baseline reliability, candidate reliability, comparison window, configured rollback threshold, or fail-closed status.",
+    "Owner-independent rejection: candidate improves territory, resources, or kills only by taking a reliability, CPU, room-survival, spawn-survival, loop-exception, or telemetry-freshness regression.",
+    "Owner-independent rejection: implementation attempts reward shaping or scenario weighting before candidate admission gating is proven.",
+    "Owner-independent rejection: validation requires paid Tencent compute while #1548, #1536, or Tencent recurrence gates remain blocked.",
+    "Owner-independent rejection: any official MMO learned-policy write, live control surface, Memory write, RawMemory write, creep intent, spawn intent, construction intent, or market intent is enabled.",
+    "Owner rejects, suspends, or supersedes the decision."
+  ],
+  "scorecardGate": {
+    "linkedIssue": "https://github.com/lanyusea/screeps/issues/924",
+    "gateType": "fail_closed_candidate_admission",
+    "configuredRollbackThresholdPct": 10.0,
+    "validationMetric": "candidate online/shadow reliability drop versus baseline over the same comparison window",
+    "requiredOutcome": "Reject candidate admission when reliability drop exceeds threshold, and reject when required reliability fields or threshold are missing."
+  },
+  "implementationRecommendation": {
+    "firstImplementation": "candidate_admission_scorecard_gating",
+    "rewardShaping": "future_shadow_only",
+    "scenarioWeighting": "future_shadow_only",
+    "reason": "The evidence is a rollback safety failure after offline/shadow pass, so the smallest safe slice is a #924 fail-closed admission gate. Reward shaping or scenario weighting could be explored later only after gated shadow evidence shows the admission rule is stable."
+  },
+  "postGateExperimentPlan": [
+    "After #1548, #1536, and Tencent recurrence gates are unblocked, create an offline/shadow experiment card for the first compute-resumed run.",
+    "Use incumbent baseline versus construction-priority.territory-shadow.v1 and expansion-remote.territory-shadow.v1, or their current successor family IDs, over the rollback-evidence window plus a fresh matched shadow window.",
+    "Record rollbackThresholdPct=10.0, baselineReliability, candidateReliability, reliabilityDeltaPct, scorecardStatus, CPU bucket, loop exceptions, telemetry freshness, room survival, spawn survival, territory, resources, and kills.",
+    "Enable candidate admission gating before any reward shaping or scenario weighting variant.",
+    "Treat any reliability drop above threshold, missing reliability field, missing baseline/candidate window, CPU/room safety regression, or live-write requirement as a fail-closed rejection.",
+    "Only after the admission gate rejects the known bad rollback window and passes a clean shadow comparison may a separate decision propose reward shaping or scenario weighting."
+  ],
+  "safety": {
+    "liveEffect": false,
+    "officialMmoWrites": false,
+    "officialMmoWritesAllowed": false,
+    "memoryWritesAllowed": false,
+    "rawMemoryWritesAllowed": false,
+    "rawCreepIntentControl": false,
+    "spawnIntentControl": false,
+    "constructionIntentControl": false,
+    "marketIntentControl": false
+  },
+  "stewardDecision": {
+    "state": "needs_scorecard_gate",
+    "decidedBy": null,
+    "decidedAt": null,
+    "notes": "Proposal only. The conservative first implementation is #924 candidate admission/scorecard gating. No reward shaping, scenario weighting, paid Tencent validation, or live official MMO learned-policy writes are approved."
+  },
+  "ownerDecision": {
+    "state": "not_requested",
+    "decidedBy": null,
+    "decidedAt": null,
+    "notes": "No accepted reward change and no live official MMO authority."
+  },
+  "linkedPRs": [],
+  "linkedTrainingRuns": [],
+  "linkedPolicyEvaluations": [
+    "runtime-artifacts/rl-control-loop/20260531T194800Z-policy-advantage.json",
+    "pending: first post-gate offline/shadow experiment card after #1548/#1536/Tencent recurrence gates clear"
+  ],
+  "createdAt": "2026-06-01T00:00:00Z",
+  "updatedAt": "2026-06-01T00:00:00Z"
+}

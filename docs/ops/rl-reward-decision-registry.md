@@ -8,7 +8,7 @@ Canonical PDCA Act-loop registry for RL reward components, weights, penalties, v
 - **Previous reward-decision issue:** #907, closed after PR #961 merged
 - **Umbrella:** #879 (ALL IN RL)
 - **Machine-readable schema:** `docs/ops/rl-reward-schema.yaml` (v1, #967)
-- **Last updated:** 2026-05-16
+- **Last updated:** 2026-06-01
 
 ## Purpose
 
@@ -79,6 +79,8 @@ Source for the first three pending records: Gameplay Evolution Review output `20
 
 Source for `RD-V3-004-constructionNeglectPenalty`: issue #1024 and Gameplay Evolution Review 2026-05-14 08:07, following the #907 change-control framework and #924 as the source scorecard contract. A future generated #924-compatible scorecard artifact is still required for #1024 acceptance.
 
+Source for `RD-V3-005-onlineReliabilityRollbackPenalty`: issue #1558 and the 2026-05-31 Loop B policy online advantage rollback evidence. The artifact path is `runtime-artifacts/rl-control-loop/20260531T194800Z-policy-advantage.json`; newer policy advantage reports may reference the same rollback window. Runtime console ticks 1623386-1623404 disabled `construction-priority.territory-shadow.v1` and `expansion-remote.territory-shadow.v1` after reliability dropped about 17.0-18.4% versus the configured 10.0% rollback threshold. The first implementation recommendation is #924 candidate admission/scorecard gating only. Reward shaping and scenario weighting remain future shadow-only follow-ups.
+
 ### RD-V3-001-workerLoadEfficiency
 
 | Field | Value |
@@ -139,6 +141,21 @@ Source for `RD-V3-004-constructionNeglectPenalty`: issue #1024 and Gameplay Evol
 | `rollback_conditions` | Disable, reduce, or reject if construction is over-prioritized at the expense of spawn/refill throughput, controller downgrade safety, emergency recovery, valid energy-starvation waiting, reliability, CPU, territory, or resource scorecard dimensions. |
 | `implementation_tracking` | Issue #1024; previous reward-decision container #907; metric taxonomy link #906; candidate-vs-baseline scorecard contract #924; construction diagnosis link #1023; decision JSON `docs/ops/examples/rl-reward-decisions/RD-V3-004-constructionNeglectPenalty.json`. #924 closure is not acceptance for #1024; acceptance requires a future generated #924-compatible scorecard artifact for this candidate. |
 
+### RD-V3-005-onlineReliabilityRollbackPenalty
+
+| Field | Value |
+| --- | --- |
+| `decision_id` | `RD-V3-005-onlineReliabilityRollbackPenalty` |
+| `component_id` | `online-reliability-rollback-penalty` |
+| `status` | `PROPOSED` |
+| `source` | Issue #1558; Loop B policy online advantage report `runtime-artifacts/rl-control-loop/20260531T194800Z-policy-advantage.json`; runtime rollback ticks 1623386-1623404. |
+| `hypothesis` | Treating online or shadow reliability regression as a fail-closed admission gate will prevent promotion of candidates that passed offline/shadow utility but drop online reliability above the configured rollback threshold. |
+| `current_metric_coverage` | Partial but sufficient for a proposal. The rollback evidence reports candidate-family reliability drops about 17.0-18.4% against a 10.0% threshold for `construction-priority.territory-shadow.v1` and `expansion-remote.territory-shadow.v1`. #924 provides the candidate-vs-baseline scorecard contract. The missing slice is a durable gate that rejects candidate admission when online/shadow reliability drop exceeds the configured threshold or when required reliability data is absent. |
+| `required_code_changes` | First implementation should be candidate admission/#924 scorecard gating only: add or derive reliability drop, threshold, and fail-closed status in candidate-vs-baseline comparisons. Do not accept reward shaping or scenario weighting in this decision. Do not run paid Tencent validation while #1536, #1548, or Tencent recurrence gates are blocked. Preserve `liveEffect=false`, `officialMmoWrites=false`, and `officialMmoWritesAllowed=false`. |
+| `validation_criteria` | #924 scorecards fail closed when candidate online/shadow reliability drop exceeds the configured rollback threshold, currently 10.0%, or when baseline reliability, candidate reliability, comparison window, or threshold data is missing. The known 2026-05-31 rollback evidence must be rejected by the gate. Validation also requires CPU bucket, loop exception, telemetry freshness, room survival, spawn survival, territory, and resource non-regression, with no official MMO learned-policy writes. |
+| `rollback_conditions` | Owner-independent rejection if reliability drop exceeds threshold; if #924 reliability fields or windows are missing; if candidate gains are bought with reliability, CPU, room survival, spawn survival, loop exception, telemetry freshness, territory, or resource regression; if reward shaping/scenario weighting is implemented before admission gating; if paid Tencent compute is required while #1536/#1548/Tencent recurrence gates are blocked; or if any live learned-policy write/control surface is enabled. |
+| `implementation_tracking` | Issue #1558; previous reward-decision container #907; candidate-vs-baseline scorecard contract #924; Tencent/compute blockers #1536 and #1548; decision JSON `docs/ops/examples/rl-reward-decisions/RD-V3-005-onlineReliabilityRollbackPenalty.json`; post-gate experiment card TBD after compute gates clear. |
+
 ## Registered Components
 
 These are registry entries from v2 or this v3 Act container. `PROPOSED` entries are not accepted reward defaults.
@@ -149,6 +166,7 @@ These are registry entries from v2 or this v3 Act container. `PROPOSED` entries 
 | `build-allocation-minimum` | `RD-V3-002-buildAllocationMinimum` | reward | `+0.05` candidate from v2 | resources | `PROPOSED` | Pending v3 code and validation. |
 | `stuck-penalty` | `RD-V3-003-verifyStuckPenalty` | penalty | `-0.02` per stuck tick candidate from v2 | reliability | `PROPOSED` | Pending v3 verification and possible implementation. |
 | `construction-neglect-penalty` | `RD-V3-004-constructionNeglectPenalty` | penalty | proportional to `constructionSiteCount`, coefficient TBD | resources | `PROPOSED` | Pending offline/shadow replay and future #924-compatible scorecard artifact; no live writes. |
+| `online-reliability-rollback-penalty` | `RD-V3-005-onlineReliabilityRollbackPenalty` | gate | fail closed above configured rollback threshold, currently 10.0% reliability drop | reliability | `PROPOSED` | Candidate admission/#924 scorecard gate proposal only; reward shaping and scenario weighting deferred to future shadow-only decisions; no paid Tencent while gates are blocked; no live writes. |
 | `territory-expansion-reward` | TBD | reward | TBD | territory | `PROPOSED` | Placeholder from v2 linked to #958; outside the 2026-05-12 pending Act batch. |
 
 ## Integration Points
@@ -157,7 +175,7 @@ These are registry entries from v2 or this v3 Act container. `PROPOSED` entries 
 - **RL Steward:** Converts Gameplay Evolution findings into explicit reward-decision issues, PRs, or validation work.
 - **E1 Shadow-Eval Gate (cron `d6cff532edd4`):** Validates proposed or implemented components in shadow mode before acceptance.
 - **E4 Training (cron `5c869e7d8a1d`):** Uses only accepted components or explicitly approved offline experiments.
-- **#924 Scorecard:** Standardized candidate-vs-baseline evaluation for reward/policy changes.
+- **#924 Scorecard:** Standardized candidate-vs-baseline evaluation for reward/policy changes. RD-V3-005 proposes adding fail-closed candidate admission when online/shadow reliability drops exceed the configured rollback threshold or required reliability data is missing; until RD-V3-005 is accepted and implemented, this reliability gate is not deployed behavior.
 - **#906 Metric Taxonomy:** Owns missing or insufficient telemetry needed to validate reward decisions.
 
 ## Related Issues and PRs
@@ -168,6 +186,9 @@ These are registry entries from v2 or this v3 Act container. `PROPOSED` entries 
 - #924 - Candidate-vs-baseline scorecard
 - #1023 - Construction deadlock diagnosis with 3 identified gates
 - #1024 - P1 construction-neglect reward decision for `build=0` with construction sites
+- #1536 - Tencent recurrence gate blocker
+- #1548 - Tencent validation/compute gate blocker
+- #1558 - P0 reliability rollback reward decision
 - #958 - Expansion initiation gap and territory reward placeholder
 - #959 - RL reward decision registry v2 issue
 - #961 - Merged v2 registry PR

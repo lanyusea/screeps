@@ -16,3 +16,4 @@ Current examples:
 - `RD-0002-worker-load-efficiency.json`
 - `RD-0003-stuck-actionless-creeps.json`
 - `RD-V3-004-constructionNeglectPenalty.json`
+- `RD-V3-005-onlineReliabilityRollbackPenalty.json`
