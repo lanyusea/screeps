@@ -39,6 +39,7 @@ import {
   checkEnergyBufferForCapacityEnablingConstruction,
   checkEnergyBufferForConstructionSpending,
   checkEnergyBufferForExtensionConstruction,
+  checkEnergyBufferForStoredConstructionSpending,
   getEffectiveRoomEnergyBufferThreshold,
   getConstructionSpendingEnergyThreshold,
   getRoomStoredEnergyAvailableForConstruction,
@@ -3649,6 +3650,7 @@ function canSpendCreepEnergyOnConstructionSite(
   return (
     (carriedEnergy > 0 && isMissingSpawnRecoveryConstructionSite(creep.room, site)) ||
     (carriedEnergy > 0 && checkEnergyBufferForConstructionSpending(creep.room)) ||
+    (carriedEnergy > 0 && checkEnergyBufferForStoredConstructionSpending(creep.room)) ||
     (carriedEnergy > 0 &&
       isExtensionConstructionSite(site) &&
       checkEnergyBufferForExtensionConstruction(creep.room, carriedEnergy)) ||
@@ -4396,11 +4398,7 @@ function shouldDeferIdleSpawnExtensionRefillForBoundedConstruction(
 }
 
 function hasSafeStoredEnergyForBoundedConstruction(creep: Creep): boolean {
-  const energyAvailable = getRoomEnergyAvailable(creep.room);
-  if (
-    energyAvailable === null ||
-    energyAvailable < getConstructionSpendingEnergyThreshold(creep.room)
-  ) {
+  if (!checkEnergyBufferForStoredConstructionSpending(creep.room)) {
     return false;
   }
 

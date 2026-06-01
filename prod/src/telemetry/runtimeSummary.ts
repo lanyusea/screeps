@@ -45,6 +45,7 @@ import {
   checkEnergyBufferForCapacityEnablingConstruction,
   checkEnergyBufferForConstructionSpending,
   checkEnergyBufferForExtensionConstruction,
+  checkEnergyBufferForStoredConstructionSpending,
   getRoomEnergyBufferHealth,
   type EnergyBufferHealth
 } from '../economy/energyBuffer';
@@ -2551,7 +2552,11 @@ function selectWorkerAssignmentBlockedDetail(
   }
 
   const energyBuffer = getRoomEnergyBufferHealth(colony.room);
-  if (!energyBuffer.healthy || energyBuffer.currentEnergy < energyBuffer.threshold) {
+  const allowsStoredConstructionSpending = checkEnergyBufferForStoredConstructionSpending(colony.room);
+  if (
+    (!energyBuffer.healthy || energyBuffer.currentEnergy < energyBuffer.threshold) &&
+    !allowsStoredConstructionSpending
+  ) {
     return 'energy_buffer_below_threshold';
   }
 
@@ -2563,7 +2568,10 @@ function selectWorkerAssignmentBlockedDetail(
     return 'room_capacity_full';
   }
 
-  if (hasSpawnReservedConstructionEnergy(colony, roomEnergyStructures, energyBuffer)) {
+  if (
+    !allowsStoredConstructionSpending &&
+    hasSpawnReservedConstructionEnergy(colony, roomEnergyStructures, energyBuffer)
+  ) {
     return 'spawn_reserving_energy';
   }
 
@@ -2705,6 +2713,10 @@ function canSpendWorkerEnergyOnConstructionSiteForTelemetry(
   carriedEnergy: number,
   constructionSite: unknown
 ): boolean {
+  if (checkEnergyBufferForStoredConstructionSpending(room)) {
+    return true;
+  }
+
   if (!isRecord(constructionSite)) {
     return checkEnergyBufferForConstructionSpending(room);
   }
@@ -2884,6 +2896,10 @@ function isBuildBlockedByEnergyBuffer(colony: ColonySnapshot, assignedCarriedEne
   const energyAvailable = getRoomEnergyAvailable(colony);
   if (energyAvailable <= 0) {
     return true;
+  }
+
+  if (checkEnergyBufferForStoredConstructionSpending(colony.room)) {
+    return false;
   }
 
   const buffer = getRoomEnergyBufferHealth(colony.room);
