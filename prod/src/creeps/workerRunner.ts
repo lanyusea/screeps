@@ -76,7 +76,6 @@ const ADJACENT_ACTION_MOVE_RANGE = 1;
 const RANGED_WORK_MOVE_RANGE = 3;
 const EXACT_POSITION_MOVE_RANGE = 0;
 const MIN_HAULER_DROPPED_ENERGY = 25;
-const SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS = 2;
 const SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORED_SURPLUS = 300;
 
 interface WorkerTaskSelectionNullLoopState {
@@ -775,13 +774,6 @@ function hasSafeStoredEnergyForBoundedConstruction(
 
   const storedEnergy = getRoomStoredEnergyAvailableForConstruction(creep.room);
   if (storedEnergy < CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY) {
-    return false;
-  }
-
-  const sameRoomWorkers = getRoomOwnedCreeps(creep.room).filter((worker) =>
-    isProductiveSameRoomWorker(worker, creep.room)
-  );
-  if (sameRoomWorkers.length < SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS) {
     return false;
   }
 

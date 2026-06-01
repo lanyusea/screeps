@@ -12902,6 +12902,110 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'stored-container1' });
   });
 
+  it('refills uncovered E29N57 source-container construction from storage before spawn recovery', () => {
+    const source = makeSource('source1', 20, 20, 'E29N57');
+    const site = {
+      id: 'container-site1',
+      structureType: 'container',
+      progress: 500,
+      progressTotal: 5_000,
+      pos: {
+        ...makeRoomPosition(20, 21, 'E29N57'),
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'stored-container1' ? 1 : 99))
+      }
+    } as unknown as ConstructionSite;
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 50, {
+      pos: makeRoomPosition(20, 19, 'E29N57')
+    });
+    const storedContainer = makeStoredEnergyContainerWithCapacity('stored-container1', 1_333, 2_000, {
+      pos: {
+        ...makeRoomPosition(20, 22, 'E29N57'),
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'spawn1' ? 3 : 1))
+      }
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 650,
+      energyCapacityAvailable: 1_800,
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [source],
+      structures: [spawn as unknown as AnyStructure, storedContainer as AnyStructure]
+    });
+    const creep = {
+      name: 'StorageBuilder',
+      memory: { role: 'worker', colony: 'E29N57' },
+      pos: {
+        ...makeRoomPosition(20, 21, 'E29N57'),
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          if (target.id === 'stored-container1') return 1;
+          if (target.id === 'source1') return 1;
+          return 99;
+        })
+      },
+      getActiveBodyparts: jest.fn().mockReturnValue(25),
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ StorageBuilder: creep });
+    setGameObjectsById([site, spawn, storedContainer, source], { rooms: { E29N57: room }, time: 124 });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'stored-container1' });
+  });
+
+  it('assigns the only loaded E29N57 source-container builder despite spawn refill demand', () => {
+    const source = makeSource('source1', 20, 20, 'E29N57');
+    const site = {
+      id: 'container-site1',
+      structureType: 'container',
+      progress: 500,
+      progressTotal: 5_000,
+      pos: makeRoomPosition(20, 21, 'E29N57')
+    } as ConstructionSite;
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 50);
+    const storedContainer = makeStoredEnergyContainerWithCapacity('stored-container1', 1_333, 2_000, {
+      pos: makeRoomPosition(20, 22, 'E29N57')
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 650,
+      energyCapacityAvailable: 1_800,
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [source],
+      structures: [storedContainer as AnyStructure]
+    });
+    const creep = {
+      name: 'LoadedBuilder',
+      memory: { role: 'worker', colony: 'E29N57' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(30),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ LoadedBuilder: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'container-site1' });
+  });
+
   it('does not count the current build-assigned worker as uncovered construction coverage', () => {
     const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 317, {

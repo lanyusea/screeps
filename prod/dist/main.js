@@ -25437,7 +25437,7 @@ function selectCriticalCpuWorkerTask(creep) {
   if (missingSpawnConstructionSite) {
     return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: missingSpawnConstructionSite.id });
   }
-  const storedProtectedConstructionTask = selectCriticalCpuStoredProtectedConstructionTask(creep);
+  const storedProtectedConstructionTask = selectStoredProtectedSourceContainerConstructionTask(creep);
   if (storedProtectedConstructionTask) {
     return applyMinimumUsefulLoadPolicy(creep, storedProtectedConstructionTask);
   }
@@ -25463,12 +25463,16 @@ function selectCriticalCpuWorkerTask(creep) {
   }
   return null;
 }
-function selectCriticalCpuStoredProtectedConstructionTask(creep) {
-  const constructionSite = selectCriticalCpuStoredProtectedConstructionSite(creep);
+function selectStoredProtectedSourceContainerConstructionTask(creep, constructionSites, constructionReservationContext) {
+  const constructionSite = selectStoredProtectedSourceContainerConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext
+  );
   return constructionSite ? { type: "build", targetId: constructionSite.id } : null;
 }
-function selectCriticalCpuStoredProtectedConstructionEnergyAcquisitionTask(creep) {
-  const constructionSite = selectCriticalCpuStoredProtectedConstructionEnergyAcquisitionSite(creep);
+function selectStoredProtectedSourceContainerConstructionEnergyAcquisitionTask(creep) {
+  const constructionSite = selectStoredProtectedSourceContainerConstructionEnergyAcquisitionSite(creep);
   if (!constructionSite) {
     return null;
   }
@@ -25478,7 +25482,7 @@ function selectCriticalCpuStoredProtectedConstructionEnergyAcquisitionTask(creep
   }
   return candidates.sort(compareBuilderEnergyAcquisitionCandidates)[0].task;
 }
-function selectCriticalCpuStoredProtectedConstructionEnergyAcquisitionSite(creep) {
+function selectStoredProtectedSourceContainerConstructionEnergyAcquisitionSite(creep) {
   const constructionSites = findConstructionSites(creep.room);
   if (constructionSites.length === 0) {
     return null;
@@ -25495,17 +25499,17 @@ function selectCriticalCpuStoredProtectedConstructionEnergyAcquisitionSite(creep
     priorityContext
   );
 }
-function selectCriticalCpuStoredProtectedConstructionSite(creep) {
-  const constructionSites = findConstructionSites(creep.room);
-  if (constructionSites.length === 0) {
+function selectStoredProtectedSourceContainerConstructionSite(creep, constructionSites, constructionReservationContext) {
+  const sites = constructionSites != null ? constructionSites : findConstructionSites(creep.room);
+  if (sites.length === 0) {
     return null;
   }
-  const constructionReservationContext = createConstructionReservationContext(creep.room);
-  const priorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const reservations = constructionReservationContext != null ? constructionReservationContext : createConstructionReservationContext(creep.room);
+  const priorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, sites);
   return selectUnreservedConstructionSite(
     creep,
-    constructionSites,
-    constructionReservationContext,
+    sites,
+    reservations,
     (site) => canSpendOnStoredProtectedSourceContainerConstruction(creep, site, priorityContext),
     { priorityContext }
   );
@@ -25540,7 +25544,7 @@ function selectCriticalCpuEnergyAcquisitionTask(creep) {
   if (hasCriticalCpuRepairDemand(creep)) {
     return selectWorkerEnergyCriticalAcquisitionTask(creep);
   }
-  return selectCriticalCpuStoredProtectedConstructionEnergyAcquisitionTask(creep);
+  return selectStoredProtectedSourceContainerConstructionEnergyAcquisitionTask(creep);
 }
 function hasCriticalCpuRepairDemand(creep) {
   return selectCriticalOwnedSpawnRepairTarget(creep) !== null || selectEmergencyOwnedRampartRepairTarget(creep) !== null || selectThreatenedBarrierRepairTarget(creep) !== null || selectCriticalInfrastructureRepairTarget(creep) !== null;
@@ -25610,6 +25614,10 @@ function selectHeuristicWorkerTask(creep) {
     }
     let hasPriorityEnergySink = false;
     if (getFreeEnergyCapacity8(creep) > 0) {
+      const storedProtectedConstructionEnergyAcquisitionTask = selectStoredProtectedSourceContainerConstructionEnergyAcquisitionTask(creep);
+      if (storedProtectedConstructionEnergyAcquisitionTask) {
+        return storedProtectedConstructionEnergyAcquisitionTask;
+      }
       const spawnRecoveryEnergySink = selectFillableEnergySink(creep);
       if (spawnRecoveryEnergySink) {
         hasPriorityEnergySink = true;
@@ -25768,6 +25776,14 @@ function selectHeuristicWorkerTask(creep) {
         targetId: threatenedBarrierRepairTarget2.id
       });
     }
+  }
+  const storedProtectedConstructionTask = selectStoredProtectedSourceContainerConstructionTask(
+    creep,
+    constructionSites,
+    constructionReservationContext
+  );
+  if (storedProtectedConstructionTask) {
+    return applyMinimumUsefulLoadPolicy(creep, storedProtectedConstructionTask);
   }
   const bootstrapExtensionConstructionSite = selectBootstrapExtensionConstructionSiteBeforeRefill(
     creep,
@@ -27734,7 +27750,7 @@ function isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext
   return isRoadConstructionSite2(site) && priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.energyStarvedCriticalRoad;
 }
 function canSpendOnStoredProtectedSourceContainerConstruction(creep, site, priorityContext) {
-  return isSourceContainerConstructionSite2(site, priorityContext) && !hasVisibleHostilePresence3(creep.room) && checkEnergyBufferForStoredConstructionSpending(creep.room) && hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep) && !hasSameRoomWorkerAssignedToTask(creep.room, creep, "build");
+  return isSourceContainerConstructionSite2(site, priorityContext) && !hasVisibleHostilePresence3(creep.room) && checkEnergyBufferForStoredConstructionSpending(creep.room) && !hasSameRoomWorkerAssignedToTask(creep.room, creep, "build");
 }
 function isSourceContainerConstructionSite2(site, priorityContext) {
   const priority = getConstructionSiteImpactPriority(site, priorityContext);
@@ -31591,7 +31607,6 @@ var ADJACENT_ACTION_MOVE_RANGE = 1;
 var RANGED_WORK_MOVE_RANGE = 3;
 var EXACT_POSITION_MOVE_RANGE = 0;
 var MIN_HAULER_DROPPED_ENERGY = 25;
-var SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS2 = 2;
 var SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORED_SURPLUS2 = 300;
 function runWorker(creep) {
   var _a, _b;
@@ -32013,12 +32028,6 @@ function hasSafeStoredEnergyForBoundedConstruction2(creep, selectedTask) {
   }
   const storedEnergy = getRoomStoredEnergyAvailableForConstruction(creep.room);
   if (storedEnergy < CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY) {
-    return false;
-  }
-  const sameRoomWorkers = getRoomOwnedCreeps2(creep.room).filter(
-    (worker) => isProductiveSameRoomWorker2(worker, creep.room)
-  );
-  if (sameRoomWorkers.length < SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS2) {
     return false;
   }
   if (hasOtherSameRoomBuildAssignment(creep)) {
