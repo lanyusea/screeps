@@ -114,6 +114,18 @@ export function checkEnergyBufferForConstructionSpending(room: Room): boolean {
   return observation.currentEnergy >= getConstructionSpendingEnergyThreshold(room);
 }
 
+export function checkEnergyBufferForStoredConstructionSpending(room: Room): boolean {
+  const observation = getRoomSpawnExtensionEnergyObservation(room);
+  if (!observation.known) {
+    return false;
+  }
+
+  return (
+    observation.currentEnergy >= MINIMUM_WORKER_SPAWN_ENERGY &&
+    getRoomStoredEnergyAvailableForConstruction(room) >= CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY
+  );
+}
+
 export function checkEnergyBufferForCapacityEnablingConstruction(room: Room, amount: number): boolean {
   if (checkEnergyBufferForSpending(room, amount)) {
     return true;
