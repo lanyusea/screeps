@@ -15106,6 +15106,7 @@ function isFiniteNumber6(value) {
 // src/construction/claimed-room-planner.ts
 var DEFAULT_REQUIRE_ENERGY_OR_CREEPS = true;
 var DEFAULT_CLAIMED_ROOM_ROAD_SITES_PER_TICK = 1;
+var CLAIMED_ROOM_STORAGE_CONSTRUCTION_MIN_RCL = 6;
 function planClaimedRoomConstruction(colony, options = {}) {
   if (!isClaimedRoomConstructionActive(colony.room)) {
     return createEmptyClaimedRoomConstructionResult(colony, "inactive");
@@ -15168,7 +15169,7 @@ function buildClaimedRoomConstructionOptions(colony, options) {
   return {
     ...options,
     includePostClaimRamparts: (_a = options.includePostClaimRamparts) != null ? _a : postClaimRoom,
-    includeStorage: (_b = options.includeStorage) != null ? _b : postClaimRoom,
+    includeStorage: (_b = options.includeStorage) != null ? _b : shouldIncludeClaimedRoomStorageConstruction(colony.room, postClaimRoom),
     postClaimPriorityOrder: (_c = options.postClaimPriorityOrder) != null ? _c : postClaimRoom,
     respectRoomEnergyBuffer: (_d = options.respectRoomEnergyBuffer) != null ? _d : true,
     maxContainerSitesPerTick: (_e = options.maxContainerSitesPerTick) != null ? _e : Math.max(1, sourceCount),
@@ -15178,6 +15179,9 @@ function buildClaimedRoomConstructionOptions(colony, options) {
       ...options.roadOptions
     }
   };
+}
+function shouldIncludeClaimedRoomStorageConstruction(room, postClaimRoom) {
+  return postClaimRoom || getOwnedRoomRcl7(room) >= CLAIMED_ROOM_STORAGE_CONSTRUCTION_MIN_RCL;
 }
 function countAssignedBuilderCreeps(roomName) {
   var _a;

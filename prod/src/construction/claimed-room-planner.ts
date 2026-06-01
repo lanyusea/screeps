@@ -30,6 +30,7 @@ export interface ClaimedRoomConstructionPlannerResult extends ConstructionPlanne
 
 const DEFAULT_REQUIRE_ENERGY_OR_CREEPS = true;
 const DEFAULT_CLAIMED_ROOM_ROAD_SITES_PER_TICK = 1;
+const CLAIMED_ROOM_STORAGE_CONSTRUCTION_MIN_RCL = 6;
 
 export function runClaimedRoomConstructionPlanner(
   options: ClaimedRoomConstructionPlannerOptions = {}
@@ -134,7 +135,7 @@ function buildClaimedRoomConstructionOptions(
   return {
     ...options,
     includePostClaimRamparts: options.includePostClaimRamparts ?? postClaimRoom,
-    includeStorage: options.includeStorage ?? postClaimRoom,
+    includeStorage: options.includeStorage ?? shouldIncludeClaimedRoomStorageConstruction(colony.room, postClaimRoom),
     postClaimPriorityOrder: options.postClaimPriorityOrder ?? postClaimRoom,
     respectRoomEnergyBuffer: options.respectRoomEnergyBuffer ?? true,
     maxContainerSitesPerTick: options.maxContainerSitesPerTick ?? Math.max(1, sourceCount),
@@ -144,6 +145,10 @@ function buildClaimedRoomConstructionOptions(
       ...options.roadOptions
     }
   };
+}
+
+function shouldIncludeClaimedRoomStorageConstruction(room: Room, postClaimRoom: boolean): boolean {
+  return postClaimRoom || getOwnedRoomRcl(room) >= CLAIMED_ROOM_STORAGE_CONSTRUCTION_MIN_RCL;
 }
 
 function countAssignedBuilderCreeps(roomName: string): number {
