@@ -2157,8 +2157,12 @@ def detect_worker_assignment_stall_reason(
     current_tick_value: Any,
 ) -> tuple[dict[str, Any] | None, dict[str, int] | int]:
     evidence = worker_assignment_stall_evidence(runtime_room, metrics)
-    current_tick = tick_number(current_tick_value)
-    if evidence is None or current_tick is None:
+    if evidence is None:
+        return None, 0
+    current_tick = tick_number(evidence.get("runtimeSummaryTick"))
+    if current_tick is None:
+        current_tick = tick_number(current_tick_value)
+    if current_tick is None:
         return None, 0
 
     state = worker_assignment_gap_next_state(worker_assignment_gap_previous_state(previous_rule_state), current_tick)

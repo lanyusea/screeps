@@ -3562,6 +3562,14 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
             info={"energyAvailable": 300},
             expected_owner="lanyusea",
         )
+        second_runtime_room = {
+            **runtime_room,
+            monitor.RUNTIME_SUMMARY_TICK_METADATA_KEY: 123101,
+            "workerAssignmentEvidence": {
+                **runtime_room["workerAssignmentEvidence"],
+                "tick": 123101,
+            },
+        }
 
         first_emitted, first_suppressed, first_state = monitor.evaluate_room_alert(
             first_snapshot,
@@ -3575,7 +3583,7 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
             first_state,
             now=200,
             debounce_seconds=300,
-            runtime_room_summary=runtime_room,
+            runtime_room_summary=second_runtime_room,
         )
 
         self.assertEqual(first_emitted, [])
@@ -3592,6 +3600,7 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(stall_reason["constructionSiteCount"], 9)
         self.assertEqual(stall_reason["build"], 0)
         self.assertEqual(stall_reason["workerAssignmentBlockedWorkers"], blocked_workers)
+        self.assertEqual(stall_reason["runtimeSummaryTick"], 123101)
         self.assertEqual(stall_reason["consecutive_ticks"], 101)
         self.assertEqual(
             second_state["rule_counts"][monitor.WORKER_ASSIGNMENT_STALL_KIND]["consecutive_ticks"],
@@ -3607,6 +3616,89 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(report["categories"], [monitor.WORKER_ASSIGNMENT_STALL_KIND])
         self.assertEqual(report["triggers"][0]["reason_kind"], monitor.WORKER_ASSIGNMENT_STALL_KIND)
         self.assertIn("#1573", report["triggers"][0]["metadata"]["related_issues"])
+
+    def test_productive_assignment_stall_stale_runtime_summary_does_not_age(self) -> None:
+        runtime_room = {
+            "roomName": "E26S49",
+            "shard": "shardX",
+            monitor.RUNTIME_SUMMARY_TICK_METADATA_KEY: 123000,
+            "workerAssignmentEvidenceAvailable": True,
+            "workerAssignmentEvidence": {
+                "source": "runtime-summary",
+                "available": True,
+                "tick": 123000,
+                "workerCount": 1,
+                "assignedTaskCount": 0,
+                "productiveAssignmentCount": 0,
+            },
+            "taskCounts": {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 1},
+            "constructionSiteCount": 1,
+            "pendingBuildProgress": 50,
+            "workerAssignmentBlockedDetail": "spawn_reserving_energy",
+        }
+        objects = {
+            "spawn1": {
+                "type": "spawn",
+                "my": True,
+                "owner": {"username": "owner"},
+                "x": 25,
+                "y": 25,
+                "hits": 5000,
+                "hitsMax": 5000,
+            },
+            "extension1": {
+                "type": "extension",
+                "my": True,
+                "owner": {"username": "owner"},
+                "x": 26,
+                "y": 25,
+                "hits": 1000,
+                "hitsMax": 1000,
+            },
+            "worker1": {
+                "type": "creep",
+                "my": True,
+                "owner": {"username": "owner"},
+                "name": "worker1",
+                "memory": {"role": "worker"},
+            },
+            "site1": {
+                "type": "constructionSite",
+                "my": True,
+                "owner": {"username": "owner"},
+                "structureType": "road",
+                "progress": 0,
+                "progressTotal": 50,
+                "x": 24,
+                "y": 24,
+            },
+        }
+        first_snapshot = make_snapshot(objects, tick=123000)
+        second_snapshot = make_snapshot(objects, tick=123101)
+
+        first_emitted, first_suppressed, first_state = monitor.evaluate_room_alert(
+            first_snapshot,
+            {"baseline_established": True, "owner": "owner"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+        second_emitted, second_suppressed, second_state = monitor.evaluate_room_alert(
+            second_snapshot,
+            first_state,
+            now=200,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(first_emitted, [])
+        self.assertEqual(first_suppressed, [])
+        self.assertEqual(second_emitted, [])
+        self.assertEqual(second_suppressed, [])
+        self.assertEqual(
+            second_state["rule_counts"][monitor.WORKER_ASSIGNMENT_STALL_KIND],
+            {"start_tick": 123000, "last_tick": 123000, "consecutive_ticks": 0},
+        )
 
     def test_productive_assignment_stall_missing_or_healthy_evidence_stays_silent(self) -> None:
         snapshot = make_snapshot(
