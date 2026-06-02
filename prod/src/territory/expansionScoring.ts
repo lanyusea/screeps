@@ -208,11 +208,17 @@ export type NextExpansionTargetSelectionReason =
   | 'unmetPreconditions'
   | 'insufficientEvidence'
   | 'unavailable';
+export type NextExpansionTargetSelectionReasonDetail =
+  | 'activeExpansionPipeline'
+  | 'activePostClaimBootstrap'
+  | 'activeClaimTarget'
+  | 'activeClaimIntent';
 
 export interface NextExpansionTargetSelection {
   status: NextExpansionTargetSelectionStatus;
   colony: string;
   reason?: NextExpansionTargetSelectionReason;
+  reasonDetail?: NextExpansionTargetSelectionReasonDetail;
   targetRoom?: string;
   controllerId?: Id<StructureController>;
   score?: number;

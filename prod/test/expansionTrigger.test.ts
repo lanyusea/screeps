@@ -536,7 +536,8 @@ describe('autonomous expansion trigger pipeline', () => {
     expect(refreshAutonomousExpansionPipeline(colony, report, 50)).toEqual({
       status: 'skipped',
       colony: 'W1N1',
-      reason: 'unmetPreconditions'
+      reason: 'unmetPreconditions',
+      reasonDetail: 'activeClaimTarget'
     });
     expect(Memory.territory?.expansionPipelines?.W1N1).toBeUndefined();
 
@@ -558,7 +559,108 @@ describe('autonomous expansion trigger pipeline', () => {
     expect(refreshAutonomousExpansionPipeline(colony, report, 50)).toEqual({
       status: 'skipped',
       colony: 'W1N1',
-      reason: 'unmetPreconditions'
+      reason: 'unmetPreconditions',
+      reasonDetail: 'activeClaimIntent'
+    });
+    expect(Memory.territory?.expansionPipelines?.W1N1).toBeUndefined();
+  });
+
+  it('self-heals completed E29N56 and E29N57 claim intents before the next E29N55 expansion', () => {
+    const gameTime = 1_708_611;
+    const colony = makeColony({ roomName: 'E29N55', storageEnergy: 2_000, rcl: 6 });
+    const report = makeReport([
+      makeCandidate({ roomName: 'E29N58', controllerId: 'controller-e29n58' as Id<StructureController> })
+    ]);
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        expansionPipelines: {},
+        intents: [
+          {
+            colony: 'E29N55',
+            targetRoom: 'E29N56',
+            action: 'claim',
+            status: 'active',
+            updatedAt: 1_218_191
+          },
+          {
+            colony: 'E29N55',
+            targetRoom: 'E29N57',
+            action: 'claim',
+            status: 'active',
+            updatedAt: 1_218_674
+          }
+        ],
+        postClaimBootstraps: {
+          E29N56: makePostClaimBootstrap('E29N55', 'E29N56', 'ready'),
+          E29N57: makePostClaimBootstrap('E29N55', 'E29N57', 'completed')
+        } as unknown as Record<string, TerritoryPostClaimBootstrapMemory>
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: gameTime,
+      gcl: { level: 5 } as GlobalControlLevel,
+      rooms: {
+        E29N55: colony.room,
+        E29N56: makeTargetRoom('E29N56', 'controller-e29n56' as Id<StructureController>, { my: true }),
+        E29N57: makeTargetRoom('E29N57', 'controller-e29n57' as Id<StructureController>, { my: true }),
+        E29N58: makeTargetRoom('E29N58', 'controller-e29n58' as Id<StructureController>)
+      }
+    };
+    setSafeHomeThreat('E29N55', gameTime);
+
+    expect(refreshAutonomousExpansionPipeline(colony, report, gameTime)).toMatchObject({
+      status: 'planned',
+      colony: 'E29N55',
+      targetRoom: 'E29N58',
+      controllerId: 'controller-e29n58'
+    });
+    expect(Memory.territory?.intents).toEqual([
+      expect.objectContaining({
+        colony: 'E29N55',
+        targetRoom: 'E29N58',
+        action: 'reserve',
+        status: 'planned'
+      })
+    ]);
+    expect(Memory.territory?.intents?.some((intent) => intent.targetRoom === 'E29N56')).toBe(false);
+    expect(Memory.territory?.intents?.some((intent) => intent.targetRoom === 'E29N57')).toBe(false);
+    expect(Memory.territory?.expansionPipelines?.E29N55).toMatchObject({
+      status: 'active',
+      stage: 'reserving',
+      targetRoom: 'E29N58'
+    });
+  });
+
+  it('reports active post-claim bootstrap blockers separately from generic unmet preconditions', () => {
+    const colony = makeColony({ storageEnergy: 2_000 });
+    const report = makeReport([
+      makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })
+    ]);
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W3N1: makePostClaimBootstrap('W1N1', 'W3N1', 'detected')
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 52,
+      gcl: { level: 5 } as GlobalControlLevel,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTargetRoom('W2N1', 'controller2' as Id<StructureController>),
+        W3N1: makeTargetRoom('W3N1', 'controller3' as Id<StructureController>, { my: true })
+      },
+      spawns: {},
+      creeps: {}
+    };
+    setSafeHomeThreat('W1N1', 52);
+
+    expect(refreshAutonomousExpansionPipeline(colony, report, 52)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'unmetPreconditions',
+      reasonDetail: 'activePostClaimBootstrap'
     });
     expect(Memory.territory?.expansionPipelines?.W1N1).toBeUndefined();
   });
@@ -702,12 +804,14 @@ function makeCandidate({
 }
 
 function makeColony({
+  roomName = 'W1N1',
   storageEnergy = 0,
   rcl = 6,
   ticksToDowngrade = 10_000,
   energyAvailable = 1_300,
   energyCapacityAvailable = 1_300
 }: {
+  roomName?: string;
   storageEnergy?: number;
   rcl?: number;
   ticksToDowngrade?: number;
@@ -715,7 +819,7 @@ function makeColony({
   energyCapacityAvailable?: number;
 } = {}): ColonySnapshot {
   const room = {
-    name: 'W1N1',
+    name: roomName,
     energyAvailable,
     energyCapacityAvailable,
     storage: makeStorage(storageEnergy),
@@ -727,7 +831,7 @@ function makeColony({
       ticksToDowngrade
     } as StructureController,
     memory: {},
-    find: jest.fn((findType: number) => (findType === FIND_SOURCES ? makeSources('W1N1', 2) : []))
+    find: jest.fn((findType: number) => (findType === FIND_SOURCES ? makeSources(roomName, 2) : []))
   } as unknown as Room & { memory: RoomMemory };
 
   return {
@@ -744,20 +848,26 @@ function makeTargetRoom(
   controllerId: Id<StructureController>,
   {
     hostileCreepCount = 0,
-    sourceCount = 2
+    sourceCount = 2,
+    my = false,
+    ownerUsername
   }: {
     hostileCreepCount?: number;
     sourceCount?: number;
+    my?: boolean;
+    ownerUsername?: string;
   } = {}
 ): Room {
   const sources = makeSources(roomName, sourceCount);
   const hostiles = Array.from({ length: hostileCreepCount }, (_value, index) => ({ id: `hostile-${index}` }));
+  const owner = ownerUsername ?? (my ? 'me' : undefined);
   return {
     name: roomName,
     controller: {
       id: controllerId,
-      my: false,
-      pos: makePosition(25, 25, roomName)
+      my,
+      pos: makePosition(25, 25, roomName),
+      ...(owner ? { owner: { username: owner } } : {})
     } as StructureController,
     find: jest.fn((findType: number) => {
       if (findType === FIND_SOURCES) {
@@ -770,6 +880,21 @@ function makeTargetRoom(
       return [];
     })
   } as unknown as Room;
+}
+
+function makePostClaimBootstrap(
+  colony: string,
+  roomName: string,
+  status: TerritoryPostClaimBootstrapStatus | 'completed'
+): TerritoryPostClaimBootstrapMemory {
+  return {
+    colony,
+    roomName,
+    status,
+    claimedAt: 1_200_000,
+    updatedAt: 1_200_000,
+    workerTarget: 2
+  } as TerritoryPostClaimBootstrapMemory;
 }
 
 function makeStorage(energy: number): StructureStorage {
