@@ -266,5 +266,89 @@ class ShadowEvalNoUmbrellaPolicyTests(unittest.TestCase):
         self.assertEqual(result["policy_violations"], [])
 
 
+class IssueCommentSinkPolicyTests(unittest.TestCase):
+    def test_flags_fixed_closed_loop_issue_comment_fanout(self) -> None:
+        live = {
+            "loop-a": live_recurring_job()
+            | {
+                "name": "Loop A ledger",
+                "prompt": "Comment #893 and the exact current atomic issue(s) with concise markdown.",
+            }
+        }
+
+        violations = cron.validate_issue_comment_sink_policy(live)
+
+        self.assertTrue(
+            any(item["pattern"] == "fixed_issue_comment_fanout" for item in violations),
+            violations,
+        )
+
+    def test_flags_gh_issue_comment_to_historical_or_closed_issue(self) -> None:
+        live = {
+            "loop-b": live_recurring_job()
+            | {
+                "name": "Loop B ledger",
+                "prompt": "gh issue comment 893 --body-file /tmp/ledger.md",
+            }
+        }
+
+        violations = cron.validate_issue_comment_sink_policy(live)
+
+        self.assertTrue(
+            any(item["pattern"] == "historical_issue_comment_target" for item in violations),
+            violations,
+        )
+
+    def test_flags_fixed_source_issue_metadata_for_ledger_producers(self) -> None:
+        live = {
+            "loop-a": live_recurring_job()
+            | {
+                "name": "Loop A ledger",
+                "prompt": "type=screeps-rl-training-execution-ledger, sourceIssue=#893, legacyContextIssue=#879",
+            }
+        }
+
+        violations = cron.validate_issue_comment_sink_policy(live)
+
+        self.assertTrue(
+            any(item["pattern"] == "fixed_historical_source_issue" for item in violations),
+            violations,
+        )
+
+    def test_flags_historical_issue_as_tracking_surface(self) -> None:
+        live = {
+            "loop-a": live_recurring_job()
+            | {
+                "name": "Loop A ledger",
+                "prompt": "Tracking surfaces: #893 (closed-loop ledgers), active Project Domain = RL flywheel.",
+            }
+        }
+
+        violations = cron.validate_issue_comment_sink_policy(live)
+
+        self.assertTrue(
+            any(item["pattern"] == "fixed_historical_tracking_surface" for item in violations),
+            violations,
+        )
+
+    def test_allows_project_first_history_and_material_atomic_comment_rule(self) -> None:
+        live = {
+            "steward": live_recurring_job()
+            | {
+                "name": "RL steward",
+                "prompt": (
+                    "Issue 893 is historical context only. Routine producer output belongs in "
+                    "runtime-artifacts/rl-control-loop/. GitHub comments are allowed only when "
+                    "one exact open atomic owner issue materially changes acceptance evidence, "
+                    "blocker, status, or next action."
+                ),
+            }
+        }
+
+        violations = cron.validate_issue_comment_sink_policy(live)
+
+        self.assertEqual(violations, [])
+
+
 if __name__ == "__main__":
     unittest.main()

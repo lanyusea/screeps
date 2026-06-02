@@ -45,6 +45,41 @@ SHADOW_EVAL_FORBIDDEN_PATTERNS: Tuple[Tuple[str, re.Pattern[str]], ...] = (
     ),
 )
 
+ISSUE_COMMENT_SINK_EXPECTED = (
+    "cron producer prompts must write routine metrics/status to artifacts first and may only "
+    "comment one exact open atomic issue when that issue's acceptance evidence, blocker, "
+    "status, next action, PR state, or owner-decision state materially changes"
+)
+ISSUE_COMMENT_SINK_HISTORICAL_IDS = "879|893|1589"
+ISSUE_COMMENT_SINK_FORBIDDEN_PATTERNS: Tuple[Tuple[str, re.Pattern[str]], ...] = (
+    (
+        "fixed_issue_comment_fanout",
+        re.compile(
+            r"\b(?:comment|post|write|send)\s+#?\d+\b"
+            r"(?=[^\n.]{0,200}\b(?:plus|and)\b[^\n.]{0,200}\batomic\s+issue)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "historical_issue_comment_target",
+        re.compile(
+            rf"(?:\bgh\s+issue\s+comment\s+[`\"']?#?(?:{ISSUE_COMMENT_SINK_HISTORICAL_IDS})\b|"
+            rf"(?<![\w-])issues/(?:{ISSUE_COMMENT_SINK_HISTORICAL_IDS})/comments(?:\b|[#/?])|"
+            rf"\b(?:comment|post|write|send)\s+(?:to\s+)?#?(?:{ISSUE_COMMENT_SINK_HISTORICAL_IDS})\b|"
+            rf"\bissue\s+comment\s+(?:to|target)\s+#?(?:{ISSUE_COMMENT_SINK_HISTORICAL_IDS})\b)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "fixed_historical_source_issue",
+        re.compile(rf"\bsourceIssue\s*[:=]\s*[`\"']?#?(?:{ISSUE_COMMENT_SINK_HISTORICAL_IDS})\b", re.IGNORECASE),
+    ),
+    (
+        "fixed_historical_tracking_surface",
+        re.compile(rf"\btracking\s+surfaces?\s*:\s*#?(?:{ISSUE_COMMENT_SINK_HISTORICAL_IDS})\b", re.IGNORECASE),
+    ),
+)
+
 
 def strip_md(value: str) -> str:
     value = value.strip()
@@ -223,6 +258,69 @@ def validate_shadow_eval_no_umbrella(
         append_shadow_eval_path_violations(violations, "shadow-eval output", output_path)
     for surface, text in (text_surfaces or {}).items():
         violations.extend(shadow_eval_no_umbrella_violations(surface, text))
+    return violations
+
+
+def is_negated_policy_context(text: str, start: int) -> bool:
+    """Return true when a forbidden-looking phrase is only a prohibition/example."""
+    context = text[max(0, start - 96):start].lower()
+    return bool(
+        re.search(
+            r"(?:do\s+not|don't|never|must\s+not|forbid(?:den)?|not\s+(?:a|an|the)?\s*"
+            r"(?:progress|comment|target|sink)|no\s+(?:routine\s+)?comments?)",
+            context,
+        )
+    )
+
+
+def issue_comment_sink_violations(
+    job_id: str,
+    job_name: Optional[str],
+    surface: str,
+    text: str,
+) -> List[Dict[str, Any]]:
+    violations: List[Dict[str, Any]] = []
+    seen: set[Tuple[str, int]] = set()
+    for pattern_name, pattern in ISSUE_COMMENT_SINK_FORBIDDEN_PATTERNS:
+        for match in pattern.finditer(text):
+            if pattern_name != "fixed_historical_source_issue" and is_negated_policy_context(text, match.start()):
+                continue
+            line = match_line_number(text, match.start())
+            key = (pattern_name, line)
+            if key in seen:
+                continue
+            seen.add(key)
+            violations.append({
+                "id": job_id,
+                "job": job_name,
+                "surface": surface,
+                "field": "issue_comment_sink_policy",
+                "pattern": pattern_name,
+                "line": line,
+                "expected": ISSUE_COMMENT_SINK_EXPECTED,
+                "live": match_excerpt(text, match.start(), match.end()),
+            })
+    return violations
+
+
+def validate_issue_comment_sink_policy(
+    live: Dict[str, Dict[str, Any]],
+    text_surfaces: Optional[Dict[str, str]] = None,
+) -> List[Dict[str, Any]]:
+    """Reject cron prompts that resurrect fixed GitHub issues as routine ledgers.
+
+    Historical issue IDs may appear as context, but producer prompts must not
+    instruct agents to write routine comments to them, use them as tracking
+    surfaces, or stamp them as the source issue for generated ledgers.
+    """
+    violations: List[Dict[str, Any]] = []
+    for jid, job in sorted(live.items()):
+        prompt = job.get("prompt")
+        if not isinstance(prompt, str) or not prompt:
+            continue
+        violations.extend(issue_comment_sink_violations(jid, empty_to_none(job.get("name")), f"live job {jid} prompt", prompt))
+    for surface, text in (text_surfaces or {}).items():
+        violations.extend(issue_comment_sink_violations("__text__", None, surface, text))
     return violations
 
 
@@ -447,6 +545,7 @@ def main() -> int:
         source_path=args.shadow_eval_source,
         output_paths=args.shadow_eval_output,
     )
+    policy_violations.extend(validate_issue_comment_sink_policy(live))
     result = compare(expected, live, policy_violations=policy_violations)
 
     if args.json:
