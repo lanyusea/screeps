@@ -3497,6 +3497,64 @@ export const STRATEGY_REGISTRY = [
             any("simulated late state snapshot failure" in warning for warning in persisted["warnings"])
         )
 
+    def test_gradient_momentum_state_snapshot_read_error_does_not_delete_state_on_report_failure(self) -> None:
+        card = gradient_momentum_training_card()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            write_json(card_path, card)
+            first_report = runner.run_training_experiment(
+                card_path,
+                out_dir,
+                report_id="gradient-momentum-snapshot-rollback-source",
+                generated_at="2026-06-02T01:06:00Z",
+                simulator_runner=MockSimulator(
+                    gradient_momentum_simulator_results(),
+                    inject_runtime_parameters=True,
+                ),
+            )
+            state_path = Path(first_report["gradientMomentumState"]["stateArtifactPath"])
+            failed_report_path = out_dir / "gradient-momentum-snapshot-rollback-failed.json"
+            state_read_count = 0
+            original_read_bytes = Path.read_bytes
+            original_write_json_atomic = runner.write_json_atomic
+
+            def fail_late_state_snapshot(path: Path) -> bytes:
+                nonlocal state_read_count
+                if path == state_path:
+                    state_read_count += 1
+                    if state_read_count == 2:
+                        raise OSError("simulated late state snapshot failure")
+                return original_read_bytes(path)
+
+            def fail_final_report_write(path: Path, payload: Any) -> None:
+                if path == failed_report_path:
+                    raise OSError("simulated report write failure")
+                original_write_json_atomic(path, payload)
+
+            with (
+                mock.patch.object(Path, "read_bytes", fail_late_state_snapshot),
+                mock.patch.object(runner, "write_json_atomic", fail_final_report_write),
+            ):
+                with self.assertRaisesRegex(OSError, "simulated report write failure"):
+                    runner.run_training_experiment(
+                        card_path,
+                        out_dir,
+                        report_id="gradient-momentum-snapshot-rollback-failed",
+                        generated_at="2026-06-02T01:06:30Z",
+                        simulator_runner=MockSimulator(
+                            gradient_momentum_simulator_results(),
+                            inject_runtime_parameters=True,
+                        ),
+                    )
+
+            self.assertEqual(state_read_count, 2)
+            self.assertFalse(failed_report_path.exists())
+            self.assertTrue(state_path.exists())
+            self.assertEqual(read_json(state_path)["stateArtifactType"], runner.GRADIENT_MOMENTUM_STATE_TYPE)
+
     def test_gradient_momentum_state_requires_source_report_path(self) -> None:
         card = gradient_momentum_training_card()
 

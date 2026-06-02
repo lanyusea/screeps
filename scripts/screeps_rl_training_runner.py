@@ -1184,8 +1184,10 @@ def run_training_experiment(
         mark_candidate_scorecard_materialization_failed(report, error)
     state_artifact_path = policy_gradient_momentum_state_artifact_path_for_report(report, report_path.parent)
     previous_state_artifact_bytes = None
-    if state_artifact_path is not None and state_artifact_path.exists():
+    previous_state_artifact_existed = state_artifact_path is not None and state_artifact_path.exists()
+    if previous_state_artifact_existed:
         try:
+            assert state_artifact_path is not None
             previous_state_artifact_bytes = state_artifact_path.read_bytes()
         except OSError as error:
             warning = (
@@ -1211,6 +1213,7 @@ def run_training_experiment(
             rollback_policy_gradient_momentum_state_artifact(
                 materialized_state_artifact_path,
                 previous_state_artifact_bytes,
+                previous_artifact_existed=previous_state_artifact_existed,
             )
         raise
     report["reportPath"] = dataset_export.display_path(report_path)
@@ -7962,8 +7965,15 @@ def write_json_atomic(path: Path, payload: Any) -> None:
             pass
 
 
-def rollback_policy_gradient_momentum_state_artifact(path: Path, previous_bytes: bytes | None) -> None:
+def rollback_policy_gradient_momentum_state_artifact(
+    path: Path,
+    previous_bytes: bytes | None,
+    *,
+    previous_artifact_existed: bool = False,
+) -> None:
     if previous_bytes is None:
+        if previous_artifact_existed:
+            return
         try:
             path.unlink()
         except FileNotFoundError:
