@@ -1,4 +1,5 @@
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
+import { TERRITORY_CONTROLLER_BODY_COST } from '../src/spawn/bodyTemplates';
 import {
   buildTerritoryCreepMemory,
   getActiveTerritoryFollowUpExecutionHints,
@@ -74,9 +75,9 @@ describe('planTerritoryIntent', () => {
 
   it('suppresses controller-control territory intents before RCL5', () => {
     const colony = makeSafeColony({
-      controller: { my: true, owner: { username: 'me' }, level: 4, ticksToDowngrade: 10_000 } as StructureController,
-      energyAvailable: 1300,
-      energyCapacityAvailable: 1300
+      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -2072,6 +2073,69 @@ describe('planTerritoryIntent', () => {
         createdBy: 'adjacentRoomReservation',
         controllerId: 'controller2',
         postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY
+      }
+    ]);
+  });
+
+  it('upgrades a mature Seasonal RCL3 adjacent reservation target at 800 energy', () => {
+    const postClaimReserveEnergy = 800 - TERRITORY_CONTROLLER_BODY_COST;
+    const colony = makeSafeColony({
+      controller: {
+        my: true,
+        owner: { username: 'me' },
+        level: 3,
+        ticksToDowngrade: 10_000
+      } as StructureController,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      shard: { name: 'shardSeason', type: 'normal' } as Game['shard'],
+      map: { describeExits: jest.fn(() => ({ '1': 'W1N2' })) } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room,
+        W1N2: makeRecommendationRoom('W1N2', {
+          sourceCount: 2,
+          controller: {
+            id: 'controller2' as Id<StructureController>,
+            my: false,
+            reservation: { username: 'me', ticksToEnd: TERRITORY_AUTO_CLAIM_RESERVATION_MIN_TICKS }
+          } as StructureController
+        })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W1N2',
+            action: 'reserve',
+            createdBy: 'adjacentRoomReservation',
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 1002)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'claim',
+      createdBy: 'adjacentRoomReservation',
+      controllerId: 'controller2',
+      postClaimBootstrapReserveEnergy: postClaimReserveEnergy
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 1002,
+        createdBy: 'adjacentRoomReservation',
+        controllerId: 'controller2',
+        postClaimBootstrapReserveEnergy: postClaimReserveEnergy
       }
     ]);
   });

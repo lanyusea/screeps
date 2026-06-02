@@ -1,6 +1,6 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
 import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
-import { TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY } from './autoClaim';
+import { getTerritoryAutoClaimRequiredEnergy } from './autoClaim';
 import { runRecommendedExpansionClaimExecutor } from './claimExecutor';
 import {
   buildRuntimeExpansionCandidateReport,
@@ -256,6 +256,7 @@ function hasExpansionExecutorTarget(colony: string, targetRoom: string | undefin
 function getExpansionExecutorCacheStateKey(colony: ColonySnapshot, gameTime = getGameTime()): string {
   const controller = colony.room.controller;
   const controllerLevel = isFiniteNumber(controller?.level) ? controller.level : 'unknown';
+  const requiredEnergy = getTerritoryAutoClaimRequiredEnergy(controller?.level);
   const downgradeState =
     isFiniteNumber(controller?.ticksToDowngrade) &&
     controller.ticksToDowngrade < EXPANSION_EXECUTOR_DOWNGRADE_GUARD_TICKS
@@ -264,7 +265,8 @@ function getExpansionExecutorCacheStateKey(colony: ColonySnapshot, gameTime = ge
 
   return [
     colony.room.name,
-    getExpansionExecutorAvailableEnergyState(colony.energyAvailable),
+    getExpansionExecutorAvailableEnergyState(colony.energyAvailable, requiredEnergy),
+    requiredEnergy,
     colony.energyCapacityAvailable,
     controllerLevel,
     getGclLevel() ?? 'unknown',
@@ -279,19 +281,20 @@ function getExpansionExecutorCacheStateKey(colony: ColonySnapshot, gameTime = ge
   ].join('|');
 }
 
-function getExpansionExecutorAvailableEnergyState(energyAvailable: number): string {
-  return energyAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY ? 'availableReady' : 'availableWaiting';
+function getExpansionExecutorAvailableEnergyState(energyAvailable: number, requiredEnergy: number): string {
+  return energyAvailable >= requiredEnergy ? 'availableReady' : 'availableWaiting';
 }
 
 function isExpansionExecutorClaimReady(colony: ColonySnapshot, gameTime: number): boolean {
   const controller = colony.room.controller;
+  const requiredEnergy = getTerritoryAutoClaimRequiredEnergy(controller?.level);
   return (
     isAutonomousTerritoryControlAllowedForController(controller) &&
     countActiveExpansionExecutorSpawns(colony) > 0 &&
     !hasExpansionExecutorActiveHostiles(colony.room) &&
     getExpansionExecutorThreatState(colony.room.name, gameTime) === 'none' &&
-    colony.energyAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY &&
-    colony.energyCapacityAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY
+    colony.energyAvailable >= requiredEnergy &&
+    colony.energyCapacityAvailable >= requiredEnergy
   );
 }
 

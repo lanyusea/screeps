@@ -143,6 +143,75 @@ describe('expansion executor', () => {
     });
   });
 
+  it('reuses a Seasonal RCL3 cached claim selection at the 800 energy cap', () => {
+    const colony = makeColony({
+      controllerLevel: 3,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 170,
+      shard: { name: 'shardSeason', type: 'normal' } as Game['shard'],
+      gcl: { level: 2, progress: 0, progressTotal: 0 } as GlobalControlLevel,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeExpansionRoom('W2N1', 'controller2' as Id<StructureController>, 2)
+      },
+      map: {
+        describeExits: jest.fn((roomName: string) => (roomName === 'W1N1' ? { '3': 'W2N1' } : {})),
+        findRoute: jest.fn(() => [{ exit: 3, room: 'W2N1' }]),
+        getRoomTerrain: jest.fn(() => makeTerrain(0))
+      } as unknown as GameMap
+    };
+    setSafeHomeThreat('W1N1', 170);
+
+    expect(refreshExpansionExecutorIntent(colony, 170)).toMatchObject({
+      status: 'planned',
+      targetRoom: 'W2N1'
+    });
+
+    Memory.territory = {
+      ...Memory.territory,
+      expansionPipelines: {},
+      targets: [
+        {
+          colony: 'W1N1',
+          roomName: 'W2N1',
+          action: 'claim',
+          createdBy: 'nextExpansionScoring',
+          controllerId: 'controller2' as Id<StructureController>
+        }
+      ],
+      intents: [
+        {
+          colony: 'W1N1',
+          targetRoom: 'W2N1',
+          action: 'claim',
+          status: 'planned',
+          updatedAt: 170,
+          createdBy: 'nextExpansionScoring',
+          controllerId: 'controller2' as Id<StructureController>
+        }
+      ]
+    };
+    ((globalThis as unknown as { Game: Partial<Game> }).Game as { time: number }).time = 171;
+    setSafeHomeThreat('W1N1', 171);
+
+    expect(refreshExpansionExecutorIntent(colony, 171)).toMatchObject({
+      status: 'planned',
+      targetRoom: 'W2N1'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        createdBy: 'nextExpansionScoring',
+        controllerId: 'controller2'
+      }
+    ]);
+  });
+
   it('blocks claiming when recent threat memory was not refreshed on the current tick', () => {
     const colony = makeColony();
     Memory.defense = {

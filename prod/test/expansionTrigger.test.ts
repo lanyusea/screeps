@@ -40,11 +40,12 @@ describe('autonomous expansion trigger pipeline', () => {
   });
 
   it('keeps the RCL 3 expansion energy threshold within room capacity', () => {
-    expect(getExpansionTriggerRequiredEnergy(3)).toBeLessThanOrEqual(800);
+    expect(getExpansionTriggerRequiredEnergy(3)).toBe(800);
   });
 
   it('starts an RCL5 pipeline when room energy reaches the capped threshold', () => {
     const threshold = getExpansionTriggerRequiredEnergy(5);
+    expect(threshold).toBe(1_050);
     const colony = makeColony({
       storageEnergy: 2_000,
       rcl: 5,
@@ -78,6 +79,7 @@ describe('autonomous expansion trigger pipeline', () => {
 
   it('starts a Seasonal RCL3 pipeline when room energy reaches the RCL3 threshold', () => {
     const threshold = getExpansionTriggerRequiredEnergy(3);
+    expect(threshold).toBe(800);
     const colony = makeColony({
       storageEnergy: 2_000,
       rcl: 3,

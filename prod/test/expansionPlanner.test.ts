@@ -494,8 +494,8 @@ describe('expansion planner', () => {
   it('does not create expansion planner claim intents from a persistent RCL3 owned room', () => {
     const { colony } = makeColony({
       controllerLevel: 3,
-      energyAvailable: 1_300,
-      energyCapacityAvailable: 1_300
+      energyAvailable: 800,
+      energyCapacityAvailable: 800
     });
     installGame(colony, {
       gclLevel: 2,
@@ -521,8 +521,8 @@ describe('expansion planner', () => {
   it('creates Seasonal expansion planner claim intents from an RCL3 owned room', () => {
     const { colony } = makeColony({
       controllerLevel: 3,
-      energyAvailable: 1_300,
-      energyCapacityAvailable: 1_300
+      energyAvailable: 800,
+      energyCapacityAvailable: 800
     });
     installGame(colony, {
       gclLevel: 2,

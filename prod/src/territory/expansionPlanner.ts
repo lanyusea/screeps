@@ -1,6 +1,6 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
 import { isConfiguredExpansionScoutOnlyTarget } from './expansionConfig';
-import { TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY } from './autoClaim';
+import { getTerritoryAutoClaimRequiredEnergy } from './autoClaim';
 import { maxRoomsForRcl } from './expansionScoring';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 import { isAutonomousTerritoryControlAllowedForController } from './controlGate';
@@ -1775,13 +1775,14 @@ function selectExpansionIntentAction(colony: ColonySnapshot): TerritoryControlAc
 
 function isExpansionPlannerClaimReady(colony: ColonySnapshot): boolean {
   const controller = colony.room.controller;
+  const requiredEnergy = getTerritoryAutoClaimRequiredEnergy(controller?.level);
   return (
     isAutonomousTerritoryControlAllowedForController(controller) &&
     hasActiveExpansionPlannerSpawn(colony) &&
     !hasExpansionPlannerActiveHostiles(colony.room) &&
     !hasExpansionPlannerPendingThreat(colony.room.name, getGameTime()) &&
-    colony.energyAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY &&
-    colony.energyCapacityAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY
+    colony.energyAvailable >= requiredEnergy &&
+    colony.energyCapacityAvailable >= requiredEnergy
   );
 }
 

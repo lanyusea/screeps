@@ -13,9 +13,9 @@ import {
 } from './reservationPlanner';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 import {
-  TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY,
-  TERRITORY_AUTO_CLAIM_MIN_RCL,
-  TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY,
+  getTerritoryAutoClaimPostClaimBootstrapReserveEnergy,
+  getTerritoryAutoClaimRequiredEnergy,
+  isTerritoryAutoClaimAllowedForController,
   isTerritoryAutoClaimReservationMature
 } from './autoClaim';
 import {
@@ -141,7 +141,7 @@ export function refreshColonyExpansionIntent(
     return { ...baseEvaluation, reason: 'existingClaimIntent' };
   }
 
-  persistColonyExpansionClaimIntent(colonyName, candidate, gameTime);
+  persistColonyExpansionClaimIntent(colonyName, candidate, gameTime, colony.room.controller?.level);
   return {
     status: 'planned',
     colony: colonyName,
@@ -358,18 +358,19 @@ function isColonyReadyToClaimMatureReservation(
   const controller = colony.room.controller;
   const controllerLevel = controller?.level;
   if (
+    !isTerritoryAutoClaimAllowedForController(controller) ||
     typeof controllerLevel !== 'number' ||
-    controllerLevel < TERRITORY_AUTO_CLAIM_MIN_RCL ||
     !isTerritoryAutoClaimReservationMature(controllerState.ticksToEnd)
   ) {
     return false;
   }
 
-  if (colony.energyCapacityAvailable < TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY) {
+  const requiredEnergy = getTerritoryAutoClaimRequiredEnergy(controllerLevel);
+  if (colony.energyCapacityAvailable < requiredEnergy) {
     return false;
   }
 
-  if (colony.energyAvailable < TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY) {
+  if (colony.energyAvailable < requiredEnergy) {
     return false;
   }
 
@@ -480,22 +481,25 @@ function hasBlockingClaimIntent(colony: string, targetRoom: string): boolean {
 function persistColonyExpansionClaimIntent(
   colony: string,
   candidate: ColonyExpansionCandidate,
-  gameTime: number
+  gameTime: number,
+  controllerLevel: number | undefined
 ): void {
   const territoryMemory = getWritableTerritoryMemoryRecord();
   if (!territoryMemory) {
     return;
   }
 
+  const postClaimBootstrapReserveEnergy =
+    candidate.controllerState.kind === 'ownReserved'
+      ? getTerritoryAutoClaimPostClaimBootstrapReserveEnergy(controllerLevel)
+      : 0;
   const target: TerritoryTargetMemory = {
     colony,
     roomName: candidate.roomName,
     action: 'claim',
     createdBy: COLONY_EXPANSION_CLAIM_TARGET_CREATOR,
     ...(candidate.controllerState.controllerId ? { controllerId: candidate.controllerState.controllerId } : {}),
-    ...(candidate.controllerState.kind === 'ownReserved'
-      ? { postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY }
-      : {})
+    ...(postClaimBootstrapReserveEnergy > 0 ? { postClaimBootstrapReserveEnergy } : {})
   };
 
   pruneAdjacentReservationForTarget(colony, candidate.roomName, territoryMemory);
@@ -512,9 +516,7 @@ function persistColonyExpansionClaimIntent(
     updatedAt: gameTime,
     createdBy: COLONY_EXPANSION_CLAIM_TARGET_CREATOR,
     ...(candidate.controllerState.controllerId ? { controllerId: candidate.controllerState.controllerId } : {}),
-    ...(candidate.controllerState.kind === 'ownReserved'
-      ? { postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY }
-      : {})
+    ...(postClaimBootstrapReserveEnergy > 0 ? { postClaimBootstrapReserveEnergy } : {})
   });
 }
 
