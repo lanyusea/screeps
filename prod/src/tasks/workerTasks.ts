@@ -804,6 +804,18 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     constructionSites.length > 0
       ? createConstructionReservationContext(creep.room)
       : createEmptyConstructionReservationContext();
+  let cachedShouldYieldSpawnReservationToConstructionBacklog: boolean | undefined;
+  const getShouldYieldSpawnReservationToConstructionBacklog = (): boolean => {
+    if (cachedShouldYieldSpawnReservationToConstructionBacklog === undefined) {
+      cachedShouldYieldSpawnReservationToConstructionBacklog = shouldYieldSpawnReservationToConstructionBacklog(
+        creep,
+        constructionSites,
+        constructionReservationContext
+      );
+    }
+
+    return cachedShouldYieldSpawnReservationToConstructionBacklog;
+  };
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
   const ownedSpawnCount = getOwnedSpawnCount(creep.room);
   const hasMissingSpawnRecoveryConstructionSite =
@@ -869,7 +881,8 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       creep,
       spawnOrExtensionEnergySink,
       constructionSites,
-      constructionReservationContext
+      constructionReservationContext,
+      getShouldYieldSpawnReservationToConstructionBacklog
     );
     if (productiveTaskBeforeIdleRefill) {
       return applyMinimumUsefulLoadPolicy(creep, productiveTaskBeforeIdleRefill);
@@ -1035,7 +1048,7 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
 
   if (
     shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) &&
-    !shouldYieldSpawnReservationToConstructionBacklog(creep, constructionSites, constructionReservationContext)
+    !getShouldYieldSpawnReservationToConstructionBacklog()
   ) {
     return null;
   }
@@ -1178,7 +1191,7 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
 
   if (
     shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) &&
-    !shouldYieldSpawnReservationToConstructionBacklog(creep, constructionSites, constructionReservationContext)
+    !getShouldYieldSpawnReservationToConstructionBacklog()
   ) {
     return null;
   }
@@ -4506,7 +4519,8 @@ function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(
   creep: Creep,
   spawnOrExtensionEnergySink: StructureSpawn | StructureExtension | null,
   constructionSites: ConstructionSite[],
-  constructionReservationContext: ConstructionReservationContext
+  constructionReservationContext: ConstructionReservationContext,
+  getShouldYieldSpawnReservationToConstructionBacklog: () => boolean
 ): ProductiveEnergySinkTask | null {
   const deferForHealthyBuffer = shouldDeferIdleSpawnExtensionRefillForHealthyBuffer(
     creep,
@@ -4515,10 +4529,8 @@ function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(
   const deferForBoundedConstruction =
     !deferForHealthyBuffer &&
     shouldDeferIdleSpawnExtensionRefillForBoundedConstruction(
-      creep,
       spawnOrExtensionEnergySink,
-      constructionSites,
-      constructionReservationContext
+      getShouldYieldSpawnReservationToConstructionBacklog
     );
 
   if (!deferForHealthyBuffer && !deferForBoundedConstruction) {
@@ -4557,14 +4569,12 @@ function shouldDeferIdleSpawnExtensionRefillForHealthyBuffer(
 }
 
 function shouldDeferIdleSpawnExtensionRefillForBoundedConstruction(
-  creep: Creep,
   spawnOrExtensionEnergySink: StructureSpawn | StructureExtension | null,
-  constructionSites: ConstructionSite[],
-  constructionReservationContext: ConstructionReservationContext
+  getShouldYieldSpawnReservationToConstructionBacklog: () => boolean
 ): boolean {
   return (
     spawnOrExtensionEnergySink !== null &&
-    shouldYieldSpawnReservationToConstructionBacklog(creep, constructionSites, constructionReservationContext)
+    getShouldYieldSpawnReservationToConstructionBacklog()
   );
 }
 
@@ -4586,11 +4596,20 @@ function shouldYieldSpawnReservationToConstructionBacklog(
     return false;
   }
 
-  if (hasSameRoomWorkerAssignedToTask(creep.room, creep, 'build')) {
+  if (hasOtherSameRoomBuildCoverageWorker(creep)) {
     return false;
   }
 
   return hasSpendableConstructionBacklogFromSites(creep, constructionSites, constructionReservationContext);
+}
+
+function hasOtherSameRoomBuildCoverageWorker(creep: Creep): boolean {
+  return getSameRoomLoadedWorkers(creep).some(
+    (worker) =>
+      !isSameCreep(worker, creep) &&
+      worker.memory?.task?.type === 'build' &&
+      getActiveWorkParts(worker) > 0
+  );
 }
 
 function hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep: Creep): boolean {
