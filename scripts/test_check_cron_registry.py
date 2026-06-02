@@ -184,6 +184,29 @@ class ShadowEvalNoUmbrellaPolicyTests(unittest.TestCase):
             result,
         )
 
+    def test_shadow_eval_policy_flags_issue_879_url_and_api_routes(self) -> None:
+        expected = {cron.SHADOW_EVAL_JOB_ID: expected_shadow_eval_job()}
+        live = {cron.SHADOW_EVAL_JOB_ID: live_shadow_eval_job()}
+        violations = cron.validate_shadow_eval_no_umbrella(
+            live,
+            source_path=None,
+            text_surfaces={
+                "shadow-eval artifact fixture": (
+                    "posted_url=https://github.com/lanyusea/screeps/issues/879#issuecomment-1\n"
+                    "api_route=https://api.github.com/repos/lanyusea/screeps/issues/879/comments\n"
+                )
+            },
+        )
+
+        result = cron.compare(expected, live, policy_violations=violations)
+
+        self.assertEqual(result["status"], "FAIL", result)
+        self.assertEqual(
+            sum(item["pattern"] == "issue_879_url_or_api_route" for item in result["policy_violations"]),
+            2,
+            result,
+        )
+
     def test_shadow_eval_policy_allows_current_skipped_no_atomic_issue_status(self) -> None:
         expected = {cron.SHADOW_EVAL_JOB_ID: expected_shadow_eval_job()}
         live = {
