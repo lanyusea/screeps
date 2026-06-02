@@ -4571,7 +4571,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             artifact_root = Path(temp_dir) / "batch-runs"
             for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD):
                 write_tencent_failure_summary(artifact_root, f"tencent-pg-room-busy-{index}")
-            write_post_fix_validation_remote_timeout_summary(
+            timeout_attempt_path = write_post_fix_validation_remote_timeout_summary(
                 artifact_root,
                 "postfix-room-busy-validation-timeout",
                 workers=5,
@@ -4579,10 +4579,12 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 ticks=runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS,
                 training_timeout_seconds=3600,
             )
-            write_post_fix_validation_recovery_remote_timeout_summary(
+            recovery_attempt_path = write_post_fix_validation_recovery_remote_timeout_summary(
                 artifact_root,
                 "postfix-room-busy-validation-timeout-recovery",
             )
+            touched_time = recovery_attempt_path.stat().st_mtime + 10
+            os.utime(timeout_attempt_path, (touched_time, touched_time))
             args = runner.parse_cli_args([
                 "run-single",
                 "--run-id",
@@ -4629,8 +4631,8 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(guard["postFixValidation"]["status"], "consumed")
         self.assertEqual(guard["postFixValidation"]["priorAttemptCount"], 2)
         prior_attempt = guard["postFixValidation"]["priorAttempt"]
-        self.assertEqual(prior_attempt["runId"], "postfix-room-busy-validation-timeout-recovery")
-        self.assertTrue(prior_attempt["recoveryAttempt"])
+        self.assertEqual(prior_attempt["runId"], "postfix-room-busy-validation-timeout")
+        self.assertFalse(prior_attempt["recoveryAttempt"])
         self.assertEqual(prior_attempt["remoteTrainingFailureClass"], "remote_training_timeout")
         recovery = guard["postFixValidation"]["recoveryEligibility"]
         self.assertFalse(recovery["eligible"])

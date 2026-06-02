@@ -3265,6 +3265,10 @@ def paid_failure_post_fix_validation_recovery_class_for_attempts(
 ) -> str | None:
     if not prior_attempts:
         return None
+    if paid_failure_post_fix_attempts_include_timeout_recovery(prior_attempts):
+        if paid_failure_post_fix_attempts_prove_pre_scale_timeout_recovery(prior_attempts):
+            return "remote_training_timeout_after_recovery"
+        return None
     latest_attempt = prior_attempts[0]
     if paid_failure_post_fix_attempt_is_remote_training_timeout_without_report(latest_attempt):
         if latest_attempt.get("recoveryAttempt") is True:
@@ -3279,6 +3283,14 @@ def paid_failure_post_fix_validation_recovery_class_for_attempts(
     if paid_failure_post_fix_attempts_prove_pre_scale_timeout_recovery(prior_attempts):
         return "remote_training_timeout_after_recovery"
     return None
+
+
+def paid_failure_post_fix_attempts_include_timeout_recovery(prior_attempts: list[dict[str, Any]]) -> bool:
+    return any(
+        attempt.get("recoveryAttempt") is True
+        and paid_failure_post_fix_attempt_is_remote_training_timeout_without_report(attempt)
+        for attempt in prior_attempts
+    )
 
 
 def paid_failure_post_fix_attempts_prove_pre_scale_timeout_recovery(
