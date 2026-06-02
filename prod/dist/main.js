@@ -27497,7 +27497,7 @@ function selectConstructionSite(creep, constructionSites, predicate = () => true
     ...options.priorityContext
   };
   const candidates = constructionSites.filter(
-    (site) => predicate(site) && canSpendCreepEnergyOnConstructionSite(creep, site, priorityContext) && (!options.requireReasonableRange || isConstructionSiteWithinReasonableRange(creep, site, DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE))
+    (site) => predicate(site) && !isConstructionSiteSuppressedForWorker(creep, site) && canSpendCreepEnergyOnConstructionSite(creep, site, priorityContext) && (!options.requireReasonableRange || isConstructionSiteWithinReasonableRange(creep, site, DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE))
   );
   if (candidates.length === 0) {
     return null;
@@ -27522,6 +27522,19 @@ function selectConstructionSite(creep, constructionSites, predicate = () => true
     return (_a = position.findClosestByRange(candidatesByStableId)) != null ? _a : candidatesByStableId[0];
   }
   return topImpactCandidates.sort(compareConstructionSiteId)[0];
+}
+function isConstructionSiteSuppressedForWorker(creep, site) {
+  var _a;
+  const blockedBuildTarget = (_a = creep.memory) == null ? void 0 : _a.blockedBuildTarget;
+  if (!blockedBuildTarget) {
+    return false;
+  }
+  const tick = getGameTick3();
+  if (tick !== null && blockedBuildTarget.until <= tick) {
+    delete creep.memory.blockedBuildTarget;
+    return false;
+  }
+  return String(blockedBuildTarget.targetId) === String(site.id);
 }
 function selectUnreservedConstructionSite(creep, constructionSites, constructionReservationContext, predicate = () => true, options = {}) {
   return selectConstructionSite(
@@ -31642,12 +31655,15 @@ var WORKER_STANDBY_IDLE_TIMEOUT_TICKS = 8;
 var WORKER_NULL_LOOP_FALLBACK_ATTEMPTS = 2;
 var OK_CODE11 = 0;
 var ERR_NOT_ENOUGH_RESOURCES_CODE2 = -6;
+var ERR_NO_PATH_CODE6 = -2;
 var ERR_INVALID_TARGET_CODE3 = -7;
 var ERR_FULL_CODE5 = -8;
 var ERR_NOT_IN_RANGE_CODE6 = -9;
 var ADJACENT_ACTION_MOVE_RANGE = 1;
 var RANGED_WORK_MOVE_RANGE = 3;
 var EXACT_POSITION_MOVE_RANGE = 0;
+var BUILD_TARGET_STUCK_TICKS = 2;
+var BUILD_TARGET_SUPPRESSION_TICKS = 15;
 var MIN_HAULER_DROPPED_ENERGY = 25;
 var SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS2 = 2;
 var SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORED_SURPLUS = 300;
@@ -31660,6 +31676,7 @@ function runWorker(creep) {
     return;
   }
   observeCreepBehaviorTick(creep);
+  suppressCurrentBuildTargetIfWorkerIsStuck(creep);
   const currentTask = creep.memory.task;
   const criticalCpuTaskRetention = getCriticalCpuTaskRetentionDecision(creep, currentTask);
   if (criticalCpuTaskRetention.retain) {
@@ -33179,8 +33196,14 @@ function recordTaskBehavior(creep, task, execution) {
   }
 }
 function moveToAssignedTaskTarget(creep, task, target) {
+  const result = creep.moveTo(target, getAssignedTaskMoveOptions(task));
+  if (task.type === "build" && result === getErrNoPathCode()) {
+    suppressBuildTarget(creep, task, "noPath");
+  }
+}
+function getAssignedTaskMoveOptions(task) {
   const range = getAssignedTaskMoveRange(task);
-  creep.moveTo(target, { range });
+  return task.type === "build" ? { range, ignoreCreeps: true } : { range };
 }
 function getAssignedTaskMoveRange(task) {
   switch (task.type) {
@@ -33199,6 +33222,35 @@ function getAssignedTaskMoveRange(task) {
     case "collectScore":
       return EXACT_POSITION_MOVE_RANGE;
   }
+}
+function suppressCurrentBuildTargetIfWorkerIsStuck(creep) {
+  var _a, _b;
+  const task = creep.memory.task;
+  if ((task == null ? void 0 : task.type) !== "build") {
+    return;
+  }
+  const telemetry = creep.memory.behaviorTelemetry;
+  if (((_a = telemetry == null ? void 0 : telemetry.stuckTicks) != null ? _a : 0) < BUILD_TARGET_STUCK_TICKS || ((_b = telemetry == null ? void 0 : telemetry.workTicks) != null ? _b : 0) > 0) {
+    return;
+  }
+  suppressBuildTarget(creep, task, "stuck");
+  if (telemetry) {
+    telemetry.stuckTicks = 0;
+  }
+}
+function suppressBuildTarget(creep, task, reason) {
+  const tick = getGameTick4();
+  creep.memory.blockedBuildTarget = {
+    targetId: String(task.targetId),
+    blockedAt: tick,
+    until: tick + BUILD_TARGET_SUPPRESSION_TICKS,
+    reason
+  };
+  delete creep.memory.task;
+}
+function getErrNoPathCode() {
+  const errNoPath = globalThis.ERR_NO_PATH;
+  return typeof errNoPath === "number" ? errNoPath : ERR_NO_PATH_CODE6;
 }
 function isContainerStructure3(target) {
   const structureType = target == null ? void 0 : target.structureType;
@@ -35311,7 +35363,7 @@ var MOVE_PART_COST = 50;
 var MAX_CREEP_PARTS7 = 50;
 var MAX_REMOTE_UPGRADER_PATTERN_COUNT = 4;
 var MAX_CONTROLLER_LEVEL4 = 8;
-var ERR_NO_PATH_CODE6 = -2;
+var ERR_NO_PATH_CODE7 = -2;
 var TERRITORY_ROUTE_DISTANCE_SEPARATOR4 = ">";
 var ROUTE_DISTANCE_CACHE_TTL_TICKS = 300;
 function recordPlannedMultiRoomUpgraderSpawn(memory) {
@@ -35755,7 +35807,7 @@ function isAdjacentRoom(fromRoom, targetRoom) {
 }
 function getNoPathResultCode7() {
   const noPathCode = globalThis.ERR_NO_PATH;
-  return typeof noPathCode === "number" ? noPathCode : ERR_NO_PATH_CODE6;
+  return typeof noPathCode === "number" ? noPathCode : ERR_NO_PATH_CODE7;
 }
 function getGameTime31() {
   var _a;
@@ -44276,7 +44328,7 @@ function isNonEmptyString34(value) {
 }
 
 // src/territory/claimedRoomBootstrapper.ts
-var ERR_NO_PATH_CODE7 = -2;
+var ERR_NO_PATH_CODE8 = -2;
 function refreshClaimedRoomBootstrapperOwnership(telemetryEvents = []) {
   var _a, _b;
   const game = globalThis.Game;
@@ -44481,7 +44533,7 @@ function getRoomRouteDistance(fromRoom, toRoom) {
     if (Array.isArray(route)) {
       return route.length;
     }
-    if (route === ERR_NO_PATH_CODE7) {
+    if (route === ERR_NO_PATH_CODE8) {
       return Number.POSITIVE_INFINITY;
     }
   }
@@ -47578,7 +47630,7 @@ function isRecord41(value) {
 
 // src/economy/economyLoop.ts
 var ERR_BUSY_CODE = -4;
-var ERR_NO_PATH_CODE8 = -2;
+var ERR_NO_PATH_CODE9 = -2;
 var OK_CODE20 = 0;
 var BOOTSTRAP_WORKER_BUFFER_BYPASS_MIN_ENERGY = 300;
 var LOW_ROOM_ENERGY_TASK_PRIORITY_RATIO = 0.5;
@@ -48297,7 +48349,7 @@ function getCrossRoomSpawnRouteDistance(sourceRoomName, targetRoomName) {
     if (Array.isArray(route)) {
       return route.length;
     }
-    if (route === ERR_NO_PATH_CODE8) {
+    if (route === ERR_NO_PATH_CODE9) {
       return Number.POSITIVE_INFINITY;
     }
   }

@@ -61,6 +61,7 @@ declare global {
     workerDispatchDiagnostic?: WorkerDispatchDiagnosticMemory;
     energyDropoffOptimization?: WorkerEnergyDropoffOptimizationMemory;
     behaviorTelemetry?: CreepBehaviorTelemetryMemory;
+    blockedBuildTarget?: WorkerBlockedBuildTargetMemory;
     crossRoomHauler?: CreepCrossRoomHaulerMemory;
     spawnSupport?: CreepSpawnSupportMemory;
     mineralHarvester?: CreepMineralHarvesterMemory;
@@ -1329,6 +1330,13 @@ declare global {
     lastObservedTick?: number;
     lastIdleTick?: number;
     lastSourceContainerWithdrawalTick?: number;
+  }
+
+  interface WorkerBlockedBuildTargetMemory {
+    targetId: string;
+    blockedAt: number;
+    until: number;
+    reason: 'stuck' | 'noPath';
   }
 
   type CreepTaskMemory =

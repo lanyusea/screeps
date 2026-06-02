@@ -69,12 +69,15 @@ const WORKER_STANDBY_IDLE_TIMEOUT_TICKS = 8;
 const WORKER_NULL_LOOP_FALLBACK_ATTEMPTS = 2;
 const OK_CODE = 0 as ScreepsReturnCode;
 const ERR_NOT_ENOUGH_RESOURCES_CODE = -6 as ScreepsReturnCode;
+const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
 const ERR_FULL_CODE = -8 as ScreepsReturnCode;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 const ADJACENT_ACTION_MOVE_RANGE = 1;
 const RANGED_WORK_MOVE_RANGE = 3;
 const EXACT_POSITION_MOVE_RANGE = 0;
+const BUILD_TARGET_STUCK_TICKS = 2;
+const BUILD_TARGET_SUPPRESSION_TICKS = 15;
 const MIN_HAULER_DROPPED_ENERGY = 25;
 const SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS = 2;
 const SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORED_SURPLUS = 300;
@@ -126,6 +129,7 @@ export function runWorker(creep: Creep): void {
     return;
   }
   observeCreepBehaviorTick(creep);
+  suppressCurrentBuildTargetIfWorkerIsStuck(creep);
 
   const currentTask = creep.memory.task;
   const criticalCpuTaskRetention = getCriticalCpuTaskRetentionDecision(creep, currentTask);
@@ -2438,8 +2442,15 @@ function recordTaskBehavior(
 }
 
 function moveToAssignedTaskTarget(creep: Creep, task: CreepTaskMemory, target: RoomObject): void {
+  const result = creep.moveTo(target, getAssignedTaskMoveOptions(task));
+  if (task.type === 'build' && result === getErrNoPathCode()) {
+    suppressBuildTarget(creep, task, 'noPath');
+  }
+}
+
+function getAssignedTaskMoveOptions(task: CreepTaskMemory): MoveToOpts {
   const range = getAssignedTaskMoveRange(task);
-  creep.moveTo(target, { range });
+  return task.type === 'build' ? { range, ignoreCreeps: true } : { range };
 }
 
 function getAssignedTaskMoveRange(task: CreepTaskMemory): number {
@@ -2459,6 +2470,43 @@ function getAssignedTaskMoveRange(task: CreepTaskMemory): number {
     case 'collectScore':
       return EXACT_POSITION_MOVE_RANGE;
   }
+}
+
+function suppressCurrentBuildTargetIfWorkerIsStuck(creep: Creep): void {
+  const task = creep.memory.task;
+  if (task?.type !== 'build') {
+    return;
+  }
+
+  const telemetry = creep.memory.behaviorTelemetry;
+  if ((telemetry?.stuckTicks ?? 0) < BUILD_TARGET_STUCK_TICKS || (telemetry?.workTicks ?? 0) > 0) {
+    return;
+  }
+
+  suppressBuildTarget(creep, task, 'stuck');
+  if (telemetry) {
+    telemetry.stuckTicks = 0;
+  }
+}
+
+function suppressBuildTarget(
+  creep: Creep,
+  task: Extract<CreepTaskMemory, { type: 'build' }>,
+  reason: WorkerBlockedBuildTargetMemory['reason']
+): void {
+  const tick = getGameTick();
+  creep.memory.blockedBuildTarget = {
+    targetId: String(task.targetId),
+    blockedAt: tick,
+    until: tick + BUILD_TARGET_SUPPRESSION_TICKS,
+    reason
+  };
+  delete creep.memory.task;
+}
+
+function getErrNoPathCode(): ScreepsReturnCode {
+  const errNoPath = (globalThis as unknown as { ERR_NO_PATH?: ScreepsReturnCode }).ERR_NO_PATH;
+  return typeof errNoPath === 'number' ? errNoPath : ERR_NO_PATH_CODE;
 }
 
 function isContainerStructure(target: unknown): boolean {

@@ -2712,7 +2712,80 @@ describe('runWorker', () => {
 
     expect(getObjectById).toHaveBeenCalledWith('site1');
     expect(build).toHaveBeenCalledWith(site);
-    expect(moveTo).toHaveBeenCalledWith(site, { range: 3 });
+    expect(moveTo).toHaveBeenCalledWith(site, { range: 3, ignoreCreeps: true });
+  });
+
+  it('suppresses an existing build target when movement cannot find a path', () => {
+    const site = { id: 'site1' } as ConstructionSite;
+    const build = jest.fn().mockReturnValue(-9);
+    const moveTo = jest.fn().mockReturnValue(-2);
+    const getObjectById = jest.fn().mockReturnValue(site);
+    const creep = {
+      memory: { task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: { find: jest.fn().mockReturnValue([]) },
+      build,
+      moveTo
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById,
+      time: 200
+    };
+
+    runWorker(creep);
+
+    expect(build).toHaveBeenCalledWith(site);
+    expect(moveTo).toHaveBeenCalledWith(site, { range: 3, ignoreCreeps: true });
+    expect(creep.memory.task).toBeUndefined();
+    expect(creep.memory.blockedBuildTarget).toEqual({
+      targetId: 'site1',
+      blockedAt: 200,
+      until: 215,
+      reason: 'noPath'
+    });
+  });
+
+  it('suppresses a no-work stuck build task before retaining it', () => {
+    const build = jest.fn();
+    const moveTo = jest.fn();
+    const getObjectById = jest.fn();
+    const creep = {
+      memory: {
+        task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> },
+        behaviorTelemetry: {
+          stuckTicks: 2,
+          workTicks: 0
+        }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: { find: jest.fn().mockReturnValue([]) },
+      build,
+      moveTo
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById,
+      time: 200
+    };
+
+    runWorker(creep);
+
+    expect(getObjectById).not.toHaveBeenCalledWith('site1');
+    expect(build).not.toHaveBeenCalled();
+    expect(moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.task).toBeUndefined();
+    expect(creep.memory.blockedBuildTarget).toEqual({
+      targetId: 'site1',
+      blockedAt: 200,
+      until: 215,
+      reason: 'stuck'
+    });
+    expect(creep.memory.behaviorTelemetry?.stuckTicks).toBe(0);
   });
 
   it('repairs an existing repair target and moves when not in range', () => {

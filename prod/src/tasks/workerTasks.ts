@@ -3430,6 +3430,7 @@ function selectConstructionSite(
   const candidates = constructionSites.filter(
     (site) =>
       predicate(site) &&
+      !isConstructionSiteSuppressedForWorker(creep, site) &&
       canSpendCreepEnergyOnConstructionSite(creep, site, priorityContext) &&
       (!options.requireReasonableRange ||
         isConstructionSiteWithinReasonableRange(creep, site, DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE))
@@ -3467,6 +3468,21 @@ function selectConstructionSite(
   }
 
   return topImpactCandidates.sort(compareConstructionSiteId)[0];
+}
+
+function isConstructionSiteSuppressedForWorker(creep: Creep, site: ConstructionSite): boolean {
+  const blockedBuildTarget = creep.memory?.blockedBuildTarget;
+  if (!blockedBuildTarget) {
+    return false;
+  }
+
+  const tick = getGameTick();
+  if (tick !== null && blockedBuildTarget.until <= tick) {
+    delete creep.memory.blockedBuildTarget;
+    return false;
+  }
+
+  return String(blockedBuildTarget.targetId) === String(site.id);
 }
 
 function selectUnreservedConstructionSite(
