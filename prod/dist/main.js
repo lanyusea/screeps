@@ -33264,13 +33264,13 @@ function getAssignedTaskMoveRange(task) {
   }
 }
 function suppressCurrentBuildTargetIfWorkerIsStuck(creep) {
-  var _a, _b;
+  var _a;
   const task = creep.memory.task;
   if ((task == null ? void 0 : task.type) !== "build") {
     return;
   }
   const telemetry = creep.memory.behaviorTelemetry;
-  if (((_a = telemetry == null ? void 0 : telemetry.buildTargetStuckTicks) != null ? _a : 0) < BUILD_TARGET_STUCK_TICKS || (telemetry == null ? void 0 : telemetry.buildTargetStuckTargetId) !== String(task.targetId) || ((_b = telemetry == null ? void 0 : telemetry.workTicks) != null ? _b : 0) > 0) {
+  if (((_a = telemetry == null ? void 0 : telemetry.buildTargetStuckTicks) != null ? _a : 0) < BUILD_TARGET_STUCK_TICKS || (telemetry == null ? void 0 : telemetry.buildTargetStuckTargetId) !== String(task.targetId)) {
     return;
   }
   suppressBuildTarget(creep, task, "stuck");

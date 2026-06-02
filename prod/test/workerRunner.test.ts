@@ -2887,6 +2887,55 @@ describe('runWorker', () => {
     expect(creep.memory.behaviorTelemetry?.buildTargetStuckTargetId).toBeUndefined();
   });
 
+  it('suppresses a blocked build target after earlier work on a different site', () => {
+    const build = jest.fn();
+    const moveTo = jest.fn();
+    const getObjectById = jest.fn();
+    const creep = {
+      memory: {
+        task: { type: 'build', targetId: 'site2' as Id<ConstructionSite> },
+        behaviorTelemetry: {
+          stuckTicks: 2,
+          workTicks: 1,
+          buildTargetStuckTicks: 2,
+          buildTargetStuckTargetId: 'site2',
+          lastMoveBuildTargetId: 'site2'
+        }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: { find: jest.fn().mockReturnValue([]) },
+      build,
+      moveTo
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById,
+      time: 200
+    };
+
+    runWorker(creep);
+
+    expect(getObjectById).not.toHaveBeenCalledWith('site2');
+    expect(build).not.toHaveBeenCalled();
+    expect(moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.task).toBeUndefined();
+    expect(creep.memory.blockedBuildTarget).toEqual({
+      targetId: 'site2',
+      blockedAt: 200,
+      until: 215,
+      reason: 'stuck'
+    });
+    expect(creep.memory.behaviorTelemetry).toMatchObject({
+      stuckTicks: 2,
+      workTicks: 1
+    });
+    expect(creep.memory.behaviorTelemetry?.buildTargetStuckTicks).toBeUndefined();
+    expect(creep.memory.behaviorTelemetry?.buildTargetStuckTargetId).toBeUndefined();
+    expect(creep.memory.behaviorTelemetry?.lastMoveBuildTargetId).toBeUndefined();
+  });
+
   it('repairs an existing repair target and moves when not in range', () => {
     const road = { id: 'road1', hits: 1_000, hitsMax: 5_000 } as StructureRoad;
     const repair = jest.fn().mockReturnValue(-9);

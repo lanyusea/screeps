@@ -2490,8 +2490,7 @@ function suppressCurrentBuildTargetIfWorkerIsStuck(creep: Creep): void {
   const telemetry = creep.memory.behaviorTelemetry;
   if (
     (telemetry?.buildTargetStuckTicks ?? 0) < BUILD_TARGET_STUCK_TICKS ||
-    telemetry?.buildTargetStuckTargetId !== String(task.targetId) ||
-    (telemetry?.workTicks ?? 0) > 0
+    telemetry?.buildTargetStuckTargetId !== String(task.targetId)
   ) {
     return;
   }
