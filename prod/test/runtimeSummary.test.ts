@@ -147,6 +147,7 @@ describe('runtime telemetry summaries', () => {
             level: 2,
             progress: 1234,
             progressTotal: 45000,
+            progressRatio: 0.027,
             ticksToDowngrade: 15000,
             sign: null
           },

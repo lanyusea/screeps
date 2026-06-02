@@ -42,13 +42,22 @@ def write_runtime_summary(path: Path) -> None:
         "rooms": [
             {
                 "roomName": "E29N55",
-                "controller": {"my": True, "level": 3},
+                "controller": {"my": True, "level": 3, "progress": 2500, "progressTotal": 10000},
                 "rclLevel": 3,
                 "workerCount": 4,
                 "spawnStatus": [{"name": "Spawn1", "status": "idle"}],
                 "taskCounts": {"harvest": 1, "build": 1, "upgrade": 2},
                 "energyAvailable": 300,
-                "resources": {"storedEnergy": 900, "workerCarriedEnergy": 50},
+                "resources": {
+                    "storedEnergy": 900,
+                    "workerCarriedEnergy": 50,
+                    "productiveEnergy": {"upgradeCarriedEnergy": 25},
+                    "multiRoomEnergy": {
+                        "importDemand": 300,
+                        "blockedImportEnergy": 100,
+                        "deficitEnergy": 450,
+                    },
+                },
                 "combat": {"hostileCreepCount": 0},
                 "structures": {"spawn": 1, "tower": 1, "rampart": 0},
             }
@@ -1643,6 +1652,11 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(summary["type"], "screeps-rl-live-dashboard")
         self.assertEqual(summary["dashboardUrl"], f"http://{host}:{port}/")
         self.assertEqual(summary["e1Gate"]["gateId"], "e1-live")
+        self.assertEqual(summary["db"]["latestRuntimeRoomMetrics"]["avgControllerProgressRatio"], 0.25)
+        self.assertEqual(summary["db"]["latestRuntimeRoomMetrics"]["upgradeCarriedEnergy"], 25.0)
+        self.assertEqual(summary["db"]["latestRuntimeRoomMetrics"]["importDemand"], 300.0)
+        self.assertEqual(summary["db"]["latestRuntimeRoomMetrics"]["blockedImportEnergy"], 100.0)
+        self.assertEqual(summary["db"]["latestRuntimeRoomMetrics"]["multiRoomDeficitEnergy"], 450.0)
 
     def test_healthz_fails_when_auto_refresh_failed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

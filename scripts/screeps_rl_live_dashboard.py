@@ -893,6 +893,7 @@ def sqlite_summary(db_path: Path, repo_root: Path) -> JsonObject:
         "schemaReady": False,
         "tables": {},
         "latestObservedAt": None,
+        "latestRuntimeRoomMetrics": {},
         "error": None,
     }
     if not expanded.exists():
@@ -932,6 +933,44 @@ def sqlite_summary(db_path: Path, repo_root: Path) -> JsonObject:
             summary["schemaReady"] = all(table in tables for table in REQUIRED_TABLES)
             summary["tables"] = counts
             summary["latestObservedAt"] = max(valid_timestamps) if valid_timestamps else None
+            if "runtime_room_metrics" in tables:
+                runtime_columns = {
+                    row["name"] for row in conn.execute("PRAGMA table_info(runtime_room_metrics)").fetchall()
+                }
+                latest_tick_row = conn.execute("SELECT MAX(tick) AS latest_tick FROM runtime_room_metrics").fetchone()
+                latest_tick = latest_tick_row["latest_tick"] if latest_tick_row is not None else None
+                required_runtime_columns = {
+                    "controller_progress_ratio",
+                    "upgrade_carried_energy",
+                    "import_demand",
+                    "blocked_import_energy",
+                    "multi_room_deficit_energy",
+                }
+                if latest_tick is not None and required_runtime_columns.issubset(runtime_columns):
+                    metrics = conn.execute(
+                        """
+                        SELECT
+                          COUNT(*) AS room_samples,
+                          AVG(controller_progress_ratio) AS avg_controller_progress_ratio,
+                          SUM(COALESCE(upgrade_carried_energy, 0)) AS upgrade_carried_energy,
+                          SUM(COALESCE(import_demand, 0)) AS import_demand,
+                          SUM(COALESCE(blocked_import_energy, 0)) AS blocked_import_energy,
+                          SUM(COALESCE(multi_room_deficit_energy, 0)) AS multi_room_deficit_energy
+                        FROM runtime_room_metrics
+                        WHERE tick = ?
+                        """,
+                        (latest_tick,),
+                    ).fetchone()
+                    if metrics is not None:
+                        summary["latestRuntimeRoomMetrics"] = {
+                            "tick": latest_tick,
+                            "roomSamples": metrics["room_samples"],
+                            "avgControllerProgressRatio": metrics["avg_controller_progress_ratio"],
+                            "upgradeCarriedEnergy": metrics["upgrade_carried_energy"],
+                            "importDemand": metrics["import_demand"],
+                            "blockedImportEnergy": metrics["blocked_import_energy"],
+                            "multiRoomDeficitEnergy": metrics["multi_room_deficit_energy"],
+                        }
     except sqlite3.Error as error:
         summary["error"] = f"cannot read metrics database: {error}"
     return summary

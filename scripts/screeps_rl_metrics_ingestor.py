@@ -73,6 +73,11 @@ CREATE TABLE IF NOT EXISTS runtime_room_metrics (
   cpu_bucket REAL,
   rcl_level REAL,
   stored_energy REAL,
+  controller_progress_ratio REAL,
+  upgrade_carried_energy REAL,
+  import_demand REAL,
+  blocked_import_energy REAL,
+  multi_room_deficit_energy REAL,
   source_artifact TEXT NOT NULL,
   evidence_json TEXT NOT NULL DEFAULT '{}',
   dedupe_key TEXT NOT NULL
@@ -261,6 +266,16 @@ METRIC_DEFINITIONS = [
         "promotion_rule": "Repeated absence promotes controller-level telemetry work.",
     },
     {
+        "metric_name": "territory.controller_progress_ratio",
+        "category": "survival/ownership",
+        "purpose": "Track owned controller progress within the current RCL.",
+        "source_artifacts": "#runtime-summary controller.progressRatio or controller progress/progressTotal",
+        "directionality": "higher is better",
+        "interpretation": "Flat values with blocked upgrade energy identify controller progression stalls.",
+        "missing_coverage_behavior": "Leave historical rows NULL and rely on controller progress coverage gaps.",
+        "promotion_rule": "Repeated absence during upgrade-focused windows promotes controller-progress telemetry work.",
+    },
+    {
         "metric_name": "economy.energy_available",
         "category": "resource economy",
         "purpose": "Track room spawn/extension energy availability.",
@@ -289,6 +304,36 @@ METRIC_DEFINITIONS = [
         "interpretation": "Carried energy with no sink work indicates role/task imbalance.",
         "missing_coverage_behavior": "Record an energy telemetry coverage gap.",
         "promotion_rule": "Repeated absence promotes worker energy telemetry work.",
+    },
+    {
+        "metric_name": "economy.import_demand",
+        "category": "resource economy",
+        "purpose": "Track multi-room energy demand that should be satisfied by imports.",
+        "source_artifacts": "#runtime-summary resources.multiRoomEnergy.importDemand",
+        "directionality": "lower is better once supply routes exist",
+        "interpretation": "Persistent demand identifies colony supply gaps such as newly claimed or remote rooms.",
+        "missing_coverage_behavior": "Leave historical rows NULL and rely on multi-room energy coverage gaps.",
+        "promotion_rule": "Repeated positive demand without imports promotes multi-room logistics work.",
+    },
+    {
+        "metric_name": "economy.blocked_import_energy",
+        "category": "resource economy",
+        "purpose": "Track energy demand blocked by import routing, reserves, or exporter constraints.",
+        "source_artifacts": "#runtime-summary resources.multiRoomEnergy.blockedImportEnergy",
+        "directionality": "lower is better",
+        "interpretation": "Positive values mean the room needs imported energy that the multi-room plan could not satisfy.",
+        "missing_coverage_behavior": "Leave historical rows NULL and rely on multi-room energy coverage gaps.",
+        "promotion_rule": "Repeated positive blocked energy promotes multi-room logistics or reservation work.",
+    },
+    {
+        "metric_name": "economy.multi_room_deficit_energy",
+        "category": "resource economy",
+        "purpose": "Track multi-room local energy deficit before imports and exports are balanced.",
+        "source_artifacts": "#runtime-summary resources.multiRoomEnergy.deficitEnergy",
+        "directionality": "lower is better",
+        "interpretation": "Positive deficits explain rooms that depend on imports or need local production improvements.",
+        "missing_coverage_behavior": "Leave historical rows NULL and rely on multi-room energy coverage gaps.",
+        "promotion_rule": "Repeated high deficits promote supply, harvest, or import routing work.",
     },
     {
         "metric_name": "economy.energy_telemetry",
@@ -469,6 +514,16 @@ METRIC_DEFINITIONS = [
         "interpretation": "worker_assignment_gap means energy/backlog exists but no builder assignment is visible; energy_buffer_blocked means construction should wait for recovery energy.",
         "missing_coverage_behavior": "Record construction blocked-reason coverage gap when backlog exists.",
         "promotion_rule": "Repeated worker_assignment_gap with backlog promotes construction assignment work.",
+    },
+    {
+        "metric_name": "controller.upgrade_carried_energy",
+        "category": "gameplay behavior",
+        "purpose": "Track energy carried by workers assigned to controller upgrade work.",
+        "source_artifacts": "#runtime-summary resources.productiveEnergy.upgradeCarriedEnergy",
+        "directionality": "higher is better when controller progress is intended",
+        "interpretation": "Zero upgrade carried energy with slow controller progress identifies upgrade blockage or starvation.",
+        "missing_coverage_behavior": "Leave historical rows NULL and rely on productive-energy coverage gaps.",
+        "promotion_rule": "Repeated zero with low controller progress promotes upgrader assignment or supply work.",
     },
     {
         "metric_name": "economy.extension_count",
@@ -657,6 +712,11 @@ RUNTIME_ROOM_METRIC_COLUMNS = {
     "cpu_bucket": "REAL",
     "rcl_level": "REAL",
     "stored_energy": "REAL",
+    "controller_progress_ratio": "REAL",
+    "upgrade_carried_energy": "REAL",
+    "import_demand": "REAL",
+    "blocked_import_energy": "REAL",
+    "multi_room_deficit_energy": "REAL",
 }
 
 
@@ -1050,6 +1110,11 @@ def record_runtime_room_metrics(
     cpu_bucket: float | None,
     rcl_level: float | None,
     stored_energy: float | None,
+    controller_progress_ratio: float | None,
+    upgrade_carried_energy: float | None,
+    import_demand: float | None,
+    blocked_import_energy: float | None,
+    multi_room_deficit_energy: float | None,
     evidence: object | None = None,
 ) -> None:
     evidence_json = canonical_json(evidence or {})
@@ -1067,10 +1132,11 @@ def record_runtime_room_metrics(
           build_blocked_reason, construction_site_count, construction_deadlock_ticks, extension_count,
           extension_capacity_contribution, path_finding_failures, destination_blocked,
           worker_load_trip_energy_mean, worker_load_trip_energy_min,
-          cpu_used, cpu_bucket, rcl_level, stored_energy,
+          cpu_used, cpu_bucket, rcl_level, stored_energy, controller_progress_ratio,
+          upgrade_carried_energy, import_demand, blocked_import_energy, multi_room_deficit_energy,
           source_artifact, evidence_json, dedupe_key
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             tick,
@@ -1091,6 +1157,11 @@ def record_runtime_room_metrics(
             cpu_bucket,
             rcl_level,
             stored_energy,
+            controller_progress_ratio,
+            upgrade_carried_energy,
+            import_demand,
+            blocked_import_energy,
+            multi_room_deficit_energy,
             source_artifact,
             evidence_json,
             dedupe_key,
@@ -1625,6 +1696,11 @@ def process_runtime_room(
     cpu_bucket = room_cpu_bucket_value(room)
     rcl_level = rcl_level_value(room)
     stored_energy = stored_energy_value(room)
+    controller_progress_ratio = controller_progress_ratio_value(room)
+    upgrade_carried_energy = upgrade_carried_energy_value(room)
+    import_demand = import_demand_value(room)
+    blocked_import_energy = blocked_import_energy_value(room)
+    multi_room_deficit_energy = multi_room_deficit_energy_value(room)
     hostile_count = hostile_creep_count(room)
     tower_count = structure_count(room, ("tower", "towers"))
     rampart_count = structure_count(room, ("rampart", "ramparts"))
@@ -1651,6 +1727,11 @@ def process_runtime_room(
         cpu_bucket=cpu_bucket,
         rcl_level=rcl_level,
         stored_energy=stored_energy,
+        controller_progress_ratio=controller_progress_ratio,
+        upgrade_carried_energy=upgrade_carried_energy,
+        import_demand=import_demand,
+        blocked_import_energy=blocked_import_energy,
+        multi_room_deficit_energy=multi_room_deficit_energy,
         evidence={"line": line_number},
     )
     record_number_if_present(
@@ -1774,6 +1855,47 @@ def process_runtime_room(
     record_number_if_present(conn, "defense.tower_count", tower_count, source_artifact, tick, shard, room_name, {})
     record_number_if_present(conn, "defense.rampart_count", rampart_count, source_artifact, tick, shard, room_name, {})
     record_number_if_present(conn, "territory.rcl_level", rcl_level, source_artifact, tick, shard, room_name, {})
+    record_number_if_present(
+        conn,
+        "territory.controller_progress_ratio",
+        controller_progress_ratio,
+        source_artifact,
+        tick,
+        shard,
+        room_name,
+        {},
+    )
+    record_number_if_present(
+        conn,
+        "controller.upgrade_carried_energy",
+        upgrade_carried_energy,
+        source_artifact,
+        tick,
+        shard,
+        room_name,
+        {},
+    )
+    record_number_if_present(conn, "economy.import_demand", import_demand, source_artifact, tick, shard, room_name, {})
+    record_number_if_present(
+        conn,
+        "economy.blocked_import_energy",
+        blocked_import_energy,
+        source_artifact,
+        tick,
+        shard,
+        room_name,
+        {},
+    )
+    record_number_if_present(
+        conn,
+        "economy.multi_room_deficit_energy",
+        multi_room_deficit_energy,
+        source_artifact,
+        tick,
+        shard,
+        room_name,
+        {},
+    )
     record_number_if_present(conn, "cpu.used", cpu_used, source_artifact, tick, shard, room_name, {})
     record_number_if_present(conn, "cpu.bucket", cpu_bucket, source_artifact, tick, shard, room_name, {})
     record_number_if_present(
@@ -2153,6 +2275,72 @@ def build_carried_energy_value(room: dict[str, object]) -> float | None:
 
 def rcl_level_value(room: dict[str, object]) -> float | None:
     return first_number(room, (("rclLevel",), ("controller", "rclLevel"), ("controller", "level")))
+
+
+def controller_progress_ratio_value(room: dict[str, object]) -> float | None:
+    direct = first_number(
+        room,
+        (
+            ("controller", "progressRatio"),
+            ("controllerProgressRatio",),
+            ("resources", "productiveEnergy", "controllerProgressRatio"),
+        ),
+    )
+    if direct is not None:
+        return direct
+    progress = first_number(room, (("controller", "progress"), ("controllerProgress",)))
+    progress_total = first_number(room, (("controller", "progressTotal"), ("controllerProgressTotal",)))
+    if progress is None or progress_total is None or progress_total <= 0:
+        return None
+    return round(progress / progress_total, 4)
+
+
+def upgrade_carried_energy_value(room: dict[str, object]) -> float | None:
+    return first_number(
+        room,
+        (
+            ("resources", "productiveEnergy", "upgradeCarriedEnergy"),
+            ("resources", "upgradeCarriedEnergy"),
+            ("controller", "upgradeCarriedEnergy"),
+            ("upgradeCarriedEnergy",),
+        ),
+    )
+
+
+def import_demand_value(room: dict[str, object]) -> float | None:
+    return first_number(
+        room,
+        (
+            ("resources", "multiRoomEnergy", "importDemand"),
+            ("multiRoomEnergy", "importDemand"),
+            ("resources", "importDemand"),
+            ("importDemand",),
+        ),
+    )
+
+
+def blocked_import_energy_value(room: dict[str, object]) -> float | None:
+    return first_number(
+        room,
+        (
+            ("resources", "multiRoomEnergy", "blockedImportEnergy"),
+            ("multiRoomEnergy", "blockedImportEnergy"),
+            ("resources", "blockedImportEnergy"),
+            ("blockedImportEnergy",),
+        ),
+    )
+
+
+def multi_room_deficit_energy_value(room: dict[str, object]) -> float | None:
+    return first_number(
+        room,
+        (
+            ("resources", "multiRoomEnergy", "deficitEnergy"),
+            ("multiRoomEnergy", "deficitEnergy"),
+            ("resources", "deficitEnergy"),
+            ("deficitEnergy",),
+        ),
+    )
 
 
 def room_cpu_used_value(room: dict[str, object]) -> float | None:
@@ -2974,7 +3162,12 @@ def summarize_database(db_path: Path, output_format: str = "text") -> str:
                   AVG(cpu_used) AS avg_cpu_used,
                   MIN(cpu_bucket) AS min_cpu_bucket,
                   MAX(rcl_level) AS max_rcl_level,
-                  SUM(COALESCE(stored_energy, 0)) AS stored_energy
+                  SUM(COALESCE(stored_energy, 0)) AS stored_energy,
+                  AVG(controller_progress_ratio) AS avg_controller_progress_ratio,
+                  SUM(COALESCE(upgrade_carried_energy, 0)) AS upgrade_carried_energy,
+                  SUM(COALESCE(import_demand, 0)) AS import_demand,
+                  SUM(COALESCE(blocked_import_energy, 0)) AS blocked_import_energy,
+                  SUM(COALESCE(multi_room_deficit_energy, 0)) AS multi_room_deficit_energy
                 FROM runtime_room_metrics
                 WHERE tick = ?
                 """,
@@ -3001,6 +3194,11 @@ def summarize_database(db_path: Path, output_format: str = "text") -> str:
                 "minCpuBucket": runtime_room_row["min_cpu_bucket"],
                 "maxRclLevel": runtime_room_row["max_rcl_level"],
                 "storedEnergy": runtime_room_row["stored_energy"],
+                "avgControllerProgressRatio": runtime_room_row["avg_controller_progress_ratio"],
+                "upgradeCarriedEnergy": runtime_room_row["upgrade_carried_energy"],
+                "importDemand": runtime_room_row["import_demand"],
+                "blockedImportEnergy": runtime_room_row["blocked_import_energy"],
+                "multiRoomDeficitEnergy": runtime_room_row["multi_room_deficit_energy"],
             }
         return json.dumps(
             {
@@ -3043,6 +3241,11 @@ def summarize_database(db_path: Path, output_format: str = "text") -> str:
         lines.append(f"  minCpuBucket: {runtime_room_row['min_cpu_bucket']}")
         lines.append(f"  maxRclLevel: {runtime_room_row['max_rcl_level']}")
         lines.append(f"  storedEnergy: {runtime_room_row['stored_energy']}")
+        lines.append(f"  avgControllerProgressRatio: {runtime_room_row['avg_controller_progress_ratio']}")
+        lines.append(f"  upgradeCarriedEnergy: {runtime_room_row['upgrade_carried_energy']}")
+        lines.append(f"  importDemand: {runtime_room_row['import_demand']}")
+        lines.append(f"  blockedImportEnergy: {runtime_room_row['blocked_import_energy']}")
+        lines.append(f"  multiRoomDeficitEnergy: {runtime_room_row['multi_room_deficit_energy']}")
     return "\n".join(lines)
 
 

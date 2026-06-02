@@ -351,6 +351,7 @@ interface RuntimeControllerSummary {
   level: number;
   progress?: number;
   progressTotal?: number;
+  progressRatio?: number;
   ticksToDowngrade?: number;
   sign: RuntimeControllerSignSummary | null;
 }
@@ -2261,17 +2262,23 @@ function buildControllerSummary(room: Room): { controller?: RuntimeControllerSum
     return {};
   }
 
+  const progress = getFiniteNumber((controller as StructureController & { progress?: unknown }).progress);
+  const progressTotal = getFiniteNumber((controller as StructureController & { progressTotal?: unknown }).progressTotal);
   const summary: RuntimeControllerSummary = {
     level: controller.level,
     sign: summarizeControllerSign(controller.sign)
   };
 
-  if (typeof controller.progress === 'number') {
-    summary.progress = controller.progress;
+  if (progress !== null) {
+    summary.progress = progress;
   }
 
-  if (typeof controller.progressTotal === 'number') {
-    summary.progressTotal = controller.progressTotal;
+  if (progressTotal !== null) {
+    summary.progressTotal = progressTotal;
+  }
+
+  if (progress !== null && progressTotal !== null && progressTotal > 0) {
+    summary.progressRatio = roundRatio(progress, progressTotal);
   }
 
   if (typeof controller.ticksToDowngrade === 'number') {
