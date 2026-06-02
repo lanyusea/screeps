@@ -46500,6 +46500,14 @@ function refreshColonyExpansionIntent(colony, assessment, gameTime = getGameTime
     clearColonyExpansionClaimIntent(colonyName);
     return { ...baseEvaluation, reason: "scoreBelowThreshold", reservation: fallbackReservation };
   }
+  const ownerUsername = getControllerOwnerUsername14(colony.room.controller);
+  if (hasSeasonalImmatureOwnedExpansionRoom(colonyName, ownerUsername)) {
+    const fallbackReservation = refreshAdjacentRoomReservationIntent(colony, gameTime, {
+      reserveWhenClaimAllowed: true
+    });
+    clearColonyExpansionClaimIntent(colonyName);
+    return { ...baseEvaluation, reason: "claimBlocked", reservation: fallbackReservation };
+  }
   if (hasBlockingClaimIntent(colonyName, candidate.roomName)) {
     return { ...baseEvaluation, reason: "existingClaimIntent" };
   }

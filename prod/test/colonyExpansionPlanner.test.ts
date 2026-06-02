@@ -186,6 +186,44 @@ describe('colony expansion planner', () => {
     ]);
   });
 
+  it('does not claim a mature Seasonal reservation while another owned expansion is below RCL3', () => {
+    const { colony } = makeColony({ energyAvailable: 800, energyCapacityAvailable: 800 });
+    (colony.room.controller as StructureController).level = 3;
+    installGame(colony, {
+      rooms: {
+        W1N2: makeExpansionRoom('W1N2', {
+          sourceCount: 2,
+          controller: {
+            id: 'controller-W1N2' as Id<StructureController>,
+            my: false,
+            reservation: { username: 'me', ticksToEnd: 4_000 }
+          } as StructureController
+        }),
+        W2N1: makeOwnedExpansionRoom('W2N1', 2)
+      },
+      exits: { W1N1: { '1': 'W1N2' } }
+    });
+    (Game as { shard: Game['shard'] }).shard = { name: 'shardSeason', type: 'normal' } as Game['shard'];
+
+    const evaluation = refreshColonyExpansionIntent(colony, { territoryReady: true }, 208);
+
+    expect(evaluation).toMatchObject({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'claimBlocked',
+      targetRoom: 'W1N2',
+      reservation: {
+        status: 'skipped',
+        reason: 'reservationHealthy',
+        targetRoom: 'W1N2',
+        controllerId: 'controller-W1N2',
+        reservationTicksToEnd: 4_000
+      }
+    });
+    expect(Memory.territory?.targets ?? []).toEqual([]);
+    expect(Memory.territory?.intents ?? []).toEqual([]);
+  });
+
   it('reserves high-score adjacent rooms but suppresses auto-claim during bootstrap', () => {
     const { colony } = makeColony({ energyAvailable: 650, energyCapacityAvailable: 650 });
     installGame(colony, {
@@ -542,6 +580,19 @@ function makeController(
     pos: makeRoomPosition(25, 25, roomName),
     ...overrides
   } as StructureController;
+}
+
+function makeOwnedExpansionRoom(roomName: string, controllerLevel: number): Room {
+  return makeExpansionRoom(roomName, {
+    sourceCount: 1,
+    controller: {
+      id: `controller-${roomName}` as Id<StructureController>,
+      my: true,
+      owner: { username: 'me' },
+      level: controllerLevel,
+      ticksToDowngrade: 10_000
+    } as StructureController
+  });
 }
 
 function makeSource(id: string, x: number, y: number, roomName: string): Source {

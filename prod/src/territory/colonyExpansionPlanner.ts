@@ -12,6 +12,7 @@ import {
   type AdjacentRoomReservationEvaluation
 } from './reservationPlanner';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
+import { hasSeasonalImmatureOwnedExpansionRoom } from '../runtime/seasonalPolicy';
 import {
   getTerritoryAutoClaimPostClaimBootstrapReserveEnergy,
   getTerritoryAutoClaimRequiredEnergy,
@@ -135,6 +136,15 @@ export function refreshColonyExpansionIntent(
     });
     clearColonyExpansionClaimIntent(colonyName);
     return { ...baseEvaluation, reason: 'scoreBelowThreshold', reservation: fallbackReservation };
+  }
+
+  const ownerUsername = getControllerOwnerUsername(colony.room.controller);
+  if (hasSeasonalImmatureOwnedExpansionRoom(colonyName, ownerUsername)) {
+    const fallbackReservation = refreshAdjacentRoomReservationIntent(colony, gameTime, {
+      reserveWhenClaimAllowed: true
+    });
+    clearColonyExpansionClaimIntent(colonyName);
+    return { ...baseEvaluation, reason: 'claimBlocked', reservation: fallbackReservation };
   }
 
   if (hasBlockingClaimIntent(colonyName, candidate.roomName)) {
