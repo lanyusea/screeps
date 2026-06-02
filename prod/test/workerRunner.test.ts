@@ -1916,7 +1916,7 @@ describe('runWorker', () => {
       room,
       harvest: jest.fn().mockReturnValue(0),
       transfer: jest.fn().mockReturnValue(0),
-      moveTo: jest.fn()
+      moveTo: jest.fn().mockReturnValue(0)
     } as unknown as Creep;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       creeps: { Worker: creep },
@@ -1928,6 +1928,66 @@ describe('runWorker', () => {
     expect(creep.moveTo).toHaveBeenCalledWith(container, { range: 0 });
     expect(creep.harvest).not.toHaveBeenCalled();
     expect(creep.transfer).not.toHaveBeenCalled();
+  });
+
+  it('records source-container moveTo failures without a successful move tick', () => {
+    const source = {
+      id: 'source1',
+      energy: 300,
+      pos: { x: 10, y: 10, roomName: 'W1N1' } as RoomPosition
+    } as Source;
+    const container = {
+      id: 'container1',
+      structureType: 'container',
+      pos: { x: 10, y: 11, roomName: 'W1N1' } as RoomPosition,
+      store: { getFreeCapacity: jest.fn().mockReturnValue(100) }
+    } as unknown as StructureContainer;
+    const room = {
+      name: 'W1N1',
+      find: jest.fn((type: number) => {
+        if (type === FIND_SOURCES) {
+          return [source];
+        }
+
+        return type === FIND_STRUCTURES ? [container] : [];
+      })
+    } as unknown as Room;
+    const creep = {
+      memory: {
+        role: 'worker',
+        task: { type: 'harvest', targetId: 'source1' as Id<Source>, sourceContainerAssigned: true }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'container1' ? 1 : 1)) },
+      room,
+      harvest: jest.fn().mockReturnValue(0),
+      transfer: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn().mockReturnValue(ERR_NO_PATH)
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker: creep },
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : null))
+    };
+
+    runWorker(creep);
+
+    expect(creep.moveTo).toHaveBeenCalledWith(container, { range: 0 });
+    expect(creep.harvest).not.toHaveBeenCalled();
+    expect(creep.transfer).not.toHaveBeenCalled();
+    expect(creep.memory.behaviorTelemetry).toMatchObject({
+      idleTicks: 1,
+      moveToAttempts: 1,
+      moveToFailures: 1,
+      moveToErrNoPath: 1,
+      lastMoveToResult: ERR_NO_PATH,
+      lastMoveToTask: 'harvest',
+      lastMoveToTargetId: 'container1',
+      lastMoveToRange: 0
+    });
+    expect(creep.memory.behaviorTelemetry?.moveTicks).toBeUndefined();
   });
 
   it('flushes partial source-container harvest energy before harvesting again', () => {
@@ -2238,7 +2298,6 @@ describe('runWorker', () => {
 
     expect(creep.moveTo).toHaveBeenCalledWith(source, { range: 1 });
     expect(creep.memory.behaviorTelemetry).toMatchObject({
-      moveTicks: 1,
       moveToAttempts: 1,
       moveToFailures: 1,
       moveToErrNoPath: 1,
@@ -2247,6 +2306,7 @@ describe('runWorker', () => {
       lastMoveToTargetId: 'source1',
       lastMoveToRange: 1
     });
+    expect(creep.memory.behaviorTelemetry?.moveTicks).toBeUndefined();
   });
 
   it('records worker behavior telemetry while moving and working across ticks', () => {
@@ -2261,7 +2321,7 @@ describe('runWorker', () => {
       },
       room: { find: jest.fn().mockReturnValue([source]) },
       harvest: jest.fn().mockReturnValueOnce(ERR_NOT_IN_RANGE).mockReturnValueOnce(ERR_NOT_IN_RANGE).mockReturnValueOnce(0),
-      moveTo: jest.fn()
+      moveTo: jest.fn().mockReturnValue(0)
     } as unknown as Creep;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 10,
@@ -2720,7 +2780,7 @@ describe('runWorker', () => {
   it('builds an existing build target and moves when not in range', () => {
     const site = { id: 'site1' } as ConstructionSite;
     const build = jest.fn().mockReturnValue(-9);
-    const moveTo = jest.fn();
+    const moveTo = jest.fn().mockReturnValue(0);
     const getObjectById = jest.fn().mockReturnValue(site);
     const creep = {
       memory: { task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> } },
@@ -2873,7 +2933,7 @@ describe('runWorker', () => {
   it('does not suppress a new build target with stale stuck telemetry from a previous target', () => {
     const site = { id: 'site2' } as ConstructionSite;
     const build = jest.fn().mockReturnValue(ERR_NOT_IN_RANGE);
-    const moveTo = jest.fn();
+    const moveTo = jest.fn().mockReturnValue(0);
     const getObjectById = jest.fn().mockReturnValue(site);
     const creep = {
       memory: {

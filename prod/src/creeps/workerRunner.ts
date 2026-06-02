@@ -99,6 +99,8 @@ interface TaskExecutionResult {
   sourceContainerWithdrawal?: boolean;
 }
 
+type MoveToResult = ReturnType<Creep['moveTo']>;
+
 interface WorkerTaskSelectionContext {
   baseSelectedTask: CreepTaskMemory | null;
   energyCriticalTask: CreepTaskMemory | null;
@@ -1310,9 +1312,11 @@ function executeAssignedTask(
   }
 
   if (execution.result === ERR_NOT_IN_RANGE_CODE) {
-    moveToAssignedTaskTarget(creep, task, target as RoomObject);
-    recordCreepBehaviorMove(creep);
-    recordCreepBehaviorMoveTask(creep, task);
+    const moveResult = moveToAssignedTaskTarget(creep, task, target as RoomObject);
+    if (moveResult === OK_CODE) {
+      recordCreepBehaviorMove(creep);
+      recordCreepBehaviorMoveTask(creep, task);
+    }
   }
 }
 
@@ -2351,8 +2355,8 @@ function executeHarvestTask(
   }
 
   if (!isInRangeToRoomObject(creep, sourceContainer, 0)) {
-    moveToTaskTarget(creep, task.type, sourceContainer, EXACT_POSITION_MOVE_RANGE);
-    return { result: OK_CODE, action: 'move' };
+    const moveResult = moveToTaskTarget(creep, task.type, sourceContainer, EXACT_POSITION_MOVE_RANGE);
+    return toTaskExecutionResult(moveResult, 'move');
   }
 
   let transferResult: TaskExecutionResult | null = null;
@@ -2395,8 +2399,8 @@ function transferDedicatedHarvestEnergy(
 
   const result = creep.transfer(sourceContainer, RESOURCE_ENERGY);
   if (result === ERR_NOT_IN_RANGE_CODE) {
-    moveToTaskTarget(creep, taskType, sourceContainer, EXACT_POSITION_MOVE_RANGE);
-    return { result: OK_CODE, action: 'move' };
+    const moveResult = moveToTaskTarget(creep, taskType, sourceContainer, EXACT_POSITION_MOVE_RANGE);
+    return toTaskExecutionResult(moveResult, 'move');
   }
 
   return toTaskExecutionResult(result, 'work', { containerTransfer: true });
@@ -2455,7 +2459,7 @@ function recordTaskBehavior(
   }
 }
 
-function moveToAssignedTaskTarget(creep: Creep, task: CreepTaskMemory, target: RoomObject): void {
+function moveToAssignedTaskTarget(creep: Creep, task: CreepTaskMemory, target: RoomObject): MoveToResult {
   const range = getAssignedTaskMoveRange(task);
   const result = creep.moveTo(target, getAssignedTaskMoveOptions(task, range));
   recordCreepBehaviorMoveToResult(creep, result, {
@@ -2466,6 +2470,7 @@ function moveToAssignedTaskTarget(creep: Creep, task: CreepTaskMemory, target: R
   if (task.type === 'build' && result === getErrNoPathCode()) {
     suppressBuildTarget(creep, task, 'noPath');
   }
+  return result;
 }
 
 function getAssignedTaskMoveOptions(task: CreepTaskMemory, range: number): MoveToOpts {
@@ -2477,13 +2482,14 @@ function moveToTaskTarget(
   taskType: CreepTaskMemory['type'],
   target: RoomObject,
   range: number
-): void {
+): MoveToResult {
   const result = creep.moveTo(target, { range });
   recordCreepBehaviorMoveToResult(creep, result, {
     taskType,
     targetId: getMoveTargetId(target),
     range
   });
+  return result;
 }
 
 function getMoveTargetId(target: RoomObject): string | undefined {

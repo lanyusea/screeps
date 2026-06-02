@@ -32553,9 +32553,11 @@ function executeAssignedTask(creep, selectedTask, immediateReselectExecutions = 
     return;
   }
   if (execution.result === ERR_NOT_IN_RANGE_CODE6) {
-    moveToAssignedTaskTarget(creep, task, target);
-    recordCreepBehaviorMove(creep);
-    recordCreepBehaviorMoveTask(creep, task);
+    const moveResult = moveToAssignedTaskTarget(creep, task, target);
+    if (moveResult === OK_CODE12) {
+      recordCreepBehaviorMove(creep);
+      recordCreepBehaviorMoveTask(creep, task);
+    }
   }
 }
 function shouldImmediatelyReselectAfterTaskResult(task, result) {
@@ -33241,8 +33243,8 @@ function executeHarvestTask(creep, task, source) {
     return toTaskExecutionResult(creep.harvest(source), "work", { energyAcquisitionMethod: "harvested" });
   }
   if (!isInRangeToRoomObject(creep, sourceContainer, 0)) {
-    moveToTaskTarget(creep, task.type, sourceContainer, EXACT_POSITION_MOVE_RANGE);
-    return { result: OK_CODE12, action: "move" };
+    const moveResult = moveToTaskTarget(creep, task.type, sourceContainer, EXACT_POSITION_MOVE_RANGE);
+    return toTaskExecutionResult(moveResult, "move");
   }
   let transferResult = null;
   if (getUsedTransferEnergy(creep) > 0) {
@@ -33271,8 +33273,8 @@ function transferDedicatedHarvestEnergy(creep, sourceContainer, taskType) {
   }
   const result = creep.transfer(sourceContainer, RESOURCE_ENERGY);
   if (result === ERR_NOT_IN_RANGE_CODE6) {
-    moveToTaskTarget(creep, taskType, sourceContainer, EXACT_POSITION_MOVE_RANGE);
-    return { result: OK_CODE12, action: "move" };
+    const moveResult = moveToTaskTarget(creep, taskType, sourceContainer, EXACT_POSITION_MOVE_RANGE);
+    return toTaskExecutionResult(moveResult, "move");
   }
   return toTaskExecutionResult(result, "work", { containerTransfer: true });
 }
@@ -33320,6 +33322,7 @@ function moveToAssignedTaskTarget(creep, task, target) {
   if (task.type === "build" && result === getErrNoPathCode2()) {
     suppressBuildTarget(creep, task, "noPath");
   }
+  return result;
 }
 function getAssignedTaskMoveOptions(task, range) {
   return task.type === "build" ? { range, ignoreCreeps: true } : { range };
@@ -33331,6 +33334,7 @@ function moveToTaskTarget(creep, taskType, target, range) {
     targetId: getMoveTargetId(target),
     range
   });
+  return result;
 }
 function getMoveTargetId(target) {
   const id = target.id;
