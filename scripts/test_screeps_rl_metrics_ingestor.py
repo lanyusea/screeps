@@ -107,6 +107,11 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
             "cpu_bucket",
             "rcl_level",
             "stored_energy",
+            "controller_progress_ratio",
+            "upgrade_carried_energy",
+            "import_demand",
+            "blocked_import_energy",
+            "multi_room_deficit_energy",
         ):
             self.assertIn(column_name, runtime_room_metric_columns)
         for table in ingestor.DEDUPE_TABLE_KEYS:
@@ -186,7 +191,7 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                 runtime_payload(
                     {
                         "roomName": "E26S49",
-                        "controller": {"my": True, "level": 3},
+                        "controller": {"my": True, "level": 3, "progress": 3000, "progressTotal": 15000},
                         "rclLevel": 3,
                         "workerCount": 4,
                         "spawnStatus": [{"name": "Spawn1", "status": "idle"}],
@@ -217,10 +222,16 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                         "resources": {
                             "storedEnergy": 800,
                             "workerCarriedEnergy": 120,
+                            "multiRoomEnergy": {
+                                "importDemand": 250,
+                                "blockedImportEnergy": 90,
+                                "deficitEnergy": 350,
+                            },
                             "productiveEnergy": {
                                 "pendingBuildProgress": 700,
                                 "builtProgress": 0,
                                 "buildCarriedEnergy": 0,
+                                "upgradeCarriedEnergy": 45,
                                 "buildBlockedReason": "worker_assignment_gap",
                             },
                         },
@@ -255,7 +266,9 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                            construction_deadlock_ticks, build_blocked_reason, extension_count, extension_capacity_contribution,
                            path_finding_failures, destination_blocked,
                            worker_load_trip_energy_mean, worker_load_trip_energy_min,
-                           cpu_used, cpu_bucket, rcl_level, stored_energy
+                           cpu_used, cpu_bucket, rcl_level, stored_energy,
+                           controller_progress_ratio, upgrade_carried_energy, import_demand,
+                           blocked_import_energy, multi_room_deficit_energy
                     FROM runtime_room_metrics
                     WHERE room_name = ?
                     """,
@@ -265,7 +278,28 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
 
             self.assertEqual(
                 row,
-                (700.0, 0.0, 2.0, 125.0, "worker_assignment_gap", 0.0, 0.0, 2.0, 1.0, 7.0, 5.0, 6.25, 8123.0, 3.0, 800.0),
+                (
+                    700.0,
+                    0.0,
+                    2.0,
+                    125.0,
+                    "worker_assignment_gap",
+                    0.0,
+                    0.0,
+                    2.0,
+                    1.0,
+                    7.0,
+                    5.0,
+                    6.25,
+                    8123.0,
+                    3.0,
+                    800.0,
+                    0.2,
+                    45.0,
+                    250.0,
+                    90.0,
+                    350.0,
+                ),
             )
             self.assertEqual(summary["latestRuntimeRoomMetrics"]["pendingBuildProgress"], 700.0)
             self.assertEqual(summary["latestRuntimeRoomMetrics"]["constructionSiteCount"], 2.0)
@@ -273,6 +307,11 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
             self.assertEqual(summary["latestRuntimeRoomMetrics"]["pathFindingFailures"], 2.0)
             self.assertEqual(summary["latestRuntimeRoomMetrics"]["workerLoadTripEnergyMin"], 5.0)
             self.assertEqual(summary["latestRuntimeRoomMetrics"]["minCpuBucket"], 8123.0)
+            self.assertEqual(summary["latestRuntimeRoomMetrics"]["avgControllerProgressRatio"], 0.2)
+            self.assertEqual(summary["latestRuntimeRoomMetrics"]["upgradeCarriedEnergy"], 45.0)
+            self.assertEqual(summary["latestRuntimeRoomMetrics"]["importDemand"], 250.0)
+            self.assertEqual(summary["latestRuntimeRoomMetrics"]["blockedImportEnergy"], 90.0)
+            self.assertEqual(summary["latestRuntimeRoomMetrics"]["multiRoomDeficitEnergy"], 350.0)
             self.assertEqual(
                 fetch_count(
                     db_path,
@@ -318,6 +357,17 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                 ),
                 1,
             )
+            for metric_name in (
+                "territory.controller_progress_ratio",
+                "controller.upgrade_carried_energy",
+                "economy.import_demand",
+                "economy.blocked_import_energy",
+                "economy.multi_room_deficit_energy",
+            ):
+                self.assertEqual(
+                    fetch_count(db_path, "metric_observations", "WHERE metric_name = ?", (metric_name,)),
+                    1,
+                )
             self.assertEqual(
                 fetch_count(
                     db_path,
@@ -327,6 +377,48 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                 ),
                 1,
             )
+
+    def test_runtime_room_summary_sums_partial_energy_aggregate_coverage(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            db_path = root / "rl_metrics.sqlite"
+            payload = {
+                "type": "runtime-summary",
+                "tick": 12345,
+                "shard": "shardX",
+                "cpu": {"bucket": 9000, "used": 7.5},
+                "reliability": {"loopExceptionCount": 0, "telemetrySilenceTicks": 0},
+                "rooms": [
+                    {
+                        "roomName": "E26S49",
+                        "controller": {"my": True, "level": 3, "progress": 3000, "progressTotal": 15000},
+                        "resources": {
+                            "productiveEnergy": {"upgradeCarriedEnergy": 45},
+                            "multiRoomEnergy": {
+                                "importDemand": 250,
+                                "blockedImportEnergy": 90,
+                                "deficitEnergy": 350,
+                            },
+                        },
+                    },
+                    {
+                        "roomName": "E26S50",
+                        "controller": {"my": True, "level": 3, "progress": 6000, "progressTotal": 15000},
+                    },
+                ],
+            }
+            artifact_root = write_runtime_artifact(root, payload)
+
+            ingestor.ingest_artifacts(db_path, [artifact_root])
+            summary = json.loads(ingestor.summarize_database(db_path, output_format="json"))
+            metrics = summary["latestRuntimeRoomMetrics"]
+
+            self.assertEqual(metrics["roomSamples"], 2)
+            self.assertAlmostEqual(metrics["avgControllerProgressRatio"], 0.3)
+            self.assertEqual(metrics["upgradeCarriedEnergy"], 45.0)
+            self.assertEqual(metrics["importDemand"], 250.0)
+            self.assertEqual(metrics["blockedImportEnergy"], 90.0)
+            self.assertEqual(metrics["multiRoomDeficitEnergy"], 350.0)
 
     def test_missing_energy_fields_record_coverage_gap_instead_of_crashing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

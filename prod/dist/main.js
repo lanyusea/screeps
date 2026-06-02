@@ -38919,15 +38919,20 @@ function buildControllerSummary(room) {
   if (!(controller == null ? void 0 : controller.my)) {
     return {};
   }
+  const progress = getFiniteNumber(controller.progress);
+  const progressTotal = getFiniteNumber(controller.progressTotal);
   const summary = {
     level: controller.level,
     sign: summarizeControllerSign(controller.sign)
   };
-  if (typeof controller.progress === "number") {
-    summary.progress = controller.progress;
+  if (progress !== null) {
+    summary.progress = progress;
   }
-  if (typeof controller.progressTotal === "number") {
-    summary.progressTotal = controller.progressTotal;
+  if (progressTotal !== null) {
+    summary.progressTotal = progressTotal;
+  }
+  if (progress !== null && progressTotal !== null && progressTotal > 0) {
+    summary.progressRatio = roundRatio6(progress, progressTotal);
   }
   if (typeof controller.ticksToDowngrade === "number") {
     summary.ticksToDowngrade = controller.ticksToDowngrade;

@@ -509,6 +509,38 @@
         "x": 0,
         "y": 40
       },
+      "id": 14,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "queryText": "SELECT observed_at, tick, room_name, controller_progress_ratio AS controllerProgressRatio, upgrade_carried_energy AS upgradeCarriedEnergy, import_demand AS importDemand, blocked_import_energy AS blockedImportEnergy, multi_room_deficit_energy AS multiRoomDeficitEnergy, source_artifact FROM runtime_room_metrics WHERE controller_progress_ratio IS NOT NULL OR upgrade_carried_energy IS NOT NULL OR import_demand IS NOT NULL OR blocked_import_energy IS NOT NULL OR multi_room_deficit_energy IS NOT NULL ORDER BY observed_at DESC LIMIT 250;",
+          "rawQuery": true,
+          "refId": "A",
+          "rawQueryText": "SELECT observed_at, tick, room_name, controller_progress_ratio AS controllerProgressRatio, upgrade_carried_energy AS upgradeCarriedEnergy, import_demand AS importDemand, blocked_import_energy AS blockedImportEnergy, multi_room_deficit_energy AS multiRoomDeficitEnergy, source_artifact FROM runtime_room_metrics WHERE controller_progress_ratio IS NOT NULL OR upgrade_carried_energy IS NOT NULL OR import_demand IS NOT NULL OR blocked_import_energy IS NOT NULL OR multi_room_deficit_energy IS NOT NULL ORDER BY observed_at DESC LIMIT 250;",
+          "queryType": "table"
+        }
+      ],
+      "title": "Controller And Import Coverage",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "screeps-rl-metrics-sqlite"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      },
       "id": 13,
       "options": {
         "showHeader": true
