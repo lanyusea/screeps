@@ -57,6 +57,16 @@ interface ExpansionTriggerCandidate {
   config: ExpansionTriggerConfig;
 }
 
+interface ExpansionTriggerSkip {
+  reason: NextExpansionTargetSelection['reason'];
+  reasonDetail?: NextExpansionTargetSelection['reasonDetail'];
+}
+
+interface ExpansionProgressBlocker {
+  reasonDetail: NonNullable<NextExpansionTargetSelection['reasonDetail']>;
+  targetRoom?: string;
+}
+
 export function refreshAutonomousExpansionPipeline(
   colony: ColonySnapshot,
   report: ExpansionCandidateReport,
@@ -73,6 +83,8 @@ export function refreshAutonomousExpansionPipeline(
     };
   }
 
+  const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller);
+  pruneSatisfiedClaimPlans(territoryMemory, colonyName, colonyOwnerUsername);
   const activePipeline = getActiveExpansionPipeline(territoryMemory, colonyName);
   if (!isAutonomousTerritoryControlAllowedForColony(colony)) {
     if (activePipeline) {
@@ -100,10 +112,12 @@ export function refreshAutonomousExpansionPipeline(
   const trigger = selectExpansionTriggerCandidate(colony, report, territoryMemory, gameTime);
   if (!trigger) {
     prunePipelinePlans(territoryMemory, colonyName);
+    const skip = getTriggerSkip(colony, report, territoryMemory, gameTime);
     return {
       status: 'skipped',
       colony: colonyName,
-      reason: getTriggerSkipReason(colony, report, territoryMemory, gameTime)
+      reason: skip.reason,
+      ...(skip.reasonDetail ? { reasonDetail: skip.reasonDetail } : {})
     };
   }
 
@@ -417,7 +431,13 @@ function selectExpansionTriggerCandidate(
     return null;
   }
 
-  if (hasBlockingExpansionInProgress(territoryMemory, colony.room.name)) {
+  if (
+    getBlockingExpansionInProgress(
+      territoryMemory,
+      colony.room.name,
+      getControllerOwnerUsername(colony.room.controller)
+    )
+  ) {
     return null;
   }
 
@@ -450,18 +470,18 @@ function findExpansionTriggerCandidate(
   ) ?? null;
 }
 
-function getTriggerSkipReason(
+function getTriggerSkip(
   colony: ColonySnapshot,
   report: ExpansionCandidateReport,
   territoryMemory: TerritoryMemory,
   gameTime: number
-): NextExpansionTargetSelection['reason'] {
+): ExpansionTriggerSkip {
   if (report.candidates.length === 0) {
-    return 'noCandidate';
+    return { reason: 'noCandidate' };
   }
 
   if (report.candidates.some((candidate) => candidate.preconditions.includes(GCL_LIMIT_PRECONDITION))) {
-    return 'gclInsufficient';
+    return { reason: 'gclInsufficient' };
   }
 
   if (
@@ -469,38 +489,43 @@ function getTriggerSkipReason(
       candidate.preconditions.some((precondition) => precondition.startsWith(ROOM_LIMIT_PRECONDITION_PREFIX))
     )
   ) {
-    return 'roomLimitReached';
+    return { reason: 'roomLimitReached' };
   }
 
   const config = getExpansionTriggerConfig();
   if (!isExpansionHomeStable(colony, gameTime, config)) {
-    return 'unmetPreconditions';
+    return { reason: 'unmetPreconditions' };
   }
 
-  if (hasBlockingExpansionInProgress(territoryMemory, colony.room.name)) {
-    return 'unmetPreconditions';
+  const blocker = getBlockingExpansionInProgress(
+    territoryMemory,
+    colony.room.name,
+    getControllerOwnerUsername(colony.room.controller)
+  );
+  if (blocker) {
+    return { reason: 'unmetPreconditions', reasonDetail: blocker.reasonDetail };
   }
 
   if (
     !isExpansionTriggerReady(colony, gameTime, config) &&
     findExpansionTriggerCandidate(colony, report, territoryMemory, config)
   ) {
-    return 'unmetPreconditions';
+    return { reason: 'unmetPreconditions' };
   }
 
   if (report.candidates.some((candidate) => candidate.evidenceStatus === 'insufficient-evidence')) {
-    return 'insufficientEvidence';
+    return { reason: 'insufficientEvidence' };
   }
 
   if (report.candidates.some((candidate) => candidate.preconditions.length > 0)) {
-    return 'unmetPreconditions';
+    return { reason: 'unmetPreconditions' };
   }
 
   if (!isExpansionTriggerReady(colony, gameTime, config)) {
-    return 'unmetPreconditions';
+    return { reason: 'unmetPreconditions' };
   }
 
-  return 'unavailable';
+  return { reason: 'unavailable' };
 }
 
 function getPreControlGateSkipReason(report: ExpansionCandidateReport): NextExpansionTargetSelection['reason'] {
@@ -944,27 +969,116 @@ export function getExpansionTriggerRequiredEnergy(controllerLevel: number | unde
   return getTerritoryAutoClaimRequiredEnergy(controllerLevel);
 }
 
-function hasBlockingExpansionInProgress(territoryMemory: TerritoryMemory, colony: string): boolean {
+function getBlockingExpansionInProgress(
+  territoryMemory: TerritoryMemory,
+  colony: string,
+  colonyOwnerUsername: string | undefined
+): ExpansionProgressBlocker | null {
   const pipelines = getExpansionPipelinesRecord(territoryMemory);
-  if (Object.values(pipelines).some((pipeline) => pipeline.colony === colony && pipeline.status === 'active')) {
-    return true;
+  const activePipeline = Object.values(pipelines).find(
+    (pipeline) => pipeline.colony === colony && pipeline.status === 'active'
+  );
+  if (activePipeline) {
+    return { reasonDetail: 'activeExpansionPipeline', targetRoom: activePipeline.targetRoom };
   }
 
-  if (getActivePostClaimBootstrapBlockers(colony).length > 0) {
-    return true;
+  const activeBootstrapBlocker = getActivePostClaimBootstrapBlockers(colony)[0];
+  if (activeBootstrapBlocker) {
+    return { reasonDetail: 'activePostClaimBootstrap', targetRoom: activeBootstrapBlocker.roomName };
   }
 
   const targets = Array.isArray(territoryMemory.targets) ? territoryMemory.targets : [];
-  if (targets.some((target) => isBlockingExpansionTarget(target, colony))) {
-    return true;
+  const blockingTarget = targets.find((target) =>
+    isBlockingExpansionTarget(target, colony, territoryMemory, colonyOwnerUsername)
+  );
+  if (blockingTarget) {
+    const targetRoom = getTerritoryTargetRoomName(blockingTarget);
+    return {
+      reasonDetail: 'activeClaimTarget',
+      ...(targetRoom ? { targetRoom } : {})
+    };
   }
 
-  return normalizeTerritoryIntents(territoryMemory.intents).some((intent) =>
-    isBlockingExpansionIntent(intent, colony)
+  const blockingIntent = normalizeTerritoryIntents(territoryMemory.intents).find((intent) =>
+    isBlockingExpansionIntent(intent, colony, territoryMemory, colonyOwnerUsername)
+  );
+  if (blockingIntent) {
+    return { reasonDetail: 'activeClaimIntent', targetRoom: blockingIntent.targetRoom };
+  }
+
+  return null;
+}
+
+function pruneSatisfiedClaimPlans(
+  territoryMemory: TerritoryMemory,
+  colony: string,
+  colonyOwnerUsername: string | undefined
+): void {
+  pruneSatisfiedClaimTargets(territoryMemory, colony, colonyOwnerUsername);
+  pruneSatisfiedClaimIntents(territoryMemory, colony, colonyOwnerUsername);
+}
+
+function pruneSatisfiedClaimTargets(
+  territoryMemory: TerritoryMemory,
+  colony: string,
+  colonyOwnerUsername: string | undefined
+): void {
+  if (!Array.isArray(territoryMemory.targets)) {
+    return;
+  }
+
+  const targets = territoryMemory.targets;
+  territoryMemory.targets = targets.filter((target) => {
+    const targetRoom = getTerritoryTargetRoomName(target);
+    return (
+      !isClaimTargetInProgress(target, colony) ||
+      !targetRoom ||
+      !isSatisfiedClaimTarget(territoryMemory, colony, targetRoom, colonyOwnerUsername)
+    );
+  });
+}
+
+function pruneSatisfiedClaimIntents(
+  territoryMemory: TerritoryMemory,
+  colony: string,
+  colonyOwnerUsername: string | undefined
+): void {
+  const rawIntents = territoryMemory.intents;
+  const intents = normalizeTerritoryIntents(rawIntents);
+  if (intents.length === 0) {
+    if (Array.isArray(rawIntents) && rawIntents.length > 0) {
+      delete territoryMemory.intents;
+    }
+    return;
+  }
+
+  const nextIntents = intents.filter(
+    (intent) =>
+      !isClaimIntentInProgress(intent, colony) ||
+      !isSatisfiedClaimTarget(territoryMemory, colony, intent.targetRoom, colonyOwnerUsername)
+  );
+  if (nextIntents.length > 0) {
+    territoryMemory.intents = nextIntents;
+  } else {
+    delete territoryMemory.intents;
+  }
+}
+
+function isBlockingExpansionTarget(
+  target: unknown,
+  colony: string,
+  territoryMemory: TerritoryMemory,
+  colonyOwnerUsername: string | undefined
+): boolean {
+  const targetRoom = getTerritoryTargetRoomName(target);
+  return (
+    isClaimTargetInProgress(target, colony) &&
+    !!targetRoom &&
+    !isSatisfiedClaimTarget(territoryMemory, colony, targetRoom, colonyOwnerUsername)
   );
 }
 
-function isBlockingExpansionTarget(target: unknown, colony: string): boolean {
+function isClaimTargetInProgress(target: unknown, colony: string): boolean {
   return (
     isRecord(target) &&
     target.colony === colony &&
@@ -973,11 +1087,63 @@ function isBlockingExpansionTarget(target: unknown, colony: string): boolean {
   );
 }
 
-function isBlockingExpansionIntent(intent: TerritoryIntentMemory, colony: string): boolean {
+function isBlockingExpansionIntent(
+  intent: TerritoryIntentMemory,
+  colony: string,
+  territoryMemory: TerritoryMemory,
+  colonyOwnerUsername: string | undefined
+): boolean {
+  return (
+    isClaimIntentInProgress(intent, colony) &&
+    !isSatisfiedClaimTarget(territoryMemory, colony, intent.targetRoom, colonyOwnerUsername)
+  );
+}
+
+function isClaimIntentInProgress(intent: TerritoryIntentMemory, colony: string): boolean {
   return (
     intent.colony === colony &&
     intent.action === 'claim' &&
     (intent.status === 'planned' || intent.status === 'active')
+  );
+}
+
+function getTerritoryTargetRoomName(target: unknown): string | null {
+  return isRecord(target) && isNonEmptyString(target.roomName) ? target.roomName : null;
+}
+
+function isSatisfiedClaimTarget(
+  territoryMemory: TerritoryMemory,
+  colony: string,
+  targetRoom: string,
+  colonyOwnerUsername: string | undefined
+): boolean {
+  const visibleRoom = getVisibleRoom(targetRoom);
+  if (isRoomOwnedByColonyOwner(visibleRoom, colonyOwnerUsername)) {
+    return true;
+  }
+
+  return !visibleRoom && isPostClaimBootstrapSatisfied(territoryMemory, colony, targetRoom);
+}
+
+function isRoomOwnedByColonyOwner(room: Room | undefined, colonyOwnerUsername: string | undefined): boolean {
+  const controller = room?.controller;
+  return (
+    controller?.my === true ||
+    (isNonEmptyString(colonyOwnerUsername) && getControllerOwnerUsername(controller) === colonyOwnerUsername)
+  );
+}
+
+function isPostClaimBootstrapSatisfied(
+  territoryMemory: TerritoryMemory,
+  colony: string,
+  targetRoom: string
+): boolean {
+  const record = territoryMemory.postClaimBootstraps?.[targetRoom] as unknown;
+  return (
+    isRecord(record) &&
+    record.colony === colony &&
+    record.roomName === targetRoom &&
+    (record.status === 'ready' || record.status === 'completed')
   );
 }
 
