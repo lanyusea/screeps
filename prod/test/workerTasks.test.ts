@@ -7698,6 +7698,102 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toBeNull();
   });
 
+  it('reuses the construction-yield decision across idle-refill and spawn-reserve guards', () => {
+    const refillExtension = makeEnergySinkWithEnergy('extension-low', 'extension' as StructureConstant, 0, 50);
+    const spawnSite = {
+      id: 'spawn-site1',
+      my: true,
+      pos: makeRoomPosition(30, 30),
+      structureType: 'spawn'
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [spawnSite],
+      controller,
+      energyAvailable: 250,
+      energyCapacityAvailable: 550,
+      myStructures: [refillExtension as AnyOwnedStructure]
+    });
+    const getActiveBodyparts = jest.fn().mockReturnValue(0);
+    const creep = {
+      name: 'ReserveBuilder',
+      memory: { role: 'worker' },
+      getActiveBodyparts,
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'spawn-site1' ? 99 : 1)) },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { ReserveBuilder: creep },
+      time: 800
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      economy: {
+        spawnEnergyReservation: {
+          updatedAt: 800,
+          rooms: {
+            W1N1: {
+              bodyCost: 550,
+              creepName: 'NextWorker',
+              reservedAt: 800,
+              reservedEnergy: 550,
+              role: 'worker',
+              roomName: 'W1N1',
+              updatedAt: 800
+            }
+          }
+        }
+      }
+    };
+
+    expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(300);
+    expect(selectWorkerTask(creep)).toBeNull();
+    expect(getActiveBodyparts.mock.calls.filter(([part]) => part === 'work')).toHaveLength(1);
+  });
+
+  it.each([
+    ['no carried energy', 0, 1],
+    ['no active WORK', 50, 0]
+  ] as const)('keeps construction available when an assigned builder has %s', (_label, assignedEnergy, activeWorkParts) => {
+    const spawningSpawn = makeEnergySinkWithEnergy('spawn-busy', 'spawn' as StructureConstant, 300, 0, {
+      spawning: { remainingTime: 10 }
+    });
+    const refillExtension = makeEnergySinkWithEnergy('extension-low', 'extension' as StructureConstant, 0, 50);
+    const roadSite = { id: 'road-site1', my: true, structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [roadSite],
+      controller,
+      energyAvailable: 500,
+      energyCapacityAvailable: 550,
+      myStructures: [spawningSpawn as AnyOwnedStructure, refillExtension as AnyOwnedStructure]
+    });
+    const reserveWorker = makeRefillReserveWorker(room, 'ReserveA', 50, 1);
+    const assignedBuilder = {
+      name: 'AssignedBuilder',
+      memory: { role: 'worker', task: { type: 'build', targetId: 'road-site1' } },
+      getActiveBodyparts: jest.fn().mockReturnValue(activeWorkParts),
+      store: { getUsedCapacity: jest.fn().mockReturnValue(assignedEnergy) },
+      pos: { getRangeTo: jest.fn().mockReturnValue(2) },
+      room
+    } as unknown as Creep;
+    const creep = makeRefillReserveWorker(room, 'Builder', 50, 9);
+    setGameCreeps({ ReserveA: reserveWorker, AssignedBuilder: assignedBuilder, Builder: creep });
+
+    expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(550);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
+  });
+
   it('keeps construction available when other workers cover near-term refill reserve', () => {
     const busyFullSpawn = {
       id: 'spawn-busy',
@@ -7804,6 +7900,86 @@ describe('selectWorkerTask', () => {
 
     expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(100);
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
+  });
+
+  it('keeps safe construction available while active spawn completion reserve still needs refill energy', () => {
+    const spawningSpawn = makeEnergySinkWithEnergy('spawn-busy', 'spawn' as StructureConstant, 300, 0, {
+      spawning: { remainingTime: 10 }
+    });
+    const refillExtension = makeEnergySinkWithEnergy('extension-low', 'extension' as StructureConstant, 0, 50);
+    const roadSite = { id: 'road-site1', my: true, structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [roadSite],
+      controller,
+      energyAvailable: 500,
+      energyCapacityAvailable: 550,
+      myStructures: [spawningSpawn as AnyOwnedStructure, refillExtension as AnyOwnedStructure]
+    });
+    const reserveWorker = makeRefillReserveWorker(room, 'ReserveA', 50, 1);
+    const creep = makeRefillReserveWorker(room, 'Builder', 50, 9);
+    setGameCreeps({ ReserveA: reserveWorker, Builder: creep });
+
+    expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(550);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
+  });
+
+  it('keeps safe construction available when full spawn energy is still reserved for near-term spawn completion', () => {
+    const spawningSpawn = makeEnergySinkWithEnergy('spawn-busy', 'spawn' as StructureConstant, 300, 0, {
+      spawning: { remainingTime: 10 }
+    });
+    const fullExtension = makeEnergySinkWithEnergy('extension-full', 'extension' as StructureConstant, 50, 0);
+    const roadSite = { id: 'road-site1', my: true, structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [roadSite],
+      controller,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      myStructures: [spawningSpawn as AnyOwnedStructure, fullExtension as AnyOwnedStructure]
+    });
+    const reserveWorker = makeRefillReserveWorker(room, 'ReserveA', 50, 1);
+    const creep = makeRefillReserveWorker(room, 'Builder', 50, 9);
+    setGameCreeps({ ReserveA: reserveWorker, Builder: creep });
+
+    expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(550);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
+  });
+
+  it('keeps emergency spawn refill ahead of construction during active spawn completion reserve', () => {
+    const criticalSpawningSpawn = makeEnergySinkWithEnergy('spawn-critical', 'spawn' as StructureConstant, 100, 50, {
+      spawning: { remainingTime: 10 }
+    });
+    const roadSite = { id: 'road-site1', my: true, structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [roadSite],
+      controller,
+      energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      energyCapacityAvailable: 550,
+      myStructures: [criticalSpawningSpawn as AnyOwnedStructure]
+    });
+    const reserveWorker = makeRefillReserveWorker(room, 'ReserveA', 50, 1);
+    const creep = makeRefillReserveWorker(room, 'Builder', 50, 9);
+    setGameCreeps({ ReserveA: reserveWorker, Builder: creep });
+
+    expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(550);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-critical' });
   });
 
   it('keeps emergency spawn refill before surplus spending while a near-term reserve is active', () => {
