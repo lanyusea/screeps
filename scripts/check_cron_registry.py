@@ -16,8 +16,34 @@ from typing import Any, Dict, List, Optional, Tuple
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REGISTRY = REPO_ROOT / "docs" / "ops" / "cron-and-route-registry.md"
 DEFAULT_JOBS = Path("/root/.hermes/cron/jobs.json")
+DEFAULT_SHADOW_EVAL_SOURCE = Path("/root/.hermes/scripts/screeps-rl-shadow-eval-bounded.py")
 EXPECTED_SECTION = "## Expected recurring cron jobs"
 NO_WORKDIR = "__NO_DURABLE_CRON_WORKDIR__"
+SHADOW_EVAL_JOB_ID = "d6cff532edd4"
+SHADOW_EVAL_JOB_NAME = "Screeps RL shadow-eval bounded gate"
+SHADOW_EVAL_NO_UMBRELLA_EXPECTED = (
+    "shadow-eval routine output/comment routing must not target historical issue #879"
+)
+SHADOW_EVAL_FORBIDDEN_PATTERNS: Tuple[Tuple[str, re.Pattern[str]], ...] = (
+    ("legacy_github_issue_879_status", re.compile(r"\bgithub_issue_879_comment\b")),
+    ("issue_879_url_or_api_route", re.compile(r"(?<![\w-])issues/879(?:\b|[#/?])", re.IGNORECASE)),
+    (
+        "gh_issue_comment_879",
+        re.compile(r"\bgh\s+issue\s+comment\s+[`\"']?#?879\b", re.IGNORECASE),
+    ),
+    (
+        "github_issue_879_target",
+        re.compile(r"\bgithub[_-]?issue(?:[_-]?(?:number|id))?\s*[:=]\s*[\"']?#?879\b", re.IGNORECASE),
+    ),
+    (
+        "comment_issue_879_target",
+        re.compile(
+            r"\b(?:comment[_-]?issue|issue[_-]?comment[_-]?target|github[_-]?comment[_-]?target|"
+            r"comment[_-]?target|target[_-]?issue|issue[_-]?number)\s*[:=]\s*[\"']?#?879\b",
+            re.IGNORECASE,
+        ),
+    ),
+)
 
 
 def strip_md(value: str) -> str:
@@ -119,6 +145,87 @@ def load_live_jobs(path: Path) -> Dict[str, Dict[str, Any]]:
     return live
 
 
+def match_line_number(text: str, offset: int) -> int:
+    return text.count("\n", 0, offset) + 1
+
+
+def match_excerpt(text: str, start: int, end: int, window: int = 80) -> str:
+    excerpt_start = max(0, start - window)
+    excerpt_end = min(len(text), end + window)
+    excerpt = text[excerpt_start:excerpt_end].replace("\n", "\\n")
+    if excerpt_start > 0:
+        excerpt = "..." + excerpt
+    if excerpt_end < len(text):
+        excerpt += "..."
+    return excerpt
+
+
+def shadow_eval_no_umbrella_violations(surface: str, text: str) -> List[Dict[str, Any]]:
+    violations: List[Dict[str, Any]] = []
+    seen: set[Tuple[str, int]] = set()
+    for pattern_name, pattern in SHADOW_EVAL_FORBIDDEN_PATTERNS:
+        for match in pattern.finditer(text):
+            line = match_line_number(text, match.start())
+            key = (pattern_name, line)
+            if key in seen:
+                continue
+            seen.add(key)
+            violations.append({
+                "id": SHADOW_EVAL_JOB_ID,
+                "job": SHADOW_EVAL_JOB_NAME,
+                "surface": surface,
+                "field": "shadow_eval_no_umbrella",
+                "pattern": pattern_name,
+                "line": line,
+                "expected": SHADOW_EVAL_NO_UMBRELLA_EXPECTED,
+                "live": match_excerpt(text, match.start(), match.end()),
+            })
+    return violations
+
+
+def append_shadow_eval_path_violations(violations: List[Dict[str, Any]], surface: str, path: Path) -> None:
+    if not path.exists():
+        return
+    if not path.is_file():
+        return
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        violations.append({
+            "id": SHADOW_EVAL_JOB_ID,
+            "job": SHADOW_EVAL_JOB_NAME,
+            "surface": surface,
+            "field": "shadow_eval_no_umbrella",
+            "pattern": "unreadable_surface",
+            "line": None,
+            "expected": SHADOW_EVAL_NO_UMBRELLA_EXPECTED,
+            "live": f"{path}: {exc}",
+        })
+        return
+    violations.extend(shadow_eval_no_umbrella_violations(f"{surface}:{path}", text))
+
+
+def validate_shadow_eval_no_umbrella(
+    live: Dict[str, Dict[str, Any]],
+    source_path: Optional[Path] = DEFAULT_SHADOW_EVAL_SOURCE,
+    output_paths: Optional[List[Path]] = None,
+    text_surfaces: Optional[Dict[str, str]] = None,
+) -> List[Dict[str, Any]]:
+    violations: List[Dict[str, Any]] = []
+    job = live.get(SHADOW_EVAL_JOB_ID)
+    if job:
+        job_text = json.dumps(job, ensure_ascii=False, sort_keys=True, default=str)
+        violations.extend(shadow_eval_no_umbrella_violations(f"live job {SHADOW_EVAL_JOB_ID}", job_text))
+
+    if source_path is not None:
+        append_shadow_eval_path_violations(violations, "shadow-eval source", source_path)
+    for output_path in output_paths or []:
+        append_shadow_eval_path_violations(violations, "shadow-eval output", output_path)
+    for surface, text in (text_surfaces or {}).items():
+        violations.extend(shadow_eval_no_umbrella_violations(surface, text))
+    return violations
+
+
 def live_schedule(job: Dict[str, Any]) -> Optional[str]:
     schedule = job.get("schedule")
     if isinstance(schedule, dict):
@@ -177,11 +284,16 @@ def repeat_matches(expected: Optional[str], live_value: Any) -> Tuple[bool, str]
     return exp == live, live
 
 
-def compare(expected: Dict[str, Dict[str, Optional[str]]], live: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+def compare(
+    expected: Dict[str, Dict[str, Optional[str]]],
+    live: Dict[str, Dict[str, Any]],
+    policy_violations: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
     missing_expected: List[Dict[str, Any]] = []
     unexpected_live: List[Dict[str, Any]] = []
     ignored_one_shot_live: List[Dict[str, Any]] = []
     mismatches: List[Dict[str, Any]] = []
+    policy_violations = policy_violations or []
 
     for jid, spec in sorted(expected.items()):
         job = live.get(jid)
@@ -268,7 +380,7 @@ def compare(expected: Dict[str, Dict[str, Optional[str]]], live: Dict[str, Dict[
                 "deliver": job.get("deliver"),
             })
 
-    status = "PASS" if not missing_expected and not unexpected_live and not mismatches else "FAIL"
+    status = "PASS" if not missing_expected and not unexpected_live and not mismatches and not policy_violations else "FAIL"
     return {
         "status": status,
         "expected_count": len(expected),
@@ -277,6 +389,7 @@ def compare(expected: Dict[str, Dict[str, Optional[str]]], live: Dict[str, Dict[
         "unexpected_live": unexpected_live,
         "ignored_one_shot_live": ignored_one_shot_live,
         "mismatches": mismatches,
+        "policy_violations": policy_violations,
     }
 
 
@@ -296,19 +409,45 @@ def print_text(result: Dict[str, Any]) -> None:
     print(f"- mismatches: {len(result['mismatches'])}")
     for item in result["mismatches"]:
         print(f"  - {item['id']} {item.get('job')} {item['field']}: expected={item.get('expected')!r} live={item.get('live')!r}")
+    print(f"- policy violations: {len(result.get('policy_violations', []))}")
+    for item in result.get("policy_violations", []):
+        line = item.get("line")
+        line_text = f":{line}" if line is not None else ""
+        print(
+            f"  - {item['id']} {item.get('job')} {item.get('surface')}{line_text} "
+            f"{item.get('pattern')}: expected={item.get('expected')!r} live={item.get('live')!r}"
+        )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--registry", type=Path, default=DEFAULT_REGISTRY)
     parser.add_argument("--jobs-json", type=Path, default=DEFAULT_JOBS)
+    parser.add_argument(
+        "--shadow-eval-source",
+        type=Path,
+        default=DEFAULT_SHADOW_EVAL_SOURCE,
+        help="optional shadow-eval bounded source path to scan; absent paths are skipped",
+    )
+    parser.add_argument(
+        "--shadow-eval-output",
+        type=Path,
+        action="append",
+        default=[],
+        help="optional shadow-eval output/artifact path to scan; may be repeated",
+    )
     parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
     parser.add_argument("--strict", action="store_true", help="exit nonzero on drift")
     args = parser.parse_args()
 
     expected = parse_registry(args.registry)
     live = load_live_jobs(args.jobs_json)
-    result = compare(expected, live)
+    policy_violations = validate_shadow_eval_no_umbrella(
+        live,
+        source_path=args.shadow_eval_source,
+        output_paths=args.shadow_eval_output,
+    )
+    result = compare(expected, live, policy_violations=policy_violations)
 
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=False, sort_keys=True))
