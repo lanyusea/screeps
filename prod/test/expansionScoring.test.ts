@@ -244,6 +244,28 @@ describe('next expansion scoring', () => {
     expect(report.candidates[0]).toMatchObject({ roomName: 'W3N1', hostilePressureDistance: 5 });
   });
 
+  it('prefers candidates without known hostile pressure over nearby pressure when resources tie', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      shard: { name: 'shardSeason', type: 'normal' } as Game['shard']
+    };
+    const report = scoreExpansionCandidates(
+      makeInput([
+        makeCandidate({
+          roomName: 'W2N1',
+          order: 0,
+          hostilePressureDistance: 1
+        }),
+        makeCandidate({
+          roomName: 'W3N1',
+          order: 1
+        })
+      ])
+    );
+
+    expect(report.candidates.map((candidate) => candidate.roomName)).toEqual(['W3N1', 'W2N1']);
+    expect(report.candidates[1]).toMatchObject({ roomName: 'W2N1', hostilePressureDistance: 1 });
+  });
+
   it('keeps expansion ordering deterministic when hostile-pressure distance evidence is missing', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       shard: { name: 'shardSeason', type: 'normal' } as Game['shard']
@@ -2038,6 +2060,7 @@ describe('next expansion scoring', () => {
     );
 
     expect(report.next?.preconditions).toContain('raise owned Seasonal expansion rooms to RCL3 before next claim');
+    expect(report.next?.blockReason).toBe('seasonalImmatureExpansionActive');
     expect(refreshNextExpansionTargetSelection(colony, report, 215)).toEqual({
       status: 'skipped',
       colony: 'W1N1',

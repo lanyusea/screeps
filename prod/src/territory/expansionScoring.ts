@@ -1739,7 +1739,7 @@ function compareExpansionCandidates(left: ExpansionCandidateScore, right: Expans
 }
 
 function compareHostilePressureDistances(left: number | undefined, right: number | undefined): number {
-  return (right ?? -1) - (left ?? -1);
+  return (right ?? Number.MAX_SAFE_INTEGER) - (left ?? Number.MAX_SAFE_INTEGER);
 }
 
 function getEvidenceStatusPriority(status: ExpansionCandidateEvidenceStatus): number {

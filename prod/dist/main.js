@@ -9064,7 +9064,7 @@ function compareExpansionCandidates(left, right) {
   return getEvidenceStatusPriority(left.evidenceStatus) - getEvidenceStatusPriority(right.evidenceStatus) || right.score - left.score || compareHostilePressureDistances(left.hostilePressureDistance, right.hostilePressureDistance) || compareOptionalNumbers2(left.nearestOwnedRoomDistance, right.nearestOwnedRoomDistance) || compareOptionalNumbers2(left.routeDistance, right.routeDistance) || left.roomName.localeCompare(right.roomName);
 }
 function compareHostilePressureDistances(left, right) {
-  return (right != null ? right : -1) - (left != null ? left : -1);
+  return (right != null ? right : Number.MAX_SAFE_INTEGER) - (left != null ? left : Number.MAX_SAFE_INTEGER);
 }
 function getEvidenceStatusPriority(status) {
   if (status === "sufficient") {
@@ -9604,7 +9604,9 @@ function refreshExpansionPlannerIntent(colony, gameTime = getGameTime17()) {
   }
   const territoryMemory = getTerritoryMemoryRecord4();
   if (territoryMemory) {
+    const ownerUsername = getControllerOwnerUsername6(colony.room.controller);
     refreshTerminalExpansionPlans(territoryMemory, colonyName, gameTime);
+    reconcileSeasonalImmatureExpansionClaimPlans(territoryMemory, colonyName, ownerUsername, gameTime);
   }
   const potentialReservationUpgradeRooms = territoryMemory ? getPotentialExpansionReservationUpgradeRooms(territoryMemory, colonyName) : /* @__PURE__ */ new Set();
   if (potentialReservationUpgradeRooms === null) {
@@ -10637,6 +10639,95 @@ function refreshTerminalExpansionPlans(territoryMemory, colony, gameTime) {
   if (changed) {
     territoryMemory.intents = intents;
   }
+}
+function reconcileSeasonalImmatureExpansionClaimPlans(territoryMemory, colony, ownerUsername, gameTime) {
+  if (!hasSeasonalImmatureOwnedExpansionRoom(colony, ownerUsername)) {
+    return;
+  }
+  const reserveTargets = /* @__PURE__ */ new Map();
+  const reserveIntents = /* @__PURE__ */ new Map();
+  let targetsChanged = false;
+  if (Array.isArray(territoryMemory.targets)) {
+    const retainedTargets = [];
+    for (const rawTarget of territoryMemory.targets) {
+      const target = normalizeTerritoryTarget(rawTarget);
+      if (isExpansionPlannerClaimTargetForColony(target, colony)) {
+        const reserveTarget = toExpansionPlannerReservationTarget(target);
+        reserveTargets.set(getExpansionPlanKey(reserveTarget.colony, reserveTarget.roomName, reserveTarget.action), reserveTarget);
+        reserveIntents.set(
+          getExpansionPlanKey(reserveTarget.colony, reserveTarget.roomName, reserveTarget.action),
+          toExpansionPlannerReservationIntent(reserveTarget, "planned", gameTime)
+        );
+        targetsChanged = true;
+        continue;
+      }
+      retainedTargets.push(rawTarget);
+    }
+    if (targetsChanged) {
+      territoryMemory.targets = retainedTargets;
+    }
+  }
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  let intentsChanged = false;
+  const retainedIntents = [];
+  for (const intent of intents) {
+    if (isExpansionPlannerClaimIntentForColony(intent, colony) && isRunnableExpansionPlannerClaimStatus(intent.status)) {
+      const reserveTarget = toExpansionPlannerReservationTarget({
+        colony: intent.colony,
+        roomName: intent.targetRoom,
+        action: "claim",
+        createdBy: EXPANSION_PLANNER_TARGET_CREATOR,
+        ...intent.controllerId ? { controllerId: intent.controllerId } : {}
+      });
+      const planKey = getExpansionPlanKey(reserveTarget.colony, reserveTarget.roomName, reserveTarget.action);
+      reserveTargets.set(planKey, reserveTarget);
+      reserveIntents.set(
+        planKey,
+        toExpansionPlannerReservationIntent(reserveTarget, intent.status, gameTime)
+      );
+      intentsChanged = true;
+      continue;
+    }
+    retainedIntents.push(intent);
+  }
+  for (const reserveTarget of reserveTargets.values()) {
+    upsertTerritoryTarget(territoryMemory, reserveTarget);
+  }
+  for (const reserveIntent of reserveIntents.values()) {
+    const existingIntent = findExpansionIntent(
+      retainedIntents,
+      reserveIntent.colony,
+      reserveIntent.targetRoom,
+      "reserve"
+    );
+    upsertTerritoryIntent(retainedIntents, {
+      ...reserveIntent,
+      status: (existingIntent == null ? void 0 : existingIntent.status) === "active" || reserveIntent.status === "active" ? "active" : "planned"
+    });
+  }
+  if (targetsChanged || intentsChanged || reserveIntents.size > 0) {
+    territoryMemory.intents = retainedIntents;
+  }
+}
+function toExpansionPlannerReservationTarget(target) {
+  return {
+    colony: target.colony,
+    roomName: target.roomName,
+    action: "reserve",
+    createdBy: EXPANSION_PLANNER_TARGET_CREATOR,
+    ...target.controllerId ? { controllerId: target.controllerId } : {}
+  };
+}
+function toExpansionPlannerReservationIntent(target, status, gameTime) {
+  return {
+    colony: target.colony,
+    targetRoom: target.roomName,
+    action: "reserve",
+    status,
+    updatedAt: gameTime,
+    createdBy: EXPANSION_PLANNER_TARGET_CREATOR,
+    ...target.controllerId ? { controllerId: target.controllerId } : {}
+  };
 }
 function getPotentialExpansionReservationUpgradeRooms(territoryMemory, colony) {
   const intents = normalizeTerritoryIntents(territoryMemory.intents);
@@ -17174,13 +17265,14 @@ function persistPipelineControlPlan(territoryMemory, pipeline, action, gameTime)
   if (action === "claim") {
     pruneLowerPriorityDuplicateClaimPlans(territoryMemory, pipeline.colony, pipeline.targetRoom);
   }
+  const postClaimBootstrapReserveEnergy = getPipelinePostClaimBootstrapReserveEnergy(pipeline, action);
   const target = {
     colony: pipeline.colony,
     roomName: pipeline.targetRoom,
     action,
     createdBy: NEXT_EXPANSION_TARGET_CREATOR,
     ...pipeline.controllerId ? { controllerId: pipeline.controllerId } : {},
-    ...action === "claim" && TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY > 0 ? { postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY } : {}
+    ...postClaimBootstrapReserveEnergy !== void 0 ? { postClaimBootstrapReserveEnergy } : {}
   };
   upsertTerritoryTarget3(territoryMemory, target);
   const intents = normalizeTerritoryIntents(territoryMemory.intents);
@@ -17193,8 +17285,21 @@ function persistPipelineControlPlan(territoryMemory, pipeline, action, gameTime)
     updatedAt: gameTime,
     createdBy: NEXT_EXPANSION_TARGET_CREATOR,
     ...pipeline.controllerId ? { controllerId: pipeline.controllerId } : {},
-    ...action === "claim" && TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY > 0 ? { postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY } : {}
+    ...postClaimBootstrapReserveEnergy !== void 0 ? { postClaimBootstrapReserveEnergy } : {}
   });
+}
+function getPipelinePostClaimBootstrapReserveEnergy(pipeline, action) {
+  var _a;
+  if (action !== "claim" || TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY <= 0) {
+    return void 0;
+  }
+  const energyCapacityAvailable = (_a = getVisibleRoom3(pipeline.colony)) == null ? void 0 : _a.energyCapacityAvailable;
+  if (typeof energyCapacityAvailable !== "number" || !Number.isFinite(energyCapacityAvailable)) {
+    return TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY;
+  }
+  const spawnableReserveEnergy = Math.max(0, Math.floor(energyCapacityAvailable) - TERRITORY_CONTROLLER_BODY_COST);
+  const reserveEnergy = Math.min(TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY, spawnableReserveEnergy);
+  return reserveEnergy > 0 ? reserveEnergy : void 0;
 }
 function prunePipelinePlans(territoryMemory, colony, targetRoom) {
   if (Array.isArray(territoryMemory.targets)) {

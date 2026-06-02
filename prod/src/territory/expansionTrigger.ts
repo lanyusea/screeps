@@ -684,15 +684,14 @@ function persistPipelineControlPlan(
   if (action === 'claim') {
     pruneLowerPriorityDuplicateClaimPlans(territoryMemory, pipeline.colony, pipeline.targetRoom);
   }
+  const postClaimBootstrapReserveEnergy = getPipelinePostClaimBootstrapReserveEnergy(pipeline, action);
   const target: TerritoryTargetMemory = {
     colony: pipeline.colony,
     roomName: pipeline.targetRoom,
     action,
     createdBy: NEXT_EXPANSION_TARGET_CREATOR,
     ...(pipeline.controllerId ? { controllerId: pipeline.controllerId } : {}),
-    ...(action === 'claim' && TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY > 0
-      ? { postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY }
-      : {})
+    ...(postClaimBootstrapReserveEnergy !== undefined ? { postClaimBootstrapReserveEnergy } : {})
   };
   upsertTerritoryTarget(territoryMemory, target);
 
@@ -706,10 +705,26 @@ function persistPipelineControlPlan(
     updatedAt: gameTime,
     createdBy: NEXT_EXPANSION_TARGET_CREATOR,
     ...(pipeline.controllerId ? { controllerId: pipeline.controllerId } : {}),
-    ...(action === 'claim' && TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY > 0
-      ? { postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY }
-      : {})
+    ...(postClaimBootstrapReserveEnergy !== undefined ? { postClaimBootstrapReserveEnergy } : {})
   });
+}
+
+function getPipelinePostClaimBootstrapReserveEnergy(
+  pipeline: TerritoryExpansionPipelineMemory,
+  action: TerritoryControlAction
+): number | undefined {
+  if (action !== 'claim' || TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY <= 0) {
+    return undefined;
+  }
+
+  const energyCapacityAvailable = getVisibleRoom(pipeline.colony)?.energyCapacityAvailable;
+  if (typeof energyCapacityAvailable !== 'number' || !Number.isFinite(energyCapacityAvailable)) {
+    return TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY;
+  }
+
+  const spawnableReserveEnergy = Math.max(0, Math.floor(energyCapacityAvailable) - TERRITORY_CONTROLLER_BODY_COST);
+  const reserveEnergy = Math.min(TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY, spawnableReserveEnergy);
+  return reserveEnergy > 0 ? reserveEnergy : undefined;
 }
 
 function prunePipelinePlans(

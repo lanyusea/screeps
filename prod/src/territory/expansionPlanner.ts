@@ -360,7 +360,9 @@ export function refreshExpansionPlannerIntent(
 
   const territoryMemory = getTerritoryMemoryRecord();
   if (territoryMemory) {
+    const ownerUsername = getControllerOwnerUsername(colony.room.controller);
     refreshTerminalExpansionPlans(territoryMemory, colonyName, gameTime);
+    reconcileSeasonalImmatureExpansionClaimPlans(territoryMemory, colonyName, ownerUsername, gameTime);
   }
 
   const potentialReservationUpgradeRooms = territoryMemory
@@ -1911,6 +1913,117 @@ function refreshTerminalExpansionPlans(
   if (changed) {
     territoryMemory.intents = intents;
   }
+}
+
+function reconcileSeasonalImmatureExpansionClaimPlans(
+  territoryMemory: TerritoryMemory,
+  colony: string,
+  ownerUsername: string | undefined,
+  gameTime: number
+): void {
+  if (!hasSeasonalImmatureOwnedExpansionRoom(colony, ownerUsername)) {
+    return;
+  }
+
+  const reserveTargets = new Map<string, TerritoryTargetMemory>();
+  const reserveIntents = new Map<string, TerritoryIntentMemory>();
+  let targetsChanged = false;
+  if (Array.isArray(territoryMemory.targets)) {
+    const retainedTargets: TerritoryTargetMemory[] = [];
+    for (const rawTarget of territoryMemory.targets) {
+      const target = normalizeTerritoryTarget(rawTarget);
+      if (isExpansionPlannerClaimTargetForColony(target, colony)) {
+        const reserveTarget = toExpansionPlannerReservationTarget(target);
+        reserveTargets.set(getExpansionPlanKey(reserveTarget.colony, reserveTarget.roomName, reserveTarget.action), reserveTarget);
+        reserveIntents.set(
+          getExpansionPlanKey(reserveTarget.colony, reserveTarget.roomName, reserveTarget.action),
+          toExpansionPlannerReservationIntent(reserveTarget, 'planned', gameTime)
+        );
+        targetsChanged = true;
+        continue;
+      }
+
+      retainedTargets.push(rawTarget);
+    }
+
+    if (targetsChanged) {
+      territoryMemory.targets = retainedTargets;
+    }
+  }
+
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  let intentsChanged = false;
+  const retainedIntents: TerritoryIntentMemory[] = [];
+  for (const intent of intents) {
+    if (isExpansionPlannerClaimIntentForColony(intent, colony) && isRunnableExpansionPlannerClaimStatus(intent.status)) {
+      const reserveTarget = toExpansionPlannerReservationTarget({
+        colony: intent.colony,
+        roomName: intent.targetRoom,
+        action: 'claim',
+        createdBy: EXPANSION_PLANNER_TARGET_CREATOR,
+        ...(intent.controllerId ? { controllerId: intent.controllerId } : {})
+      });
+      const planKey = getExpansionPlanKey(reserveTarget.colony, reserveTarget.roomName, reserveTarget.action);
+      reserveTargets.set(planKey, reserveTarget);
+      reserveIntents.set(
+        planKey,
+        toExpansionPlannerReservationIntent(reserveTarget, intent.status, gameTime)
+      );
+      intentsChanged = true;
+      continue;
+    }
+
+    retainedIntents.push(intent);
+  }
+
+  for (const reserveTarget of reserveTargets.values()) {
+    upsertTerritoryTarget(territoryMemory, reserveTarget);
+  }
+
+  for (const reserveIntent of reserveIntents.values()) {
+    const existingIntent = findExpansionIntent(
+      retainedIntents,
+      reserveIntent.colony,
+      reserveIntent.targetRoom,
+      'reserve'
+    );
+    upsertTerritoryIntent(retainedIntents, {
+      ...reserveIntent,
+      status: existingIntent?.status === 'active' || reserveIntent.status === 'active' ? 'active' : 'planned'
+    });
+  }
+
+  if (targetsChanged || intentsChanged || reserveIntents.size > 0) {
+    territoryMemory.intents = retainedIntents;
+  }
+}
+
+function toExpansionPlannerReservationTarget(
+  target: TerritoryTargetMemory & { createdBy: typeof EXPANSION_PLANNER_TARGET_CREATOR }
+): TerritoryTargetMemory {
+  return {
+    colony: target.colony,
+    roomName: target.roomName,
+    action: 'reserve',
+    createdBy: EXPANSION_PLANNER_TARGET_CREATOR,
+    ...(target.controllerId ? { controllerId: target.controllerId } : {})
+  };
+}
+
+function toExpansionPlannerReservationIntent(
+  target: TerritoryTargetMemory,
+  status: Extract<TerritoryIntentMemory['status'], 'planned' | 'active'>,
+  gameTime: number
+): TerritoryIntentMemory {
+  return {
+    colony: target.colony,
+    targetRoom: target.roomName,
+    action: 'reserve',
+    status,
+    updatedAt: gameTime,
+    createdBy: EXPANSION_PLANNER_TARGET_CREATOR,
+    ...(target.controllerId ? { controllerId: target.controllerId } : {})
+  };
 }
 
 function getPotentialExpansionReservationUpgradeRooms(
