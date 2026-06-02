@@ -5,9 +5,9 @@
 # Human-readable registry: docs/ops/rl-reward-decision-registry.md
 
 schema: 1
-source_issues: [967, 1024]
+source_issues: [967, 1024, 1555]
 historical_context_issues: [879]
-last_updated: "2026-05-16"
+last_updated: "2026-06-02"
 
 # Reward components are additive: total_reward = sum(component_reward * weight)
 components:
@@ -33,6 +33,46 @@ components:
     rollback:
       worker_count_lt: 3
       energy_buffer_unhealthy_consecutive: 2
+
+  # RD-V3-006 / #1555: Hold low-load worker transport penalty for telemetry
+  - component_id: worker-transport-efficiency
+    decision_id: RD-V3-006-workerTransportEfficiency
+    type: penalty
+    category: logistics
+    status: PROPOSED
+    candidate_weight: null
+    hypothesis: >
+      Penalizing avoidable low-load worker transport micro-hauls could improve
+      useful delivered energy per trip, but only after telemetry distinguishes
+      avoidable transfer/upgrade trips from noReachableEnergy, emergency,
+      controller-safety, hostile, starvation, and dispatch-deadlock exceptions.
+    predicate:
+      carried_load_ratio_lt: 0.20
+      task_kind_in:
+        - transfer
+        - upgrade
+      reachable_energy_at_acquisition: true
+      target_saturation_explains_low_load: false
+      no_reachable_energy_reason: false
+      emergency_refill_or_controller_safety: false
+      hostile_or_survival_exception: false
+    validation:
+      status: HOLD_FOR_TELEMETRY
+      telemetry_issue: 1554
+      metric: deliveredEnergyPerTrip_or_returnLoadFactor
+      avoidable_low_load_return_count_decreases: true
+      minimum_duration_hours: 8
+      scorecard: "#924-compatible candidate-vs-baseline"
+      safety_flags:
+        liveEffect: false
+        officialMmoWrites: false
+        officialMmoWritesAllowed: false
+    rollback:
+      no_reachable_energy_majority: true
+      emergency_or_starvation_false_positive: true
+      spawn_refill_regression: true
+      controller_safety_regression: true
+      cpu_or_stuck_pathing_regression: true
 
   # RD-V3-002: Positive reward for >=1 build task when backlog exists
   - component_id: build-allocation-minimum
