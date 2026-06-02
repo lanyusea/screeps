@@ -1185,7 +1185,18 @@ def run_training_experiment(
     state_artifact_path = policy_gradient_momentum_state_artifact_path_for_report(report, report_path.parent)
     previous_state_artifact_bytes = None
     if state_artifact_path is not None and state_artifact_path.exists():
-        previous_state_artifact_bytes = state_artifact_path.read_bytes()
+        try:
+            previous_state_artifact_bytes = state_artifact_path.read_bytes()
+        except OSError as error:
+            warning = (
+                "previous gradient momentum state artifact snapshot skipped: "
+                f"{dataset_export.redact_text(str(error))}"
+            )
+            warnings = report.get("warnings")
+            if isinstance(warnings, list):
+                warnings.append(warning)
+            else:
+                report["warnings"] = [warning]
     materialized_state_artifact_path = materialize_policy_gradient_momentum_state(
         report,
         report_path.parent,
@@ -3460,6 +3471,49 @@ def policy_update_gradient_momentum_from_state_payload(raw: Any) -> JsonObject |
     return copy.deepcopy(momentum) if momentum is not None else None
 
 
+def resolve_policy_gradient_momentum_source_report_path(raw_path: str, out_dir: Path) -> Path:
+    source_path = Path(raw_path).expanduser()
+    if source_path.is_absolute():
+        return source_path
+
+    candidates = [source_path, out_dir / source_path, out_dir / source_path.name]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return source_path
+
+
+def policy_gradient_momentum_state_source_report_load_error(raw_payload: JsonObject, out_dir: Path) -> str | None:
+    source_report_path_text = text_or_none(raw_payload.get("sourceReportPath"))
+    if source_report_path_text is None:
+        return "gradient momentum state source report path was missing or invalid"
+
+    source_report_id = text_or_none(first_non_null_present(raw_payload, ("sourceReportId", "reportId")))
+    source_report_generated_at = text_or_none(
+        first_non_null_present(raw_payload, ("sourceReportGeneratedAt", "generatedAt"))
+    )
+    if source_report_id is None or source_report_generated_at is None:
+        return "gradient momentum state source report identity was missing or invalid"
+
+    source_report_path = resolve_policy_gradient_momentum_source_report_path(source_report_path_text, out_dir)
+    if not source_report_path.exists():
+        return "gradient momentum state source report was missing"
+
+    try:
+        source_report = json.loads(source_report_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        return f"gradient momentum state source report could not be read: {dataset_export.redact_text(str(error))}"
+    if not isinstance(source_report, dict):
+        return "gradient momentum state source report was not a JSON object"
+
+    if (
+        text_or_none(source_report.get("reportId")) != source_report_id
+        or text_or_none(source_report.get("generatedAt")) != source_report_generated_at
+    ):
+        return "gradient momentum state source report identity did not match state artifact"
+    return None
+
+
 def load_policy_gradient_momentum_state(policy_gradient: JsonObject | None, out_dir: Path) -> JsonObject | None:
     if not isinstance(policy_gradient, dict):
         return None
@@ -3493,6 +3547,11 @@ def load_policy_gradient_momentum_state(policy_gradient: JsonObject | None, out_
         stored_key = policy_update_gradient_momentum_state_key(stored_identity)
     if stored_key is not None and expected_key is not None and stored_key != expected_key:
         state_reference["previousStateArtifactLoadError"] = "gradient momentum state identity did not match current policy-gradient comparison"
+        return state_reference
+
+    source_report_load_error = policy_gradient_momentum_state_source_report_load_error(raw_payload, out_dir)
+    if source_report_load_error is not None:
+        state_reference["previousStateArtifactLoadError"] = source_report_load_error
         return state_reference
 
     gradient_momentum = policy_update_gradient_momentum_from_state_payload(raw_payload)

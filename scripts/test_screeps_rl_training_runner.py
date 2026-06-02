@@ -3446,6 +3446,138 @@ export const STRATEGY_REGISTRY = [
             self.assertFalse(failed_report_path.exists())
             self.assertEqual(read_json(state_path), first_state)
 
+    def test_gradient_momentum_state_snapshot_read_error_does_not_abort_report(self) -> None:
+        card = gradient_momentum_training_card()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            write_json(card_path, card)
+            first_report = runner.run_training_experiment(
+                card_path,
+                out_dir,
+                report_id="gradient-momentum-snapshot-source",
+                generated_at="2026-06-02T01:05:30Z",
+                simulator_runner=MockSimulator(
+                    gradient_momentum_simulator_results(),
+                    inject_runtime_parameters=True,
+                ),
+            )
+            state_path = Path(first_report["gradientMomentumState"]["stateArtifactPath"])
+            state_read_count = 0
+            original_read_bytes = Path.read_bytes
+
+            def fail_late_state_snapshot(path: Path) -> bytes:
+                nonlocal state_read_count
+                if path == state_path:
+                    state_read_count += 1
+                    if state_read_count == 2:
+                        raise OSError("simulated late state snapshot failure")
+                return original_read_bytes(path)
+
+            with mock.patch.object(Path, "read_bytes", fail_late_state_snapshot):
+                report = runner.run_training_experiment(
+                    card_path,
+                    out_dir,
+                    report_id="gradient-momentum-snapshot-continues",
+                    generated_at="2026-06-02T01:05:45Z",
+                    simulator_runner=MockSimulator(
+                        gradient_momentum_simulator_results(),
+                        inject_runtime_parameters=True,
+                    ),
+                )
+
+            persisted = read_json(out_dir / "gradient-momentum-snapshot-continues.json")
+
+        self.assertEqual(state_read_count, 2)
+        self.assertTrue(report["gradientMomentum"]["previousStateArtifactLoaded"])
+        self.assertTrue(persisted["gradientMomentum"]["previousStateArtifactLoaded"])
+        self.assertTrue(
+            any("simulated late state snapshot failure" in warning for warning in persisted["warnings"])
+        )
+
+    def test_gradient_momentum_state_requires_source_report_path(self) -> None:
+        card = gradient_momentum_training_card()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                out_dir,
+                report_id="gradient-momentum-source-report-path",
+                generated_at="2026-06-02T01:06:00Z",
+                simulator_runner=MockSimulator(
+                    gradient_momentum_simulator_results(),
+                    inject_runtime_parameters=True,
+                ),
+            )
+            state_path = Path(report["gradientMomentumState"]["stateArtifactPath"])
+            valid_state = read_json(state_path)
+
+            cases = (
+                ("missing_path", None, "source report path"),
+                ("missing_file", str(out_dir / "missing-source-report.json"), "source report was missing"),
+            )
+            for case_name, source_report_path, expected_error in cases:
+                with self.subTest(case_name=case_name):
+                    state = copy.deepcopy(valid_state)
+                    if source_report_path is None:
+                        state.pop("sourceReportPath", None)
+                    else:
+                        state["sourceReportPath"] = source_report_path
+                    state["statePayloadHash"] = runner.policy_update_gradient_momentum_state_payload_hash(state)
+                    write_json(state_path, state)
+
+                    loaded = runner.load_policy_gradient_momentum_state(
+                        runner.policy_gradient_metadata_from_card(card),
+                        out_dir,
+                    )
+
+                    self.assertIsNotNone(loaded)
+                    assert loaded is not None
+                    self.assertTrue(loaded["previousStateArtifactPresent"])
+                    self.assertFalse(loaded["previousStateArtifactLoaded"])
+                    self.assertIn(expected_error, loaded["previousStateArtifactLoadError"])
+
+    def test_gradient_momentum_state_requires_source_report_identity_match(self) -> None:
+        card = gradient_momentum_training_card()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            report_path = out_dir / "gradient-momentum-source-report-identity.json"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                out_dir,
+                report_id="gradient-momentum-source-report-identity",
+                generated_at="2026-06-02T01:06:30Z",
+                simulator_runner=MockSimulator(
+                    gradient_momentum_simulator_results(),
+                    inject_runtime_parameters=True,
+                ),
+            )
+            state_path = Path(report["gradientMomentumState"]["stateArtifactPath"])
+            persisted_report = read_json(report_path)
+            persisted_report["generatedAt"] = "2026-06-02T01:06:31Z"
+            write_json(report_path, persisted_report)
+
+            loaded = runner.load_policy_gradient_momentum_state(
+                runner.policy_gradient_metadata_from_card(card),
+                out_dir,
+            )
+
+        self.assertIsNotNone(loaded)
+        assert loaded is not None
+        self.assertTrue(loaded["previousStateArtifactPresent"])
+        self.assertFalse(loaded["previousStateArtifactLoaded"])
+        self.assertIn("source report identity did not match", loaded["previousStateArtifactLoadError"])
+
     def test_gradient_momentum_state_requires_payload_hash(self) -> None:
         card = gradient_momentum_training_card()
 
