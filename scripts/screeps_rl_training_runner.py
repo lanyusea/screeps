@@ -76,6 +76,9 @@ DEFAULT_GRADIENT_EMA_DECAY = 0.8
 GRADIENT_ESTIMATION_EVIDENCE_TYPE = "screeps-rl-gradient-estimation-evidence"
 GRADIENT_ESTIMATION_SCHEME_TYPE = "screeps-rl-gradient-estimation-scheme"
 GRADIENT_MOMENTUM_EVIDENCE_TYPE = "screeps-rl-gradient-momentum-evidence"
+GRADIENT_MOMENTUM_STATE_TYPE = "screeps-rl-gradient-momentum-state"
+GRADIENT_MOMENTUM_STATE_IDENTITY_TYPE = "screeps-rl-gradient-momentum-state-identity"
+GRADIENT_MOMENTUM_STATE_ARTIFACT_DIR = "gradient-momentum"
 POLICY_GRADIENT_SCALAR_ESTIMATOR = "scalar_weighted_sum_score_function_reinforce_v1"
 POLICY_GRADIENT_SCALAR_REWARD = "scalar_weighted_sum"
 POLICY_GRADIENT_SCALAR_WEIGHTED_SUM_USE = "gradient_estimation_only_non_promotional"
@@ -1142,6 +1145,11 @@ def run_training_experiment(
     resolved_report_id = report_id or default_report_id(card, variants, config)
     validate_report_id(resolved_report_id)
     ensure_steam_key_for_training(simulator_runner=simulator_runner, env_file=steam_key_env_file)
+    resolved_out_dir = out_dir.expanduser()
+    previous_gradient_momentum_state = load_policy_gradient_momentum_state(
+        policy_gradient_metadata_from_card(card),
+        resolved_out_dir,
+    )
 
     simulator_runs = execute_simulator_runs(
         simulator_runner=simulator_runner,
@@ -1160,10 +1168,11 @@ def run_training_experiment(
         reward_options=reward_options,
         report_id=resolved_report_id,
         generated_at=generated_at or utc_now_iso(),
+        previous_gradient_momentum_state=previous_gradient_momentum_state,
     )
     report_secret_values = dataset_export.configured_secret_values() + [os.environ.get("STEAM_KEY", "")]
     assert_no_secret_leak(report, report_secret_values)
-    report_path = out_dir.expanduser() / f"{resolved_report_id}.json"
+    report_path = resolved_out_dir / f"{resolved_report_id}.json"
     policy_artifacts = materialize_policy_update_artifacts(report, report_path.parent)
     for _artifact_path, artifact_payload in policy_artifacts:
         assert_no_secret_leak(artifact_payload, report_secret_values)
@@ -1173,6 +1182,7 @@ def run_training_experiment(
         materialize_candidate_scorecard_artifact(report, report_path.parent, report_secret_values)
     except scorecard_helper.ScorecardError as error:
         mark_candidate_scorecard_materialization_failed(report, error)
+    materialize_policy_gradient_momentum_state(report, report_path.parent, report_path)
     assert_no_secret_leak(report, report_secret_values)
     write_json_atomic(report_path, report)
     report["reportPath"] = dataset_export.display_path(report_path)
@@ -1734,6 +1744,7 @@ def build_training_report(
     reward_options: JsonObject,
     report_id: str,
     generated_at: str,
+    previous_gradient_momentum_state: JsonObject | None = None,
 ) -> JsonObject:
     per_variant_runs = collect_variant_runs(simulator_runs, [variant.id for variant in variants])
     scenario = scenario_metadata_from_card(card)
@@ -1774,6 +1785,11 @@ def build_training_report(
         else None
     )
     policy_gradient = policy_gradient_metadata_from_card(card, runtime_parameter_injection=runtime_parameter_injection)
+    if policy_gradient is not None and isinstance(previous_gradient_momentum_state, dict):
+        policy_gradient = policy_gradient_with_loaded_gradient_momentum_state(
+            policy_gradient,
+            previous_gradient_momentum_state,
+        )
     if (
         policy_gradient is not None
         and scenario is not None
@@ -3349,6 +3365,175 @@ def policy_update_scalar_reward(return_tuple: Sequence[Any], weights: JsonObject
     return total
 
 
+def policy_update_expected_true_gradient_scheme_identity(policy_gradient: JsonObject) -> JsonObject | None:
+    if policy_update_algorithm(policy_gradient) != TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM:
+        return None
+    if policy_gradient_scalar_weighted_sum_authorized(policy_gradient):
+        reward_model = first_mapping(policy_gradient, ("reward_model", "rewardModel"))
+        return policy_update_scalar_gradient_scheme_identity(
+            policy_update_scalar_reward_weight_evidence(policy_gradient),
+            scalar_weighted_sum_authorized=True,
+            scalar_weighted_sum_use=scalar_weighted_sum_use(reward_model),
+        )
+    return policy_update_lexicographic_reinforce_gradient_scheme_identity()
+
+
+def policy_update_gradient_momentum_state_identity(policy_gradient: JsonObject) -> JsonObject | None:
+    scheme_identity = policy_update_expected_true_gradient_scheme_identity(policy_gradient)
+    if scheme_identity is None:
+        return None
+    target_family = text_or_none(policy_gradient.get("target_family", policy_gradient.get("targetFamily"))) or "unknown"
+    return {
+        "type": GRADIENT_MOMENTUM_STATE_IDENTITY_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "targetFamily": target_family,
+        "policyUpdateAlgorithm": TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
+        "gradientComparisonKey": policy_update_gradient_scheme_comparison_key(scheme_identity),
+        "gradientSchemeIdentity": policy_update_gradient_scheme_comparison_identity(scheme_identity),
+        "learnableParameters": copy.deepcopy(policy_update_parameter_space(policy_gradient)),
+    }
+
+
+def policy_update_gradient_momentum_state_key(identity: JsonObject) -> str:
+    return canonical_hash(identity)
+
+
+def policy_update_gradient_momentum_state_path(policy_gradient: JsonObject, out_dir: Path) -> Path | None:
+    identity = policy_update_gradient_momentum_state_identity(policy_gradient)
+    if identity is None:
+        return None
+    target_family = safe_artifact_stem(text_or_none(identity.get("targetFamily")) or "unknown")[:80]
+    state_key = policy_update_gradient_momentum_state_key(identity)
+    return out_dir / GRADIENT_MOMENTUM_STATE_ARTIFACT_DIR / f"{target_family}-{state_key[:16]}.json"
+
+
+def policy_update_gradient_momentum_state_reference(policy_gradient: JsonObject, out_dir: Path) -> JsonObject | None:
+    identity = policy_update_gradient_momentum_state_identity(policy_gradient)
+    if identity is None:
+        return None
+    state_path = policy_update_gradient_momentum_state_path(policy_gradient, out_dir)
+    if state_path is None:
+        return None
+    return {
+        "type": GRADIENT_MOMENTUM_STATE_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "stateIdentity": identity,
+        "stateKey": policy_update_gradient_momentum_state_key(identity),
+        "stateArtifactPath": dataset_export.display_path(state_path),
+        "previousStateArtifactPresent": state_path.exists(),
+        "previousStateArtifactLoaded": False,
+        "previousGradientPresent": False,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
+
+
+def policy_update_gradient_momentum_from_state_payload(raw: Any) -> JsonObject | None:
+    if not isinstance(raw, dict):
+        return None
+    if text_or_none(raw.get("type")) == GRADIENT_MOMENTUM_EVIDENCE_TYPE:
+        return copy.deepcopy(raw)
+    momentum = first_mapping(raw, ("gradientMomentum", "gradient_momentum", "momentum"))
+    return copy.deepcopy(momentum) if momentum is not None else None
+
+
+def load_policy_gradient_momentum_state(policy_gradient: JsonObject | None, out_dir: Path) -> JsonObject | None:
+    if not isinstance(policy_gradient, dict):
+        return None
+    state_reference = policy_update_gradient_momentum_state_reference(policy_gradient, out_dir)
+    state_path = policy_update_gradient_momentum_state_path(policy_gradient, out_dir)
+    if state_reference is None or state_path is None or not state_path.exists():
+        return state_reference
+
+    try:
+        state_bytes = state_path.read_bytes()
+        raw_payload = json.loads(state_bytes.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        state_reference["previousStateArtifactLoadError"] = dataset_export.redact_text(str(error))
+        return state_reference
+    if not isinstance(raw_payload, dict):
+        state_reference["previousStateArtifactLoadError"] = "gradient momentum state artifact was not a JSON object"
+        return state_reference
+
+    stored_identity = first_mapping(raw_payload, ("stateIdentity", "gradientMomentumStateIdentity"))
+    stored_key = text_or_none(raw_payload.get("stateKey"))
+    expected_key = text_or_none(state_reference.get("stateKey"))
+    if stored_identity is not None:
+        stored_key = policy_update_gradient_momentum_state_key(stored_identity)
+    if stored_key is not None and expected_key is not None and stored_key != expected_key:
+        state_reference["previousStateArtifactLoadError"] = "gradient momentum state identity did not match current policy-gradient comparison"
+        return state_reference
+
+    gradient_momentum = policy_update_gradient_momentum_from_state_payload(raw_payload)
+    if gradient_momentum is None:
+        state_reference["previousStateArtifactLoadError"] = "gradient momentum state artifact did not contain momentum evidence"
+        return state_reference
+
+    previous_gradient = first_present(gradient_momentum, ("rawEmaGradient", "emaGradient"))
+    previous_gradient_present = isinstance(previous_gradient, dict) and bool(previous_gradient)
+    state_reference.update(
+        {
+            "previousStateArtifactLoaded": True,
+            "previousGradientPresent": previous_gradient_present,
+            "previousGradientSourcePath": dataset_export.display_path(state_path),
+            "previousGradientSourceSha256": hashlib.sha256(state_bytes).hexdigest(),
+            "previousGradientSourceReportId": text_or_none(
+                first_non_null_present(raw_payload, ("sourceReportId", "reportId"))
+            ),
+            "previousGradientSourceGeneratedAt": text_or_none(
+                first_non_null_present(raw_payload, ("sourceReportGeneratedAt", "generatedAt"))
+            ),
+            "previousTrustedGradientUpdate": raw_payload.get("sourceTrustedGradientUpdate"),
+            "previousGradientTrustGateClassification": text_or_none(
+                raw_payload.get("sourceGradientTrustGateClassification")
+            ),
+            "gradientMomentum": gradient_momentum,
+        }
+    )
+    return state_reference
+
+
+def policy_update_gradient_momentum_state_reference_config(state_reference: JsonObject) -> JsonObject:
+    payload: JsonObject = {}
+    for key in (
+        "stateArtifactPath",
+        "stateKey",
+        "stateIdentity",
+        "previousStateArtifactPresent",
+        "previousStateArtifactLoaded",
+        "previousGradientSourcePath",
+        "previousGradientSourceSha256",
+        "previousGradientSourceReportId",
+        "previousGradientSourceGeneratedAt",
+        "previousTrustedGradientUpdate",
+        "previousGradientTrustGateClassification",
+    ):
+        if key in state_reference:
+            payload[key] = copy.deepcopy(state_reference[key])
+    return payload
+
+
+def policy_gradient_with_loaded_gradient_momentum_state(
+    policy_gradient: JsonObject,
+    state_reference: JsonObject,
+) -> JsonObject:
+    payload = copy.deepcopy(policy_gradient)
+    update_config = first_mapping(payload, ("policyUpdate", "policy_update"))
+    if update_config is None:
+        update_config = {}
+        payload["policyUpdate"] = update_config
+    existing_momentum = first_mapping(update_config, ("gradientMomentum", "gradient_momentum"))
+    loaded_momentum = first_mapping(state_reference, ("gradientMomentum",))
+    momentum_config = copy.deepcopy(loaded_momentum) if loaded_momentum is not None else {}
+    if existing_momentum is not None:
+        momentum_config.update(copy.deepcopy(existing_momentum))
+    momentum_config.update(policy_update_gradient_momentum_state_reference_config(state_reference))
+    update_config["gradientMomentum"] = momentum_config
+    return payload
+
+
 def policy_update_gradient_momentum_evidence(
     *,
     policy_gradient: JsonObject,
@@ -3396,6 +3581,7 @@ def policy_update_gradient_momentum_evidence(
     raw_ema_gradient: JsonObject = {}
     conflicting_parameters: list[str] = []
     direction_by_parameter: JsonObject = {}
+    raw_vs_momentum_direction_by_parameter: JsonObject = {}
     for name, value in raw_gradient.items():
         raw_value = float(value)
         previous_present = name in previous_gradient
@@ -3427,12 +3613,29 @@ def policy_update_gradient_momentum_evidence(
             "emaDirection": ema_sign,
             "momentumConsistent": momentum_consistent,
         }
+        raw_vs_momentum_direction_by_parameter[name] = {
+            "rawGradient": round_policy_number(raw_value),
+            "momentumAdjustedGradient": rounded_ema_value,
+            "rawDirection": raw_sign,
+            "momentumAdjustedDirection": ema_sign,
+            "directionChanged": raw_sign != ema_sign,
+        }
 
+    previous_gradient_present = bool(previous_gradient)
+    previous_gradient_used = any(
+        isinstance(evidence, dict) and evidence.get("previousGradientPresent") is True
+        for evidence in direction_by_parameter.values()
+    )
     payload: JsonObject = {
         "type": GRADIENT_MOMENTUM_EVIDENCE_TYPE,
         "schemaVersion": SCHEMA_VERSION,
         "emaDecay": decay,
-        "previousGradientPresent": bool(previous_gradient),
+        "emaPreviousWeight": round_policy_number(decay),
+        "emaCurrentWeight": round_policy_number(1.0 - decay),
+        "smoothingFactor": round_policy_number(1.0 - decay),
+        "previousGradientPresent": previous_gradient_present,
+        "previousGradientUsed": previous_gradient_used,
+        "momentumApplied": previous_gradient_used,
         "configuredPreviousGradientPresent": configured_previous_gradient_present,
         "gradientSchemeCompatible": gradient_scheme_compatible,
         "gradientSchemeComparisonStatus": scheme_status,
@@ -3446,6 +3649,10 @@ def policy_update_gradient_momentum_evidence(
         "momentumConsistent": not conflicting_parameters,
         "conflictingParameters": conflicting_parameters,
         "directionByParameter": direction_by_parameter,
+        "rawVsMomentumAdjustedDirectionByParameter": raw_vs_momentum_direction_by_parameter,
+        "updateGradientSource": "raw_ema_gradient",
+        "trustGateEvidenceSource": "momentum_adjusted_gradient" if previous_gradient_used else "raw_gradient",
+        "trustGateMomentumEvidenceUsed": previous_gradient_used,
         "liveEffect": False,
         "officialMmoWrites": False,
         "officialMmoWritesAllowed": False,
@@ -3455,6 +3662,41 @@ def policy_update_gradient_momentum_evidence(
         payload["gradientSchemeIdentity"] = current_scheme_identity
     if isinstance(previous_scheme_identity, dict):
         payload["previousGradientSchemeIdentity"] = copy.deepcopy(previous_scheme_identity)
+    state_artifact_path = text_or_none(config.get("stateArtifactPath"))
+    state_key = text_or_none(config.get("stateKey"))
+    state_identity = first_mapping(config, ("stateIdentity",))
+    state_payload: JsonObject = {
+        "type": GRADIENT_MOMENTUM_STATE_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "stateArtifactPath": state_artifact_path,
+        "stateKey": state_key,
+        "previousStateArtifactPresent": config.get("previousStateArtifactPresent") is True,
+        "previousStateArtifactLoaded": config.get("previousStateArtifactLoaded") is True,
+        "previousGradientSourcePath": text_or_none(config.get("previousGradientSourcePath")),
+        "previousGradientSourceSha256": text_or_none(config.get("previousGradientSourceSha256")),
+        "previousGradientSourceReportId": text_or_none(config.get("previousGradientSourceReportId")),
+        "previousGradientSourceGeneratedAt": text_or_none(config.get("previousGradientSourceGeneratedAt")),
+        "previousTrustedGradientUpdate": config.get("previousTrustedGradientUpdate"),
+        "previousGradientTrustGateClassification": text_or_none(
+            config.get("previousGradientTrustGateClassification")
+        ),
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
+    if state_identity is not None:
+        state_payload["stateIdentity"] = copy.deepcopy(state_identity)
+    if state_artifact_path is not None:
+        payload["stateArtifactPath"] = state_artifact_path
+    if state_key is not None:
+        payload["stateKey"] = state_key
+    for key, value in state_payload.items():
+        if key in {"type", "schemaVersion", "liveEffect", "officialMmoWrites", "officialMmoWritesAllowed", "safety"}:
+            continue
+        if value is not None:
+            payload[key] = copy.deepcopy(value)
+    payload["state"] = state_payload
     return payload
 
 
@@ -3462,6 +3704,7 @@ def policy_update_gradient_momentum_config(policy_gradient: JsonObject) -> JsonO
     configs = policy_update_gradient_state_config_candidates(policy_gradient)
     decay = DEFAULT_GRADIENT_EMA_DECAY
     previous_gradient: JsonObject = {}
+    state_config: JsonObject = {}
     for raw in configs:
         raw_decay = first_present(
             raw,
@@ -3492,6 +3735,21 @@ def policy_update_gradient_momentum_config(policy_gradient: JsonObject) -> JsonO
                 parsed_value = number_or_none(value)
                 if isinstance(name, str) and parsed_value is not None and math.isfinite(float(parsed_value)):
                     previous_gradient[name] = float(parsed_value)
+        for key in (
+            "stateArtifactPath",
+            "stateKey",
+            "stateIdentity",
+            "previousStateArtifactPresent",
+            "previousStateArtifactLoaded",
+            "previousGradientSourcePath",
+            "previousGradientSourceSha256",
+            "previousGradientSourceReportId",
+            "previousGradientSourceGeneratedAt",
+            "previousTrustedGradientUpdate",
+            "previousGradientTrustGateClassification",
+        ):
+            if key in raw:
+                state_config[key] = copy.deepcopy(raw[key])
 
     previous_scheme = policy_update_previous_gradient_scheme_config(policy_gradient)
     return {
@@ -3500,6 +3758,7 @@ def policy_update_gradient_momentum_config(policy_gradient: JsonObject) -> JsonO
         "previousGradientSchemeIdentity": previous_scheme["previousGradientSchemeIdentity"],
         "previousGradientSchemeKey": previous_scheme["previousGradientSchemeKey"],
         "previousGradientComparisonKey": previous_scheme["previousGradientComparisonKey"],
+        **state_config,
     }
 
 
@@ -3571,6 +3830,16 @@ def policy_update_gradient_stability_gate(
         if isinstance(gradient_momentum, dict) and isinstance(gradient_momentum.get("conflictingParameters"), list)
         else []
     )
+    trust_gate_momentum_evidence_used = (
+        gradient_momentum.get("trustGateMomentumEvidenceUsed") is True
+        if isinstance(gradient_momentum, dict)
+        else False
+    )
+    trust_gate_evidence_source = (
+        text_or_none(gradient_momentum.get("trustGateEvidenceSource"))
+        if isinstance(gradient_momentum, dict)
+        else "raw_gradient"
+    ) or "raw_gradient"
 
     direction_consistent = not conflicting_parameters
     gradient_stable = sample_size_sufficient and direction_consistent and momentum_consistent and gradient_scheme_comparable
@@ -3624,6 +3893,13 @@ def policy_update_gradient_stability_gate(
         "momentumConsistent": momentum_consistent,
         "gradientSchemeComparable": gradient_scheme_comparable,
         "gradientSchemeComparisonStatus": gradient_scheme_status,
+        "trustGateEvidenceSource": trust_gate_evidence_source,
+        "trustGateMomentumEvidenceUsed": trust_gate_momentum_evidence_used,
+        "trustGateEvidence": {
+            "directionConsistencySource": "raw_gradient_estimation_contribution_directions",
+            "momentumEvidenceSource": trust_gate_evidence_source,
+            "momentumEvidenceUsed": trust_gate_momentum_evidence_used,
+        },
         "minimumSamplesPerCandidate": min_samples_per_candidate,
         "minimumTotalSamples": minimum_total_samples,
         "totalReturnSampleCount": total_sample_count,
@@ -4231,6 +4507,113 @@ def materialize_policy_update_artifacts(report: JsonObject, out_dir: Path) -> li
     update["artifactPath"] = display_path
     report["policyUpdateArtifactPath"] = display_path
     return [(artifact_path, artifact)]
+
+
+def materialize_policy_gradient_momentum_state(report: JsonObject, out_dir: Path, report_path: Path) -> None:
+    if report.get("trueGradient") is not True:
+        return
+    update = report.get("policyUpdate")
+    policy_gradient = report.get("policyGradient")
+    if not isinstance(update, dict) or not isinstance(policy_gradient, dict):
+        return
+    momentum = update.get("gradientMomentum")
+    if not isinstance(momentum, dict):
+        return
+    state_identity = policy_update_gradient_momentum_state_identity(policy_gradient)
+    state_path = policy_update_gradient_momentum_state_path(policy_gradient, out_dir)
+    if state_identity is None or state_path is None:
+        return
+
+    state_key = policy_update_gradient_momentum_state_key(state_identity)
+    state_artifact_path = dataset_export.display_path(state_path)
+    state_metadata: JsonObject = {
+        "stateArtifactPath": state_artifact_path,
+        "stateKey": state_key,
+        "stateIdentity": copy.deepcopy(state_identity),
+        "stateMaterialized": True,
+    }
+    update_gradient_momentum_report_metadata(report, state_metadata)
+    momentum = update["gradientMomentum"]
+
+    state_payload = copy.deepcopy(momentum)
+    state_payload.update(
+        {
+            "stateArtifactType": GRADIENT_MOMENTUM_STATE_TYPE,
+            "stateArtifactPath": state_artifact_path,
+            "stateKey": state_key,
+            "stateIdentity": copy.deepcopy(state_identity),
+            "sourceReportId": report.get("reportId"),
+            "sourceReportGeneratedAt": report.get("generatedAt"),
+            "sourceReportPath": dataset_export.display_path(report_path),
+            "sourcePolicyUpdateAlgorithm": report.get("policyUpdateAlgorithm"),
+            "sourceTrustedGradientUpdate": report.get("trustedGradientUpdate"),
+            "sourceGradientStable": report.get("gradientStable"),
+            "sourceHighVariance": report.get("highVariance"),
+            "sourceGradientTrustGateClassification": report.get("gradientTrustGateClassification"),
+            "sourceGradientTrustGateReason": report.get("gradientTrustGateReason"),
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+            "safety": safety_metadata(),
+        }
+    )
+    state_payload["statePayloadHash"] = canonical_hash(
+        {
+            key: value
+            for key, value in state_payload.items()
+            if key != "statePayloadHash"
+        }
+    )
+    write_json_atomic(state_path, state_payload)
+
+    state_summary = {
+        "type": GRADIENT_MOMENTUM_STATE_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "stateArtifactPath": state_artifact_path,
+        "stateKey": state_key,
+        "stateIdentity": copy.deepcopy(state_identity),
+        "statePayloadHash": state_payload["statePayloadHash"],
+        "stateMaterialized": True,
+        "sourceReportId": report.get("reportId"),
+        "sourceReportGeneratedAt": report.get("generatedAt"),
+        "previousGradientPresent": momentum.get("previousGradientPresent") is True,
+        "previousGradientUsed": momentum.get("previousGradientUsed") is True,
+        "previousGradientSourcePath": momentum.get("previousGradientSourcePath"),
+        "previousGradientSourceSha256": momentum.get("previousGradientSourceSha256"),
+        "previousGradientSourceReportId": momentum.get("previousGradientSourceReportId"),
+        "emaDecay": momentum.get("emaDecay"),
+        "smoothingFactor": momentum.get("smoothingFactor"),
+        "trustGateEvidenceSource": momentum.get("trustGateEvidenceSource"),
+        "trustedGradientUpdate": report.get("trustedGradientUpdate"),
+        "gradientStable": report.get("gradientStable"),
+        "highVariance": report.get("highVariance"),
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
+    report["gradientMomentumState"] = state_summary
+    update_gradient_momentum_report_metadata(
+        report,
+        {
+            "statePayloadHash": state_payload["statePayloadHash"],
+            "stateMaterialized": True,
+        },
+    )
+
+
+def update_gradient_momentum_report_metadata(report: JsonObject, metadata: JsonObject) -> None:
+    update = report.get("policyUpdate")
+    if not isinstance(update, dict) or not isinstance(update.get("gradientMomentum"), dict):
+        return
+    update["gradientMomentum"].update(copy.deepcopy(metadata))
+    report["gradientMomentum"] = copy.deepcopy(update["gradientMomentum"])
+    next_candidate_policy = update.get("nextCandidatePolicy")
+    if isinstance(next_candidate_policy, dict):
+        next_candidate_policy["gradientMomentum"] = copy.deepcopy(update["gradientMomentum"])
+        parameter_evidence = next_candidate_policy.get("parameterEvidence")
+        if isinstance(parameter_evidence, dict):
+            parameter_evidence["gradientMomentum"] = copy.deepcopy(update["gradientMomentum"])
 
 
 def materialize_candidate_scorecard_artifact(
@@ -7500,6 +7883,7 @@ def build_generation_summary(report: JsonObject) -> JsonObject:
         "highVarianceReason": report.get("highVarianceReason"),
         "gradientEstimation": copy.deepcopy(report.get("gradientEstimation")),
         "gradientMomentum": copy.deepcopy(report.get("gradientMomentum")),
+        "gradientMomentumState": copy.deepcopy(report.get("gradientMomentumState")),
         "gradientStability": copy.deepcopy(report.get("gradientStability")),
         "runtimeParameterInjection": copy.deepcopy(report.get("runtimeParameterInjection")),
         "scorecardId": report.get("scorecardId"),
