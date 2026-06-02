@@ -378,7 +378,7 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                 1,
             )
 
-    def test_runtime_room_summary_keeps_partial_energy_aggregate_unknown(self) -> None:
+    def test_runtime_room_summary_sums_partial_energy_aggregate_coverage(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             db_path = root / "rl_metrics.sqlite"
@@ -415,10 +415,10 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
 
             self.assertEqual(metrics["roomSamples"], 2)
             self.assertAlmostEqual(metrics["avgControllerProgressRatio"], 0.3)
-            self.assertIsNone(metrics["upgradeCarriedEnergy"])
-            self.assertIsNone(metrics["importDemand"])
-            self.assertIsNone(metrics["blockedImportEnergy"])
-            self.assertIsNone(metrics["multiRoomDeficitEnergy"])
+            self.assertEqual(metrics["upgradeCarriedEnergy"], 45.0)
+            self.assertEqual(metrics["importDemand"], 250.0)
+            self.assertEqual(metrics["blockedImportEnergy"], 90.0)
+            self.assertEqual(metrics["multiRoomDeficitEnergy"], 350.0)
 
     def test_missing_energy_fields_record_coverage_gap_instead_of_crashing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

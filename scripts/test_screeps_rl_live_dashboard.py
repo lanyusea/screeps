@@ -1737,7 +1737,7 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertFalse(health["ok"])
         self.assertIn(str(summary["error"]), health["failures"])
 
-    def test_sqlite_summary_keeps_partial_runtime_energy_aggregate_unknown(self) -> None:
+    def test_sqlite_summary_sums_partial_runtime_energy_aggregate_coverage(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
             db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
@@ -1770,10 +1770,10 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertTrue(summary["schemaReady"])
         self.assertEqual(metrics["roomSamples"], 2)
         self.assertAlmostEqual(metrics["avgControllerProgressRatio"], 0.3)
-        self.assertIsNone(metrics["upgradeCarriedEnergy"])
-        self.assertIsNone(metrics["importDemand"])
-        self.assertIsNone(metrics["blockedImportEnergy"])
-        self.assertIsNone(metrics["multiRoomDeficitEnergy"])
+        self.assertEqual(metrics["upgradeCarriedEnergy"], 25.0)
+        self.assertEqual(metrics["importDemand"], 300.0)
+        self.assertEqual(metrics["blockedImportEnergy"], 100.0)
+        self.assertEqual(metrics["multiRoomDeficitEnergy"], 450.0)
 
     def test_healthz_fails_when_auto_refresh_failed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
