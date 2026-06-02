@@ -31,6 +31,7 @@ import { getActivePostClaimBootstrapBlockers } from './postClaimBootstrap';
 const EXPANSION_EXECUTOR_REFRESH_INTERVAL = 50;
 const EXPANSION_EXECUTOR_DOWNGRADE_GUARD_TICKS = 5_000;
 const EXPANSION_EXECUTOR_THREAT_MEMORY_STALE_TICKS = 5;
+const EXPANSION_EXECUTOR_CACHE_CLAIM_PLAN_STATE_INDEX = 11;
 
 type ExpansionExecutorThreatState = DefenseThreatLevel | 'unknown';
 
@@ -48,11 +49,7 @@ export function refreshExpansionExecutorIntent(
   const colonyName = colony.room.name;
   const colonyMemory = getWritableColonyMemory(colony);
   const cachedSelection = getCachedExpansionExecutorSelection(colonyMemory, colonyName);
-  let stateKey = getExpansionExecutorCacheStateKey(
-    colony,
-    gameTime,
-    getCachedExpansionExecutorPlannedTargetRoom(cachedSelection)
-  );
+  let stateKey = getExpansionExecutorCacheStateKey(colony, gameTime);
   if (
     cachedSelection &&
     isExpansionExecutorCacheReusable(cachedSelection, colony, gameTime, stateKey)
@@ -83,6 +80,7 @@ export function refreshExpansionExecutorIntent(
     scoutTargetRooms.push(...scoutTargets.map((target) => target.roomName));
     refreshExpansionRoomScouting(colony, scoutTargets, gameTime, telemetryEvents);
   }
+  stateKey = refreshExpansionExecutorCacheClaimPlanState(stateKey, colonyName);
   stateKey = refreshExpansionExecutorCacheStateKeyAfterCurrentTickScoutIntel(
     stateKey,
     colonyName,
@@ -147,12 +145,6 @@ function getCachedExpansionExecutorSelection(
   }
 
   return { refreshedAt, stateKey: rawSelection.stateKey, selection };
-}
-
-function getCachedExpansionExecutorPlannedTargetRoom(
-  cachedSelection: CachedExpansionExecutorSelection | null
-): string | undefined {
-  return cachedSelection?.selection.status === 'planned' ? cachedSelection.selection.targetRoom : undefined;
 }
 
 function normalizeExpansionExecutorSelection(
@@ -270,17 +262,14 @@ function hasExpansionExecutorTarget(colony: string, targetRoom: string | undefin
           isRecord(target) &&
           target.colony === colony &&
           target.roomName === targetRoom &&
+          target.enabled !== false &&
           target.action === 'claim' &&
           target.createdBy === NEXT_EXPANSION_TARGET_CREATOR
       )
     : false;
 }
 
-function getExpansionExecutorCacheStateKey(
-  colony: ColonySnapshot,
-  gameTime = getGameTime(),
-  cachedPlannedTargetRoom?: string
-): string {
+function getExpansionExecutorCacheStateKey(colony: ColonySnapshot, gameTime = getGameTime()): string {
   const controller = colony.room.controller;
   const controllerLevel = isFiniteNumber(controller?.level) ? controller.level : 'unknown';
   const requiredEnergy = getTerritoryAutoClaimRequiredEnergy(controller?.level);
@@ -302,11 +291,21 @@ function getExpansionExecutorCacheStateKey(
     countActiveExpansionExecutorSpawns(colony),
     getExpansionExecutorVisibleHostileState(colony.room),
     getExpansionExecutorThreatState(colony.room.name, gameTime),
-    getExpansionExecutorClaimPlanState(colony.room.name, cachedPlannedTargetRoom),
+    getExpansionExecutorClaimPlanState(colony.room.name),
     countActivePostClaimBootstraps(colony.room.name, gameTime),
     getAutonomousExpansionPipelineStateKey(colony.room.name),
     getLatestTerritoryScoutIntelUpdatedAt(colony.room.name)
   ].join('|');
+}
+
+function refreshExpansionExecutorCacheClaimPlanState(stateKey: string, colonyName: string): string {
+  const parts = stateKey.split('|');
+  if (parts.length <= EXPANSION_EXECUTOR_CACHE_CLAIM_PLAN_STATE_INDEX) {
+    return stateKey;
+  }
+
+  parts[EXPANSION_EXECUTOR_CACHE_CLAIM_PLAN_STATE_INDEX] = getExpansionExecutorClaimPlanState(colonyName);
+  return parts.join('|');
 }
 
 function getExpansionExecutorAvailableEnergyState(energyAvailable: number, requiredEnergy: number): string {
@@ -436,7 +435,7 @@ function countActivePostClaimBootstraps(colonyName: string, gameTime: number): n
   return getActivePostClaimBootstrapBlockers(colonyName, gameTime).length;
 }
 
-function getExpansionExecutorClaimPlanState(colonyName: string, cachedPlannedTargetRoom?: string): string {
+function getExpansionExecutorClaimPlanState(colonyName: string): string {
   const territory = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory;
   const targets = Array.isArray(territory?.targets)
     ? territory.targets
@@ -446,8 +445,7 @@ function getExpansionExecutorClaimPlanState(colonyName: string, cachedPlannedTar
             target.colony === colonyName &&
             target.enabled !== false &&
             target.action === 'claim' &&
-            isNonEmptyString(target.roomName) &&
-            target.roomName !== cachedPlannedTargetRoom
+            isNonEmptyString(target.roomName)
         )
         .map((target) => target.roomName as string)
     : [];
@@ -459,8 +457,7 @@ function getExpansionExecutorClaimPlanState(colonyName: string, cachedPlannedTar
             intent.colony === colonyName &&
             intent.action === 'claim' &&
             (intent.status === 'planned' || intent.status === 'active') &&
-            isNonEmptyString(intent.targetRoom) &&
-            intent.targetRoom !== cachedPlannedTargetRoom
+            isNonEmptyString(intent.targetRoom)
         )
         .map((intent) => intent.targetRoom as string)
     : [];

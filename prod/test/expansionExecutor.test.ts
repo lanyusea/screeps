@@ -149,13 +149,18 @@ describe('expansion executor', () => {
       energyAvailable: 800,
       energyCapacityAvailable: 800
     });
+    const targetRoom = makeExpansionRoom('W2N1', 'controller2' as Id<StructureController>, 2);
+    targetRoom.controller = {
+      ...targetRoom.controller,
+      reservation: { username: 'me', ticksToEnd: 4_000 }
+    } as StructureController;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 170,
       shard: { name: 'shardSeason', type: 'normal' } as Game['shard'],
       gcl: { level: 2, progress: 0, progressTotal: 0 } as GlobalControlLevel,
       rooms: {
         W1N1: colony.room,
-        W2N1: makeExpansionRoom('W2N1', 'controller2' as Id<StructureController>, 2)
+        W2N1: targetRoom
       },
       map: {
         describeExits: jest.fn((roomName: string) => (roomName === 'W1N1' ? { '3': 'W2N1' } : {})),
@@ -172,27 +177,7 @@ describe('expansion executor', () => {
 
     Memory.territory = {
       ...Memory.territory,
-      expansionPipelines: {},
-      targets: [
-        {
-          colony: 'W1N1',
-          roomName: 'W2N1',
-          action: 'claim',
-          createdBy: 'nextExpansionScoring',
-          controllerId: 'controller2' as Id<StructureController>
-        }
-      ],
-      intents: [
-        {
-          colony: 'W1N1',
-          targetRoom: 'W2N1',
-          action: 'claim',
-          status: 'planned',
-          updatedAt: 170,
-          createdBy: 'nextExpansionScoring',
-          controllerId: 'controller2' as Id<StructureController>
-        }
-      ]
+      expansionPipelines: {}
     };
     ((globalThis as unknown as { Game: Partial<Game> }).Game as { time: number }).time = 171;
     setSafeHomeThreat('W1N1', 171);
@@ -207,9 +192,79 @@ describe('expansion executor', () => {
         roomName: 'W2N1',
         action: 'claim',
         createdBy: 'nextExpansionScoring',
-        controllerId: 'controller2'
+        controllerId: 'controller2',
+        postClaimBootstrapReserveEnergy: 150
       }
     ]);
+  });
+
+  it('does not reuse a cached claim selection after the cached target is disabled', () => {
+    const colony = makeColony({
+      controllerLevel: 3,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800
+    });
+    const targetRoom = makeExpansionRoom('W2N1', 'controller2' as Id<StructureController>, 2);
+    targetRoom.controller = {
+      ...targetRoom.controller,
+      reservation: { username: 'me', ticksToEnd: 4_000 }
+    } as StructureController;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 180,
+      shard: { name: 'shardSeason', type: 'normal' } as Game['shard'],
+      gcl: { level: 2, progress: 0, progressTotal: 0 } as GlobalControlLevel,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: targetRoom
+      },
+      map: {
+        describeExits: jest.fn((roomName: string) => (roomName === 'W1N1' ? { '3': 'W2N1' } : {})),
+        findRoute: jest.fn(() => [{ exit: 3, room: 'W2N1' }]),
+        getRoomTerrain: jest.fn(() => makeTerrain(0))
+      } as unknown as GameMap
+    };
+    setSafeHomeThreat('W1N1', 180);
+
+    expect(refreshExpansionExecutorIntent(colony, 180)).toMatchObject({
+      status: 'planned',
+      targetRoom: 'W2N1'
+    });
+
+    Memory.territory = {
+      ...Memory.territory,
+      expansionPipelines: {},
+      targets: [
+        {
+          colony: 'W1N1',
+          roomName: 'W2N1',
+          action: 'claim',
+          enabled: false,
+          createdBy: 'nextExpansionScoring',
+          controllerId: 'controller2' as Id<StructureController>
+        }
+      ],
+      intents: []
+    };
+    ((globalThis as unknown as { Game: Partial<Game> }).Game as { time: number }).time = 181;
+    ((globalThis as unknown as { Game: Partial<Game> }).Game as { rooms: Record<string, Room> }).rooms = {
+      W1N1: colony.room,
+      W3N1: makeExpansionRoom('W3N1', 'controller3' as Id<StructureController>, 2)
+    };
+    ((globalThis as unknown as { Game: Partial<Game> }).Game.map as GameMap).describeExits = jest.fn(
+      (roomName: string) => (roomName === 'W1N1' ? { '3': 'W3N1' } : {})
+    );
+    ((globalThis as unknown as { Game: Partial<Game> }).Game.map as GameMap).findRoute = jest.fn(() => [
+      { exit: 3, room: 'W3N1' }
+    ]);
+    setSafeHomeThreat('W1N1', 181);
+
+    const selection = refreshExpansionExecutorIntent(colony, 181);
+
+    expect(selection).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W3N1'
+    });
   });
 
   it('blocks claiming when recent threat memory was not refreshed on the current tick', () => {

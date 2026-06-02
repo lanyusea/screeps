@@ -1112,17 +1112,12 @@ function getTerritoryTargetRoomName(target: unknown): string | null {
 }
 
 function isSatisfiedClaimTarget(
-  territoryMemory: TerritoryMemory,
-  colony: string,
+  _territoryMemory: TerritoryMemory,
+  _colony: string,
   targetRoom: string,
   colonyOwnerUsername: string | undefined
 ): boolean {
-  const visibleRoom = getVisibleRoom(targetRoom);
-  if (isRoomOwnedByColonyOwner(visibleRoom, colonyOwnerUsername)) {
-    return true;
-  }
-
-  return !visibleRoom && isPostClaimBootstrapSatisfied(territoryMemory, colony, targetRoom);
+  return isRoomOwnedByColonyOwner(getVisibleRoom(targetRoom), colonyOwnerUsername);
 }
 
 function isRoomOwnedByColonyOwner(room: Room | undefined, colonyOwnerUsername: string | undefined): boolean {
@@ -1130,20 +1125,6 @@ function isRoomOwnedByColonyOwner(room: Room | undefined, colonyOwnerUsername: s
   return (
     controller?.my === true ||
     (isNonEmptyString(colonyOwnerUsername) && getControllerOwnerUsername(controller) === colonyOwnerUsername)
-  );
-}
-
-function isPostClaimBootstrapSatisfied(
-  territoryMemory: TerritoryMemory,
-  colony: string,
-  targetRoom: string
-): boolean {
-  const record = territoryMemory.postClaimBootstraps?.[targetRoom] as unknown;
-  return (
-    isRecord(record) &&
-    record.colony === colony &&
-    record.roomName === targetRoom &&
-    (record.status === 'ready' || record.status === 'completed')
   );
 }
 

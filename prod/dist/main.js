@@ -17560,21 +17560,12 @@ function isClaimIntentInProgress(intent, colony) {
 function getTerritoryTargetRoomName(target) {
   return isRecord18(target) && isNonEmptyString17(target.roomName) ? target.roomName : null;
 }
-function isSatisfiedClaimTarget(territoryMemory, colony, targetRoom, colonyOwnerUsername) {
-  const visibleRoom = getVisibleRoom3(targetRoom);
-  if (isRoomOwnedByColonyOwner(visibleRoom, colonyOwnerUsername)) {
-    return true;
-  }
-  return !visibleRoom && isPostClaimBootstrapSatisfied(territoryMemory, colony, targetRoom);
+function isSatisfiedClaimTarget(_territoryMemory, _colony, targetRoom, colonyOwnerUsername) {
+  return isRoomOwnedByColonyOwner(getVisibleRoom3(targetRoom), colonyOwnerUsername);
 }
 function isRoomOwnedByColonyOwner(room, colonyOwnerUsername) {
   const controller = room == null ? void 0 : room.controller;
   return (controller == null ? void 0 : controller.my) === true || isNonEmptyString17(colonyOwnerUsername) && getControllerOwnerUsername8(controller) === colonyOwnerUsername;
-}
-function isPostClaimBootstrapSatisfied(territoryMemory, colony, targetRoom) {
-  var _a2;
-  const record = (_a2 = territoryMemory.postClaimBootstraps) == null ? void 0 : _a2[targetRoom];
-  return isRecord18(record) && record.colony === colony && record.roomName === targetRoom && (record.status === "ready" || record.status === "completed");
 }
 function getExpansionCapacitySkipReason(colony) {
   var _a2;
@@ -45411,15 +45402,12 @@ function isTerritoryAssignment(assignment) {
 var EXPANSION_EXECUTOR_REFRESH_INTERVAL = 50;
 var EXPANSION_EXECUTOR_DOWNGRADE_GUARD_TICKS = 5e3;
 var EXPANSION_EXECUTOR_THREAT_MEMORY_STALE_TICKS = 5;
+var EXPANSION_EXECUTOR_CACHE_CLAIM_PLAN_STATE_INDEX = 11;
 function refreshExpansionExecutorIntent(colony, gameTime = getGameTime40(), telemetryEvents = []) {
   const colonyName = colony.room.name;
   const colonyMemory = getWritableColonyMemory2(colony);
   const cachedSelection = getCachedExpansionExecutorSelection(colonyMemory, colonyName);
-  let stateKey = getExpansionExecutorCacheStateKey(
-    colony,
-    gameTime,
-    getCachedExpansionExecutorPlannedTargetRoom(cachedSelection)
-  );
+  let stateKey = getExpansionExecutorCacheStateKey(colony, gameTime);
   if (cachedSelection && isExpansionExecutorCacheReusable(cachedSelection, colony, gameTime, stateKey)) {
     return cachedSelection.selection;
   }
@@ -45444,6 +45432,7 @@ function refreshExpansionExecutorIntent(colony, gameTime = getGameTime40(), tele
     scoutTargetRooms.push(...scoutTargets.map((target) => target.roomName));
     refreshExpansionRoomScouting(colony, scoutTargets, gameTime, telemetryEvents);
   }
+  stateKey = refreshExpansionExecutorCacheClaimPlanState(stateKey, colonyName);
   stateKey = refreshExpansionExecutorCacheStateKeyAfterCurrentTickScoutIntel(
     stateKey,
     colonyName,
@@ -45491,9 +45480,6 @@ function getCachedExpansionExecutorSelection(colonyMemory, colonyName) {
     return null;
   }
   return { refreshedAt, stateKey: rawSelection.stateKey, selection };
-}
-function getCachedExpansionExecutorPlannedTargetRoom(cachedSelection) {
-  return (cachedSelection == null ? void 0 : cachedSelection.selection.status) === "planned" ? cachedSelection.selection.targetRoom : void 0;
 }
 function normalizeExpansionExecutorSelection(rawSelection, colonyName) {
   if (!isRecord37(rawSelection) || rawSelection.colony !== colonyName || rawSelection.status !== "planned" && rawSelection.status !== "skipped") {
@@ -45555,10 +45541,10 @@ function hasExpansionExecutorTarget(colony, targetRoom) {
   }
   const targets = (_b = (_a2 = globalThis.Memory) == null ? void 0 : _a2.territory) == null ? void 0 : _b.targets;
   return Array.isArray(targets) ? targets.some(
-    (target) => isRecord37(target) && target.colony === colony && target.roomName === targetRoom && target.action === "claim" && target.createdBy === NEXT_EXPANSION_TARGET_CREATOR
+    (target) => isRecord37(target) && target.colony === colony && target.roomName === targetRoom && target.enabled !== false && target.action === "claim" && target.createdBy === NEXT_EXPANSION_TARGET_CREATOR
   ) : false;
 }
-function getExpansionExecutorCacheStateKey(colony, gameTime = getGameTime40(), cachedPlannedTargetRoom) {
+function getExpansionExecutorCacheStateKey(colony, gameTime = getGameTime40()) {
   var _a2;
   const controller = colony.room.controller;
   const controllerLevel = isFiniteNumber12(controller == null ? void 0 : controller.level) ? controller.level : "unknown";
@@ -45576,11 +45562,19 @@ function getExpansionExecutorCacheStateKey(colony, gameTime = getGameTime40(), c
     countActiveExpansionExecutorSpawns(colony),
     getExpansionExecutorVisibleHostileState(colony.room),
     getExpansionExecutorThreatState(colony.room.name, gameTime),
-    getExpansionExecutorClaimPlanState(colony.room.name, cachedPlannedTargetRoom),
+    getExpansionExecutorClaimPlanState(colony.room.name),
     countActivePostClaimBootstraps(colony.room.name, gameTime),
     getAutonomousExpansionPipelineStateKey(colony.room.name),
     getLatestTerritoryScoutIntelUpdatedAt(colony.room.name)
   ].join("|");
+}
+function refreshExpansionExecutorCacheClaimPlanState(stateKey, colonyName) {
+  const parts = stateKey.split("|");
+  if (parts.length <= EXPANSION_EXECUTOR_CACHE_CLAIM_PLAN_STATE_INDEX) {
+    return stateKey;
+  }
+  parts[EXPANSION_EXECUTOR_CACHE_CLAIM_PLAN_STATE_INDEX] = getExpansionExecutorClaimPlanState(colonyName);
+  return parts.join("|");
 }
 function getExpansionExecutorAvailableEnergyState(energyAvailable, requiredEnergy) {
   return energyAvailable >= requiredEnergy ? "availableReady" : "availableWaiting";
@@ -45681,14 +45675,14 @@ function getGclLevel5() {
 function countActivePostClaimBootstraps(colonyName, gameTime) {
   return getActivePostClaimBootstrapBlockers(colonyName, gameTime).length;
 }
-function getExpansionExecutorClaimPlanState(colonyName, cachedPlannedTargetRoom) {
+function getExpansionExecutorClaimPlanState(colonyName) {
   var _a2;
   const territory = (_a2 = globalThis.Memory) == null ? void 0 : _a2.territory;
   const targets = Array.isArray(territory == null ? void 0 : territory.targets) ? territory.targets.filter(
-    (target) => isRecord37(target) && target.colony === colonyName && target.enabled !== false && target.action === "claim" && isNonEmptyString37(target.roomName) && target.roomName !== cachedPlannedTargetRoom
+    (target) => isRecord37(target) && target.colony === colonyName && target.enabled !== false && target.action === "claim" && isNonEmptyString37(target.roomName)
   ).map((target) => target.roomName) : [];
   const intents = Array.isArray(territory == null ? void 0 : territory.intents) ? territory.intents.filter(
-    (intent) => isRecord37(intent) && intent.colony === colonyName && intent.action === "claim" && (intent.status === "planned" || intent.status === "active") && isNonEmptyString37(intent.targetRoom) && intent.targetRoom !== cachedPlannedTargetRoom
+    (intent) => isRecord37(intent) && intent.colony === colonyName && intent.action === "claim" && (intent.status === "planned" || intent.status === "active") && isNonEmptyString37(intent.targetRoom)
   ).map((intent) => intent.targetRoom) : [];
   return [...targets, ...intents].sort().join(",");
 }
