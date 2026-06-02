@@ -303,6 +303,31 @@ def issue_comment_sink_violations(
     return violations
 
 
+def stable_job_field_text(job: Dict[str, Any], *, skip_top_level: Optional[set[str]] = None) -> str:
+    lines: List[str] = []
+    skipped = skip_top_level or set()
+
+    def append_value(path: str, value: Any) -> None:
+        if isinstance(value, dict):
+            for key in sorted(value, key=lambda item: str(item)):
+                if not path and str(key) in skipped:
+                    continue
+                child_path = f"{path}.{key}" if path else str(key)
+                append_value(child_path, value[key])
+            return
+        if isinstance(value, list):
+            for index, item in enumerate(value):
+                child_path = f"{path}[{index}]" if path else f"[{index}]"
+                append_value(child_path, item)
+            return
+        if value is None:
+            return
+        lines.append(f"{path}: {value}")
+
+    append_value("", job)
+    return "\n".join(lines)
+
+
 def validate_issue_comment_sink_policy(
     live: Dict[str, Dict[str, Any]],
     text_surfaces: Optional[Dict[str, str]] = None,
@@ -317,8 +342,12 @@ def validate_issue_comment_sink_policy(
     for jid, job in sorted(live.items()):
         prompt = job.get("prompt")
         if not isinstance(prompt, str) or not prompt:
-            continue
-        violations.extend(issue_comment_sink_violations(jid, empty_to_none(job.get("name")), f"live job {jid} prompt", prompt))
+            prompt = None
+        if prompt:
+            violations.extend(issue_comment_sink_violations(jid, empty_to_none(job.get("name")), f"live job {jid} prompt", prompt))
+        metadata_text = stable_job_field_text(job, skip_top_level={"prompt"})
+        if metadata_text:
+            violations.extend(issue_comment_sink_violations(jid, empty_to_none(job.get("name")), f"live job {jid} metadata", metadata_text))
     for surface, text in (text_surfaces or {}).items():
         violations.extend(issue_comment_sink_violations("__text__", None, surface, text))
     return violations

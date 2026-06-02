@@ -315,6 +315,31 @@ class IssueCommentSinkPolicyTests(unittest.TestCase):
             violations,
         )
 
+    def test_flags_forbidden_sink_metadata_outside_prompt(self) -> None:
+        live = {
+            "loop-a": live_recurring_job()
+            | {
+                "name": "Loop A ledger",
+                "prompt": "Issue 893 is historical context only. Routine producer output belongs in artifacts.",
+                "ledger": {
+                    "sourceIssue": "#893",
+                    "tracking surfaces": "#893",
+                },
+            }
+        }
+
+        violations = cron.validate_issue_comment_sink_policy(live)
+
+        metadata_violations = [item for item in violations if item["surface"] == "live job loop-a metadata"]
+        self.assertTrue(
+            any(item["pattern"] == "fixed_historical_source_issue" for item in metadata_violations),
+            violations,
+        )
+        self.assertTrue(
+            any(item["pattern"] == "fixed_historical_tracking_surface" for item in metadata_violations),
+            violations,
+        )
+
     def test_flags_historical_issue_as_tracking_surface(self) -> None:
         live = {
             "loop-a": live_recurring_job()
