@@ -283,6 +283,29 @@ class IssueCommentSinkPolicyTests(unittest.TestCase):
             violations,
         )
 
+    def test_flags_fanout_after_no_routine_comments_policy_preamble(self) -> None:
+        live = {
+            "loop-a": live_recurring_job()
+            | {
+                "name": "Loop A ledger",
+                "prompt": (
+                    "No routine comments are routed to historical ledgers. "
+                    "Comment #893 and the exact current atomic issue(s) with concise markdown."
+                ),
+            }
+        }
+
+        violations = cron.validate_issue_comment_sink_policy(live)
+
+        self.assertTrue(
+            any(item["pattern"] == "fixed_issue_comment_fanout" for item in violations),
+            violations,
+        )
+        self.assertTrue(
+            any(item["pattern"] == "historical_issue_comment_target" for item in violations),
+            violations,
+        )
+
     def test_flags_gh_issue_comment_to_historical_or_closed_issue(self) -> None:
         live = {
             "loop-b": live_recurring_job()
@@ -298,6 +321,19 @@ class IssueCommentSinkPolicyTests(unittest.TestCase):
             any(item["pattern"] == "historical_issue_comment_target" for item in violations),
             violations,
         )
+
+    def test_allows_same_phrase_historical_comment_prohibition(self) -> None:
+        live = {
+            "loop-b": live_recurring_job()
+            | {
+                "name": "Loop B ledger",
+                "prompt": "Historical issue #893 is context only; do not comment #893.",
+            }
+        }
+
+        violations = cron.validate_issue_comment_sink_policy(live)
+
+        self.assertEqual(violations, [])
 
     def test_flags_fixed_source_issue_metadata_for_ledger_producers(self) -> None:
         live = {

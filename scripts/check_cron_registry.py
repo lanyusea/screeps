@@ -262,12 +262,13 @@ def validate_shadow_eval_no_umbrella(
 
 
 def is_negated_policy_context(text: str, start: int) -> bool:
-    """Return true when a forbidden-looking phrase is only a prohibition/example."""
+    """Return true when a forbidden-looking phrase is directly prohibited."""
     context = text[max(0, start - 96):start].lower()
+    context = re.split(r"[\n.!?;,:]", context)[-1]
     return bool(
         re.search(
-            r"(?:do\s+not|don't|never|must\s+not|forbid(?:den)?|not\s+(?:a|an|the)?\s*"
-            r"(?:progress|comment|target|sink)|no\s+(?:routine\s+)?comments?)",
+            r"(?:do\s+not|don't|never|must\s+not|forbid(?:den)?)(?:\s+\S+){0,8}\s*$|"
+            r"not\s+(?:a|an|the)?\s*(?:progress|comment|target|sink)(?:\s+\S+){0,4}\s*$",
             context,
         )
     )
