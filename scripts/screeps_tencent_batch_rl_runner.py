@@ -3267,24 +3267,32 @@ def paid_failure_post_fix_validation_recovery_class_for_attempts(
         return None
     latest_attempt = prior_attempts[0]
     if paid_failure_post_fix_attempt_is_remote_training_timeout_without_report(latest_attempt):
-        return (
-            "remote_training_timeout_after_recovery"
-            if latest_attempt.get("recoveryAttempt") is True
-            else "remote_training_timeout"
-        )
+        if latest_attempt.get("recoveryAttempt") is True:
+            if paid_failure_post_fix_attempts_prove_pre_scale_timeout_recovery(prior_attempts):
+                return "remote_training_timeout_after_recovery"
+            return None
+        return "remote_training_timeout"
     if len(prior_attempts) == 1:
         if latest_attempt.get("recoveryAttempt") is True:
             return None
         return paid_failure_post_fix_validation_recovery_class(latest_attempt)
+    if paid_failure_post_fix_attempts_prove_pre_scale_timeout_recovery(prior_attempts):
+        return "remote_training_timeout_after_recovery"
+    return None
+
+
+def paid_failure_post_fix_attempts_prove_pre_scale_timeout_recovery(
+    prior_attempts: list[dict[str, Any]],
+) -> bool:
     recovery_attempts = [attempt for attempt in prior_attempts if attempt.get("recoveryAttempt") is True]
     admission_attempts = [attempt for attempt in prior_attempts if attempt.get("recoveryAttempt") is not True]
     if len(recovery_attempts) != 1 or len(admission_attempts) != 1:
-        return None
+        return False
     if not paid_failure_post_fix_attempt_is_pre_scale_no_compute_admission_failure(admission_attempts[0]):
-        return None
+        return False
     if not paid_failure_post_fix_attempt_is_remote_training_timeout_without_report(recovery_attempts[0]):
-        return None
-    return "remote_training_timeout_after_recovery"
+        return False
+    return True
 
 
 def paid_failure_post_fix_validation_recovery_class(attempt: dict[str, Any]) -> str | None:

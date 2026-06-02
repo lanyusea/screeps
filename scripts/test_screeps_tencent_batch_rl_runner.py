@@ -4552,6 +4552,11 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertIn("scale_up", events)
         self.assertFalse(guard["blocked"])
         self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_RECOVERY_ALLOWED_STATUS)
+        self.assertEqual(guard["postFixValidation"]["priorAttemptCount"], 2)
+        self.assertEqual(
+            guard["postFixValidation"]["priorAttempt"]["runId"],
+            "postfix-room-busy-validation-timeout",
+        )
         recovery = guard["postFixValidation"]["recoveryEligibility"]
         self.assertTrue(recovery["eligible"])
         self.assertEqual(recovery["recoveryClass"], "remote_training_timeout_after_recovery")
@@ -4560,6 +4565,78 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertIn("remote-training timeout", guard["reason"])
         self.assertEqual(controller.final_status, "completed")
         self.assertEqual(summary["outputs"]["launchGuard"]["postFixValidation"]["status"], "recovery_allowed")
+
+    def test_paid_failure_recurrence_guard_blocks_third_timeout_recovery_after_paid_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD):
+                write_tencent_failure_summary(artifact_root, f"tencent-pg-room-busy-{index}")
+            write_post_fix_validation_remote_timeout_summary(
+                artifact_root,
+                "postfix-room-busy-validation-timeout",
+                workers=5,
+                repetitions=20,
+                ticks=runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS,
+                training_timeout_seconds=3600,
+            )
+            write_post_fix_validation_recovery_remote_timeout_summary(
+                artifact_root,
+                "postfix-room-busy-validation-timeout-recovery",
+            )
+            args = runner.parse_cli_args([
+                "run-single",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+                "--training-approach",
+                "policy_gradient",
+                "--scenario-id",
+                runner.MULTI_TIER_SCENARIO_ID,
+                "--ticks",
+                str(runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS),
+                "--workers",
+                "5",
+                "--scale-environments",
+                "5",
+                "--repetitions",
+                "20",
+                "--training-timeout-seconds",
+                "7200",
+                "--postfix-validation-signature",
+                runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+            ])
+            artifact_dir = artifact_root / "new-run"
+
+            with mock.patch.object(
+                runner,
+                "paid_failure_recurrence_known_fix_status",
+                return_value={
+                    "signature": runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+                    "issue": "#1501",
+                    "pullRequest": "#1504",
+                    "mergeCommit": "95f960b2",
+                    "present": True,
+                    "evidence": "merge commit 95f960b2 is reachable from HEAD",
+                },
+            ):
+                events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
+
+        self.assertEqual(events, [])
+        self.assertEqual(controller.final_status, runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS)
+        self.assertTrue(guard["blocked"])
+        self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_CONSUMED_STATUS)
+        self.assertEqual(guard["postFixValidation"]["status"], "consumed")
+        self.assertEqual(guard["postFixValidation"]["priorAttemptCount"], 2)
+        prior_attempt = guard["postFixValidation"]["priorAttempt"]
+        self.assertEqual(prior_attempt["runId"], "postfix-room-busy-validation-timeout-recovery")
+        self.assertTrue(prior_attempt["recoveryAttempt"])
+        self.assertEqual(prior_attempt["remoteTrainingFailureClass"], "remote_training_timeout")
+        recovery = guard["postFixValidation"]["recoveryEligibility"]
+        self.assertFalse(recovery["eligible"])
+        self.assertNotIn("recoveryClass", recovery)
+        self.assertIn("recovery was already attempted", recovery["reason"])
+        self.assertFalse(summary["execution"]["computeAttempted"])
 
     def test_paid_failure_recurrence_guard_explains_timeout_recovery_when_signature_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
