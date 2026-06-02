@@ -177,11 +177,13 @@ function normalizeExpansionExecutorSelection(
   if (!reason) {
     return null;
   }
+  const reasonDetail = normalizeExpansionExecutorSkipReasonDetail(rawSelection.reasonDetail);
 
   return {
     status: 'skipped',
     colony: colonyName,
-    reason
+    reason,
+    ...(reasonDetail ? { reasonDetail } : {})
   };
 }
 
@@ -195,6 +197,17 @@ function normalizeExpansionExecutorSkipReason(
     reason === 'insufficientEvidence' ||
     reason === 'unavailable'
     ? reason
+    : undefined;
+}
+
+function normalizeExpansionExecutorSkipReasonDetail(
+  reasonDetail: unknown
+): NextExpansionTargetSelection['reasonDetail'] | undefined {
+  return reasonDetail === 'activeExpansionPipeline' ||
+    reasonDetail === 'activePostClaimBootstrap' ||
+    reasonDetail === 'activeClaimTarget' ||
+    reasonDetail === 'activeClaimIntent'
+    ? reasonDetail
     : undefined;
 }
 
@@ -273,6 +286,7 @@ function getExpansionExecutorCacheStateKey(colony: ColonySnapshot, gameTime = ge
     countActiveExpansionExecutorSpawns(colony),
     getExpansionExecutorVisibleHostileState(colony.room),
     getExpansionExecutorThreatState(colony.room.name, gameTime),
+    getExpansionExecutorClaimPlanState(colony.room.name),
     countActivePostClaimBootstraps(colony.room.name, gameTime),
     getAutonomousExpansionPipelineStateKey(colony.room.name),
     getLatestTerritoryScoutIntelUpdatedAt(colony.room.name)
@@ -403,6 +417,36 @@ function getGclLevel(): number | null {
 
 function countActivePostClaimBootstraps(colonyName: string, gameTime: number): number {
   return getActivePostClaimBootstrapBlockers(colonyName, gameTime).length;
+}
+
+function getExpansionExecutorClaimPlanState(colonyName: string): string {
+  const territory = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory;
+  const targets = Array.isArray(territory?.targets)
+    ? territory.targets
+        .filter(
+          (target) =>
+            isRecord(target) &&
+            target.colony === colonyName &&
+            target.enabled !== false &&
+            target.action === 'claim' &&
+            isNonEmptyString(target.roomName)
+        )
+        .map((target) => target.roomName as string)
+    : [];
+  const intents = Array.isArray(territory?.intents)
+    ? territory.intents
+        .filter(
+          (intent) =>
+            isRecord(intent) &&
+            intent.colony === colonyName &&
+            intent.action === 'claim' &&
+            (intent.status === 'planned' || intent.status === 'active') &&
+            isNonEmptyString(intent.targetRoom)
+        )
+        .map((intent) => intent.targetRoom as string)
+    : [];
+
+  return [...targets, ...intents].sort().join(',');
 }
 
 function getLatestTerritoryScoutIntelUpdatedAt(colony: string): number {

@@ -741,6 +741,11 @@ declare global {
     | 'unmetPreconditions'
     | 'insufficientEvidence'
     | 'unavailable';
+  type RoomExpansionSelectionReasonDetail =
+    | 'activeExpansionPipeline'
+    | 'activePostClaimBootstrap'
+    | 'activeClaimTarget'
+    | 'activeClaimIntent';
 
   interface RoomMemory {
     lastExpansionScoreTime?: number;
@@ -779,6 +784,7 @@ declare global {
     status: RoomExpansionSelectionStatus;
     colony: string;
     reason?: RoomExpansionSelectionReason;
+    reasonDetail?: RoomExpansionSelectionReasonDetail;
     targetRoom?: string;
     controllerId?: Id<StructureController>;
     score?: number;
