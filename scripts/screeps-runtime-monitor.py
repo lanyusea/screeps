@@ -44,6 +44,7 @@ DEFAULT_ROOM = world_profiles.PERSISTENT_DEFAULTS.room
 WORLD_PROFILE_ENV = world_profiles.WORLD_PROFILE_ENV
 RAMPART_DECAY_HITS_PER_EVENT = 300
 RAMPART_DECAY_EVENT_TICKS = 100
+RAMPART_DECAY_SUPPRESSION_TOLERANCE_EVENTS = 1
 RAMPART_DECAY_RECENT_HOSTILE_TICKS = RAMPART_DECAY_EVENT_TICKS
 RAMPART_SAFE_DECAY_HITS_FLOOR = 10_000
 RAMPART_CRITICAL_DAMAGE_DELTA = 5_000
@@ -2346,6 +2347,13 @@ def expected_rampart_decay_delta(previous_room_state: dict[str, Any], current_ti
     return decay_events * RAMPART_DECAY_HITS_PER_EVENT
 
 
+def safe_rampart_decay_suppression_delta(previous_room_state: dict[str, Any], current_tick_value: Any) -> int:
+    expected_delta = expected_rampart_decay_delta(previous_room_state, current_tick_value)
+    if expected_delta <= 0:
+        return 0
+    return expected_delta + RAMPART_DECAY_SUPPRESSION_TOLERANCE_EVENTS * RAMPART_DECAY_HITS_PER_EVENT
+
+
 def previous_room_state_has_recent_visible_hostiles(
     previous_room_state: dict[str, Any], current_tick_value: Any
 ) -> bool:
@@ -2397,7 +2405,7 @@ def is_expected_safe_rampart_decay_reason(
 
     return (
         current_hits > RAMPART_SAFE_DECAY_HITS_FLOOR
-        and 0 < delta <= expected_rampart_decay_delta(previous_room_state, current_tick_value)
+        and 0 < delta <= safe_rampart_decay_suppression_delta(previous_room_state, current_tick_value)
     )
 
 
@@ -2635,6 +2643,7 @@ def evaluate_room_alert(
             suppressed_reason = dict(reason)
             suppressed_reason["suppression_reason"] = "expected_rampart_decay"
             suppressed_reason["expected_decay_delta"] = expected_rampart_decay_delta(previous_room_state, snapshot.tick)
+            suppressed_reason["allowed_decay_delta"] = safe_rampart_decay_suppression_delta(previous_room_state, snapshot.tick)
             suppressed_reason["safe_hits_floor"] = RAMPART_SAFE_DECAY_HITS_FLOOR
             suppressed.append(suppressed_reason)
             continue
