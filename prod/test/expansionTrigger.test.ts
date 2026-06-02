@@ -517,7 +517,8 @@ describe('autonomous expansion trigger pipeline', () => {
       time: 50,
       rooms: {
         W1N1: colony.room,
-        W2N1: makeTargetRoom('W2N1', 'controller2' as Id<StructureController>)
+        W2N1: makeTargetRoom('W2N1', 'controller2' as Id<StructureController>),
+        W3N1: makeTargetRoom('W3N1', 'controller3' as Id<StructureController>)
       }
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
@@ -629,6 +630,56 @@ describe('autonomous expansion trigger pipeline', () => {
       stage: 'reserving',
       targetRoom: 'E29N58'
     });
+  });
+
+  it('keeps visible unowned ready-bootstrap recovery claims blocking expansion', () => {
+    const gameTime = 1_708_612;
+    const colony = makeColony({ roomName: 'E29N55', storageEnergy: 2_000, rcl: 6 });
+    const report = makeReport([
+      makeCandidate({ roomName: 'E29N58', controllerId: 'controller-e29n58' as Id<StructureController> })
+    ]);
+    const recoveryTarget = {
+      colony: 'E29N55',
+      roomName: 'E29N56',
+      action: 'claim' as const
+    };
+    const recoveryIntent = {
+      colony: 'E29N55',
+      targetRoom: 'E29N56',
+      action: 'claim' as const,
+      status: 'active' as const,
+      updatedAt: 1_218_191
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        expansionPipelines: {},
+        targets: [recoveryTarget],
+        intents: [recoveryIntent],
+        postClaimBootstraps: {
+          E29N56: makePostClaimBootstrap('E29N55', 'E29N56', 'ready')
+        } as unknown as Record<string, TerritoryPostClaimBootstrapMemory>
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: gameTime,
+      gcl: { level: 5 } as GlobalControlLevel,
+      rooms: {
+        E29N55: colony.room,
+        E29N56: makeTargetRoom('E29N56', 'controller-e29n56' as Id<StructureController>),
+        E29N58: makeTargetRoom('E29N58', 'controller-e29n58' as Id<StructureController>)
+      }
+    };
+    setSafeHomeThreat('E29N55', gameTime);
+
+    expect(refreshAutonomousExpansionPipeline(colony, report, gameTime)).toEqual({
+      status: 'skipped',
+      colony: 'E29N55',
+      reason: 'unmetPreconditions',
+      reasonDetail: 'activeClaimTarget'
+    });
+    expect(Memory.territory?.targets).toEqual([recoveryTarget]);
+    expect(Memory.territory?.intents).toEqual([recoveryIntent]);
+    expect(Memory.territory?.expansionPipelines?.E29N55).toBeUndefined();
   });
 
   it('reports active post-claim bootstrap blockers separately from generic unmet preconditions', () => {

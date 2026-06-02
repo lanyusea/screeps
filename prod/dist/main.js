@@ -17263,11 +17263,14 @@ function getTerritoryTargetRoomName(target) {
   return isRecord18(target) && isNonEmptyString17(target.roomName) ? target.roomName : null;
 }
 function isSatisfiedClaimTarget(territoryMemory, colony, targetRoom, colonyOwnerUsername) {
-  return isVisibleRoomOwnedByColonyOwner(targetRoom, colonyOwnerUsername) || isPostClaimBootstrapSatisfied(territoryMemory, colony, targetRoom);
+  const visibleRoom = getVisibleRoom3(targetRoom);
+  if (isRoomOwnedByColonyOwner(visibleRoom, colonyOwnerUsername)) {
+    return true;
+  }
+  return !visibleRoom && isPostClaimBootstrapSatisfied(territoryMemory, colony, targetRoom);
 }
-function isVisibleRoomOwnedByColonyOwner(roomName, colonyOwnerUsername) {
-  var _a;
-  const controller = (_a = getVisibleRoom3(roomName)) == null ? void 0 : _a.controller;
+function isRoomOwnedByColonyOwner(room, colonyOwnerUsername) {
+  const controller = room == null ? void 0 : room.controller;
   return (controller == null ? void 0 : controller.my) === true || isNonEmptyString17(colonyOwnerUsername) && getControllerOwnerUsername7(controller) === colonyOwnerUsername;
 }
 function isPostClaimBootstrapSatisfied(territoryMemory, colony, targetRoom) {

@@ -1112,14 +1112,16 @@ function isSatisfiedClaimTarget(
   targetRoom: string,
   colonyOwnerUsername: string | undefined
 ): boolean {
-  return (
-    isVisibleRoomOwnedByColonyOwner(targetRoom, colonyOwnerUsername) ||
-    isPostClaimBootstrapSatisfied(territoryMemory, colony, targetRoom)
-  );
+  const visibleRoom = getVisibleRoom(targetRoom);
+  if (isRoomOwnedByColonyOwner(visibleRoom, colonyOwnerUsername)) {
+    return true;
+  }
+
+  return !visibleRoom && isPostClaimBootstrapSatisfied(territoryMemory, colony, targetRoom);
 }
 
-function isVisibleRoomOwnedByColonyOwner(roomName: string, colonyOwnerUsername: string | undefined): boolean {
-  const controller = getVisibleRoom(roomName)?.controller;
+function isRoomOwnedByColonyOwner(room: Room | undefined, colonyOwnerUsername: string | undefined): boolean {
+  const controller = room?.controller;
   return (
     controller?.my === true ||
     (isNonEmptyString(colonyOwnerUsername) && getControllerOwnerUsername(controller) === colonyOwnerUsername)
