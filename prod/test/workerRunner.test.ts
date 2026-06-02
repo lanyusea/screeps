@@ -1930,7 +1930,7 @@ describe('runWorker', () => {
     expect(creep.transfer).not.toHaveBeenCalled();
   });
 
-  it('records source-container moveTo failures without a successful move tick', () => {
+  it('records source-container moveTo failures without a successful move or idle tick', () => {
     const source = {
       id: 'source1',
       energy: 300,
@@ -1978,7 +1978,6 @@ describe('runWorker', () => {
     expect(creep.harvest).not.toHaveBeenCalled();
     expect(creep.transfer).not.toHaveBeenCalled();
     expect(creep.memory.behaviorTelemetry).toMatchObject({
-      idleTicks: 1,
       moveToAttempts: 1,
       moveToFailures: 1,
       moveToErrNoPath: 1,
@@ -1988,6 +1987,7 @@ describe('runWorker', () => {
       lastMoveToRange: 0
     });
     expect(creep.memory.behaviorTelemetry?.moveTicks).toBeUndefined();
+    expect(creep.memory.behaviorTelemetry?.idleTicks).toBeUndefined();
   });
 
   it('flushes partial source-container harvest energy before harvesting again', () => {

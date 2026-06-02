@@ -22018,15 +22018,16 @@ function summarizePathFindingFailures(stuckTicks, workTicks) {
 }
 function summarizeMoveToResults(telemetry) {
   const attempts = getNonNegativeCounter(telemetry.moveToAttempts);
-  if (attempts <= 0 || !isFiniteNumber11(telemetry.lastMoveToResult)) {
+  if (attempts <= 0) {
     return {};
   }
+  const lastResult = isFiniteNumber11(telemetry.lastMoveToResult) ? Math.trunc(telemetry.lastMoveToResult) : void 0;
   return {
     moveTo: {
       attempts,
       failures: getNonNegativeCounter(telemetry.moveToFailures),
       errNoPath: getNonNegativeCounter(telemetry.moveToErrNoPath),
-      lastResult: Math.trunc(telemetry.lastMoveToResult),
+      ...lastResult !== void 0 ? { lastResult } : {},
       ...isWorkerTaskType(telemetry.lastMoveToTask) ? { lastTask: telemetry.lastMoveToTask } : {},
       ...typeof telemetry.lastMoveToTargetId === "string" && telemetry.lastMoveToTargetId.length > 0 ? { lastTargetId: telemetry.lastMoveToTargetId } : {},
       ...isFiniteNumber11(telemetry.lastMoveToRange) ? { lastRange: Math.max(0, Math.floor(telemetry.lastMoveToRange)) } : {}
@@ -33281,6 +33282,7 @@ function transferDedicatedHarvestEnergy(creep, sourceContainer, taskType) {
 function toTaskExecutionResult(result, successAction, options = {}) {
   return {
     result,
+    ...successAction === "move" ? { attemptedMoveTo: true } : {},
     ...result === OK_CODE12 ? { action: successAction } : {},
     ...result === OK_CODE12 && options.containerTransfer ? { containerTransfer: true } : {},
     ...result === OK_CODE12 && options.energyAcquisitionMethod ? { energyAcquisitionMethod: options.energyAcquisitionMethod } : {},
@@ -33298,7 +33300,7 @@ function recordTaskBehavior(creep, task, execution) {
     if (task.type === "build") {
       clearBuildTargetStuckTelemetry(creep);
     }
-  } else if (execution.result !== ERR_NOT_IN_RANGE_CODE6) {
+  } else if (execution.result !== ERR_NOT_IN_RANGE_CODE6 && !execution.attemptedMoveTo) {
     recordCreepBehaviorIdle(creep);
   }
   if (execution.containerTransfer) {

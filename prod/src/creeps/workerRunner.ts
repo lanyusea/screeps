@@ -94,6 +94,7 @@ interface WorkerTaskSelectionNullLoopState {
 interface TaskExecutionResult {
   result: ScreepsReturnCode;
   action?: 'move' | 'work';
+  attemptedMoveTo?: boolean;
   containerTransfer?: boolean;
   energyAcquisitionMethod?: RuntimeEnergyAcquisitionMethod;
   sourceContainerWithdrawal?: boolean;
@@ -2417,6 +2418,7 @@ function toTaskExecutionResult(
 ): TaskExecutionResult {
   return {
     result,
+    ...(successAction === 'move' ? { attemptedMoveTo: true } : {}),
     ...(result === OK_CODE ? { action: successAction } : {}),
     ...(result === OK_CODE && options.containerTransfer ? { containerTransfer: true } : {}),
     ...(result === OK_CODE && options.energyAcquisitionMethod
@@ -2442,7 +2444,7 @@ function recordTaskBehavior(
     if (task.type === 'build') {
       clearBuildTargetStuckTelemetry(creep);
     }
-  } else if (execution.result !== ERR_NOT_IN_RANGE_CODE) {
+  } else if (execution.result !== ERR_NOT_IN_RANGE_CODE && !execution.attemptedMoveTo) {
     recordCreepBehaviorIdle(creep);
   }
 

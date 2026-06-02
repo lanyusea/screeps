@@ -848,6 +848,47 @@ describe('runtime telemetry summaries', () => {
     });
   });
 
+  it('keeps moveTo counters when persistent memory lacks a last moveTo result', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    const worker = makeWorker(
+      {
+        role: 'worker',
+        colony: 'W1N1',
+        behaviorTelemetry: {
+          moveToAttempts: 2,
+          moveToFailures: 1,
+          moveToErrNoPath: 1
+        }
+      },
+      0,
+      'StaleMoveToWorker'
+    );
+
+    emitRuntimeSummary([colony], [worker]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    const behavior = room.behavior as Record<string, unknown>;
+    const totals = behavior.totals as Record<string, unknown>;
+    expect(totals).toMatchObject({
+      moveTo: {
+        attempts: 2,
+        failures: 1,
+        errNoPath: 1
+      }
+    });
+    expect((behavior.creeps as Array<Record<string, unknown>>)[0]).toMatchObject({
+      creepName: 'StaleMoveToWorker',
+      moveTo: {
+        attempts: 2,
+        failures: 1,
+        errNoPath: 1
+      }
+    });
+    expect(((behavior.creeps as Array<Record<string, unknown>>)[0].moveTo as Record<string, unknown>).lastResult)
+      .toBeUndefined();
+  });
+
   it('reports energy acquisition method distribution across workers and haulers', () => {
     const worker = makeWorker(
       {

@@ -561,7 +561,7 @@ interface RuntimeMoveToSummary {
 }
 
 interface RuntimeCreepMoveToSummary extends RuntimeMoveToSummary {
-  lastResult: number;
+  lastResult?: number;
   lastTask?: CreepTaskMemory['type'];
   lastTargetId?: string;
   lastRange?: number;

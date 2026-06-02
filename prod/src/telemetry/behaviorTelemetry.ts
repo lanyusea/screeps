@@ -43,7 +43,7 @@ export interface RuntimeMoveToSummary {
 }
 
 export interface RuntimeCreepMoveToSummary extends RuntimeMoveToSummary {
-  lastResult: number;
+  lastResult?: number;
   lastTask?: CreepTaskMemory['type'];
   lastTargetId?: string;
   lastRange?: number;
@@ -406,16 +406,19 @@ function summarizeMoveToResults(
   telemetry: CreepBehaviorTelemetryMemory
 ): { moveTo?: RuntimeCreepMoveToSummary } {
   const attempts = getNonNegativeCounter(telemetry.moveToAttempts);
-  if (attempts <= 0 || !isFiniteNumber(telemetry.lastMoveToResult)) {
+  if (attempts <= 0) {
     return {};
   }
+  const lastResult = isFiniteNumber(telemetry.lastMoveToResult)
+    ? Math.trunc(telemetry.lastMoveToResult)
+    : undefined;
 
   return {
     moveTo: {
       attempts,
       failures: getNonNegativeCounter(telemetry.moveToFailures),
       errNoPath: getNonNegativeCounter(telemetry.moveToErrNoPath),
-      lastResult: Math.trunc(telemetry.lastMoveToResult),
+      ...(lastResult !== undefined ? { lastResult } : {}),
       ...(isWorkerTaskType(telemetry.lastMoveToTask) ? { lastTask: telemetry.lastMoveToTask } : {}),
       ...(typeof telemetry.lastMoveToTargetId === 'string' && telemetry.lastMoveToTargetId.length > 0
         ? { lastTargetId: telemetry.lastMoveToTargetId }
