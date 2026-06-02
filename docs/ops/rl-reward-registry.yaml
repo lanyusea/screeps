@@ -7,7 +7,7 @@ schema:
   replaces:
     - "https://github.com/lanyusea/screeps/issues/907"
   created_date: "2026-05-13"
-  updated_date: "2026-05-16"
+  updated_date: "2026-06-02"
   status: "active"
   canonical_path: "docs/ops/rl-reward-registry.yaml"
 
@@ -230,6 +230,68 @@ entries:
       marketIntentControl: false
     decision_record: "docs/ops/examples/rl-reward-decisions/RD-V3-004-constructionNeglectPenalty.json"
     notes: "This proposed registry entry does not authorize live reward defaults or official MMO writes."
+
+  - id: "RRD-2026-06-02-1555"
+    component_name: "workerTransportEfficiency"
+    version: "v1"
+    change_type: "add"
+    component_kind: "penalty"
+    priority: "P1"
+    status: "proposed"
+    candidate_weight: null
+    candidate_formula: "pending telemetry; possible negative reward for avoidable low-load transport trips below 20% carry load"
+    candidate_predicate:
+      carried_load_ratio_lt: 0.20
+      task_kind_in:
+        - "transfer"
+        - "upgrade"
+      reachable_energy_at_acquisition: true
+      target_saturation_explains_low_load: false
+      no_reachable_energy_reason: false
+      emergency_refill_or_controller_safety: false
+      hostile_or_survival_exception: false
+    evidence:
+      - "Issue #1555: 2026-06-01 Gameplay Evolution Review observed transfer-task workers around 0-6/100 carried energy."
+      - "2026-06-02 Gameplay Evolution Review archive c7b3dda8f1ac: E29N56 reported low-load returns at 9/100 and 16/100 with reason noReachableEnergy and mean tripEnergy 12.5."
+      - "2026-06-02 Gameplay Evolution Review archive c7b3dda8f1ac: E29N57 evidence was dominated by spawn-reservation/build-deadlock behavior, so the reward signal must not mask dispatch bugs."
+    hypothesis: >
+      Penalizing avoidable low-load worker transport micro-hauls should improve
+      useful delivered energy per trip and reduce wasted movement/CPU after
+      higher-priority reliability, territory, emergency refill, controller
+      safety, and starvation exceptions are excluded.
+    validation_criteria:
+      - "Hold for #1554 telemetry or an equivalent artifact before any reward experiment."
+      - "Telemetry shows repeated avoidable low-load transport windows over at least 8 hours, not only noReachableEnergy, emergency, hostile, controller-safety, or genuine starvation exceptions."
+      - "Qualifying samples include carriedEnergy, freeCapacity, capacity/loadFactor, task kind, source energy reachability, target saturation, room buffer state, spawn-reservation active/idle state, deliveredEnergyPerTrip or returnLoadFactor, CPU bucket, stuck ticks, and pathFindingFailures."
+      - "A future #924-compatible candidate-vs-baseline scorecard shows avoidable low-load return count decreases and deliveredEnergyPerTrip or returnLoadFactor improves versus baseline."
+      - "Spawn/refill latency, controller downgrade safety, construction progress, CPU bucket, stuck/pathing metrics, reliability, territory, and resource metrics do not regress versus baseline."
+      - "Validation artifacts preserve liveEffect=false, officialMmoWrites=false, and officialMmoWritesAllowed=false."
+    rollback_condition:
+      - "Reject if most low-load returns are noReachableEnergy, emergency refill, controller safety, hostile retreat, or genuine starvation exceptions."
+      - "Reject or reduce if urgent refill, controller safety, construction progress, reliability, territory, resources, CPU, stuck/pathing, or hostile exposure regress versus baseline."
+      - "Reject if a dispatch deadlock such as idle spawn reservation is mislabeled as transport inefficiency."
+      - "Reject if any official MMO learned-policy write, Memory/RawMemory write, creep intent, spawn intent, construction intent, market intent, or other live control surface is enabled."
+    linked_github_issue: "https://github.com/lanyusea/screeps/issues/1555"
+    related_github_issues:
+      - "https://github.com/lanyusea/screeps/issues/907"
+      - "https://github.com/lanyusea/screeps/issues/906"
+      - "https://github.com/lanyusea/screeps/issues/924"
+      - "https://github.com/lanyusea/screeps/issues/1554"
+    proposed_by: "Issue #1555; Gameplay Evolution Review 2026-06-01 and 2026-06-02; RL Steward intake"
+    created_date: "2026-06-02"
+    scope: "telemetry hold; offline/shadow reward decision only; no learned-policy live official MMO control"
+    safety:
+      liveEffect: false
+      officialMmoWrites: false
+      officialMmoWritesAllowed: false
+      memoryWritesAllowed: false
+      rawMemoryWritesAllowed: false
+      rawCreepIntentControl: false
+      spawnIntentControl: false
+      constructionIntentControl: false
+      marketIntentControl: false
+    decision_record: "docs/ops/examples/rl-reward-decisions/RD-V3-006-workerTransportEfficiency.json"
+    notes: "HOLD_FOR_TELEMETRY. This proposed registry entry is not approval for training, reward defaults, or official MMO writes."
 
   - id: "RRD-2026-05-13-003"
     component_name: "lowLoadHarvestPenalty"

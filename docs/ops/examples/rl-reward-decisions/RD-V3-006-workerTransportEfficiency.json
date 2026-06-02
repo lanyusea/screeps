@@ -1,0 +1,139 @@
+{
+  "rewardDecisionId": "RD-V3-006-workerTransportEfficiency",
+  "title": "Proposal: worker transport efficiency telemetry hold",
+  "state": "proposed",
+  "linkedGitHubIssue": "https://github.com/lanyusea/screeps/issues/1555",
+  "linkedMetricEvidence": [
+    "https://github.com/lanyusea/screeps/issues/906",
+    "https://github.com/lanyusea/screeps/issues/907",
+    "https://github.com/lanyusea/screeps/issues/924",
+    "2026-06-01 Gameplay Evolution Review: workers were observed running transfer tasks with carriedEnergy around 0-6 and freeCapacity around 94.",
+    "archive:/root/.hermes/cron/output/c7b3dda8f1ac/2026-06-02_01-21-18.md: E29N56 reported 2 low-load returns at 9/100 and 16/100 with reason noReachableEnergy and mean tripEnergy 12.5; E29N57 reported spawn-reservation/build-deadlock behavior rather than direct low-load transport evidence."
+  ],
+  "linkedDashboardPanels": [
+    "runtime summary: workerEfficiency.lowLoadReturnCount",
+    "runtime summary: workerEfficiency.avoidableLowLoadReturnCount",
+    "runtime summary: workerEfficiency.tripEnergyMean",
+    "runtime summary: workerEfficiency.tripEnergyMin",
+    "runtime summary: workerEfficiency.lowLoadReturnReasons",
+    "planned telemetry: low-load transport reason distribution and noReachableEnergy counter",
+    "planned #924-compatible candidate-vs-baseline logistics scorecard"
+  ],
+  "problemStatement": "Runtime and gameplay review evidence shows workers sometimes returning or transferring with very low energy loads, including 0-6/100 transfer-task observations and E29N56 returns at 9/100 and 16/100. These micro-hauls can waste movement, CPU, and worker ticks when energy is reachable and the room is not in emergency recovery. The current concrete E29N56 samples are tagged noReachableEnergy, and the E29N57 evidence is dominated by spawn-reservation/build-deadlock behavior, so the evidence is not yet sufficient to start a reward experiment without better telemetry attribution.",
+  "hypothesis": "A future offline/shadow worker_transport_efficiency penalty for avoidable low-load micro-hauls should increase useful delivered energy per trip and reduce wasteful transfer/upgrade travel, but only when telemetry proves the low-load trip was avoidable. The penalty must exclude emergency spawn/refill recovery, controller downgrade protection, hostile retreat, genuine energy starvation, noReachableEnergy cases, and other higher-priority reliability or territory gates.",
+  "currentRewardCoverage": "Runtime telemetry already exposes lowLoadReturnCount, avoidableLowLoadReturnCount, lowLoadReturnReasons, carriedEnergy/freeCapacity samples, and trip energy summaries. The existing worker-efficiency RL reward remains generic work_ticks/total_ticks plus delivered-energy, idle, range, and risk terms. No accepted reward component currently targets worker_transport_efficiency micro-hauls, and the available evidence lacks a durable per-trip join across source energy reachability, target saturation, task intent, path distance, room buffer state, spawn reservation state, delivered energy, CPU, and stuck/pathing outcome.",
+  "proposedChangeType": "add_component_pending_telemetry",
+  "component": "worker_transport_efficiency",
+  "direction": "lower_is_better for avoidable low-load returns; candidate penalty only after telemetry proves carriedEnergy / capacity is below 0.20 on a non-emergency trip with reachable energy and no higher-priority exception",
+  "expectedBehaviorChange": "After telemetry is sufficient and a separate offline/shadow experiment is approved, candidate policies should rank below baseline when they repeatedly choose avoidable low-load transfer or upgrade trips, and should rank above comparable policies when they deliver fuller loads without delaying emergency refill, construction unblock, controller safety, or room survival. This decision does not authorize training, live reward defaults, or official MMO learned-policy writes.",
+  "decisionDisposition": "hold_for_telemetry",
+  "telemetryGate": {
+    "requiredBeforeRewardExperiment": true,
+    "sourceIssue": "https://github.com/lanyusea/screeps/issues/1554",
+    "requiredEvidence": [
+      "per-room lowLoadReturnCount, avoidableLowLoadReturnCount, and lowLoadReturnReasons over repeated windows",
+      "trip load factor with carriedEnergy, freeCapacity, and capacity at the dispatch and delivery points",
+      "source or nearby energy reachability at the acquisition decision",
+      "transfer or upgrade target type and saturation state",
+      "room energy buffer, spawn reservation active/idle state, and controller downgrade pressure",
+      "deliveredEnergyPerTrip and useful work ticks",
+      "path distance, stuck ticks, pathFindingFailures, and CPU bucket impact"
+    ],
+    "reason": "The 9/100 and 16/100 E29N56 samples are currently tagged noReachableEnergy, which can be a valid starvation exception rather than an avoidable transport inefficiency."
+  },
+  "riskAndRegressions": [
+    "A naive low-load penalty can punish correct noReachableEnergy or energy-starvation behavior.",
+    "Waiting for fuller loads can delay urgent spawn, extension, tower, or controller refill.",
+    "The penalty can mask a dispatch bug, such as spawn reservation blocking builders, by treating a cause as a reward symptom.",
+    "Longer acquisition trips can increase path CPU, stuck ticks, or hostile exposure.",
+    "Micro-haul evidence from one room/window can overfit a reward component before a repeated baseline exists."
+  ],
+  "validationWindows": [
+    {
+      "name": "telemetry_readiness_gate",
+      "minimumDurationHours": 8,
+      "requiredEvidence": [
+        "repeated low-load transport windows from at least two runtime captures or a single continuous 8-hour capture",
+        "reason distribution separates noReachableEnergy, emergency refill, controller safety, hostile retreat, source starvation, and avoidable micro-haul cases",
+        "source or nearby energy reachability and target saturation are present for qualifying samples",
+        "spawn reservation active/idle state and construction-deadlock context are present so dispatch deadlocks are not mislabeled as reward inefficiency",
+        "deliveredEnergyPerTrip or equivalent useful energy delivery metric is present",
+        "liveEffect:false",
+        "officialMmoWrites:false",
+        "officialMmoWritesAllowed:false"
+      ]
+    },
+    {
+      "name": "historical_shadow_reward_replay",
+      "minimumDurationHours": 8,
+      "requiredEvidence": [
+        "only after telemetry_readiness_gate passes",
+        "candidate predicate excludes noReachableEnergy and emergency/survival exceptions",
+        "avoidable low-load return count and return load factor versus baseline",
+        "delivered energy per trip versus baseline",
+        "spawn/refill latency, controller downgrade safety, construction progress, CPU bucket, stuck ticks, and reliability non-regression",
+        "liveEffect:false",
+        "officialMmoWrites:false"
+      ]
+    },
+    {
+      "name": "candidate_vs_baseline_scorecard",
+      "minimumDurationHours": 8,
+      "requiredEvidence": [
+        "#924-compatible scorecard artifact comparing the transport-efficiency candidate against the incumbent baseline",
+        "qualifying avoidable low-load micro-haul count decreases versus baseline",
+        "mean delivered energy per trip or return load factor improves versus baseline",
+        "territory, resource throughput, spawn/refill safety, CPU, and reliability do not regress",
+        "officialMmoWritesAllowed:false"
+      ]
+    }
+  ],
+  "acceptanceCriteria": [
+    "This record is accepted only as a proposed decision and telemetry hold; it is not approval for a reward experiment.",
+    "Issue #1554 or an equivalent metric artifact first proves repeated avoidable low-load micro-hauls, not only noReachableEnergy or emergency exceptions.",
+    "The candidate predicate is limited to non-emergency trips where carriedEnergy / capacity is below 0.20, reachable energy existed at the acquisition decision, target saturation does not explain the small load, and no higher-priority reliability or territory gate applies.",
+    "A future generated #924-compatible candidate-vs-baseline scorecard artifact shows avoidable low-load returns decrease and deliveredEnergyPerTrip or returnLoadFactor improves versus baseline.",
+    "Spawn/refill latency, controller downgrade safety, construction progress, CPU bucket, stuck/pathing metrics, reliability, territory, and resource metrics do not regress versus baseline.",
+    "All validation artifacts preserve liveEffect:false, officialMmoWrites:false, officialMmoWritesAllowed:false, and all live-control safety flags false."
+  ],
+  "rollbackCriteria": [
+    "Reject the reward experiment if telemetry shows most low-load returns are noReachableEnergy, emergency refill, controller safety, hostile retreat, or genuine starvation exceptions.",
+    "Reject or reduce the penalty if spawn, extension, tower, or controller refill latency regresses versus baseline.",
+    "Reject or gate the penalty if delivered energy per trip improves only by increasing path CPU, stuck ticks, pathFindingFailures, or hostile exposure.",
+    "Reject the candidate if the #924-compatible scorecard shows reliability, territory, resource, construction progress, or CPU regression not explicitly accepted by owner review.",
+    "Reject if the implementation enables any official MMO learned-policy write, live control surface, Memory write, RawMemory write, creep intent, spawn intent, construction intent, or market intent.",
+    "Owner rejects, suspends, or supersedes the decision."
+  ],
+  "safety": {
+    "liveEffect": false,
+    "officialMmoWrites": false,
+    "officialMmoWritesAllowed": false,
+    "memoryWritesAllowed": false,
+    "rawMemoryWritesAllowed": false,
+    "rawCreepIntentControl": false,
+    "spawnIntentControl": false,
+    "constructionIntentControl": false,
+    "marketIntentControl": false
+  },
+  "stewardDecision": {
+    "state": "hold_for_telemetry",
+    "decidedBy": null,
+    "decidedAt": null,
+    "notes": "Proposal only. The available evidence is enough to register issue #1555 as a reward-decision candidate, but not enough to start a reward experiment. Require #1554 or equivalent telemetry to prove avoidable low-load micro-hauls before any offline/shadow reward candidate is trained or scorecarded."
+  },
+  "ownerDecision": {
+    "state": "not_requested",
+    "decidedBy": null,
+    "decidedAt": null,
+    "notes": "No accepted reward change, no reward experiment approval, and no live official MMO authority."
+  },
+  "linkedPRs": [],
+  "linkedTrainingRuns": [],
+  "linkedPolicyEvaluations": [
+    "archive:/root/.hermes/cron/output/c7b3dda8f1ac/2026-06-02_01-21-18.md",
+    "pending: #1554 telemetry readiness evidence",
+    "pending: future #924-compatible candidate-vs-baseline logistics scorecard if telemetry gate passes"
+  ],
+  "createdAt": "2026-06-02T00:00:00Z",
+  "updatedAt": "2026-06-02T00:00:00Z"
+}
