@@ -366,6 +366,7 @@ CLI_EXPLICIT_OPTION_DESTS = {
     "--workers": "workers",
     "--scale-environments": "scale_environments",
     "--repetitions": "repetitions",
+    "--training-timeout-seconds": "training_timeout_seconds",
 }
 PREFLIGHT_MODE_OPTION_DESTS = frozenset((
     "training_approach",
@@ -2916,6 +2917,7 @@ def build_paid_failure_recurrence_launch_guard(
     next_action = None
     if blocked_signature is not None:
         next_action = paid_failure_recurrence_next_action(blocked_signature, validation)
+    current_validation_plan = paid_failure_current_validation_plan(args)
     return {
         "type": PAID_FAILURE_RECURRENCE_GUARD_TYPE,
         "schemaVersion": 1,
@@ -2932,6 +2934,9 @@ def build_paid_failure_recurrence_launch_guard(
             "scenarioId": scenario_id_from_args(args),
             "workers": getattr(args, "workers", None),
             "repetitions": getattr(args, "repetitions", None),
+            "trainingTimeoutSeconds": current_validation_plan["trainingTimeoutSeconds"],
+            "plannedBatchScale": current_validation_plan["plannedBatchScale"],
+            "validationPlan": current_validation_plan,
             "policyGradientTrustSampleRequest": policy_gradient_trust_sample_request(args),
             "allowedPaidFailureRecurrenceValidations": sorted(
                 paid_failure_recurrence_validation_requests(args)
@@ -3013,6 +3018,91 @@ def paid_failure_recurrence_validation_requests(args: argparse.Namespace) -> set
         return set()
     values = raw if isinstance(raw, list) else [raw]
     return {value for value in (text_value(item) for item in values) if value is not None}
+
+
+def paid_failure_current_validation_plan(args: argparse.Namespace) -> dict[str, Any]:
+    explicit_options = set(getattr(args, "explicit_cli_options", ()))
+    planned_scale = planned_batch_scale_from_args(args)
+    training_timeout = max(0, int(getattr(args, "training_timeout_seconds", 0) or 0))
+    return {
+        "workers": getattr(args, "workers", None),
+        "scaleEnvironments": resolve_scale_environment_count(args),
+        "repetitions": getattr(args, "repetitions", None),
+        "requestedTicks": getattr(args, "ticks", None),
+        "effectiveTicks": effective_training_ticks(args),
+        "trainingTimeoutSeconds": training_timeout,
+        "plannedBatchScale": planned_scale,
+        "explicitTrainingTimeout": "training_timeout_seconds" in explicit_options,
+        "explicitValidationSlice": bool(
+            explicit_options.intersection({"workers", "scale_environments", "repetitions", "ticks"})
+        ),
+    }
+
+
+def paid_failure_post_fix_timeout_recovery_sizing(
+    args: argparse.Namespace,
+    prior_attempts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    current_plan = paid_failure_current_validation_plan(args)
+    prior_attempt = next(
+        (
+            attempt
+            for attempt in prior_attempts
+            if paid_failure_post_fix_attempt_is_remote_training_timeout_without_report(attempt)
+        ),
+        None,
+    )
+    prior_plan = dict_value(prior_attempt.get("validationPlan")) if prior_attempt is not None else None
+    prior_plan = prior_plan or {}
+    current_training_timeout = scale_gates.non_negative_int(current_plan.get("trainingTimeoutSeconds"))
+    prior_training_timeout = scale_gates.non_negative_int(prior_plan.get("trainingTimeoutSeconds"))
+    current_environment_rows = scale_gates.non_negative_int(
+        path_value(current_plan, "plannedBatchScale", "environmentRows")
+    )
+    prior_environment_rows = scale_gates.non_negative_int(
+        path_value(prior_plan, "plannedBatchScale", "environmentRows")
+    )
+    current_simulator_ticks = scale_gates.non_negative_int(
+        path_value(current_plan, "plannedBatchScale", "simulatorTicks")
+    )
+    prior_simulator_ticks = scale_gates.non_negative_int(
+        path_value(prior_plan, "plannedBatchScale", "simulatorTicks")
+    )
+    explicit_training_timeout = current_plan.get("explicitTrainingTimeout") is True
+    timeout_increased = bool(
+        explicit_training_timeout
+        and current_training_timeout is not None
+        and prior_training_timeout is not None
+        and current_training_timeout > prior_training_timeout
+    )
+    smaller_environment_rows = bool(
+        current_environment_rows is not None
+        and prior_environment_rows is not None
+        and current_environment_rows < prior_environment_rows
+    )
+    smaller_simulator_ticks = bool(
+        current_simulator_ticks is not None
+        and prior_simulator_ticks is not None
+        and current_simulator_ticks < prior_simulator_ticks
+    )
+    # plannedBatchScale.simulatorTicks is total simulator work, not per-environment ticks.
+    smaller_validation_slice = smaller_simulator_ticks
+    return {
+        "priorAttemptRunId": text_value(prior_attempt.get("runId")) if prior_attempt is not None else None,
+        "priorTrainingTimeoutSeconds": prior_training_timeout,
+        "currentTrainingTimeoutSeconds": current_training_timeout,
+        "explicitTrainingTimeout": explicit_training_timeout,
+        "timeoutIncreased": timeout_increased,
+        "priorEnvironmentRows": prior_environment_rows,
+        "currentEnvironmentRows": current_environment_rows,
+        "smallerEnvironmentRows": smaller_environment_rows,
+        "priorSimulatorTicks": prior_simulator_ticks,
+        "currentSimulatorTicks": current_simulator_ticks,
+        "smallerSimulatorTicks": smaller_simulator_ticks,
+        "smallerValidationSlice": smaller_validation_slice,
+        "acceptable": timeout_increased or smaller_validation_slice,
+        "requiredChange": "explicitly_larger_training_timeout_or_smaller_validation_slice",
+    }
 
 
 def paid_failure_post_fix_validation_state(
@@ -3117,12 +3207,27 @@ def paid_failure_post_fix_validation_recovery_eligibility(
     if trust_sample_request.get("meetsTrustSampleTarget") is not True:
         result["reason"] = "policy-gradient requested samples are below the trust gate target"
         return result
+    if recovery_class in {"remote_training_timeout", "remote_training_timeout_after_recovery"}:
+        paid_failure_post_fix_validation_recovery_metadata(
+            result,
+            recovery_class,
+            prior_attempts,
+        )
+        timeout_sizing = paid_failure_post_fix_timeout_recovery_sizing(args, prior_attempts)
+        result["timeoutRecoverySizing"] = timeout_sizing
+        if timeout_sizing.get("acceptable") is not True:
+            result["reason"] = (
+                "remote-training timeout recovery requires an explicitly larger "
+                "--training-timeout-seconds or a smaller validation slice than the latest timed-out attempt"
+            )
+            return result
     result["eligible"] = True
-    paid_failure_post_fix_validation_recovery_metadata(
-        result,
-        recovery_class,
-        prior_attempts,
-    )
+    if "recoveryClass" not in result:
+        paid_failure_post_fix_validation_recovery_metadata(
+            result,
+            recovery_class,
+            prior_attempts,
+        )
     if recovery_class in {"remote_training_timeout", "remote_training_timeout_after_recovery"}:
         result["reason"] = (
             "one recovery validation is allowed after a consumed remote-training timeout "
@@ -3158,22 +3263,48 @@ def paid_failure_post_fix_validation_recovery_metadata(
 def paid_failure_post_fix_validation_recovery_class_for_attempts(
     prior_attempts: list[dict[str, Any]],
 ) -> str | None:
-    if len(prior_attempts) == 1:
-        attempt = prior_attempts[0]
-        if attempt.get("recoveryAttempt") is True:
-            return None
-        return paid_failure_post_fix_validation_recovery_class(attempt)
-    if len(prior_attempts) != 2:
+    if not prior_attempts:
         return None
+    if paid_failure_post_fix_attempts_include_timeout_recovery(prior_attempts):
+        if paid_failure_post_fix_attempts_prove_pre_scale_timeout_recovery(prior_attempts):
+            return "remote_training_timeout_after_recovery"
+        return None
+    latest_attempt = prior_attempts[0]
+    if paid_failure_post_fix_attempt_is_remote_training_timeout_without_report(latest_attempt):
+        if latest_attempt.get("recoveryAttempt") is True:
+            if paid_failure_post_fix_attempts_prove_pre_scale_timeout_recovery(prior_attempts):
+                return "remote_training_timeout_after_recovery"
+            return None
+        return "remote_training_timeout"
+    if len(prior_attempts) == 1:
+        if latest_attempt.get("recoveryAttempt") is True:
+            return None
+        return paid_failure_post_fix_validation_recovery_class(latest_attempt)
+    if paid_failure_post_fix_attempts_prove_pre_scale_timeout_recovery(prior_attempts):
+        return "remote_training_timeout_after_recovery"
+    return None
+
+
+def paid_failure_post_fix_attempts_include_timeout_recovery(prior_attempts: list[dict[str, Any]]) -> bool:
+    return any(
+        attempt.get("recoveryAttempt") is True
+        and paid_failure_post_fix_attempt_is_remote_training_timeout_without_report(attempt)
+        for attempt in prior_attempts
+    )
+
+
+def paid_failure_post_fix_attempts_prove_pre_scale_timeout_recovery(
+    prior_attempts: list[dict[str, Any]],
+) -> bool:
     recovery_attempts = [attempt for attempt in prior_attempts if attempt.get("recoveryAttempt") is True]
     admission_attempts = [attempt for attempt in prior_attempts if attempt.get("recoveryAttempt") is not True]
     if len(recovery_attempts) != 1 or len(admission_attempts) != 1:
-        return None
+        return False
     if not paid_failure_post_fix_attempt_is_pre_scale_no_compute_admission_failure(admission_attempts[0]):
-        return None
+        return False
     if not paid_failure_post_fix_attempt_is_remote_training_timeout_without_report(recovery_attempts[0]):
-        return None
-    return "remote_training_timeout_after_recovery"
+        return False
+    return True
 
 
 def paid_failure_post_fix_validation_recovery_class(attempt: dict[str, Any]) -> str | None:
@@ -3404,6 +3535,21 @@ def paid_failure_post_fix_validation_attempt_from_summary(
     remote_failure = dict_value(path_value(summary, "outputs", "remoteTrainingFailure"))
     remote_failure_class = text_value(remote_failure.get("failureClass")) if remote_failure else None
     training_report = dict_value(path_value(summary, "outputs", "trainingReport"))
+    execution_timeouts = dict_value(inputs.get("executionTimeouts")) or {}
+    planned_batch_scale = dict_value(inputs.get("plannedBatchScale"))
+    policy_gradient_request = dict_value(inputs.get("policyGradientTrustSampleRequest"))
+    validation_plan = {
+        "workers": scale_gates.non_negative_int(inputs.get("workers")),
+        "repetitions": scale_gates.non_negative_int(inputs.get("repetitions")),
+        "requestedTicks": scale_gates.non_negative_int(inputs.get("ticks")),
+        "trainingTimeoutSeconds": scale_gates.non_negative_int(
+            execution_timeouts.get("trainingTimeoutSeconds")
+        ),
+        "plannedBatchScale": copy.deepcopy(planned_batch_scale) if planned_batch_scale is not None else None,
+        "policyGradientTrustSampleRequest": copy.deepcopy(policy_gradient_request)
+        if policy_gradient_request is not None
+        else None,
+    }
     attempt = {
         "runId": run_id,
         "summaryPath": str(summary_path),
@@ -3429,6 +3575,7 @@ def paid_failure_post_fix_validation_attempt_from_summary(
         "environmentsRun": environments_run,
         "remoteTrainingFailurePresent": remote_failure is not None,
         "remoteTrainingFailureClass": remote_failure_class,
+        "validationPlan": validation_plan,
     }
     attempt["validationSlotConsumed"] = paid_failure_post_fix_attempt_consumes_validation_slot(attempt)
     return attempt
@@ -3543,7 +3690,7 @@ def paid_failure_recurrence_next_action(
         }:
             return (
                 f"{base}; one recovery validation is allowed because {run_id} timed out in remote "
-                "training without a completed report; rerun only with an explicitly sized timeout "
+                "training without a completed report; rerun only with an explicitly larger timeout "
                 "or a smaller validation slice, and keep the guard active if room-busy recurs"
             )
         return (
@@ -3568,11 +3715,20 @@ def paid_failure_recurrence_next_action(
                 or text_value(prior.get("runId"))
                 or "the prior post-fix validation"
             )
+            if recovery.get("requested") is True:
+                reason = text_value(recovery.get("reason")) or (
+                    "the requested recovery did not change the timeout or validation slice"
+                )
+                return (
+                    f"{base}; {run_id} timed out in remote training without a completed report; "
+                    f"{reason}; inspect collected partial diagnostics, then only launch a recovery "
+                    "with an explicitly larger timeout or a smaller validation slice"
+                )
             return (
                 f"{base}; {run_id} timed out in remote training without a completed report, "
                 "but this launch did not request the explicit post-fix validation signature; "
                 "inspect collected partial diagnostics, then only launch a recovery with that "
-                "signature plus an explicitly sized timeout or a smaller validation slice"
+                "signature plus an explicitly larger timeout or a smaller validation slice"
             )
         if recovery_class == "pre_scale_no_compute_admission_failure":
             run_id = (
