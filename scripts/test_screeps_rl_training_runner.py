@@ -85,6 +85,8 @@ def reinforce_stability_results(candidate_returns: list[list[int | float]]) -> l
 
 def gradient_momentum_training_card() -> JsonObject:
     card = base_card(["variant-a", "variant-b"])
+    card["training_approach"] = "policy_gradient"
+    card["simulation"]["ticks"] = runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS
     card["policy_gradient"] = reinforce_stability_policy_gradient()
     return card
 
@@ -104,6 +106,32 @@ def gradient_momentum_simulator_results(*, candidate_rooms: int = 2) -> dict[str
             [start, tick(2, candidate_final_rooms)],
         ),
     }
+
+
+def gradient_momentum_metric_simulator_results(candidate_territory_delta: int | float) -> dict[str, JsonObject]:
+    results = gradient_momentum_simulator_results(candidate_rooms=1)
+    results["variant-a"]["metrics"] = {"territoryDelta": 1, "resourceDelta": 0, "combatDelta": 0}
+    results["variant-b"]["metrics"] = {
+        "territoryDelta": candidate_territory_delta,
+        "resourceDelta": 0,
+        "combatDelta": 0,
+    }
+    return results
+
+
+def sequential_gradient_momentum_simulator(candidate_territory_deltas: list[int | float]):
+    deltas = list(candidate_territory_deltas)
+    index = 0
+
+    def simulator(**kwargs: Any) -> JsonObject:
+        nonlocal index
+        if index >= len(deltas):
+            raise AssertionError("sequential gradient momentum simulator exhausted")
+        results = gradient_momentum_metric_simulator_results(deltas[index])
+        index += 1
+        return MockSimulator(results, inject_runtime_parameters=True)(**kwargs)
+
+    return simulator
 
 
 def scalar_gradient_scheme_identity(policy_gradient: JsonObject | None = None) -> JsonObject:
@@ -3241,7 +3269,7 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(second_momentum["trustGateEvidenceSource"], "momentum_adjusted_gradient")
         self.assertEqual(second_momentum["previousGradientSourceReportId"], "gradient-momentum-first")
         self.assertEqual(second_momentum["previousGradientSourcePath"], first_momentum["stateArtifactPath"])
-        self.assertIsInstance(second_momentum["previousGradientSourceSha256"], str)
+        self.assertEqual(second_momentum["previousGradientSourceSha256"], first_state["statePayloadHash"])
         self.assertEqual(second_momentum["smoothingFactor"], 0.2)
         self.assertFalse(second_report["trustedGradientUpdate"])
         self.assertTrue(second_report["highVariance"])
@@ -3252,6 +3280,86 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(second_persisted["officialMmoWrites"])
         self.assertFalse(second_persisted["officialMmoWritesAllowed"])
         self.assertFalse(second_persisted["gradientMomentumState"]["officialMmoWritesAllowed"])
+
+    def test_gradient_momentum_state_load_error_survives_artifact_overwrite(self) -> None:
+        card = gradient_momentum_training_card()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            write_json(card_path, card)
+            state_path = runner.policy_update_gradient_momentum_state_path(
+                runner.policy_gradient_metadata_from_card(card),
+                out_dir,
+            )
+            self.assertIsNotNone(state_path)
+            assert state_path is not None
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            state_path.write_text("{not-json", encoding="utf-8")
+
+            report = runner.run_training_experiment(
+                card_path,
+                out_dir,
+                report_id="gradient-momentum-corrupt-state",
+                generated_at="2026-06-02T01:02:00Z",
+                simulator_runner=MockSimulator(
+                    gradient_momentum_simulator_results(),
+                    inject_runtime_parameters=True,
+                ),
+            )
+            persisted = read_json(out_dir / "gradient-momentum-corrupt-state.json")
+
+        momentum = report["gradientMomentum"]
+        self.assertTrue(momentum["previousStateArtifactPresent"])
+        self.assertFalse(momentum["previousStateArtifactLoaded"])
+        self.assertIn("Expecting property name", momentum["previousStateArtifactLoadError"])
+        self.assertEqual(
+            persisted["gradientMomentum"]["previousStateArtifactLoadError"],
+            momentum["previousStateArtifactLoadError"],
+        )
+        self.assertEqual(
+            persisted["gradientMomentumState"]["previousStateArtifactLoadError"],
+            momentum["previousStateArtifactLoadError"],
+        )
+
+    def test_gradient_momentum_state_secret_scan_blocks_state_write(self) -> None:
+        secret = "momentum-secret-token-123456"
+        policy_gradient = reinforce_stability_policy_gradient()
+        report: JsonObject = {
+            "trueGradient": True,
+            "reportId": "gradient-momentum-secret-state",
+            "generatedAt": "2026-06-02T01:03:00Z",
+            "policyGradient": policy_gradient,
+            "policyUpdateAlgorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
+            "trustedGradientUpdate": False,
+            "gradientStable": False,
+            "highVariance": True,
+            "policyUpdate": {
+                "gradientMomentum": {
+                    "type": runner.GRADIENT_MOMENTUM_EVIDENCE_TYPE,
+                    "schemaVersion": runner.SCHEMA_VERSION,
+                    "rawEmaGradient": {"territorySignalWeight": 1.0},
+                    "emaGradient": {"territorySignalWeight": 1.0},
+                    "secretNote": secret,
+                }
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            state_path = runner.policy_update_gradient_momentum_state_path(policy_gradient, root)
+            self.assertIsNotNone(state_path)
+            assert state_path is not None
+            with self.assertRaisesRegex(RuntimeError, "configured secret"):
+                runner.materialize_policy_gradient_momentum_state(
+                    report,
+                    root,
+                    root / "gradient-momentum-secret-state.json",
+                    [secret],
+                )
+
+            self.assertFalse(state_path.exists())
 
     def test_policy_gradient_scheme_comparison_key_uses_effective_scalar_weights(self) -> None:
         def scheme_for_weights(weights: JsonObject) -> JsonObject:
@@ -4025,31 +4133,38 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(update["gradientStability"]["officialMmoWritesAllowed"])
 
     def test_reinforce_gradient_conflict_remains_untrusted_with_loaded_momentum(self) -> None:
-        first_update = runner.build_policy_update(
-            policy_gradient=reinforce_stability_policy_gradient(),
-            results=reinforce_stability_results([[2, 0, 0, 0] for _index in range(20)]),
-            report_id="policy-gradient-momentum-state-source",
-            generated_at="2026-06-02T01:10:00Z",
-        )
-        policy_gradient = reinforce_stability_policy_gradient()
-        policy_gradient["policyUpdate"]["gradientMomentum"] = {
-            **copy.deepcopy(first_update["gradientMomentum"]),
-            "stateArtifactPath": "runtime-artifacts/rl-training/gradient-momentum/test-family-state.json",
-            "stateKey": "test-state-key",
-            "previousStateArtifactPresent": True,
-            "previousStateArtifactLoaded": True,
-            "previousGradientSourcePath": "runtime-artifacts/rl-training/gradient-momentum/test-family-state.json",
-            "previousGradientSourceSha256": "a" * 64,
-            "previousGradientSourceReportId": "policy-gradient-momentum-state-source",
-        }
-        oscillating_returns = [[2, 0, 0, 0] for _index in range(11)] + [[0, 0, 0, 0] for _index in range(9)]
+        oscillating_territory_deltas = [2 for _index in range(11)] + [0 for _index in range(9)]
+        card = gradient_momentum_training_card()
+        card["simulation"]["repetitions"] = len(oscillating_territory_deltas)
 
-        update = runner.build_policy_update(
-            policy_gradient=policy_gradient,
-            results=reinforce_stability_results(oscillating_returns),
-            report_id="policy-gradient-loaded-momentum-conflict",
-            generated_at="2026-06-02T01:11:00Z",
-        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            write_json(card_path, card)
+            first_report = runner.run_training_experiment(
+                card_path,
+                out_dir,
+                report_id="policy-gradient-momentum-state-source",
+                generated_at="2026-06-02T01:10:00Z",
+                simulator_runner=sequential_gradient_momentum_simulator([2 for _index in range(20)]),
+            )
+            first_raw_ema = first_report["gradientMomentum"]["rawEmaGradient"]["territorySignalWeight"]
+
+            second_card = copy.deepcopy(card)
+            second_card["policy_gradient"]["policyUpdate"]["gradientMomentum"] = {
+                "rawEmaGradient": {"territorySignalWeight": -999.0},
+                "emaGradient": {"territorySignalWeight": -999.0},
+                "previousGradientSourceReportId": "inline-fake-source",
+            }
+            write_json(card_path, second_card)
+            update = runner.run_training_experiment(
+                card_path,
+                out_dir,
+                report_id="policy-gradient-loaded-momentum-conflict",
+                generated_at="2026-06-02T01:11:00Z",
+                simulator_runner=sequential_gradient_momentum_simulator(oscillating_territory_deltas),
+            )["policyUpdate"]
 
         stability = update["gradientStability"]
         momentum = update["gradientMomentum"]
@@ -4057,6 +4172,10 @@ export const STRATEGY_REGISTRY = [
         self.assertTrue(momentum["previousGradientUsed"])
         self.assertEqual(momentum["trustGateEvidenceSource"], "momentum_adjusted_gradient")
         self.assertEqual(momentum["previousGradientSourceReportId"], "policy-gradient-momentum-state-source")
+        self.assertEqual(
+            momentum["directionByParameter"]["territorySignalWeight"]["previousEmaGradient"],
+            runner.round_policy_number(first_raw_ema),
+        )
         self.assertEqual(stability["classification"], "conflicting_direction_high_variance")
         self.assertFalse(stability["directionConsistent"])
         self.assertFalse(update["trustedGradientUpdate"])
