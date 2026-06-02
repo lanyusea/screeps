@@ -4496,6 +4496,75 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(controller.final_status, "completed")
         self.assertEqual(summary["outputs"]["launchGuard"]["postFixValidation"]["status"], "recovery_allowed")
 
+    def test_paid_failure_recurrence_guard_allows_smaller_validation_slice_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD):
+                write_tencent_failure_summary(artifact_root, f"tencent-pg-room-busy-{index}")
+            write_post_fix_validation_remote_timeout_summary(
+                artifact_root,
+                "postfix-room-busy-validation-timeout",
+                workers=5,
+                repetitions=20,
+                ticks=runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS,
+                training_timeout_seconds=3600,
+            )
+            args = runner.parse_cli_args([
+                "run-single",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+                "--training-approach",
+                "policy_gradient",
+                "--scenario-id",
+                runner.MULTI_TIER_SCENARIO_ID,
+                "--ticks",
+                str(runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS),
+                "--workers",
+                "5",
+                "--scale-environments",
+                "2",
+                "--repetitions",
+                "20",
+                "--training-timeout-seconds",
+                "3600",
+                "--postfix-validation-signature",
+                runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+            ])
+            artifact_dir = artifact_root / "new-run"
+
+            with mock.patch.object(
+                runner,
+                "paid_failure_recurrence_known_fix_status",
+                return_value={
+                    "signature": runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+                    "issue": "#1501",
+                    "pullRequest": "#1504",
+                    "mergeCommit": "95f960b2",
+                    "present": True,
+                    "evidence": "merge commit 95f960b2 is reachable from HEAD",
+                },
+            ):
+                events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
+
+        self.assertIn("scale_up", events)
+        self.assertIn("remote_training", events)
+        self.assertFalse(guard["blocked"])
+        self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_RECOVERY_ALLOWED_STATUS)
+        recovery = guard["postFixValidation"]["recoveryEligibility"]
+        self.assertTrue(recovery["eligible"])
+        sizing = recovery["timeoutRecoverySizing"]
+        self.assertFalse(sizing["timeoutIncreased"])
+        self.assertTrue(sizing["smallerValidationSlice"])
+        self.assertEqual(sizing["priorTrainingTimeoutSeconds"], 3600)
+        self.assertEqual(sizing["currentTrainingTimeoutSeconds"], 3600)
+        self.assertEqual(sizing["priorEnvironmentRows"], 100)
+        self.assertEqual(sizing["currentEnvironmentRows"], 40)
+        self.assertTrue(sizing["smallerEnvironmentRows"])
+        self.assertEqual(controller.final_status, "completed")
+        self.assertEqual(summary["outputs"]["launchGuard"]["postFixValidation"]["status"], "recovery_allowed")
+
     def test_paid_failure_recurrence_guard_allows_timeout_fix_after_timed_out_recovery(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             artifact_root = Path(temp_dir) / "batch-runs"
