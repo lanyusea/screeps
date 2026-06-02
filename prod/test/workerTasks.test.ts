@@ -1423,6 +1423,64 @@ describe('selectWorkerTask', () => {
     expect(creep.memory.constructionPreBuffer).toBeUndefined();
   });
 
+  it('skips a temporarily blocked construction site for a loaded builder', () => {
+    const blockedSite = {
+      id: 'blocked-site',
+      my: true,
+      structureType: 'extension',
+      progress: 0,
+      progressTotal: 3_000,
+      pos: makeRoomPosition(20, 20)
+    } as ConstructionSite;
+    const openSite = {
+      id: 'open-site',
+      my: true,
+      structureType: 'extension',
+      progress: 0,
+      progressTotal: 3_000,
+      pos: makeRoomPosition(21, 20)
+    } as ConstructionSite;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [blockedSite, openSite],
+      energyAvailable: 650,
+      energyCapacityAvailable: 800
+    });
+    const creep = {
+      name: 'BlockedBuilder',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        blockedBuildTarget: {
+          targetId: 'blocked-site',
+          blockedAt: 100,
+          until: 130,
+          reason: 'stuck'
+        }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0),
+        getCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'blocked-site': 1,
+            'open-site': 2
+          };
+          return ranges[String(target.id)] ?? 99;
+        })
+      },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { BlockedBuilder: creep },
+      time: 115
+    };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'open-site' });
+  });
+
   it('lets spare loaded workers finish construction below the general spend floor', () => {
     const constructionSite = {
       id: 'extension-site',
