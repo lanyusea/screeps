@@ -51,6 +51,8 @@ const TEST_GLOBALS = {
 } as const;
 
 const RUNTIME_GLOBAL_KEYS = Object.keys(TEST_GLOBALS);
+const DEFAULT_TEST_CONTROLLER_PROGRESS = 1234;
+const DEFAULT_TEST_CONTROLLER_PROGRESS_TOTAL = 45_000;
 
 describe('runtime telemetry summaries', () => {
   let logSpy: jest.SpyInstance<void, [message?: unknown, ...optionalParams: unknown[]]>;
@@ -145,9 +147,9 @@ describe('runtime telemetry summaries', () => {
           },
           controller: {
             level: 2,
-            progress: 1234,
-            progressTotal: 45000,
-            progressRatio: 0.027,
+            progress: DEFAULT_TEST_CONTROLLER_PROGRESS,
+            progressTotal: DEFAULT_TEST_CONTROLLER_PROGRESS_TOTAL,
+            progressRatio: roundTestRatio(DEFAULT_TEST_CONTROLLER_PROGRESS, DEFAULT_TEST_CONTROLLER_PROGRESS_TOTAL),
             ticksToDowngrade: 15000,
             sign: null
           },
@@ -2199,8 +2201,8 @@ describe('runtime telemetry summaries', () => {
     expect(room).toMatchObject({
       controller: {
         level: 2,
-        progress: 1234,
-        progressTotal: 45000,
+        progress: DEFAULT_TEST_CONTROLLER_PROGRESS,
+        progressTotal: DEFAULT_TEST_CONTROLLER_PROGRESS_TOTAL,
         ticksToDowngrade: 15000
       },
       resources: {
@@ -3385,6 +3387,10 @@ function clearRuntimeTelemetryGlobals(): void {
   delete globals[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL];
 }
 
+function roundTestRatio(numerator: number, denominator: number): number {
+  return denominator > 0 ? Math.round((numerator / denominator) * 1_000) / 1_000 : 0;
+}
+
 function installRuntimeTelemetryMemory(): void {
   const globals = globalThis as { Memory?: Partial<Memory> };
   globals.Memory = {
@@ -3421,8 +3427,8 @@ function makeColony(options: {
     controller: {
       my: true,
       level: 2,
-      progress: 1234,
-      progressTotal: 45000,
+      progress: DEFAULT_TEST_CONTROLLER_PROGRESS,
+      progressTotal: DEFAULT_TEST_CONTROLLER_PROGRESS_TOTAL,
       ticksToDowngrade: 15000
     }
   } as unknown as Room;
