@@ -37,6 +37,27 @@ Sort executable work by:
 
 The query result is the queue. There is no manually maintained RL queue issue.
 
+## Issue-comment sink ban
+
+Cron jobs and ledger producers must not use GitHub issue comments as an append-only run log. Routine metrics, no-op status, "still blocked/held" checks, Loop A/B ledgers, and conclusion-registry deltas belong first in machine-readable artifacts such as `runtime-artifacts/rl-control-loop/*.json`, SQLite/Grafana, and cron final output.
+
+A GitHub issue or PR comment is allowed only when one exact open atomic owner materially changes:
+
+- acceptance evidence;
+- blocker / `Blocked by`;
+- `Status` or `Next action`;
+- linked PR state;
+- recorded owner decision.
+
+Forbidden sink patterns:
+
+- commenting historical, closed, migration, governance, broad, campaign, or cadence issues as routine ledger/status surfaces;
+- `comment #N plus exact atomic issue(s)` fanout;
+- `sourceIssue=#879`, `sourceIssue=#893`, or `sourceIssue=#1589` in new ledger schemas;
+- treating #879, #893, #1589, or any replacement issue as a tracking surface for the whole loop.
+
+If no exact open atomic owner exists, producers must write the artifact and report `github_comment=skipped_no_atomic_issue`; the steward/continuation worker should create or update the smallest atomic issue only when the finding is repeated, severe, or construction-actionable.
+
 ## Atomic issue requirements
 
 An RL issue is valid only if all of these are true:
