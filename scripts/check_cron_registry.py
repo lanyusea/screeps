@@ -29,7 +29,7 @@ SHADOW_EVAL_FORBIDDEN_PATTERNS: Tuple[Tuple[str, re.Pattern[str]], ...] = (
     ("issue_879_url_or_api_route", re.compile(r"(?<![\w-])issues/879(?:\b|[#/?])", re.IGNORECASE)),
     (
         "gh_issue_comment_879",
-        re.compile(r"\bgh\b[\s\S]{0,200}?\bissue\b[\s\S]{0,200}?\bcomment\b[\s\S]{0,200}?\b#?879\b", re.IGNORECASE),
+        re.compile(r"\bgh\s+issue\s+comment\s+[`\"']?#?879\b", re.IGNORECASE),
     ),
     (
         "github_issue_879_target",

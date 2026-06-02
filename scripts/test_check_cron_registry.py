@@ -239,7 +239,10 @@ class ShadowEvalNoUmbrellaPolicyTests(unittest.TestCase):
             "recurring-job": live_recurring_job()
             | {"prompt": "PM contract: #879 is historical context only; use atomic issues."},
             cron.SHADOW_EVAL_JOB_ID: live_shadow_eval_job(
-                prompt="PM contract: #879 is historical context only; no routine comments are routed there."
+                prompt=(
+                    "PM contract: #879 is historical context only; no routine comments are routed there. "
+                    "shadow-eval gate: gh tool - do not route issue comment to #879."
+                )
             ),
         }
         violations = cron.validate_shadow_eval_no_umbrella(live, source_path=None)
