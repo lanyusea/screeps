@@ -21781,8 +21781,10 @@ function observeCreepBehaviorTick(creep, tick = getGameTime24()) {
     const stepDistance = getStepDistance(telemetry.lastPosition, currentPosition);
     if (stepDistance > 0) {
       telemetry.pathLength = ((_a = telemetry.pathLength) != null ? _a : 0) + stepDistance;
+      clearBuildTargetStuckObservation(telemetry);
     } else {
       telemetry.stuckTicks = ((_b = telemetry.stuckTicks) != null ? _b : 0) + 1;
+      recordBuildTargetStuckObservation(telemetry);
     }
   }
   if (currentPosition) {
@@ -21836,6 +21838,22 @@ function recordCreepBehaviorMoveToResult(creep, result, context) {
   } else {
     delete telemetry.lastMoveToTargetId;
   }
+}
+function recordCreepBehaviorMoveTask(creep, task) {
+  if (isRuntimeCpuBucketCritical()) {
+    return;
+  }
+  const telemetry = ensureCreepBehaviorTelemetry(creep);
+  if (task.type !== "build") {
+    delete telemetry.lastMoveBuildTargetId;
+    clearBuildTargetStuckObservation(telemetry);
+    return;
+  }
+  const targetId = String(task.targetId);
+  if (telemetry.lastMoveBuildTargetId !== targetId) {
+    clearBuildTargetStuckObservation(telemetry);
+  }
+  telemetry.lastMoveBuildTargetId = targetId;
 }
 function recordCreepBehaviorWork(creep, tick = getGameTime24()) {
   var _a;
@@ -21905,6 +21923,20 @@ function ensureCreepBehaviorTelemetry(creep) {
     creep.memory.behaviorTelemetry = {};
   }
   return creep.memory.behaviorTelemetry;
+}
+function recordBuildTargetStuckObservation(telemetry) {
+  var _a;
+  const targetId = telemetry.lastMoveBuildTargetId;
+  if (!targetId) {
+    clearBuildTargetStuckObservation(telemetry);
+    return;
+  }
+  telemetry.buildTargetStuckTicks = telemetry.buildTargetStuckTargetId === targetId ? ((_a = telemetry.buildTargetStuckTicks) != null ? _a : 0) + 1 : 1;
+  telemetry.buildTargetStuckTargetId = targetId;
+}
+function clearBuildTargetStuckObservation(telemetry) {
+  delete telemetry.buildTargetStuckTicks;
+  delete telemetry.buildTargetStuckTargetId;
 }
 function toRuntimeCreepBehaviorSummary(creep) {
   const telemetry = creep.memory.behaviorTelemetry;
@@ -27571,7 +27603,7 @@ function selectConstructionSite(creep, constructionSites, predicate = () => true
     ...options.priorityContext
   };
   const candidates = constructionSites.filter(
-    (site) => predicate(site) && canSpendCreepEnergyOnConstructionSite(creep, site, priorityContext) && (!options.requireReasonableRange || isConstructionSiteWithinReasonableRange(creep, site, DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE))
+    (site) => predicate(site) && !isConstructionSiteSuppressedForWorker(creep, site) && canSpendCreepEnergyOnConstructionSite(creep, site, priorityContext) && (!options.requireReasonableRange || isConstructionSiteWithinReasonableRange(creep, site, DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE))
   );
   if (candidates.length === 0) {
     return null;
@@ -27596,6 +27628,19 @@ function selectConstructionSite(creep, constructionSites, predicate = () => true
     return (_a = position.findClosestByRange(candidatesByStableId)) != null ? _a : candidatesByStableId[0];
   }
   return topImpactCandidates.sort(compareConstructionSiteId)[0];
+}
+function isConstructionSiteSuppressedForWorker(creep, site) {
+  var _a;
+  const blockedBuildTarget = (_a = creep.memory) == null ? void 0 : _a.blockedBuildTarget;
+  if (!blockedBuildTarget) {
+    return false;
+  }
+  const tick = getGameTick3();
+  if (tick !== null && blockedBuildTarget.until <= tick) {
+    delete creep.memory.blockedBuildTarget;
+    return false;
+  }
+  return String(blockedBuildTarget.targetId) === String(site.id);
 }
 function selectUnreservedConstructionSite(creep, constructionSites, constructionReservationContext, predicate = () => true, options = {}) {
   return selectConstructionSite(
@@ -31716,12 +31761,15 @@ var WORKER_STANDBY_IDLE_TIMEOUT_TICKS = 8;
 var WORKER_NULL_LOOP_FALLBACK_ATTEMPTS = 2;
 var OK_CODE12 = 0;
 var ERR_NOT_ENOUGH_RESOURCES_CODE2 = -6;
+var ERR_NO_PATH_CODE7 = -2;
 var ERR_INVALID_TARGET_CODE3 = -7;
 var ERR_FULL_CODE5 = -8;
 var ERR_NOT_IN_RANGE_CODE6 = -9;
 var ADJACENT_ACTION_MOVE_RANGE = 1;
 var RANGED_WORK_MOVE_RANGE = 3;
 var EXACT_POSITION_MOVE_RANGE = 0;
+var BUILD_TARGET_STUCK_TICKS = 2;
+var BUILD_TARGET_SUPPRESSION_TICKS = 15;
 var MIN_HAULER_DROPPED_ENERGY = 25;
 var SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS2 = 2;
 var SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORED_SURPLUS = 300;
@@ -31734,6 +31782,7 @@ function runWorker(creep) {
     return;
   }
   observeCreepBehaviorTick(creep);
+  suppressCurrentBuildTargetIfWorkerIsStuck(creep);
   const currentTask = creep.memory.task;
   const criticalCpuTaskRetention = getCriticalCpuTaskRetentionDecision(creep, currentTask);
   if (criticalCpuTaskRetention.retain) {
@@ -32266,6 +32315,7 @@ function runControllerSustainMovement(creep) {
     const energyTask = selectControllerSustainHaulerEnergyTask(creep);
     if (energyTask) {
       clearEnergyDropoffOptimizationMemory(creep);
+      clearBuildTargetStuckTelemetry(creep);
       creep.memory.task = energyTask;
       executeAssignedTask(creep, energyTask);
       return true;
@@ -32307,6 +32357,7 @@ function isSpawnSupportMemory2(value) {
 function clearAssignedTask(creep) {
   delete creep.memory.task;
   clearEnergyDropoffOptimizationMemory(creep);
+  clearBuildTargetStuckTelemetry(creep);
 }
 function moveTowardRoom3(creep, roomName) {
   if (typeof creep.moveTo !== "function") {
@@ -32504,6 +32555,7 @@ function executeAssignedTask(creep, selectedTask, immediateReselectExecutions = 
   if (execution.result === ERR_NOT_IN_RANGE_CODE6) {
     moveToAssignedTaskTarget(creep, task, target);
     recordCreepBehaviorMove(creep);
+    recordCreepBehaviorMoveTask(creep, task);
   }
 }
 function shouldImmediatelyReselectAfterTaskResult(task, result) {
@@ -32519,9 +32571,11 @@ function assignSelectedTask(creep, selectedTask, previousTask) {
   if (!selectedTask || previousTask && isSameTask2(previousTask, selectedTask)) {
     delete creep.memory.task;
     clearEnergyDropoffOptimizationMemory(creep);
+    clearBuildTargetStuckTelemetry(creep);
     return null;
   }
   clearEnergyDropoffOptimizationMemory(creep);
+  clearBuildTargetStuckTelemetry(creep);
   creep.memory.task = selectedTask;
   return selectedTask;
 }
@@ -33239,6 +33293,9 @@ function recordTaskBehavior(creep, task, execution) {
     recordCreepBehaviorMove(creep);
   } else if (execution.action === "work") {
     recordCreepBehaviorWork(creep);
+    if (task.type === "build") {
+      clearBuildTargetStuckTelemetry(creep);
+    }
   } else if (execution.result !== ERR_NOT_IN_RANGE_CODE6) {
     recordCreepBehaviorIdle(creep);
   }
@@ -33254,7 +33311,18 @@ function recordTaskBehavior(creep, task, execution) {
 }
 function moveToAssignedTaskTarget(creep, task, target) {
   const range = getAssignedTaskMoveRange(task);
-  moveToTaskTarget(creep, task.type, target, range);
+  const result = creep.moveTo(target, getAssignedTaskMoveOptions(task, range));
+  recordCreepBehaviorMoveToResult(creep, result, {
+    taskType: task.type,
+    targetId: getMoveTargetId(target),
+    range
+  });
+  if (task.type === "build" && result === getErrNoPathCode2()) {
+    suppressBuildTarget(creep, task, "noPath");
+  }
+}
+function getAssignedTaskMoveOptions(task, range) {
+  return task.type === "build" ? { range, ignoreCreeps: true } : { range };
 }
 function moveToTaskTarget(creep, taskType, target, range) {
   const result = creep.moveTo(target, { range });
@@ -33285,6 +33353,44 @@ function getAssignedTaskMoveRange(task) {
     case "collectScore":
       return EXACT_POSITION_MOVE_RANGE;
   }
+}
+function suppressCurrentBuildTargetIfWorkerIsStuck(creep) {
+  var _a;
+  const task = creep.memory.task;
+  if ((task == null ? void 0 : task.type) !== "build") {
+    return;
+  }
+  const telemetry = creep.memory.behaviorTelemetry;
+  if (((_a = telemetry == null ? void 0 : telemetry.buildTargetStuckTicks) != null ? _a : 0) < BUILD_TARGET_STUCK_TICKS || (telemetry == null ? void 0 : telemetry.buildTargetStuckTargetId) !== String(task.targetId)) {
+    return;
+  }
+  suppressBuildTarget(creep, task, "stuck");
+  if (telemetry) {
+    clearBuildTargetStuckTelemetry(creep);
+  }
+}
+function clearBuildTargetStuckTelemetry(creep) {
+  const telemetry = creep.memory.behaviorTelemetry;
+  if (!telemetry) {
+    return;
+  }
+  delete telemetry.buildTargetStuckTicks;
+  delete telemetry.buildTargetStuckTargetId;
+  delete telemetry.lastMoveBuildTargetId;
+}
+function suppressBuildTarget(creep, task, reason) {
+  const tick = getGameTick4();
+  creep.memory.blockedBuildTarget = {
+    targetId: String(task.targetId),
+    blockedAt: tick,
+    until: tick + BUILD_TARGET_SUPPRESSION_TICKS,
+    reason
+  };
+  delete creep.memory.task;
+}
+function getErrNoPathCode2() {
+  const errNoPath = globalThis.ERR_NO_PATH;
+  return typeof errNoPath === "number" ? errNoPath : ERR_NO_PATH_CODE7;
 }
 function isContainerStructure3(target) {
   const structureType = target == null ? void 0 : target.structureType;
@@ -35397,7 +35503,7 @@ var MOVE_PART_COST = 50;
 var MAX_CREEP_PARTS7 = 50;
 var MAX_REMOTE_UPGRADER_PATTERN_COUNT = 4;
 var MAX_CONTROLLER_LEVEL4 = 8;
-var ERR_NO_PATH_CODE7 = -2;
+var ERR_NO_PATH_CODE8 = -2;
 var TERRITORY_ROUTE_DISTANCE_SEPARATOR4 = ">";
 var ROUTE_DISTANCE_CACHE_TTL_TICKS = 300;
 function recordPlannedMultiRoomUpgraderSpawn(memory) {
@@ -35841,7 +35947,7 @@ function isAdjacentRoom(fromRoom, targetRoom) {
 }
 function getNoPathResultCode7() {
   const noPathCode = globalThis.ERR_NO_PATH;
-  return typeof noPathCode === "number" ? noPathCode : ERR_NO_PATH_CODE7;
+  return typeof noPathCode === "number" ? noPathCode : ERR_NO_PATH_CODE8;
 }
 function getGameTime31() {
   var _a;
@@ -44362,7 +44468,7 @@ function isNonEmptyString34(value) {
 }
 
 // src/territory/claimedRoomBootstrapper.ts
-var ERR_NO_PATH_CODE8 = -2;
+var ERR_NO_PATH_CODE9 = -2;
 function refreshClaimedRoomBootstrapperOwnership(telemetryEvents = []) {
   var _a, _b;
   const game = globalThis.Game;
@@ -44567,7 +44673,7 @@ function getRoomRouteDistance(fromRoom, toRoom) {
     if (Array.isArray(route)) {
       return route.length;
     }
-    if (route === ERR_NO_PATH_CODE8) {
+    if (route === ERR_NO_PATH_CODE9) {
       return Number.POSITIVE_INFINITY;
     }
   }
@@ -47664,7 +47770,7 @@ function isRecord41(value) {
 
 // src/economy/economyLoop.ts
 var ERR_BUSY_CODE = -4;
-var ERR_NO_PATH_CODE9 = -2;
+var ERR_NO_PATH_CODE10 = -2;
 var OK_CODE21 = 0;
 var BOOTSTRAP_WORKER_BUFFER_BYPASS_MIN_ENERGY = 300;
 var LOW_ROOM_ENERGY_TASK_PRIORITY_RATIO = 0.5;
@@ -48383,7 +48489,7 @@ function getCrossRoomSpawnRouteDistance(sourceRoomName, targetRoomName) {
     if (Array.isArray(route)) {
       return route.length;
     }
-    if (route === ERR_NO_PATH_CODE9) {
+    if (route === ERR_NO_PATH_CODE10) {
       return Number.POSITIVE_INFINITY;
     }
   }

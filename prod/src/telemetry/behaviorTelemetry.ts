@@ -116,8 +116,10 @@ export function observeCreepBehaviorTick(creep: Creep, tick: number = getGameTim
     const stepDistance = getStepDistance(telemetry.lastPosition, currentPosition);
     if (stepDistance > 0) {
       telemetry.pathLength = (telemetry.pathLength ?? 0) + stepDistance;
+      clearBuildTargetStuckObservation(telemetry);
     } else {
       telemetry.stuckTicks = (telemetry.stuckTicks ?? 0) + 1;
+      recordBuildTargetStuckObservation(telemetry);
     }
   }
 
@@ -182,6 +184,25 @@ export function recordCreepBehaviorMoveToResult(
   } else {
     delete telemetry.lastMoveToTargetId;
   }
+}
+
+export function recordCreepBehaviorMoveTask(creep: Creep, task: CreepTaskMemory): void {
+  if (isRuntimeCpuBucketCritical()) {
+    return;
+  }
+
+  const telemetry = ensureCreepBehaviorTelemetry(creep);
+  if (task.type !== 'build') {
+    delete telemetry.lastMoveBuildTargetId;
+    clearBuildTargetStuckObservation(telemetry);
+    return;
+  }
+
+  const targetId = String(task.targetId);
+  if (telemetry.lastMoveBuildTargetId !== targetId) {
+    clearBuildTargetStuckObservation(telemetry);
+  }
+  telemetry.lastMoveBuildTargetId = targetId;
 }
 
 export function recordCreepBehaviorWork(creep: Creep, tick: number = getGameTime()): void {
@@ -271,6 +292,23 @@ function ensureCreepBehaviorTelemetry(creep: Creep): CreepBehaviorTelemetryMemor
   }
 
   return creep.memory.behaviorTelemetry;
+}
+
+function recordBuildTargetStuckObservation(telemetry: CreepBehaviorTelemetryMemory): void {
+  const targetId = telemetry.lastMoveBuildTargetId;
+  if (!targetId) {
+    clearBuildTargetStuckObservation(telemetry);
+    return;
+  }
+
+  telemetry.buildTargetStuckTicks =
+    telemetry.buildTargetStuckTargetId === targetId ? (telemetry.buildTargetStuckTicks ?? 0) + 1 : 1;
+  telemetry.buildTargetStuckTargetId = targetId;
+}
+
+function clearBuildTargetStuckObservation(telemetry: CreepBehaviorTelemetryMemory): void {
+  delete telemetry.buildTargetStuckTicks;
+  delete telemetry.buildTargetStuckTargetId;
 }
 
 function toRuntimeCreepBehaviorSummary(creep: Creep): RuntimeCreepBehaviorSummary | null {
