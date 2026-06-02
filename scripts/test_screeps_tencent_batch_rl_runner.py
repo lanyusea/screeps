@@ -4384,6 +4384,51 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertIn("smaller validation slice", guard["nextAction"])
         self.assertFalse(summary["execution"]["computeAttempted"])
 
+    def test_paid_failure_timeout_recovery_sizing_blocks_row_shrink_with_larger_tick_work(self) -> None:
+        args = argparse.Namespace(
+            explicit_cli_options={"scale_environments", "repetitions", "ticks"},
+            repetitions=1,
+            scale_environments=99,
+            ticks=10000,
+            training_approach="policy_gradient",
+            training_timeout_seconds=3600,
+            workers=99,
+        )
+        prior_attempt = {
+            "runId": "prior-timeout",
+            "finalStatus": "failed",
+            "outcome": "not_completed",
+            "executionContextPresent": True,
+            "computeAttempted": True,
+            "scaleOutAttempted": True,
+            "remoteTrainingAttempted": True,
+            "trainingReportProduced": False,
+            "trainingReportPresent": False,
+            "remoteTrainingFailurePresent": True,
+            "remoteTrainingFailureClass": "remote_training_timeout",
+            "failureSignature": None,
+            "validationPlan": {
+                "trainingTimeoutSeconds": 3600,
+                "plannedBatchScale": runner.scale_gates.build_batch_scale_summary(
+                    environment_rows=100,
+                    simulator_ticks=100 * 500,
+                    basis="requested_inputs",
+                ),
+            },
+        }
+
+        sizing = runner.paid_failure_post_fix_timeout_recovery_sizing(args, [prior_attempt])
+
+        self.assertEqual(sizing["priorEnvironmentRows"], 100)
+        self.assertEqual(sizing["currentEnvironmentRows"], 99)
+        self.assertTrue(sizing["smallerEnvironmentRows"])
+        self.assertEqual(sizing["priorSimulatorTicks"], 100 * 500)
+        self.assertEqual(sizing["currentSimulatorTicks"], 99 * 10000)
+        self.assertFalse(sizing["smallerSimulatorTicks"])
+        self.assertFalse(sizing["smallerValidationSlice"])
+        self.assertFalse(sizing["timeoutIncreased"])
+        self.assertFalse(sizing["acceptable"])
+
     def test_paid_failure_recurrence_guard_allows_timeout_recovery_with_larger_timeout(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             artifact_root = Path(temp_dir) / "batch-runs"

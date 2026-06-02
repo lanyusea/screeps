@@ -3085,7 +3085,8 @@ def paid_failure_post_fix_timeout_recovery_sizing(
         and prior_simulator_ticks is not None
         and current_simulator_ticks < prior_simulator_ticks
     )
-    smaller_validation_slice = smaller_environment_rows or smaller_simulator_ticks
+    # plannedBatchScale.simulatorTicks is total simulator work, not per-environment ticks.
+    smaller_validation_slice = smaller_simulator_ticks
     return {
         "priorAttemptRunId": text_value(prior_attempt.get("runId")) if prior_attempt is not None else None,
         "priorTrainingTimeoutSeconds": prior_training_timeout,
