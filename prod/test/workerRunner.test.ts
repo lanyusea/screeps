@@ -66,6 +66,7 @@ describe('runWorker', () => {
     (globalThis as unknown as { ERR_FULL: number }).ERR_FULL = -8;
     (globalThis as unknown as { ERR_NOT_ENOUGH_RESOURCES: number }).ERR_NOT_ENOUGH_RESOURCES = -6;
     (globalThis as unknown as { ERR_INVALID_TARGET: number }).ERR_INVALID_TARGET = -7;
+    (globalThis as unknown as { ERR_NO_PATH: number }).ERR_NO_PATH = -2;
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 2;
@@ -2219,6 +2220,33 @@ describe('runWorker', () => {
 
     expect(creep.harvest).toHaveBeenCalledWith(source);
     expect(creep.moveTo).toHaveBeenCalledWith(source, { range: 1 });
+  });
+
+  it('records actual assigned-task moveTo ERR_NO_PATH with task target range context', () => {
+    const source = { id: 'source1' } as Source;
+    const creep = {
+      memory: { task: { type: 'harvest', targetId: 'source1' } },
+      room: { find: jest.fn().mockReturnValue([]) },
+      harvest: jest.fn().mockReturnValue(ERR_NOT_IN_RANGE),
+      moveTo: jest.fn().mockReturnValue(ERR_NO_PATH)
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById: jest.fn().mockReturnValue(source)
+    };
+
+    runWorker(creep);
+
+    expect(creep.moveTo).toHaveBeenCalledWith(source, { range: 1 });
+    expect(creep.memory.behaviorTelemetry).toMatchObject({
+      moveTicks: 1,
+      moveToAttempts: 1,
+      moveToFailures: 1,
+      moveToErrNoPath: 1,
+      lastMoveToResult: ERR_NO_PATH,
+      lastMoveToTask: 'harvest',
+      lastMoveToTargetId: 'source1',
+      lastMoveToRange: 1
+    });
   });
 
   it('records worker behavior telemetry while moving and working across ticks', () => {

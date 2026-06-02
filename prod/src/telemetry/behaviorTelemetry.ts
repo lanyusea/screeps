@@ -8,6 +8,7 @@ export interface RuntimeCreepBehaviorSummary {
   stuckTicks: number;
   pathFindingFailures: number;
   destinationBlocked: number;
+  moveTo?: RuntimeCreepMoveToSummary;
   containerTransfers: number;
   sourceContainerWithdrawals: number;
   pathLength: number;
@@ -28,10 +29,30 @@ interface RuntimeBehaviorTotals {
   stuckTicks: number;
   pathFindingFailures: number;
   destinationBlocked: number;
+  moveTo?: RuntimeMoveToSummary;
   containerTransfers: number;
   sourceContainerWithdrawals: number;
   pathLength: number;
   energyAcquisition?: RuntimeEnergyAcquisitionMethodDistribution;
+}
+
+export interface RuntimeMoveToSummary {
+  attempts: number;
+  failures: number;
+  errNoPath: number;
+}
+
+export interface RuntimeCreepMoveToSummary extends RuntimeMoveToSummary {
+  lastResult: number;
+  lastTask?: CreepTaskMemory['type'];
+  lastTargetId?: string;
+  lastRange?: number;
+}
+
+export interface RuntimeMoveToContext {
+  taskType: CreepTaskMemory['type'];
+  targetId?: string;
+  range: number;
 }
 
 export type RuntimeEnergyAcquisitionMethod = 'harvested' | 'pickedUp' | 'withdrawn';
@@ -55,9 +76,14 @@ interface CreepBehaviorCounterKey {
     | 'energyAcquisitionPickedUp'
     | 'energyAcquisitionWithdrawn'
     | 'pathLength'
+    | 'moveToAttempts'
+    | 'moveToFailures'
+    | 'moveToErrNoPath'
   >;
 }
 
+const OK_CODE = 0 as ScreepsReturnCode;
+const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const BEHAVIOR_COUNTER_KEYS: CreepBehaviorCounterKey[] = [
   { key: 'idleTicks' },
   { key: 'moveTicks' },
@@ -68,7 +94,10 @@ const BEHAVIOR_COUNTER_KEYS: CreepBehaviorCounterKey[] = [
   { key: 'energyAcquisitionHarvested' },
   { key: 'energyAcquisitionPickedUp' },
   { key: 'energyAcquisitionWithdrawn' },
-  { key: 'pathLength' }
+  { key: 'pathLength' },
+  { key: 'moveToAttempts' },
+  { key: 'moveToFailures' },
+  { key: 'moveToErrNoPath' }
 ];
 const TOP_IDLE_WORKER_COUNT = 3;
 
@@ -124,6 +153,35 @@ export function recordCreepBehaviorMove(creep: Creep, tick: number = getGameTime
 
   telemetry.moveTicks = (telemetry.moveTicks ?? 0) + 1;
   telemetry.lastMoveTick = tick;
+}
+
+export function recordCreepBehaviorMoveToResult(
+  creep: Creep,
+  result: unknown,
+  context: RuntimeMoveToContext
+): void {
+  if (isRuntimeCpuBucketCritical() || !isFiniteNumber(result)) {
+    return;
+  }
+
+  const telemetry = ensureCreepBehaviorTelemetry(creep);
+  const normalizedResult = Math.trunc(result);
+  telemetry.moveToAttempts = (telemetry.moveToAttempts ?? 0) + 1;
+  if (normalizedResult !== OK_CODE) {
+    telemetry.moveToFailures = (telemetry.moveToFailures ?? 0) + 1;
+  }
+  if (normalizedResult === getErrNoPathCode()) {
+    telemetry.moveToErrNoPath = (telemetry.moveToErrNoPath ?? 0) + 1;
+  }
+
+  telemetry.lastMoveToResult = normalizedResult;
+  telemetry.lastMoveToTask = context.taskType;
+  telemetry.lastMoveToRange = Math.max(0, Math.floor(context.range));
+  if (context.targetId) {
+    telemetry.lastMoveToTargetId = context.targetId;
+  } else {
+    delete telemetry.lastMoveToTargetId;
+  }
 }
 
 export function recordCreepBehaviorWork(creep: Creep, tick: number = getGameTime()): void {
@@ -232,6 +290,7 @@ function toRuntimeCreepBehaviorSummary(creep: Creep): RuntimeCreepBehaviorSummar
     stuckTicks,
     pathFindingFailures,
     destinationBlocked: pathFindingFailures > 0 ? 1 : 0,
+    ...summarizeMoveToResults(telemetry),
     containerTransfers: getNonNegativeCounter(telemetry.containerTransfers),
     sourceContainerWithdrawals: getNonNegativeCounter(telemetry.sourceContainerWithdrawals),
     pathLength: getNonNegativeCounter(telemetry.pathLength),
@@ -262,6 +321,10 @@ function resetCreepBehaviorCounters(creep: Creep): void {
   delete telemetry.lastIdleTick;
   delete telemetry.lastWorkTick;
   delete telemetry.lastSourceContainerWithdrawalTick;
+  delete telemetry.lastMoveToResult;
+  delete telemetry.lastMoveToTask;
+  delete telemetry.lastMoveToTargetId;
+  delete telemetry.lastMoveToRange;
 
   if (!telemetry.lastPosition && telemetry.lastMoveTick === undefined && telemetry.lastObservedTick === undefined) {
     delete creep.memory.behaviorTelemetry;
@@ -277,6 +340,7 @@ function summarizeBehaviorTotals(creeps: RuntimeCreepBehaviorSummary[]): Runtime
       stuckTicks: totals.stuckTicks + creep.stuckTicks,
       pathFindingFailures: totals.pathFindingFailures + creep.pathFindingFailures,
       destinationBlocked: totals.destinationBlocked + creep.destinationBlocked,
+      ...mergeMoveToTotals(totals.moveTo, creep.moveTo),
       containerTransfers: totals.containerTransfers + creep.containerTransfers,
       sourceContainerWithdrawals: totals.sourceContainerWithdrawals + creep.sourceContainerWithdrawals,
       pathLength: totals.pathLength + creep.pathLength,
@@ -298,6 +362,48 @@ function summarizeBehaviorTotals(creeps: RuntimeCreepBehaviorSummary[]): Runtime
 
 function summarizePathFindingFailures(stuckTicks: number, workTicks: number): number {
   return stuckTicks > 0 && workTicks === 0 ? stuckTicks : 0;
+}
+
+function summarizeMoveToResults(
+  telemetry: CreepBehaviorTelemetryMemory
+): { moveTo?: RuntimeCreepMoveToSummary } {
+  const attempts = getNonNegativeCounter(telemetry.moveToAttempts);
+  if (attempts <= 0 || !isFiniteNumber(telemetry.lastMoveToResult)) {
+    return {};
+  }
+
+  return {
+    moveTo: {
+      attempts,
+      failures: getNonNegativeCounter(telemetry.moveToFailures),
+      errNoPath: getNonNegativeCounter(telemetry.moveToErrNoPath),
+      lastResult: Math.trunc(telemetry.lastMoveToResult),
+      ...(isWorkerTaskType(telemetry.lastMoveToTask) ? { lastTask: telemetry.lastMoveToTask } : {}),
+      ...(typeof telemetry.lastMoveToTargetId === 'string' && telemetry.lastMoveToTargetId.length > 0
+        ? { lastTargetId: telemetry.lastMoveToTargetId }
+        : {}),
+      ...(isFiniteNumber(telemetry.lastMoveToRange)
+        ? { lastRange: Math.max(0, Math.floor(telemetry.lastMoveToRange)) }
+        : {})
+    }
+  };
+}
+
+function mergeMoveToTotals(
+  left: RuntimeMoveToSummary | undefined,
+  right: RuntimeCreepMoveToSummary | undefined
+): { moveTo?: RuntimeMoveToSummary } {
+  if (!left && !right) {
+    return {};
+  }
+
+  return {
+    moveTo: {
+      attempts: (left?.attempts ?? 0) + (right?.attempts ?? 0),
+      failures: (left?.failures ?? 0) + (right?.failures ?? 0),
+      errNoPath: (left?.errNoPath ?? 0) + (right?.errNoPath ?? 0)
+    }
+  };
 }
 
 function summarizeEnergyAcquisitionMethods(
@@ -402,6 +508,31 @@ function getStepDistance(previous: CreepBehaviorPositionMemory, current: CreepBe
   }
 
   return Math.max(Math.abs(current.x - previous.x), Math.abs(current.y - previous.y));
+}
+
+function isWorkerTaskType(value: unknown): value is CreepTaskMemory['type'] {
+  return (
+    value === 'harvest' ||
+    value === 'pickup' ||
+    value === 'withdraw' ||
+    value === 'transfer' ||
+    value === 'build' ||
+    value === 'repair' ||
+    value === 'claim' ||
+    value === 'reserve' ||
+    value === 'signController' ||
+    value === 'upgrade' ||
+    value === 'collectScore'
+  );
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function getErrNoPathCode(): ScreepsReturnCode {
+  const noPath = (globalThis as { ERR_NO_PATH?: ScreepsReturnCode }).ERR_NO_PATH;
+  return typeof noPath === 'number' ? noPath : ERR_NO_PATH_CODE;
 }
 
 function getGameTime(): number {

@@ -1323,6 +1323,13 @@ declare global {
     energyAcquisitionPickedUp?: number;
     energyAcquisitionWithdrawn?: number;
     pathLength?: number;
+    moveToAttempts?: number;
+    moveToFailures?: number;
+    moveToErrNoPath?: number;
+    lastMoveToResult?: number;
+    lastMoveToTask?: CreepTaskMemory['type'];
+    lastMoveToTargetId?: string;
+    lastMoveToRange?: number;
     lastPosition?: CreepBehaviorPositionMemory;
     lastMoveTick?: number;
     lastWorkTick?: number;
