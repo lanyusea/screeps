@@ -48,6 +48,7 @@ REQUIRED_TABLES = (
     "rl_policy_advantage_metrics",
     "metric_iteration_decisions",
 )
+REQUIRED_RUNTIME_ROOM_METRIC_COLUMNS = frozenset(metrics_ingestor.RUNTIME_ROOM_METRIC_COLUMNS)
 DEFAULT_ARTIFACT_SUBDIRS = (
     "runtime-summary-console",
     "rl-dataset-gates",
@@ -937,25 +938,36 @@ def sqlite_summary(db_path: Path, repo_root: Path) -> JsonObject:
                 runtime_columns = {
                     row["name"] for row in conn.execute("PRAGMA table_info(runtime_room_metrics)").fetchall()
                 }
+                missing_runtime_columns = sorted(REQUIRED_RUNTIME_ROOM_METRIC_COLUMNS - runtime_columns)
+                if missing_runtime_columns:
+                    summary["schemaReady"] = False
+                    summary["error"] = (
+                        "runtime_room_metrics missing columns: " + ", ".join(missing_runtime_columns)
+                    )
                 latest_tick_row = conn.execute("SELECT MAX(tick) AS latest_tick FROM runtime_room_metrics").fetchone()
                 latest_tick = latest_tick_row["latest_tick"] if latest_tick_row is not None else None
-                required_runtime_columns = {
-                    "controller_progress_ratio",
-                    "upgrade_carried_energy",
-                    "import_demand",
-                    "blocked_import_energy",
-                    "multi_room_deficit_energy",
-                }
-                if latest_tick is not None and required_runtime_columns.issubset(runtime_columns):
+                if latest_tick is not None and not missing_runtime_columns:
                     metrics = conn.execute(
                         """
                         SELECT
                           COUNT(*) AS room_samples,
                           AVG(controller_progress_ratio) AS avg_controller_progress_ratio,
-                          SUM(COALESCE(upgrade_carried_energy, 0)) AS upgrade_carried_energy,
-                          SUM(COALESCE(import_demand, 0)) AS import_demand,
-                          SUM(COALESCE(blocked_import_energy, 0)) AS blocked_import_energy,
-                          SUM(COALESCE(multi_room_deficit_energy, 0)) AS multi_room_deficit_energy
+                          CASE
+                            WHEN COUNT(upgrade_carried_energy) = COUNT(*) THEN SUM(upgrade_carried_energy)
+                            ELSE NULL
+                          END AS upgrade_carried_energy,
+                          CASE
+                            WHEN COUNT(import_demand) = COUNT(*) THEN SUM(import_demand)
+                            ELSE NULL
+                          END AS import_demand,
+                          CASE
+                            WHEN COUNT(blocked_import_energy) = COUNT(*) THEN SUM(blocked_import_energy)
+                            ELSE NULL
+                          END AS blocked_import_energy,
+                          CASE
+                            WHEN COUNT(multi_room_deficit_energy) = COUNT(*) THEN SUM(multi_room_deficit_energy)
+                            ELSE NULL
+                          END AS multi_room_deficit_energy
                         FROM runtime_room_metrics
                         WHERE tick = ?
                         """,
@@ -1059,6 +1071,7 @@ def refreshing_db_summary(db_path: Path, repo_root: Path, reason: str) -> JsonOb
         "schemaReady": False,
         "tables": {},
         "latestObservedAt": None,
+        "latestRuntimeRoomMetrics": {},
         "error": reason,
     }
     try:

@@ -3164,10 +3164,22 @@ def summarize_database(db_path: Path, output_format: str = "text") -> str:
                   MAX(rcl_level) AS max_rcl_level,
                   SUM(COALESCE(stored_energy, 0)) AS stored_energy,
                   AVG(controller_progress_ratio) AS avg_controller_progress_ratio,
-                  SUM(COALESCE(upgrade_carried_energy, 0)) AS upgrade_carried_energy,
-                  SUM(COALESCE(import_demand, 0)) AS import_demand,
-                  SUM(COALESCE(blocked_import_energy, 0)) AS blocked_import_energy,
-                  SUM(COALESCE(multi_room_deficit_energy, 0)) AS multi_room_deficit_energy
+                  CASE
+                    WHEN COUNT(upgrade_carried_energy) = COUNT(*) THEN SUM(upgrade_carried_energy)
+                    ELSE NULL
+                  END AS upgrade_carried_energy,
+                  CASE
+                    WHEN COUNT(import_demand) = COUNT(*) THEN SUM(import_demand)
+                    ELSE NULL
+                  END AS import_demand,
+                  CASE
+                    WHEN COUNT(blocked_import_energy) = COUNT(*) THEN SUM(blocked_import_energy)
+                    ELSE NULL
+                  END AS blocked_import_energy,
+                  CASE
+                    WHEN COUNT(multi_room_deficit_energy) = COUNT(*) THEN SUM(multi_room_deficit_energy)
+                    ELSE NULL
+                  END AS multi_room_deficit_energy
                 FROM runtime_room_metrics
                 WHERE tick = ?
                 """,

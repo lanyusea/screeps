@@ -60,6 +60,27 @@ def write_runtime_summary(path: Path) -> None:
                 },
                 "combat": {"hostileCreepCount": 0},
                 "structures": {"spawn": 1, "tower": 1, "rampart": 0},
+            },
+            {
+                "roomName": "E29N56",
+                "controller": {"my": True, "level": 4, "progress": 5000, "progressTotal": 10000},
+                "rclLevel": 4,
+                "workerCount": 3,
+                "spawnStatus": [{"name": "Spawn2", "status": "idle"}],
+                "taskCounts": {"harvest": 1, "build": 0, "upgrade": 2},
+                "energyAvailable": 250,
+                "resources": {
+                    "storedEnergy": 600,
+                    "workerCarriedEnergy": 40,
+                    "productiveEnergy": {"upgradeCarriedEnergy": 40},
+                    "multiRoomEnergy": {
+                        "importDemand": 200,
+                        "blockedImportEnergy": 50,
+                        "deficitEnergy": 150,
+                    },
+                },
+                "combat": {"hostileCreepCount": 0},
+                "structures": {"spawn": 1, "tower": 0, "rampart": 0},
             }
         ],
     }
@@ -1652,11 +1673,107 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(summary["type"], "screeps-rl-live-dashboard")
         self.assertEqual(summary["dashboardUrl"], f"http://{host}:{port}/")
         self.assertEqual(summary["e1Gate"]["gateId"], "e1-live")
-        self.assertEqual(summary["db"]["latestRuntimeRoomMetrics"]["avgControllerProgressRatio"], 0.25)
-        self.assertEqual(summary["db"]["latestRuntimeRoomMetrics"]["upgradeCarriedEnergy"], 25.0)
-        self.assertEqual(summary["db"]["latestRuntimeRoomMetrics"]["importDemand"], 300.0)
-        self.assertEqual(summary["db"]["latestRuntimeRoomMetrics"]["blockedImportEnergy"], 100.0)
-        self.assertEqual(summary["db"]["latestRuntimeRoomMetrics"]["multiRoomDeficitEnergy"], 450.0)
+        self.assertEqual(summary["db"]["latestRuntimeRoomMetrics"]["roomSamples"], 2)
+        self.assertEqual(summary["db"]["latestRuntimeRoomMetrics"]["avgControllerProgressRatio"], 0.375)
+        self.assertEqual(summary["db"]["latestRuntimeRoomMetrics"]["upgradeCarriedEnergy"], 65.0)
+        self.assertEqual(summary["db"]["latestRuntimeRoomMetrics"]["importDemand"], 500.0)
+        self.assertEqual(summary["db"]["latestRuntimeRoomMetrics"]["blockedImportEnergy"], 150.0)
+        self.assertEqual(summary["db"]["latestRuntimeRoomMetrics"]["multiRoomDeficitEnergy"], 600.0)
+
+    def test_refreshing_summary_preserves_db_runtime_metrics_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = artifact_root / "rl-metrics" / "rl_metrics.sqlite"
+            config = live.LiveDashboardConfig(repo_root=repo_root, artifact_root=artifact_root, db_path=db_path)
+            summary = live.build_refreshing_summary(
+                config,
+                "http://127.0.0.1:8765/",
+                {
+                    "refreshInProgress": True,
+                    "activeRefreshReason": "startup",
+                    "lastRefreshAt": None,
+                    "lastRefreshOk": False,
+                },
+            )
+
+        self.assertIn("latestRuntimeRoomMetrics", summary["db"])
+        self.assertEqual(summary["db"]["latestRuntimeRoomMetrics"], {})
+
+    def test_sqlite_summary_marks_legacy_runtime_room_schema_incomplete(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            with sqlite3.connect(db_path) as conn:
+                conn.executescript(
+                    """
+                    CREATE TABLE metric_definitions (metric_name TEXT);
+                    CREATE TABLE metric_observations (observed_at TEXT);
+                    CREATE TABLE runtime_room_metrics (
+                      observed_at TEXT,
+                      tick INTEGER,
+                      room_name TEXT NOT NULL,
+                      source_artifact TEXT NOT NULL
+                    );
+                    CREATE TABLE gameplay_behavior_findings (first_seen_at TEXT);
+                    CREATE TABLE metric_coverage_gaps (observed_at TEXT);
+                    CREATE TABLE rl_dataset_gate_metrics (observed_at TEXT);
+                    CREATE TABLE rl_training_execution_metrics (observed_at TEXT);
+                    CREATE TABLE rl_policy_advantage_metrics (observed_at TEXT);
+                    CREATE TABLE metric_iteration_decisions (created_at TEXT);
+                    INSERT INTO runtime_room_metrics (observed_at, tick, room_name, source_artifact)
+                    VALUES ('2026-05-18T10:09:00Z', 12345, 'E29N55', 'legacy-runtime.log');
+                    """
+                )
+
+            summary = live.sqlite_summary(db_path, repo_root)
+            health = live.health_from_db_summary(summary)
+
+        self.assertFalse(summary["schemaReady"])
+        self.assertEqual(summary["latestRuntimeRoomMetrics"], {})
+        self.assertIn("runtime_room_metrics missing columns", str(summary["error"]))
+        self.assertIn("controller_progress_ratio", str(summary["error"]))
+        self.assertFalse(health["ok"])
+        self.assertIn(str(summary["error"]), health["failures"])
+
+    def test_sqlite_summary_keeps_partial_runtime_energy_aggregate_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            live.metrics_ingestor.initialize_database(db_path)
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO runtime_room_metrics (
+                      tick, shard, room_name, controller_progress_ratio, upgrade_carried_energy,
+                      import_demand, blocked_import_energy, multi_room_deficit_energy,
+                      source_artifact, dedupe_key
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (12345, "shardX", "E29N55", 0.2, 25, 300, 100, 450, "runtime.log", "room-a"),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO runtime_room_metrics (
+                      tick, shard, room_name, controller_progress_ratio, source_artifact, dedupe_key
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (12345, "shardX", "E29N56", 0.4, "runtime.log", "room-b"),
+                )
+
+            summary = live.sqlite_summary(db_path, repo_root)
+            metrics = summary["latestRuntimeRoomMetrics"]
+
+        self.assertTrue(summary["schemaReady"])
+        self.assertEqual(metrics["roomSamples"], 2)
+        self.assertAlmostEqual(metrics["avgControllerProgressRatio"], 0.3)
+        self.assertIsNone(metrics["upgradeCarriedEnergy"])
+        self.assertIsNone(metrics["importDemand"])
+        self.assertIsNone(metrics["blockedImportEnergy"])
+        self.assertIsNone(metrics["multiRoomDeficitEnergy"])
 
     def test_healthz_fails_when_auto_refresh_failed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

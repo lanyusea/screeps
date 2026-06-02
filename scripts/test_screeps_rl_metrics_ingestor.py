@@ -378,6 +378,48 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                 1,
             )
 
+    def test_runtime_room_summary_keeps_partial_energy_aggregate_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            db_path = root / "rl_metrics.sqlite"
+            payload = {
+                "type": "runtime-summary",
+                "tick": 12345,
+                "shard": "shardX",
+                "cpu": {"bucket": 9000, "used": 7.5},
+                "reliability": {"loopExceptionCount": 0, "telemetrySilenceTicks": 0},
+                "rooms": [
+                    {
+                        "roomName": "E26S49",
+                        "controller": {"my": True, "level": 3, "progress": 3000, "progressTotal": 15000},
+                        "resources": {
+                            "productiveEnergy": {"upgradeCarriedEnergy": 45},
+                            "multiRoomEnergy": {
+                                "importDemand": 250,
+                                "blockedImportEnergy": 90,
+                                "deficitEnergy": 350,
+                            },
+                        },
+                    },
+                    {
+                        "roomName": "E26S50",
+                        "controller": {"my": True, "level": 3, "progress": 6000, "progressTotal": 15000},
+                    },
+                ],
+            }
+            artifact_root = write_runtime_artifact(root, payload)
+
+            ingestor.ingest_artifacts(db_path, [artifact_root])
+            summary = json.loads(ingestor.summarize_database(db_path, output_format="json"))
+            metrics = summary["latestRuntimeRoomMetrics"]
+
+            self.assertEqual(metrics["roomSamples"], 2)
+            self.assertAlmostEqual(metrics["avgControllerProgressRatio"], 0.3)
+            self.assertIsNone(metrics["upgradeCarriedEnergy"])
+            self.assertIsNone(metrics["importDemand"])
+            self.assertIsNone(metrics["blockedImportEnergy"])
+            self.assertIsNone(metrics["multiRoomDeficitEnergy"])
+
     def test_missing_energy_fields_record_coverage_gap_instead_of_crashing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
