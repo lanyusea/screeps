@@ -76,6 +76,7 @@ const ADJACENT_ACTION_MOVE_RANGE = 1;
 const RANGED_WORK_MOVE_RANGE = 3;
 const EXACT_POSITION_MOVE_RANGE = 0;
 const MIN_HAULER_DROPPED_ENERGY = 25;
+const SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS = 2;
 const SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORED_SURPLUS = 300;
 
 interface WorkerTaskSelectionNullLoopState {
@@ -181,6 +182,8 @@ export function runWorker(creep: Creep): void {
   } else if (shouldPreemptLowLoadReturnTaskForEnergyAcquisition(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptTransferTaskForControllerDowngradeGuard(creep, currentTask, selectedTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPreemptTransferTaskForConstructionBacklog(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptTransferTaskForBetterEnergySink(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
@@ -1701,6 +1704,43 @@ function shouldPreemptTransferTaskForControllerDowngradeGuard(
   }
 
   return isDowngradeGuardUpgradeTask(creep, selectedTask);
+}
+
+function shouldPreemptTransferTaskForConstructionBacklog(
+  creep: Creep,
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  if (task.type !== 'transfer' || selectedTask?.type !== 'build' || isSameTask(task, selectedTask)) {
+    return false;
+  }
+
+  if (getUsedTransferEnergy(creep) <= 0 || !hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep)) {
+    return false;
+  }
+
+  const currentTarget = getTaskTarget(task);
+  if (!isNonCriticalSpawnExtensionTransferTarget(currentTarget)) {
+    return false;
+  }
+
+  if (!shouldDeferSpawnReservationRefillForProductiveWork(creep, selectedTask)) {
+    return false;
+  }
+
+  const constructionSite = getTaskTarget(selectedTask) as ConstructionSite | null;
+  return Boolean(constructionSite && canSpendWorkerEnergyOnConstructionSite(creep, constructionSite));
+}
+
+function hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep: Creep): boolean {
+  return (
+    getRoomOwnedCreeps(creep.room).filter((worker) => isProductiveSameRoomWorker(worker, creep.room)).length >=
+    SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS
+  );
+}
+
+function isNonCriticalSpawnExtensionTransferTarget(target: unknown): boolean {
+  return getTransferSinkPriority(target) === 2;
 }
 
 function shouldPreemptSpendingTaskForControllerPressure(
