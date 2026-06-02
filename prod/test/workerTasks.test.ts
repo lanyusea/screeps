@@ -7806,6 +7806,86 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
   });
 
+  it('keeps safe construction available while active spawn completion reserve still needs refill energy', () => {
+    const spawningSpawn = makeEnergySinkWithEnergy('spawn-busy', 'spawn' as StructureConstant, 300, 0, {
+      spawning: { remainingTime: 10 }
+    });
+    const refillExtension = makeEnergySinkWithEnergy('extension-low', 'extension' as StructureConstant, 0, 50);
+    const roadSite = { id: 'road-site1', my: true, structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [roadSite],
+      controller,
+      energyAvailable: 500,
+      energyCapacityAvailable: 550,
+      myStructures: [spawningSpawn as AnyOwnedStructure, refillExtension as AnyOwnedStructure]
+    });
+    const reserveWorker = makeRefillReserveWorker(room, 'ReserveA', 50, 1);
+    const creep = makeRefillReserveWorker(room, 'Builder', 50, 9);
+    setGameCreeps({ ReserveA: reserveWorker, Builder: creep });
+
+    expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(550);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
+  });
+
+  it('keeps safe construction available when full spawn energy is still reserved for near-term spawn completion', () => {
+    const spawningSpawn = makeEnergySinkWithEnergy('spawn-busy', 'spawn' as StructureConstant, 300, 0, {
+      spawning: { remainingTime: 10 }
+    });
+    const fullExtension = makeEnergySinkWithEnergy('extension-full', 'extension' as StructureConstant, 50, 0);
+    const roadSite = { id: 'road-site1', my: true, structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [roadSite],
+      controller,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      myStructures: [spawningSpawn as AnyOwnedStructure, fullExtension as AnyOwnedStructure]
+    });
+    const reserveWorker = makeRefillReserveWorker(room, 'ReserveA', 50, 1);
+    const creep = makeRefillReserveWorker(room, 'Builder', 50, 9);
+    setGameCreeps({ ReserveA: reserveWorker, Builder: creep });
+
+    expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(550);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
+  });
+
+  it('keeps emergency spawn refill ahead of construction during active spawn completion reserve', () => {
+    const criticalSpawningSpawn = makeEnergySinkWithEnergy('spawn-critical', 'spawn' as StructureConstant, 100, 50, {
+      spawning: { remainingTime: 10 }
+    });
+    const roadSite = { id: 'road-site1', my: true, structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [roadSite],
+      controller,
+      energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      energyCapacityAvailable: 550,
+      myStructures: [criticalSpawningSpawn as AnyOwnedStructure]
+    });
+    const reserveWorker = makeRefillReserveWorker(room, 'ReserveA', 50, 1);
+    const creep = makeRefillReserveWorker(room, 'Builder', 50, 9);
+    setGameCreeps({ ReserveA: reserveWorker, Builder: creep });
+
+    expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(550);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-critical' });
+  });
+
   it('keeps emergency spawn refill before surplus spending while a near-term reserve is active', () => {
     const spawningSpawn = {
       id: 'spawn1',

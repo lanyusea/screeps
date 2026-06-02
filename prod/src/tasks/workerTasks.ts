@@ -42,7 +42,6 @@ import {
   checkEnergyBufferForStoredConstructionSpending,
   getEffectiveRoomEnergyBufferThreshold,
   getConstructionSpendingEnergyThreshold,
-  getRoomStoredEnergyAvailableForConstruction,
   getStorageEnergyAvailableForWithdrawal,
   getStorageEnergyReserveThreshold,
   hasMinimumWorkerSpawnEnergyForConstruction,
@@ -154,7 +153,6 @@ const MAX_HARVEST_PATH_OPS = 2_000;
 const LOW_LOAD_YIELD_SWITCH_MIN_IMPROVEMENT_RATIO = 1.1;
 const LOW_LOAD_YIELD_SWITCH_MIN_ABSOLUTE_GAIN = 0.25;
 const SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS = 2;
-const SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORED_SURPLUS = 300;
 
 type RepairableWorkerStructure =
   | StructureRoad
@@ -1035,7 +1033,10 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return applyMinimumUsefulLoadPolicy(creep, uncoveredRoutineRampartMaintenanceTask);
   }
 
-  if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
+  if (
+    shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) &&
+    !shouldYieldSpawnReservationToConstructionBacklog(creep, constructionSites, constructionReservationContext)
+  ) {
     return null;
   }
 
@@ -1175,7 +1176,10 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return energySurplusStorageTask;
   }
 
-  if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
+  if (
+    shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) &&
+    !shouldYieldSpawnReservationToConstructionBacklog(creep, constructionSites, constructionReservationContext)
+  ) {
     return null;
   }
 
@@ -2027,6 +2031,14 @@ function hasSpendableConstructionBacklog(creep: Creep): boolean {
   }
 
   const constructionReservationContext = createConstructionReservationContext(creep.room);
+  return hasSpendableConstructionBacklogFromSites(creep, constructionSites, constructionReservationContext);
+}
+
+function hasSpendableConstructionBacklogFromSites(
+  creep: Creep,
+  constructionSites: ConstructionSite[],
+  constructionReservationContext: ConstructionReservationContext
+): boolean {
   const priorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
   return constructionSites.some(
     (site) =>
@@ -4505,7 +4517,8 @@ function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(
     shouldDeferIdleSpawnExtensionRefillForBoundedConstruction(
       creep,
       spawnOrExtensionEnergySink,
-      constructionSites
+      constructionSites,
+      constructionReservationContext
     );
 
   if (!deferForHealthyBuffer && !deferForBoundedConstruction) {
@@ -4546,18 +4559,26 @@ function shouldDeferIdleSpawnExtensionRefillForHealthyBuffer(
 function shouldDeferIdleSpawnExtensionRefillForBoundedConstruction(
   creep: Creep,
   spawnOrExtensionEnergySink: StructureSpawn | StructureExtension | null,
-  constructionSites: ConstructionSite[]
+  constructionSites: ConstructionSite[],
+  constructionReservationContext: ConstructionReservationContext
 ): boolean {
   return (
     spawnOrExtensionEnergySink !== null &&
-    !hasActiveSpawningSpawn(creep.room) &&
-    constructionSites.length > 0 &&
-    hasSafeStoredEnergyForBoundedConstruction(creep)
+    shouldYieldSpawnReservationToConstructionBacklog(creep, constructionSites, constructionReservationContext)
   );
 }
 
-function hasSafeStoredEnergyForBoundedConstruction(creep: Creep): boolean {
-  if (!checkEnergyBufferForStoredConstructionSpending(creep.room)) {
+function shouldYieldSpawnReservationToConstructionBacklog(
+  creep: Creep,
+  constructionSites: ConstructionSite[],
+  constructionReservationContext: ConstructionReservationContext
+): boolean {
+  if (
+    getUsedEnergy(creep) <= 0 ||
+    getActiveWorkParts(creep) <= 0 ||
+    constructionSites.length === 0 ||
+    hasEmergencySpawnExtensionRefillDemand(creep)
+  ) {
     return false;
   }
 
@@ -4569,10 +4590,7 @@ function hasSafeStoredEnergyForBoundedConstruction(creep: Creep): boolean {
     return false;
   }
 
-  return (
-    getRoomStoredEnergyAvailableForConstruction(creep.room) >=
-    SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORED_SURPLUS
-  );
+  return hasSpendableConstructionBacklogFromSites(creep, constructionSites, constructionReservationContext);
 }
 
 function hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep: Creep): boolean {
