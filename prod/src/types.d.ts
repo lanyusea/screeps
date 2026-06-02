@@ -1324,6 +1324,9 @@ declare global {
     energyAcquisitionPickedUp?: number;
     energyAcquisitionWithdrawn?: number;
     pathLength?: number;
+    buildTargetStuckTicks?: number;
+    buildTargetStuckTargetId?: string;
+    lastMoveBuildTargetId?: string;
     lastPosition?: CreepBehaviorPositionMemory;
     lastMoveTick?: number;
     lastWorkTick?: number;

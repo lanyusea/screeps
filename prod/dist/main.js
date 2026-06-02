@@ -21776,8 +21776,10 @@ function observeCreepBehaviorTick(creep, tick = getGameTime24()) {
     const stepDistance = getStepDistance(telemetry.lastPosition, currentPosition);
     if (stepDistance > 0) {
       telemetry.pathLength = ((_a = telemetry.pathLength) != null ? _a : 0) + stepDistance;
+      clearBuildTargetStuckObservation(telemetry);
     } else {
       telemetry.stuckTicks = ((_b = telemetry.stuckTicks) != null ? _b : 0) + 1;
+      recordBuildTargetStuckObservation(telemetry);
     }
   }
   if (currentPosition) {
@@ -21808,6 +21810,22 @@ function recordCreepBehaviorMove(creep, tick = getGameTime24()) {
   }
   telemetry.moveTicks = ((_a = telemetry.moveTicks) != null ? _a : 0) + 1;
   telemetry.lastMoveTick = tick;
+}
+function recordCreepBehaviorMoveTask(creep, task) {
+  if (isRuntimeCpuBucketCritical()) {
+    return;
+  }
+  const telemetry = ensureCreepBehaviorTelemetry(creep);
+  if (task.type !== "build") {
+    delete telemetry.lastMoveBuildTargetId;
+    clearBuildTargetStuckObservation(telemetry);
+    return;
+  }
+  const targetId = String(task.targetId);
+  if (telemetry.lastMoveBuildTargetId !== targetId) {
+    clearBuildTargetStuckObservation(telemetry);
+  }
+  telemetry.lastMoveBuildTargetId = targetId;
 }
 function recordCreepBehaviorWork(creep, tick = getGameTime24()) {
   var _a;
@@ -21877,6 +21895,20 @@ function ensureCreepBehaviorTelemetry(creep) {
     creep.memory.behaviorTelemetry = {};
   }
   return creep.memory.behaviorTelemetry;
+}
+function recordBuildTargetStuckObservation(telemetry) {
+  var _a;
+  const targetId = telemetry.lastMoveBuildTargetId;
+  if (!targetId) {
+    clearBuildTargetStuckObservation(telemetry);
+    return;
+  }
+  telemetry.buildTargetStuckTicks = telemetry.buildTargetStuckTargetId === targetId ? ((_a = telemetry.buildTargetStuckTicks) != null ? _a : 0) + 1 : 1;
+  telemetry.buildTargetStuckTargetId = targetId;
+}
+function clearBuildTargetStuckObservation(telemetry) {
+  delete telemetry.buildTargetStuckTicks;
+  delete telemetry.buildTargetStuckTargetId;
 }
 function toRuntimeCreepBehaviorSummary(creep) {
   const telemetry = creep.memory.behaviorTelemetry;
@@ -32209,6 +32241,7 @@ function runControllerSustainMovement(creep) {
     const energyTask = selectControllerSustainHaulerEnergyTask(creep);
     if (energyTask) {
       clearEnergyDropoffOptimizationMemory(creep);
+      clearBuildTargetStuckTelemetry(creep);
       creep.memory.task = energyTask;
       executeAssignedTask(creep, energyTask);
       return true;
@@ -32250,6 +32283,7 @@ function isSpawnSupportMemory2(value) {
 function clearAssignedTask(creep) {
   delete creep.memory.task;
   clearEnergyDropoffOptimizationMemory(creep);
+  clearBuildTargetStuckTelemetry(creep);
 }
 function moveTowardRoom3(creep, roomName) {
   if (typeof creep.moveTo !== "function") {
@@ -32447,6 +32481,7 @@ function executeAssignedTask(creep, selectedTask, immediateReselectExecutions = 
   if (execution.result === ERR_NOT_IN_RANGE_CODE6) {
     moveToAssignedTaskTarget(creep, task, target);
     recordCreepBehaviorMove(creep);
+    recordCreepBehaviorMoveTask(creep, task);
   }
 }
 function shouldImmediatelyReselectAfterTaskResult(task, result) {
@@ -32462,9 +32497,11 @@ function assignSelectedTask(creep, selectedTask, previousTask) {
   if (!selectedTask || previousTask && isSameTask2(previousTask, selectedTask)) {
     delete creep.memory.task;
     clearEnergyDropoffOptimizationMemory(creep);
+    clearBuildTargetStuckTelemetry(creep);
     return null;
   }
   clearEnergyDropoffOptimizationMemory(creep);
+  clearBuildTargetStuckTelemetry(creep);
   creep.memory.task = selectedTask;
   return selectedTask;
 }
@@ -33182,6 +33219,9 @@ function recordTaskBehavior(creep, task, execution) {
     recordCreepBehaviorMove(creep);
   } else if (execution.action === "work") {
     recordCreepBehaviorWork(creep);
+    if (task.type === "build") {
+      clearBuildTargetStuckTelemetry(creep);
+    }
   } else if (execution.result !== ERR_NOT_IN_RANGE_CODE6) {
     recordCreepBehaviorIdle(creep);
   }
@@ -33230,13 +33270,22 @@ function suppressCurrentBuildTargetIfWorkerIsStuck(creep) {
     return;
   }
   const telemetry = creep.memory.behaviorTelemetry;
-  if (((_a = telemetry == null ? void 0 : telemetry.stuckTicks) != null ? _a : 0) < BUILD_TARGET_STUCK_TICKS || ((_b = telemetry == null ? void 0 : telemetry.workTicks) != null ? _b : 0) > 0) {
+  if (((_a = telemetry == null ? void 0 : telemetry.buildTargetStuckTicks) != null ? _a : 0) < BUILD_TARGET_STUCK_TICKS || (telemetry == null ? void 0 : telemetry.buildTargetStuckTargetId) !== String(task.targetId) || ((_b = telemetry == null ? void 0 : telemetry.workTicks) != null ? _b : 0) > 0) {
     return;
   }
   suppressBuildTarget(creep, task, "stuck");
   if (telemetry) {
-    telemetry.stuckTicks = 0;
+    clearBuildTargetStuckTelemetry(creep);
   }
+}
+function clearBuildTargetStuckTelemetry(creep) {
+  const telemetry = creep.memory.behaviorTelemetry;
+  if (!telemetry) {
+    return;
+  }
+  delete telemetry.buildTargetStuckTicks;
+  delete telemetry.buildTargetStuckTargetId;
+  delete telemetry.lastMoveBuildTargetId;
 }
 function suppressBuildTarget(creep, task, reason) {
   const tick = getGameTick4();

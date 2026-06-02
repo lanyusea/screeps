@@ -2748,6 +2748,51 @@ describe('runWorker', () => {
     });
   });
 
+  it('clears build-target stuck telemetry after successful build work', () => {
+    const site = { id: 'site1' } as ConstructionSite;
+    const build = jest.fn().mockReturnValue(0);
+    const moveTo = jest.fn();
+    const getObjectById = jest.fn().mockReturnValue(site);
+    const creep = {
+      memory: {
+        task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> },
+        behaviorTelemetry: {
+          stuckTicks: 1,
+          workTicks: 0,
+          buildTargetStuckTicks: 1,
+          buildTargetStuckTargetId: 'site1',
+          lastMoveBuildTargetId: 'site1'
+        }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: { find: jest.fn().mockReturnValue([]) },
+      build,
+      moveTo
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById,
+      time: 200
+    };
+
+    runWorker(creep);
+
+    expect(getObjectById).toHaveBeenCalledWith('site1');
+    expect(build).toHaveBeenCalledWith(site);
+    expect(moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'site1' });
+    expect(creep.memory.blockedBuildTarget).toBeUndefined();
+    expect(creep.memory.behaviorTelemetry).toMatchObject({
+      stuckTicks: 1,
+      workTicks: 1
+    });
+    expect(creep.memory.behaviorTelemetry?.buildTargetStuckTicks).toBeUndefined();
+    expect(creep.memory.behaviorTelemetry?.buildTargetStuckTargetId).toBeUndefined();
+    expect(creep.memory.behaviorTelemetry?.lastMoveBuildTargetId).toBeUndefined();
+  });
+
   it('suppresses a no-work stuck build task before retaining it', () => {
     const build = jest.fn();
     const moveTo = jest.fn();
@@ -2757,7 +2802,10 @@ describe('runWorker', () => {
         task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> },
         behaviorTelemetry: {
           stuckTicks: 2,
-          workTicks: 0
+          workTicks: 0,
+          buildTargetStuckTicks: 2,
+          buildTargetStuckTargetId: 'site1',
+          lastMoveBuildTargetId: 'site1'
         }
       },
       store: {
@@ -2785,7 +2833,58 @@ describe('runWorker', () => {
       until: 215,
       reason: 'stuck'
     });
-    expect(creep.memory.behaviorTelemetry?.stuckTicks).toBe(0);
+    expect(creep.memory.behaviorTelemetry).toMatchObject({
+      stuckTicks: 2,
+      workTicks: 0
+    });
+    expect(creep.memory.behaviorTelemetry?.buildTargetStuckTicks).toBeUndefined();
+    expect(creep.memory.behaviorTelemetry?.buildTargetStuckTargetId).toBeUndefined();
+    expect(creep.memory.behaviorTelemetry?.lastMoveBuildTargetId).toBeUndefined();
+  });
+
+  it('does not suppress a new build target with stale stuck telemetry from a previous target', () => {
+    const site = { id: 'site2' } as ConstructionSite;
+    const build = jest.fn().mockReturnValue(ERR_NOT_IN_RANGE);
+    const moveTo = jest.fn();
+    const getObjectById = jest.fn().mockReturnValue(site);
+    const creep = {
+      memory: {
+        task: { type: 'build', targetId: 'site2' as Id<ConstructionSite> },
+        behaviorTelemetry: {
+          stuckTicks: 2,
+          workTicks: 0,
+          buildTargetStuckTicks: 2,
+          buildTargetStuckTargetId: 'site1',
+          lastMoveBuildTargetId: 'site1'
+        }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: { find: jest.fn().mockReturnValue([]) },
+      build,
+      moveTo
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById,
+      time: 200
+    };
+
+    runWorker(creep);
+
+    expect(getObjectById).toHaveBeenCalledWith('site2');
+    expect(build).toHaveBeenCalledWith(site);
+    expect(moveTo).toHaveBeenCalledWith(site, { range: 3, ignoreCreeps: true });
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'site2' });
+    expect(creep.memory.blockedBuildTarget).toBeUndefined();
+    expect(creep.memory.behaviorTelemetry).toMatchObject({
+      stuckTicks: 2,
+      workTicks: 0,
+      lastMoveBuildTargetId: 'site2'
+    });
+    expect(creep.memory.behaviorTelemetry?.buildTargetStuckTicks).toBeUndefined();
+    expect(creep.memory.behaviorTelemetry?.buildTargetStuckTargetId).toBeUndefined();
   });
 
   it('repairs an existing repair target and moves when not in range', () => {
