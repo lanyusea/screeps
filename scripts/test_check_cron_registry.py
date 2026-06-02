@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -37,6 +38,34 @@ def live_recurring_job() -> dict[str, object]:
         "model": "gpt-5.5",
         "repeat": "forever",
     }
+
+
+def expected_shadow_eval_job() -> dict[str, str]:
+    return {
+        "job": cron.SHADOW_EVAL_JOB_NAME,
+        "schedule": "5 * * * *",
+        "deliver": "discord:#task-queue",
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "workdir": cron.NO_WORKDIR,
+        "repeat": "high-horizon",
+        "criticality": "P1",
+    }
+
+
+def live_shadow_eval_job(**extra: object) -> dict[str, object]:
+    job: dict[str, object] = {
+        "name": cron.SHADOW_EVAL_JOB_NAME,
+        "enabled": True,
+        "state": "scheduled",
+        "schedule": "5 * * * *",
+        "deliver": "discord:#task-queue",
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "repeat": {"times": 999999, "completed": 0},
+    }
+    job.update(extra)
+    return job
 
 
 class CronRegistryCompareTests(unittest.TestCase):
@@ -113,6 +142,102 @@ class CronRegistryCompareTests(unittest.TestCase):
             [item["id"] for item in result["unexpected_live"]],
             ["unexpected-recurring"],
         )
+
+
+class ShadowEvalNoUmbrellaPolicyTests(unittest.TestCase):
+    def test_shadow_eval_policy_flags_legacy_output_status(self) -> None:
+        expected = {cron.SHADOW_EVAL_JOB_ID: expected_shadow_eval_job()}
+        live = {cron.SHADOW_EVAL_JOB_ID: live_shadow_eval_job()}
+        violations = cron.validate_shadow_eval_no_umbrella(
+            live,
+            source_path=None,
+            text_surfaces={
+                "shadow-eval output fixture": (
+                    "gate_status=ok\n"
+                    "github_issue_879_comment=posted https://github.com/lanyusea/screeps/issues/879#issuecomment-1\n"
+                )
+            },
+        )
+
+        result = cron.compare(expected, live, policy_violations=violations)
+
+        self.assertEqual(result["status"], "FAIL", result)
+        self.assertTrue(
+            any(item["pattern"] == "legacy_github_issue_879_status" for item in result["policy_violations"]),
+            result,
+        )
+
+    def test_shadow_eval_policy_flags_live_issue_879_comment_routing(self) -> None:
+        expected = {cron.SHADOW_EVAL_JOB_ID: expected_shadow_eval_job()}
+        live = {
+            cron.SHADOW_EVAL_JOB_ID: live_shadow_eval_job(
+                prompt='routine route: gh issue comment 879 --body-file "$artifact"'
+            )
+        }
+        violations = cron.validate_shadow_eval_no_umbrella(live, source_path=None)
+
+        result = cron.compare(expected, live, policy_violations=violations)
+
+        self.assertEqual(result["status"], "FAIL", result)
+        self.assertTrue(
+            any(item["pattern"] == "gh_issue_comment_879" for item in result["policy_violations"]),
+            result,
+        )
+
+    def test_shadow_eval_policy_allows_current_skipped_no_atomic_issue_status(self) -> None:
+        expected = {cron.SHADOW_EVAL_JOB_ID: expected_shadow_eval_job()}
+        live = {
+            cron.SHADOW_EVAL_JOB_ID: live_shadow_eval_job(
+                prompt="emit github_comment=skipped_no_atomic_issue"
+            )
+        }
+        violations = cron.validate_shadow_eval_no_umbrella(
+            live,
+            source_path=None,
+            text_surfaces={
+                "shadow-eval source fixture": (
+                    'github_comment_status = "skipped_no_atomic_issue"\n'
+                    'print("github_comment=skipped_no_atomic_issue")\n'
+                )
+            },
+        )
+
+        result = cron.compare(expected, live, policy_violations=violations)
+
+        self.assertEqual(result["status"], "PASS", result)
+        self.assertEqual(result["policy_violations"], [])
+
+    def test_shadow_eval_policy_ignores_generic_no_umbrella_context_outside_routing_path(self) -> None:
+        expected = {
+            "recurring-job": expected_recurring_job(),
+            cron.SHADOW_EVAL_JOB_ID: expected_shadow_eval_job(),
+        }
+        live = {
+            "recurring-job": live_recurring_job()
+            | {"prompt": "PM contract: #879 is historical context only; use atomic issues."},
+            cron.SHADOW_EVAL_JOB_ID: live_shadow_eval_job(
+                prompt="PM contract: #879 is historical context only; no routine comments are routed there."
+            ),
+        }
+        violations = cron.validate_shadow_eval_no_umbrella(live, source_path=None)
+
+        result = cron.compare(expected, live, policy_violations=violations)
+
+        self.assertEqual(result["status"], "PASS", result)
+        self.assertEqual(result["policy_violations"], [])
+
+    def test_shadow_eval_policy_skips_absent_source_path(self) -> None:
+        expected = {cron.SHADOW_EVAL_JOB_ID: expected_shadow_eval_job()}
+        live = {cron.SHADOW_EVAL_JOB_ID: live_shadow_eval_job()}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            missing_source = Path(tmpdir) / "missing-shadow-eval-source.py"
+            violations = cron.validate_shadow_eval_no_umbrella(live, source_path=missing_source)
+
+        result = cron.compare(expected, live, policy_violations=violations)
+
+        self.assertEqual(result["status"], "PASS", result)
+        self.assertEqual(result["policy_violations"], [])
 
 
 if __name__ == "__main__":
