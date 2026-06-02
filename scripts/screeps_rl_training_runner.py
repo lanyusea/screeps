@@ -1182,9 +1182,26 @@ def run_training_experiment(
         materialize_candidate_scorecard_artifact(report, report_path.parent, report_secret_values)
     except scorecard_helper.ScorecardError as error:
         mark_candidate_scorecard_materialization_failed(report, error)
-    materialize_policy_gradient_momentum_state(report, report_path.parent, report_path, report_secret_values)
-    assert_no_secret_leak(report, report_secret_values)
-    write_json_atomic(report_path, report)
+    state_artifact_path = policy_gradient_momentum_state_artifact_path_for_report(report, report_path.parent)
+    previous_state_artifact_bytes = None
+    if state_artifact_path is not None and state_artifact_path.exists():
+        previous_state_artifact_bytes = state_artifact_path.read_bytes()
+    materialized_state_artifact_path = materialize_policy_gradient_momentum_state(
+        report,
+        report_path.parent,
+        report_path,
+        report_secret_values,
+    )
+    try:
+        assert_no_secret_leak(report, report_secret_values)
+        write_json_atomic(report_path, report)
+    except Exception:
+        if materialized_state_artifact_path is not None:
+            rollback_policy_gradient_momentum_state_artifact(
+                materialized_state_artifact_path,
+                previous_state_artifact_bytes,
+            )
+        raise
     report["reportPath"] = dataset_export.display_path(report_path)
     if stdout is not None:
         stdout.write(canonical_json(build_generation_summary(report)))
@@ -3461,8 +3478,11 @@ def load_policy_gradient_momentum_state(policy_gradient: JsonObject | None, out_
         state_reference["previousStateArtifactLoadError"] = "gradient momentum state artifact was not a JSON object"
         return state_reference
     state_payload_hash = policy_update_gradient_momentum_state_payload_hash(raw_payload)
-    stored_payload_hash = text_or_none(raw_payload.get("statePayloadHash"))
-    if stored_payload_hash is not None and stored_payload_hash != state_payload_hash:
+    stored_payload_hash = raw_payload.get("statePayloadHash")
+    if not isinstance(stored_payload_hash, str) or not stored_payload_hash:
+        state_reference["previousStateArtifactLoadError"] = "gradient momentum state payload hash was missing or invalid"
+        return state_reference
+    if stored_payload_hash != state_payload_hash:
         state_reference["previousStateArtifactLoadError"] = "gradient momentum state payload hash did not match artifact contents"
         return state_reference
 
@@ -4534,20 +4554,20 @@ def materialize_policy_gradient_momentum_state(
     out_dir: Path,
     report_path: Path,
     secret_values: Sequence[str] = (),
-) -> None:
+) -> Path | None:
     if report.get("trueGradient") is not True:
-        return
+        return None
     update = report.get("policyUpdate")
     policy_gradient = report.get("policyGradient")
     if not isinstance(update, dict) or not isinstance(policy_gradient, dict):
-        return
+        return None
     momentum = update.get("gradientMomentum")
     if not isinstance(momentum, dict):
-        return
+        return None
     state_identity = policy_update_gradient_momentum_state_identity(policy_gradient)
     state_path = policy_update_gradient_momentum_state_path(policy_gradient, out_dir)
     if state_identity is None or state_path is None:
-        return
+        return None
 
     state_key = policy_update_gradient_momentum_state_key(state_identity)
     state_artifact_path = dataset_export.display_path(state_path)
@@ -4621,6 +4641,7 @@ def materialize_policy_gradient_momentum_state(
             "stateMaterialized": True,
         },
     )
+    return state_path
 
 
 def update_gradient_momentum_report_metadata(report: JsonObject, metadata: JsonObject) -> None:
@@ -4635,6 +4656,18 @@ def update_gradient_momentum_report_metadata(report: JsonObject, metadata: JsonO
         parameter_evidence = next_candidate_policy.get("parameterEvidence")
         if isinstance(parameter_evidence, dict):
             parameter_evidence["gradientMomentum"] = copy.deepcopy(update["gradientMomentum"])
+
+
+def policy_gradient_momentum_state_artifact_path_for_report(report: JsonObject, out_dir: Path) -> Path | None:
+    if report.get("trueGradient") is not True:
+        return None
+    update = report.get("policyUpdate")
+    policy_gradient = report.get("policyGradient")
+    if not isinstance(update, dict) or not isinstance(policy_gradient, dict):
+        return None
+    if not isinstance(update.get("gradientMomentum"), dict):
+        return None
+    return policy_update_gradient_momentum_state_path(policy_gradient, out_dir)
 
 
 def materialize_candidate_scorecard_artifact(
@@ -7857,6 +7890,34 @@ def write_json_atomic(path: Path, payload: Any) -> None:
         with os.fdopen(temp_fd, "w", encoding="utf-8") as handle:
             temp_fd = -1
             handle.write(canonical_json(payload))
+        os.replace(temp_path, path)
+    finally:
+        if temp_fd != -1:
+            try:
+                os.close(temp_fd)
+            except OSError:
+                pass
+        try:
+            temp_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def rollback_policy_gradient_momentum_state_artifact(path: Path, previous_bytes: bytes | None) -> None:
+    if previous_bytes is None:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".rollback.tmp", dir=str(path.parent))
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(temp_fd, "wb") as handle:
+            temp_fd = -1
+            handle.write(previous_bytes)
         os.replace(temp_path, path)
     finally:
         if temp_fd != -1:
