@@ -491,6 +491,69 @@ describe('expansion planner', () => {
     expect(Memory.territory?.intents ?? []).toEqual([]);
   });
 
+  it('creates Seasonal expansion planner claim intents from an RCL3 owned room', () => {
+    const { colony } = makeColony({
+      controllerLevel: 3,
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300
+    });
+    installGame(colony, {
+      gclLevel: 2,
+      shard: { name: 'shardSeason', type: 'normal' },
+      exits: { W1N1: { '3': 'W2N1' } },
+      rooms: {
+        W2N1: makeExpansionRoom('W2N1')
+      }
+    });
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 102)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      createdBy: 'expansionPlanner',
+      controllerId: 'controller-W2N1'
+    });
+  });
+
+  it('reserves instead of starting a second Seasonal claim while an owned expansion is below RCL3', () => {
+    const { colony } = makeColony({
+      controllerLevel: 3,
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300
+    });
+    installGame(colony, {
+      gclLevel: 3,
+      shard: { name: 'shardSeason', type: 'normal' },
+      exits: {
+        W1N1: { '3': 'W2N1', '5': 'W1N2' },
+        W2N1: { '3': 'W3N1' }
+      },
+      rooms: {
+        W2N1: makeOwnedExpansionRoom('W2N1', 2),
+        W1N2: makeExpansionRoom('W1N2'),
+        W3N1: makeExpansionRoom('W3N1')
+      }
+    });
+
+    const plan = refreshExpansionPlannerIntent(colony, 103);
+
+    expect(plan).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      action: 'reserve'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: plan.targetRoom,
+        action: 'reserve',
+        createdBy: 'expansionPlanner',
+        controllerId: `controller-${plan.targetRoom}`
+      }
+    ]);
+    expect(Memory.territory?.targets?.[0]?.action).not.toBe('claim');
+  });
+
   it('keeps visible E29N55 scout-only rooms out of expansion planner control candidates and intents', () => {
     const { colony } = makeColony({
       roomName: 'E29N55',
@@ -1885,10 +1948,12 @@ function installGame(
   colony: ColonySnapshot,
   {
     gclLevel,
+    shard,
     exits,
     rooms
   }: {
     gclLevel: number;
+    shard?: { name: string; type: string };
     exits: Record<string, Record<string, string>>;
     rooms: Record<string, Room>;
   }
@@ -1896,6 +1961,7 @@ function installGame(
   (globalThis as unknown as { Game: Partial<Game> }).Game = {
     time: 100,
     gcl: { level: gclLevel, progress: 0, progressTotal: 0 } as GlobalControlLevel,
+    ...(shard ? { shard: shard as Game['shard'] } : {}),
     rooms: {
       [colony.room.name]: colony.room,
       ...rooms
@@ -1913,4 +1979,16 @@ function makeIntent(action: TerritoryControlAction): TerritoryIntentPlan {
     targetRoom: 'W2N1',
     action
   };
+}
+
+function makeOwnedExpansionRoom(roomName: string, controllerLevel: number): Room {
+  return makeExpansionRoom(roomName, {
+    controller: {
+      id: `controller-${roomName}` as Id<StructureController>,
+      my: true,
+      owner: { username: 'me' },
+      level: controllerLevel,
+      ticksToDowngrade: 10_000
+    } as StructureController
+  });
 }

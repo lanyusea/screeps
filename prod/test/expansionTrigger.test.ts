@@ -75,6 +75,40 @@ describe('autonomous expansion trigger pipeline', () => {
     });
   });
 
+  it('starts a Seasonal RCL3 pipeline when room energy reaches the RCL3 threshold', () => {
+    const threshold = getExpansionTriggerRequiredEnergy(3);
+    const colony = makeColony({
+      storageEnergy: 2_000,
+      rcl: 3,
+      energyAvailable: threshold,
+      energyCapacityAvailable: 800
+    });
+    const report = makeReport([
+      makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })
+    ]);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 9,
+      shard: { name: 'shardSeason', type: 'normal' } as Game['shard'],
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTargetRoom('W2N1', 'controller2' as Id<StructureController>)
+      }
+    };
+    setSafeHomeThreat('W1N1', 9);
+
+    expect(refreshAutonomousExpansionPipeline(colony, report, 9)).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2'
+    });
+    expect(Memory.territory?.expansionPipelines?.W1N1).toMatchObject({
+      status: 'active',
+      stage: 'reserving',
+      targetRoom: 'W2N1'
+    });
+  });
+
   it('waits at RCL5 when room energy is below the capped threshold', () => {
     const threshold = getExpansionTriggerRequiredEnergy(5);
     const colony = makeColony({

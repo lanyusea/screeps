@@ -4,6 +4,7 @@ import { TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY } from './autoClaim';
 import { maxRoomsForRcl } from './expansionScoring';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 import { isAutonomousTerritoryControlAllowedForController } from './controlGate';
+import { hasSeasonalImmatureOwnedExpansionRoom } from '../runtime/seasonalPolicy';
 
 export const EXPANSION_PLANNER_MIN_SOURCE_COUNT = 2;
 export const EXPANSION_PLANNER_MAX_ROUTE_DISTANCE = 2;
@@ -1760,6 +1761,10 @@ function selectExpansionIntentAction(colony: ColonySnapshot): TerritoryControlAc
   }
 
   if (ownedRoomCount >= maxRoomsForRcl(colony.room.controller?.level)) {
+    return 'reserve';
+  }
+
+  if (hasSeasonalImmatureOwnedExpansionRoom(colony.room.name, ownerUsername)) {
     return 'reserve';
   }
 

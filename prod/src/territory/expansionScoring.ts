@@ -36,6 +36,11 @@ import {
   type PostClaimBootstrapIgnoredBlockerSummary,
   type PostClaimBootstrapBlockerSummary
 } from './postClaimBootstrap';
+import {
+  SEASONAL_IMMATURE_EXPANSION_PRECONDITION,
+  hasSeasonalImmatureOwnedExpansionRoom,
+  isSeasonalRuntimeWorld
+} from '../runtime/seasonalPolicy';
 
 export const NEXT_EXPANSION_TARGET_CREATOR: TerritoryAutomationSource = 'nextExpansionScoring';
 
@@ -114,6 +119,7 @@ export interface ExpansionCandidateScore {
   mineral?: ExpansionMineralEvidence;
   hostileCreepCount?: number;
   hostileStructureCount?: number;
+  hostilePressureDistance?: number;
   reservation?: ExpansionReservationEvidence;
   requiresControllerPressure?: boolean;
   scoutOnly?: boolean;
@@ -165,6 +171,7 @@ export interface ExpansionCandidateInput {
   mineral?: ExpansionMineralEvidence;
   hostileCreepCount?: number;
   hostileStructureCount?: number;
+  hostilePressureDistance?: number;
   scoutOnly?: boolean;
 }
 
@@ -721,6 +728,7 @@ function scoreExpansionCandidate(
   const postClaimBootstrapBlocker = getActivePostClaimBootstrapBlocker(input);
   const ignoredPostClaimBootstrapBlockers =
     candidate.scoutOnly === true ? getIgnoredPostClaimBootstrapBlockerSummaries(input) : [];
+  const hostilePressureDistance = getCandidateHostilePressureDistance(candidate);
   const preconditions = getExpansionPreconditions(input, candidate);
   let evidenceStatus: ExpansionCandidateEvidenceStatus = 'sufficient';
   const visible = candidate.visible !== false;
@@ -844,6 +852,7 @@ function scoreExpansionCandidate(
     ...(candidate.hostileStructureCount !== undefined
       ? { hostileStructureCount: candidate.hostileStructureCount }
       : {}),
+    ...(hostilePressureDistance !== undefined ? { hostilePressureDistance } : {}),
     ...(reservation ? { reservation } : {}),
     ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(candidate.scoutOnly === true ? { scoutOnly: true } : {}),
@@ -1028,6 +1037,71 @@ function getDistanceScore(candidate: ExpansionCandidateInput): number {
   return Math.max(-160, supportScore - homePenalty);
 }
 
+function getCandidateHostilePressureDistance(candidate: ExpansionCandidateInput): number | undefined {
+  if (!isSeasonalRuntimeWorld()) {
+    return undefined;
+  }
+
+  if (
+    typeof candidate.hostilePressureDistance === 'number' &&
+    Number.isFinite(candidate.hostilePressureDistance)
+  ) {
+    return Math.max(0, Math.floor(candidate.hostilePressureDistance));
+  }
+
+  return getNearestKnownHostilePressureDistance(candidate.roomName);
+}
+
+function getNearestKnownHostilePressureDistance(roomName: string): number | undefined {
+  const pressureRoomNames = getKnownHostilePressureRoomNames();
+  if (pressureRoomNames.length === 0) {
+    return undefined;
+  }
+
+  const gameMap = (globalThis as { Game?: Partial<Game> }).Game?.map;
+  const getRoomLinearDistance = gameMap?.getRoomLinearDistance;
+  if (typeof getRoomLinearDistance !== 'function') {
+    return undefined;
+  }
+
+  let nearestDistance: number | undefined;
+  for (const pressureRoomName of pressureRoomNames) {
+    try {
+      const distance = getRoomLinearDistance.call(gameMap, roomName, pressureRoomName);
+      if (!Number.isFinite(distance)) {
+        continue;
+      }
+
+      const normalizedDistance = Math.max(0, Math.floor(distance));
+      nearestDistance = nearestDistance === undefined
+        ? normalizedDistance
+        : Math.min(nearestDistance, normalizedDistance);
+    } catch {
+      continue;
+    }
+  }
+
+  return nearestDistance;
+}
+
+function getKnownHostilePressureRoomNames(): string[] {
+  const pressureRoomNames = new Set<string>();
+  const defense = (globalThis as { Memory?: Partial<Memory> }).Memory?.defense;
+  for (const [roomName, unsafeRoom] of Object.entries(defense?.unsafeRooms ?? {})) {
+    if (unsafeRoom?.unsafe === true) {
+      pressureRoomNames.add(roomName);
+    }
+  }
+
+  for (const [roomName, threat] of Object.entries(defense?.colonyThreats?.rooms ?? {})) {
+    if (threat?.level && threat.level !== 'none') {
+      pressureRoomNames.add(roomName);
+    }
+  }
+
+  return [...pressureRoomNames].sort();
+}
+
 function getReservationScore(
   input: ExpansionScoringInput,
   controller: ExpansionControllerEvidence | undefined
@@ -1152,6 +1226,13 @@ function getExpansionPreconditions(
 
   if (hasActivePostClaimBootstrapBlocker(input)) {
     preconditions.push(POST_CLAIM_BOOTSTRAP_PRECONDITION);
+  }
+
+  if (
+    candidate?.scoutOnly !== true &&
+    hasSeasonalImmatureOwnedExpansionRoom(input.colonyName, input.colonyOwnerUsername)
+  ) {
+    preconditions.push(SEASONAL_IMMATURE_EXPANSION_PRECONDITION);
   }
 
   return preconditions;
@@ -1326,6 +1407,9 @@ function toPersistedExpansionCandidateMemory(
     ...(candidate.hostileStructureCount !== undefined
       ? { hostileStructureCount: candidate.hostileStructureCount }
       : {}),
+    ...(candidate.hostilePressureDistance !== undefined
+      ? { hostilePressureDistance: candidate.hostilePressureDistance }
+      : {}),
     ...(candidate.requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(candidate.risks.length > 0 ? { risks: candidate.risks } : {}),
     ...(candidate.preconditions.length > 0 ? { preconditions: candidate.preconditions } : {}),
@@ -1436,6 +1520,10 @@ function getPersistedExpansionCandidateBlockReason(
 
   if (hasExpansionPrecondition(candidate, POST_CLAIM_BOOTSTRAP_PRECONDITION)) {
     return 'postClaimBootstrapActive';
+  }
+
+  if (hasExpansionPrecondition(candidate, SEASONAL_IMMATURE_EXPANSION_PRECONDITION)) {
+    return 'seasonalImmatureExpansionActive';
   }
 
   if ((candidate.hostileCreepCount ?? 0) > 0 || (candidate.hostileStructureCount ?? 0) > 0) {
@@ -1643,10 +1731,15 @@ function compareExpansionCandidates(left: ExpansionCandidateScore, right: Expans
   return (
     getEvidenceStatusPriority(left.evidenceStatus) - getEvidenceStatusPriority(right.evidenceStatus) ||
     right.score - left.score ||
+    compareHostilePressureDistances(left.hostilePressureDistance, right.hostilePressureDistance) ||
     compareOptionalNumbers(left.nearestOwnedRoomDistance, right.nearestOwnedRoomDistance) ||
     compareOptionalNumbers(left.routeDistance, right.routeDistance) ||
     left.roomName.localeCompare(right.roomName)
   );
+}
+
+function compareHostilePressureDistances(left: number | undefined, right: number | undefined): number {
+  return (right ?? -1) - (left ?? -1);
 }
 
 function getEvidenceStatusPriority(status: ExpansionCandidateEvidenceStatus): number {

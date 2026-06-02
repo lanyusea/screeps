@@ -207,6 +207,57 @@ describe('next expansion scoring', () => {
     );
   });
 
+  it('uses hostile-pressure distance as a deterministic tie-breaker when expansion resources tie', () => {
+    Memory.defense = {
+      unsafeRooms: {
+        W9N9: {
+          roomName: 'W9N9',
+          unsafe: true,
+          reason: 'hostilePresence',
+          updatedAt: 100,
+          hostileCreepCount: 1,
+          hostileStructureCount: 0,
+          hostileTowerCount: 0
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      shard: { name: 'shardSeason', type: 'normal' } as Game['shard'],
+      map: {
+        getRoomLinearDistance: jest.fn((roomName: string) => (roomName === 'W3N1' ? 5 : 1))
+      } as unknown as GameMap
+    };
+    const report = scoreExpansionCandidates(
+      makeInput([
+        makeCandidate({
+          roomName: 'W2N1',
+          order: 0
+        }),
+        makeCandidate({
+          roomName: 'W3N1',
+          order: 1
+        })
+      ])
+    );
+
+    expect(report.candidates.map((candidate) => candidate.roomName)).toEqual(['W3N1', 'W2N1']);
+    expect(report.candidates[0]).toMatchObject({ roomName: 'W3N1', hostilePressureDistance: 5 });
+  });
+
+  it('keeps expansion ordering deterministic when hostile-pressure distance evidence is missing', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      shard: { name: 'shardSeason', type: 'normal' } as Game['shard']
+    };
+    const report = scoreExpansionCandidates(
+      makeInput([
+        makeCandidate({ roomName: 'W3N1', order: 1 }),
+        makeCandidate({ roomName: 'W2N1', order: 0 })
+      ])
+    );
+
+    expect(report.candidates.map((candidate) => candidate.roomName)).toEqual(['W2N1', 'W3N1']);
+  });
+
   it('ranks claim candidates by sources, controller proximity, terrain, reserves, and distance', () => {
     const report = scoreExpansionCandidates(
       makeInput([
@@ -1969,6 +2020,32 @@ describe('next expansion scoring', () => {
     expect(getExpansionCandidateMemory()[0]).not.toHaveProperty('recommendedAction');
   });
 
+  it('blocks Seasonal next-expansion claims while any owned expansion room is below RCL3', () => {
+    const colony = makeSafeColony({ controllerLevel: 3 });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      shard: { name: 'shardSeason', type: 'normal' } as Game['shard'],
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeOwnedRoom('W2N1', 2)
+      }
+    };
+    const report = scoreExpansionCandidates(
+      makeInput([makeCandidate({ roomName: 'W3N1', sourceCount: 2 })], {
+        controllerLevel: 3,
+        ownedRoomCount: 2,
+        gclLevel: 3
+      })
+    );
+
+    expect(report.next?.preconditions).toContain('raise owned Seasonal expansion rooms to RCL3 before next claim');
+    expect(refreshNextExpansionTargetSelection(colony, report, 215)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'unmetPreconditions'
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+  });
+
   it('reports the RCL room limit even when another expansion precondition is also unmet', () => {
     const colony = makeSafeColony({ controllerLevel: 3 });
     const report = scoreExpansionCandidates(
@@ -2242,13 +2319,13 @@ function makeSafeColony({
   };
 }
 
-function makeOwnedRoom(roomName: string): Room {
+function makeOwnedRoom(roomName: string, controllerLevel = 3): Room {
   return {
     name: roomName,
     controller: {
       my: true,
       owner: { username: 'me' },
-      level: 3,
+      level: controllerLevel,
       ticksToDowngrade: 10_000
     } as StructureController,
     find: jest.fn().mockReturnValue([])

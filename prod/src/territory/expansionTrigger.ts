@@ -31,13 +31,12 @@ import {
 import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyTemplates';
 import {
   AUTONOMOUS_TERRITORY_CONTROL_ABORT_REASON,
-  AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL,
+  getAutonomousTerritoryControlMinRcl,
   isAutonomousTerritoryControlAllowedForColony
 } from './controlGate';
 
 const DEFAULT_EXPANSION_TRIGGER_SCORE_THRESHOLD = 700;
 const DEFAULT_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY = 0;
-const DEFAULT_EXPANSION_TRIGGER_MIN_RCL = AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL;
 const EXPANSION_TRIGGER_THREAT_MEMORY_STALE_TICKS = 5;
 const EXPANSION_TRIGGER_DOWNGRADE_GUARD_TICKS = 5_000;
 const EXPANSION_PIPELINE_REEVALUATION_SEPARATOR = '>';
@@ -869,7 +868,10 @@ function getPipelineConfig(pipeline: TerritoryExpansionPipelineMemory): Expansio
       'TERRITORY_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY',
       DEFAULT_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY
     ),
-    minRcl: getConfiguredPositiveInteger('TERRITORY_EXPANSION_TRIGGER_MIN_RCL', DEFAULT_EXPANSION_TRIGGER_MIN_RCL)
+    minRcl: getConfiguredPositiveInteger(
+      'TERRITORY_EXPANSION_TRIGGER_MIN_RCL',
+      getAutonomousTerritoryControlMinRcl()
+    )
   };
 }
 
@@ -883,7 +885,10 @@ function getExpansionTriggerConfig(): ExpansionTriggerConfig {
       'TERRITORY_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY',
       DEFAULT_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY
     ),
-    minRcl: getConfiguredPositiveInteger('TERRITORY_EXPANSION_TRIGGER_MIN_RCL', DEFAULT_EXPANSION_TRIGGER_MIN_RCL)
+    minRcl: getConfiguredPositiveInteger(
+      'TERRITORY_EXPANSION_TRIGGER_MIN_RCL',
+      getAutonomousTerritoryControlMinRcl()
+    )
   };
 }
 

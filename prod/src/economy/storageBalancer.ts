@@ -16,6 +16,7 @@ import {
   findOwnedLogisticsRoute,
   type LogisticsRoute
 } from './roomLogistics';
+import { isInterRoomSupportAllowed } from '../runtime/seasonalPolicy';
 
 export const STORAGE_BALANCE_EXPORT_RATIO = 0.8;
 export const STORAGE_BALANCE_IMPORT_RATIO = 0.3;
@@ -385,6 +386,10 @@ export function getRoomEnergyTransferExportLimit(
   importer: RoomStoredEnergyState
 ): number {
   if (exporter.roomName === importer.roomName) {
+    return 0;
+  }
+
+  if (!isInterRoomSupportAllowed(exporter.roomName, importer.roomName)) {
     return 0;
   }
 
