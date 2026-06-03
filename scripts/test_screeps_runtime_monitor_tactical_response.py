@@ -295,6 +295,7 @@ def make_worker_assignment_gap_metrics() -> monitor.RoomSummaryMetrics:
         owned_creep_objects=[],
         task_counts={"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0},
         worker_assignment_evidence_available=True,
+        worker_assignment_evidence_unavailable_reason=None,
         construction_sites=[{"type": "constructionSite"}],
         pending_build_progress=50,
         build_carried_energy=0,
@@ -2988,9 +2989,14 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
         room = payload["rooms"][0]
         productive_energy = room["resources"]["productiveEnergy"]
+        unavailable_reason = monitor.WORKER_ASSIGNMENT_EVIDENCE_UNAVAILABLE_REASON_MISSING_CREEP_MEMORY
 
         self.assertFalse(room["workerAssignmentEvidenceAvailable"])
         self.assertFalse(productive_energy["workerAssignmentEvidenceAvailable"])
+        self.assertEqual(room["workerAssignmentEvidenceUnavailableReason"], unavailable_reason)
+        self.assertEqual(productive_energy["workerAssignmentEvidenceUnavailableReason"], unavailable_reason)
+        self.assertEqual(room["constructionActivity"]["workerAssignmentEvidenceUnavailableReason"], unavailable_reason)
+        self.assertEqual(room["workerLoadEfficiency"]["unavailableReason"], unavailable_reason)
         self.assertEqual(
             room["taskCounts"],
             {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
@@ -3047,6 +3053,8 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
 
         self.assertFalse(room["workerAssignmentEvidenceAvailable"])
         self.assertFalse(productive_energy["workerAssignmentEvidenceAvailable"])
+        self.assertNotIn("workerAssignmentEvidenceUnavailableReason", room)
+        self.assertNotIn("workerAssignmentEvidenceUnavailableReason", productive_energy)
         self.assertEqual(
             room["taskCounts"],
             {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
