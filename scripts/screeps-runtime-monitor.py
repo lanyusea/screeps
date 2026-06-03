@@ -147,6 +147,45 @@ CONSTRUCTION_DEADLOCK_ROUTES = [
     {"issue": "#906", "topic": "gameplay_behavior_metric"},
     {"issue": "#1025", "topic": "construction_deadlock_ticks"},
 ]
+TERRITORY_EXPANSION_STAGNATION_KIND = "territory_expansion_stagnation"
+TERRITORY_EXPANSION_STAGNATION_TICKS = 5_000
+TERRITORY_EXPANSION_STAGNATION_ROUTES = [
+    {"issue": "#1632", "topic": "expansion_stagnation_guard"},
+    {"issue": "#1624", "topic": "stale_claim_intent_regression"},
+    {"issue": "#1527", "topic": "territory_expansion_monitoring"},
+    {"issue": "#1540", "topic": "runtime_alert_routing"},
+]
+TERRITORY_EXPANSION_NON_ALERT_BLOCKERS = {
+    "activeExpansionPipeline",
+    "activePostClaimBootstrap",
+    "postClaimBootstrapActive",
+    "gclInsufficient",
+    "roomLimitReached",
+    "targetHostile",
+    "hostilePresence",
+    "controllerReserved",
+    "controllerOwned",
+    "deadZoneRoute",
+    "routeUnavailable",
+    "noCandidate",
+    "cpuBucketLow",
+    "energyCapacityLow",
+    "energyBufferLow",
+    "homeAlertActive",
+    "controllerLevelLow",
+    "homeDowngradeGuard",
+    "bootstrapGate",
+    "homeDefenseGate",
+}
+TERRITORY_EXPANSION_STALE_ALERT_BLOCKERS = {
+    "none",
+    "monitorEvidenceMissing",
+    "unavailable",
+    "targetUnavailable",
+    "insufficientEvidence",
+    "activeClaimIntent",
+    "activeClaimTarget",
+}
 WORKER_ASSIGNMENT_STALL_ROUTES = [
     {"issue": "#1580", "topic": "worker_deadlock_alert"},
     {"issue": "#1553", "topic": "e29n57_worker_deadlock"},
@@ -366,6 +405,17 @@ TACTICAL_CATEGORY_RULES: dict[str, dict[str, Any]] = {
             "routes_to": CONSTRUCTION_DEADLOCK_ROUTES,
         },
     },
+    TERRITORY_EXPANSION_STAGNATION_KIND: {
+        "severity": "critical",
+        "decision": "codex_hotfix",
+        "actions": ["capture_runtime_context", "inspect_runtime_deadlock", "start_hotfix_gate"],
+        "metadata": {
+            "metric": "territoryExpansionProgress",
+            "related_issues": [str(route["issue"]) for route in TERRITORY_EXPANSION_STAGNATION_ROUTES],
+            "thresholds": {"P0_ticks": TERRITORY_EXPANSION_STAGNATION_TICKS},
+            "routes_to": TERRITORY_EXPANSION_STAGNATION_ROUTES,
+        },
+    },
     "worker_idle_collapse": {
         "severity": "high",
         "decision": "codex_hotfix_or_owner_action",
@@ -416,6 +466,7 @@ TACTICAL_REASON_CATEGORY_MAP = {
     CPU_BUCKET_LOW_KIND: [CPU_BUCKET_LOW_KIND],
     "energy_buffer_unhealthy": ["energy_buffer_unhealthy"],
     CONSTRUCTION_DEADLOCK_KIND: [CONSTRUCTION_DEADLOCK_KIND],
+    TERRITORY_EXPANSION_STAGNATION_KIND: [TERRITORY_EXPANSION_STAGNATION_KIND],
     "worker_idle_collapse": ["worker_idle_collapse"],
     "private_smoke_failed_phase": ["private_smoke_failure"],
     "private_smoke_runtime_failure": ["private_smoke_failure"],
@@ -1282,6 +1333,15 @@ def construction_deadlock_metadata() -> dict[str, Any]:
     }
 
 
+def territory_expansion_stagnation_metadata() -> dict[str, Any]:
+    return {
+        "metric": "territoryExpansionProgress",
+        "related_issues": [str(route["issue"]) for route in TERRITORY_EXPANSION_STAGNATION_ROUTES],
+        "thresholds": {"P0_ticks": TERRITORY_EXPANSION_STAGNATION_TICKS},
+        "routes_to": [dict(route) for route in TERRITORY_EXPANSION_STAGNATION_ROUTES],
+    }
+
+
 def worker_assignment_stall_metadata() -> dict[str, Any]:
     return {
         "metric": "workerAssignmentEvidence.productiveAssignmentCount",
@@ -1621,6 +1681,295 @@ def detect_construction_deadlock_reason(
         return None
 
     return build_construction_deadlock_reason(ref, runtime_room, metrics, deadlock_ticks)
+
+
+def runtime_territory_expansion_progress(room: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(room, dict):
+        return {}
+    progress = as_dict(room.get("territoryExpansionProgress"))
+    if progress:
+        return progress
+    return as_dict(room.get("territory_expansion_progress"))
+
+
+def territory_expansion_progress_tick(
+    progress: dict[str, Any],
+    runtime_room: dict[str, Any] | None,
+    current_tick_value: Any,
+) -> int | None:
+    for value in (
+        progress.get("updatedAt"),
+        runtime_summary_room_tick(runtime_room or {}),
+        current_tick_value,
+    ):
+        tick = tick_number(value)
+        if tick is not None:
+            return tick
+    return None
+
+
+def territory_expansion_progress_last_tick(progress: dict[str, Any]) -> int | None:
+    for key in ("lastProgressAt", "last_progress_at"):
+        tick = tick_number(progress.get(key))
+        if tick is not None:
+            return tick
+    active_pipeline = as_dict(progress.get("activePipeline"))
+    pipeline_tick = tick_number(active_pipeline.get("updatedAt"))
+    if pipeline_tick is not None:
+        return pipeline_tick
+    cached_selection = as_dict(progress.get("cachedSelection"))
+    return tick_number(cached_selection.get("refreshedAt"))
+
+
+def territory_expansion_blocker(progress: dict[str, Any]) -> str:
+    blocker = progress.get("blocker")
+    return blocker if isinstance(blocker, str) and blocker else "monitorEvidenceMissing"
+
+
+def territory_expansion_target(progress: dict[str, Any]) -> str | None:
+    for source in (
+        progress,
+        as_dict(progress.get("activePipeline")),
+        as_dict(progress.get("cachedSelection")),
+        as_dict(progress.get("topCandidate")),
+        as_dict(progress.get("activePostClaimBootstrap")),
+    ):
+        for key in ("targetRoom", "roomName"):
+            value = source.get(key)
+            if isinstance(value, str) and value:
+                return value
+    return None
+
+
+def territory_expansion_capacity_available(progress: dict[str, Any]) -> bool:
+    status = progress.get("roomCapacityStatus")
+    if isinstance(status, str) and status:
+        return status == "available"
+    owned = number_value(progress.get("ownedRoomCount"))
+    gcl_capacity = number_value(progress.get("gclRoomCapacity"))
+    room_capacity = number_value(progress.get("roomLimitCapacity"))
+    if gcl_capacity is not None and owned is not None and owned >= gcl_capacity:
+        return False
+    if room_capacity is not None and owned is not None and owned >= room_capacity:
+        return False
+    return True
+
+
+def territory_expansion_has_active_pipeline(progress: dict[str, Any]) -> bool:
+    if as_dict(progress.get("activePipeline")):
+        return True
+    return territory_expansion_blocker(progress) == "activeExpansionPipeline"
+
+
+def territory_expansion_progress_is_actionable(
+    progress: dict[str, Any],
+    current_tick: int | None,
+) -> tuple[bool, str]:
+    if progress.get("territoryCapable") is not True:
+        return False, "territory_not_capable"
+    if not territory_expansion_capacity_available(progress):
+        return False, "capacity_blocked"
+    if territory_expansion_has_active_pipeline(progress):
+        return False, "active_pipeline"
+
+    blocker = territory_expansion_blocker(progress)
+    if blocker in TERRITORY_EXPANSION_NON_ALERT_BLOCKERS:
+        return False, blocker
+    if blocker not in TERRITORY_EXPANSION_STALE_ALERT_BLOCKERS:
+        return False, blocker
+
+    if current_tick is None:
+        return blocker in {"monitorEvidenceMissing", "unavailable", "targetUnavailable"}, blocker
+
+    last_progress_tick = territory_expansion_progress_last_tick(progress)
+    if last_progress_tick is not None and current_tick >= last_progress_tick:
+        stale_ticks = current_tick - last_progress_tick
+        if stale_ticks < TERRITORY_EXPANSION_STAGNATION_TICKS:
+            return False, "progress_fresh"
+        return True, blocker
+
+    return True, blocker
+
+
+def territory_expansion_stagnation_previous_state(value: Any) -> dict[str, int]:
+    state = as_dict(value)
+    start_tick = tick_number(state.get("start_tick"))
+    last_tick = tick_number(state.get("last_tick"))
+    if start_tick is None or last_tick is None:
+        return {"start_tick": 0, "last_tick": 0, "consecutive_ticks": 0}
+    consecutive_ticks = number_value(state.get("consecutive_ticks"))
+    return {
+        "start_tick": start_tick,
+        "last_tick": last_tick,
+        "consecutive_ticks": int(consecutive_ticks) if consecutive_ticks is not None else max(0, last_tick - start_tick),
+    }
+
+
+def territory_expansion_stagnation_next_state(previous_state: dict[str, int], current_tick: int) -> dict[str, int]:
+    if previous_state["start_tick"] <= 0 or current_tick < previous_state["last_tick"]:
+        return {"start_tick": current_tick, "last_tick": current_tick, "consecutive_ticks": 0}
+    start_tick = previous_state["start_tick"]
+    return {
+        "start_tick": start_tick,
+        "last_tick": current_tick,
+        "consecutive_ticks": max(0, current_tick - start_tick),
+    }
+
+
+def territory_expansion_progress_evidence(
+    progress: dict[str, Any],
+    runtime_room: dict[str, Any] | None,
+    current_tick: int | None,
+    blocker: str,
+    state: dict[str, int] | None = None,
+) -> dict[str, Any]:
+    top_candidate = as_dict(progress.get("topCandidate"))
+    active_pipeline = as_dict(progress.get("activePipeline"))
+    cached_selection = as_dict(progress.get("cachedSelection"))
+    active_bootstrap = as_dict(progress.get("activePostClaimBootstrap"))
+    evidence: dict[str, Any] = {
+        "colony": progress.get("colony"),
+        "ownedRoomCount": progress.get("ownedRoomCount"),
+        "gclRoomCapacity": progress.get("gclRoomCapacity"),
+        "roomLimitCapacity": progress.get("roomLimitCapacity"),
+        "roomCapacityStatus": progress.get("roomCapacityStatus"),
+        "territoryCapable": progress.get("territoryCapable"),
+        "blocker": blocker,
+        "blockerSource": progress.get("blockerSource"),
+        "targetRoom": territory_expansion_target(progress),
+        "runtimeSummaryTick": current_tick,
+        "lastProgressAt": territory_expansion_progress_last_tick(progress),
+        "activePipelineStateKey": progress.get("activePipelineStateKey"),
+        "controlCounts": as_dict(progress.get("controlCounts")),
+    }
+    if top_candidate:
+        evidence["topCandidate"] = {
+            key: top_candidate.get(key)
+            for key in (
+                "roomName",
+                "score",
+                "evidenceStatus",
+                "recommendedAction",
+                "blockReason",
+                "blocker",
+                "updatedAt",
+                "hostileCreepCount",
+                "hostileStructureCount",
+                "requiresControllerPressure",
+            )
+            if key in top_candidate
+        }
+    if active_pipeline:
+        evidence["activePipeline"] = {
+            key: active_pipeline.get(key)
+            for key in ("targetRoom", "status", "stage", "claimState", "updatedAt", "startedAt")
+            if key in active_pipeline
+        }
+    if cached_selection:
+        evidence["cachedSelection"] = {
+            key: cached_selection.get(key)
+            for key in ("status", "targetRoom", "reason", "reasonDetail", "refreshedAt", "stateKey")
+            if key in cached_selection
+        }
+    if active_bootstrap:
+        evidence["activePostClaimBootstrap"] = {
+            key: active_bootstrap.get(key)
+            for key in ("roomName", "status", "updatedAt", "age", "workerTarget", "workerCount", "spawnCount")
+            if key in active_bootstrap
+        }
+    if state is not None:
+        evidence["startTick"] = state["start_tick"]
+        evidence["consecutiveTicks"] = state["consecutive_ticks"]
+    path = runtime_room.get(RUNTIME_SUMMARY_ARTIFACT_PATH_METADATA_KEY) if isinstance(runtime_room, dict) else None
+    if isinstance(path, str) and path:
+        evidence["runtimeSummaryPath"] = path
+    line = number_value(runtime_room.get(RUNTIME_SUMMARY_ARTIFACT_LINE_METADATA_KEY)) if isinstance(runtime_room, dict) else None
+    if line is not None:
+        evidence["runtimeSummaryLine"] = int(line)
+    return evidence
+
+
+def build_territory_expansion_stagnation_reason(
+    ref: RoomRef,
+    progress: dict[str, Any],
+    runtime_room: dict[str, Any] | None,
+    current_tick: int | None,
+    blocker: str,
+    state: dict[str, int],
+) -> dict[str, Any]:
+    last_progress_tick = territory_expansion_progress_last_tick(progress)
+    stale_ticks = (
+        current_tick - last_progress_tick
+        if current_tick is not None and last_progress_tick is not None and current_tick >= last_progress_tick
+        else state["consecutive_ticks"]
+    )
+    evidence = territory_expansion_progress_evidence(progress, runtime_room, current_tick, blocker, state)
+    target_room = evidence.get("targetRoom")
+    return {
+        "kind": TERRITORY_EXPANSION_STAGNATION_KIND,
+        "room": ref.key,
+        "shard": ref.shard,
+        "room_name": ref.room,
+        "colony": evidence.get("colony") or ref.room,
+        "severity": "critical",
+        "priority": "P0",
+        "blocker": blocker,
+        "targetRoom": target_room,
+        "ownedRoomCount": evidence.get("ownedRoomCount"),
+        "runtimeSummaryTick": current_tick,
+        "lastProgressAt": last_progress_tick,
+        "staleTicks": stale_ticks,
+        "threshold": TERRITORY_EXPANSION_STAGNATION_TICKS,
+        "evidence": evidence,
+        "metadata": territory_expansion_stagnation_metadata(),
+        "message": (
+            f"{TERRITORY_EXPANSION_STAGNATION_KIND} in {ref.key}: "
+            f"blocker={blocker}, target={target_room or 'unknown'}, "
+            f"ownedRoomCount={format_energy_value(evidence.get('ownedRoomCount'))}, "
+            f"staleTicks={format_energy_value(stale_ticks)}."
+        ),
+        "signature": f"{TERRITORY_EXPANSION_STAGNATION_KIND}:{ref.key}:{blocker}:{target_room or 'unknown'}",
+    }
+
+
+def detect_territory_expansion_stagnation_reason(
+    ref: RoomRef,
+    runtime_room: dict[str, Any] | None,
+    previous_rule_state: Any,
+    current_tick_value: Any,
+) -> tuple[dict[str, Any] | None, dict[str, int] | int]:
+    progress = runtime_territory_expansion_progress(runtime_room)
+    if not progress:
+        return None, 0
+
+    current_tick = territory_expansion_progress_tick(progress, runtime_room, current_tick_value)
+    actionable, blocker = territory_expansion_progress_is_actionable(progress, current_tick)
+    if not actionable:
+        return None, 0
+
+    if current_tick is None:
+        return None, territory_expansion_stagnation_previous_state(previous_rule_state)
+
+    last_progress_tick = territory_expansion_progress_last_tick(progress)
+    if (
+        last_progress_tick is not None
+        and current_tick >= last_progress_tick
+        and current_tick - last_progress_tick >= TERRITORY_EXPANSION_STAGNATION_TICKS
+    ):
+        state = {
+            "start_tick": last_progress_tick,
+            "last_tick": current_tick,
+            "consecutive_ticks": current_tick - last_progress_tick,
+        }
+        return build_territory_expansion_stagnation_reason(ref, progress, runtime_room, current_tick, blocker, state), state
+
+    state = territory_expansion_stagnation_next_state(
+        territory_expansion_stagnation_previous_state(previous_rule_state),
+        current_tick,
+    )
+    if state["consecutive_ticks"] >= TERRITORY_EXPANSION_STAGNATION_TICKS:
+        return build_territory_expansion_stagnation_reason(ref, progress, runtime_room, current_tick, blocker, state), state
+    return None, state
 
 
 def build_worker_idle_collapse_reason(
@@ -2598,6 +2947,17 @@ def evaluate_room_alert(
     )
     if construction_deadlock_candidate is not None:
         detected.append(construction_deadlock_candidate)
+
+    previous_territory_expansion_stagnation_state = rule_counts.get(TERRITORY_EXPANSION_STAGNATION_KIND)
+    territory_expansion_stagnation_candidate, territory_expansion_stagnation_state = detect_territory_expansion_stagnation_reason(
+        snapshot.ref,
+        runtime_room_summary,
+        previous_territory_expansion_stagnation_state,
+        snapshot.tick,
+    )
+    rule_counts[TERRITORY_EXPANSION_STAGNATION_KIND] = territory_expansion_stagnation_state
+    if territory_expansion_stagnation_candidate is not None:
+        detected.append(territory_expansion_stagnation_candidate)
 
     cpu_bucket_candidate = detect_cpu_bucket_reason(snapshot.ref, runtime_room_summary)
     if cpu_bucket_candidate is not None:
@@ -4060,6 +4420,7 @@ def runtime_summary_room_has_monitor_alert_fields(room: dict[str, Any], payload:
         or runtime_productive_assignment_count(room) is not None
         or runtime_worker_assignment_blocked_detail(room) is not None
         or bool(runtime_worker_assignment_blocked_workers(room))
+        or bool(runtime_territory_expansion_progress(room))
     )
 
 
@@ -4271,6 +4632,24 @@ def runtime_summary_capture_history_entry(room: dict[str, Any]) -> dict[str, Any
     )
     if worker_count is not None:
         entry["workerCount"] = worker_count
+
+    territory_progress = runtime_territory_expansion_progress(room)
+    if territory_progress:
+        entry["territoryExpansionProgress"] = {
+            key: territory_progress.get(key)
+            for key in (
+                "colony",
+                "territoryCapable",
+                "blocker",
+                "blockerSource",
+                "targetRoom",
+                "ownedRoomCount",
+                "roomCapacityStatus",
+                "lastProgressAt",
+                "updatedAt",
+            )
+            if key in territory_progress
+        }
 
     task_counts = as_dict(room.get("taskCounts"))
     if task_counts:
@@ -5652,6 +6031,67 @@ def command_self_test(_args: argparse.Namespace) -> int:
                 info={},
             )
 
+        def make_owned_snapshot(self, tick: int = 1) -> RoomSnapshot:
+            return RoomSnapshot(
+                ref=RoomRef("shardTest", "E1N1"),
+                terrain="0" * TERRAIN_CELLS,
+                objects=normalize_objects(
+                    {
+                        "spawn1": {
+                            "type": "spawn",
+                            "my": True,
+                            "owner": {"username": "owner"},
+                            "x": 25,
+                            "y": 25,
+                            "hits": 5000,
+                            "hitsMax": 5000,
+                        },
+                        "extension1": {
+                            "type": "extension",
+                            "my": True,
+                            "owner": {"username": "owner"},
+                            "x": 26,
+                            "y": 25,
+                            "hits": 1000,
+                            "hitsMax": 1000,
+                        },
+                        "ctrl": {
+                            "type": "controller",
+                            "my": True,
+                            "owner": {"username": "owner"},
+                            "level": 6,
+                            "x": 5,
+                            "y": 36,
+                        },
+                    }
+                ),
+                tick=tick,
+                owner="owner",
+                info={},
+            )
+
+        def make_territory_progress(self, **overrides: Any) -> dict[str, Any]:
+            progress = {
+                "colony": "E1N1",
+                "source": "runtime-summary",
+                "updatedAt": 1000,
+                "territoryCapable": True,
+                "blocker": "monitorEvidenceMissing",
+                "blockerSource": "monitor",
+                "ownedRoomCount": 2,
+                "roomCapacityStatus": "available",
+                "roomLimitCapacity": 5,
+                "gclRoomCapacity": 6,
+                "activePipelineStateKey": "pipeline:none",
+                "controlCounts": {
+                    "active": {"claim": 0, "reserve": 0, "scout": 0},
+                    "planned": {"claim": 0, "reserve": 0, "scout": 0},
+                    "targets": {"claim": 0, "reserve": 0},
+                },
+            }
+            progress.update(overrides)
+            return progress
+
         def test_first_run_baseline_no_alert(self) -> None:
             snapshot = self.make_snapshot(
                 {
@@ -6140,6 +6580,116 @@ def command_self_test(_args: argparse.Namespace) -> int:
             report = build_tactical_response_report({"ok": True, "mode": "alert", "alert": True, "reasons": [reason]})
             self.assertEqual(report["severity"], "critical")
             self.assertEqual(report["categories"], [CONSTRUCTION_DEADLOCK_KIND])
+
+        def test_territory_expansion_stagnation_alert_serializes_and_routes(self) -> None:
+            first_snapshot = self.make_owned_snapshot(tick=1000)
+            second_snapshot = self.make_owned_snapshot(tick=1000 + TERRITORY_EXPANSION_STAGNATION_TICKS)
+            first_runtime = {"roomName": "E1N1", "territoryExpansionProgress": self.make_territory_progress(updatedAt=1000)}
+            second_runtime = {
+                "roomName": "E1N1",
+                "territoryExpansionProgress": self.make_territory_progress(
+                    updatedAt=1000 + TERRITORY_EXPANSION_STAGNATION_TICKS,
+                    targetRoom="E2N1",
+                    topCandidate={
+                        "roomName": "E2N1",
+                        "evidenceStatus": "sufficient",
+                        "score": 820,
+                        "updatedAt": 1000,
+                    },
+                ),
+            }
+
+            first_emitted, first_suppressed, first_state = evaluate_room_alert(
+                first_snapshot,
+                {"baseline_established": True, "owner": "owner"},
+                now=100,
+                debounce_seconds=300,
+                runtime_room_summary=first_runtime,
+            )
+            self.assertEqual(first_emitted, [])
+            self.assertEqual(first_suppressed, [])
+
+            second_emitted, second_suppressed, _second_state = evaluate_room_alert(
+                second_snapshot,
+                first_state,
+                now=200,
+                debounce_seconds=300,
+                runtime_room_summary=second_runtime,
+            )
+            self.assertEqual(second_suppressed, [])
+            reason = next(reason for reason in second_emitted if reason["kind"] == TERRITORY_EXPANSION_STAGNATION_KIND)
+            self.assertEqual(reason["priority"], "P0")
+            self.assertEqual(reason["blocker"], "monitorEvidenceMissing")
+            self.assertEqual(reason["targetRoom"], "E2N1")
+            self.assertEqual(reason["metadata"]["related_issues"], ["#1632", "#1624", "#1527", "#1540"])
+            json.dumps(reason)
+
+            tactical = build_tactical_response_report({"ok": True, "mode": "alert", "alert": True, "reasons": [reason]})
+            self.assertEqual(tactical["severity"], "critical")
+            self.assertEqual(tactical["priority"], "P0")
+            self.assertEqual(tactical["categories"], [TERRITORY_EXPANSION_STAGNATION_KIND])
+            self.assertEqual(
+                tactical["triggers"][0]["metadata"]["routes_to"][0],
+                {"issue": "#1632", "topic": "expansion_stagnation_guard"},
+            )
+
+            health = evaluate_postdeploy_health_gate(
+                {"ok": True, "room_summaries": [{"room": "E1N1", "owner": "owner", "owned_creeps": 1, "owned_spawns": 1}]},
+                {"ok": True, "mode": "alert", "alert": True, "reasons": [reason]},
+            )
+            self.assertFalse(health["ok"])
+            self.assertIn("postdeploy_active_alert", [item["kind"] for item in health["reasons"]])
+
+        def test_territory_expansion_active_pipeline_suppresses_stagnation_alert(self) -> None:
+            snapshot = self.make_owned_snapshot(tick=10_000)
+            runtime_room = {
+                "roomName": "E1N1",
+                "territoryExpansionProgress": self.make_territory_progress(
+                    updatedAt=10_000,
+                    blocker="activeExpansionPipeline",
+                    blockerSource="activePipeline",
+                    targetRoom="E2N1",
+                    activePipeline={"targetRoom": "E2N1", "status": "active", "stage": "claiming", "updatedAt": 1},
+                ),
+            }
+
+            emitted, suppressed, next_state = evaluate_room_alert(
+                snapshot,
+                {"baseline_established": True, "owner": "owner"},
+                now=100,
+                debounce_seconds=300,
+                runtime_room_summary=runtime_room,
+            )
+
+            self.assertEqual(emitted, [])
+            self.assertEqual(suppressed, [])
+            self.assertEqual(next_state["rule_counts"][TERRITORY_EXPANSION_STAGNATION_KIND], 0)
+
+        def test_territory_expansion_legitimate_blockers_do_not_create_p0_alerts(self) -> None:
+            snapshot = self.make_owned_snapshot(tick=10_000)
+            blockers = [
+                ("gclInsufficient", {"roomCapacityStatus": "gclInsufficient", "ownedRoomCount": 6, "gclRoomCapacity": 6}),
+                ("roomLimitReached", {"roomCapacityStatus": "roomLimitReached", "ownedRoomCount": 5, "roomLimitCapacity": 5}),
+                ("targetHostile", {"targetRoom": "E2N1", "topCandidate": {"roomName": "E2N1", "blocker": "targetHostile"}}),
+                (
+                    "controllerReserved",
+                    {"targetRoom": "E2N1", "topCandidate": {"roomName": "E2N1", "blocker": "controllerReserved"}},
+                ),
+                ("noCandidate", {"blockerSource": "selection"}),
+            ]
+            for blocker, extra in blockers:
+                with self.subTest(blocker=blocker):
+                    progress = self.make_territory_progress(updatedAt=10_000, blocker=blocker, **extra)
+                    self.assertEqual(territory_expansion_blocker(progress), blocker)
+                    emitted, suppressed, _next_state = evaluate_room_alert(
+                        snapshot,
+                        {"baseline_established": True, "owner": "owner"},
+                        now=100,
+                        debounce_seconds=300,
+                        runtime_room_summary={"roomName": "E1N1", "territoryExpansionProgress": progress},
+                    )
+                    self.assertEqual([reason["kind"] for reason in emitted], [])
+                    self.assertEqual(suppressed, [])
 
         def test_worker_idle_collapse_alerts_on_second_consecutive_detection(self) -> None:
             snapshot = self.make_snapshot(
