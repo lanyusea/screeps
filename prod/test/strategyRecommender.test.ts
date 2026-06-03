@@ -127,6 +127,56 @@ describe('strategy recommender', () => {
     );
   });
 
+  it('recommends Seasonal RCL3 territory candidates when live gates allow controller control', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      shard: { name: 'shardSeason', type: 'normal' } as Game['shard']
+    };
+
+    const recommendations = generateStrategyRecommendations({
+      ...makeStableLowRclRoom(),
+      controllerLevel: 3,
+      creepCount: 4,
+      workerCount: 4,
+      energyCapacity: 800,
+      towerCount: 1,
+      territory: {
+        remoteTargets: [
+          {
+            roomName: 'W1N2',
+            action: 'reserve',
+            score: 900,
+            routeDistance: 1,
+            sourceCount: 2,
+            evidenceStatus: 'sufficient'
+          }
+        ],
+        expansionCandidates: [
+          {
+            roomName: 'W2N1',
+            action: 'claim',
+            score: 900,
+            routeDistance: 1,
+            sourceCount: 2,
+            evidenceStatus: 'sufficient'
+          }
+        ]
+      }
+    });
+
+    expect(recommendations).toContainEqual(
+      expect.objectContaining({
+        remoteTarget: 'W1N2',
+        defensePosture: 'passive'
+      })
+    );
+    expect(recommendations).toContainEqual(
+      expect.objectContaining({
+        expansionCandidate: 'W2N1',
+        defensePosture: 'passive'
+      })
+    );
+  });
+
   it('does not recommend visible owned rooms from stale territory memory as remote or expansion targets', () => {
     const colony = makeRecommendationColony('W1N1');
     (globalThis as unknown as { Game: Partial<Game> & { rooms: Record<string, Room> } }).Game = {

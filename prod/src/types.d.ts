@@ -700,6 +700,7 @@ declare global {
     | 'controllerLevelLow'
     | 'homeDowngradeGuard'
     | 'postClaimBootstrapActive'
+    | 'seasonalImmatureExpansionActive'
     | 'gclInsufficient'
     | 'roomLimitReached'
     | 'routeUnavailable';
@@ -979,6 +980,7 @@ declare global {
     mineral?: TerritoryExpansionMineralEvidenceMemory;
     hostileCreepCount?: number;
     hostileStructureCount?: number;
+    hostilePressureDistance?: number;
     requiresControllerPressure?: boolean;
     risks?: string[];
     preconditions?: string[];

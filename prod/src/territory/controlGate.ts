@@ -1,4 +1,8 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
+import {
+  SEASONAL_AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL,
+  isSeasonalRuntimeWorld
+} from '../runtime/seasonalPolicy';
 
 export const AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL = 5;
 export const AUTONOMOUS_TERRITORY_CONTROL_SUPPRESSION_REASON: TerritoryIntentSuppressionReason =
@@ -16,7 +20,7 @@ export function isAutonomousTerritoryControlAllowedForController(
     controller?.my === true &&
     typeof controller.level === 'number' &&
     Number.isFinite(controller.level) &&
-    controller.level >= AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL
+    controller.level >= getAutonomousTerritoryControlMinRcl()
   );
 }
 
@@ -33,4 +37,10 @@ export function isAutonomousTerritoryControlAllowedForColonyName(
   }
 
   return isAutonomousTerritoryControlAllowedForController(room?.controller);
+}
+
+export function getAutonomousTerritoryControlMinRcl(): number {
+  return isSeasonalRuntimeWorld()
+    ? SEASONAL_AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL
+    : AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL;
 }

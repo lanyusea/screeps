@@ -112,6 +112,29 @@ describe('multi-room territory coordination', () => {
     });
   });
 
+  it('prefers a Seasonal RCL3 room at 800 energy over an RCL5 room still short of claim energy', () => {
+    const seasonalRcl3 = makeColony('W1N1', {
+      controllerLevel: 3,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800
+    });
+    const waitingRcl5 = makeColony('W3N1', {
+      controllerLevel: 5,
+      energyAvailable: 1_049,
+      energyCapacityAvailable: 1_800
+    });
+    installGame([seasonalRcl3, waitingRcl5], 925);
+    (Game as { shard: Game['shard'] }).shard = { name: 'shardSeason', type: 'normal' } as Game['shard'];
+    Memory.territory = {
+      targets: [
+        { colony: 'W1N1', roomName: 'W2N1', action: 'claim' },
+        { colony: 'W3N1', roomName: 'W2N1', action: 'claim' }
+      ]
+    };
+
+    expect(selectTerritoryClaimOwner({ colony: seasonalRcl3, targetRoom: 'W2N1' })).toBe('W1N1');
+  });
+
   it('ignores destroyed spawn references while selecting a claim owner', () => {
     const west = makeColony('W1N1');
     installGame([west], 930);

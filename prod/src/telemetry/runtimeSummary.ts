@@ -409,6 +409,7 @@ type RuntimeTerritoryExpansionBlocker =
   | 'homeAlertActive'
   | 'controllerLevelLow'
   | 'homeDowngradeGuard'
+  | 'seasonalImmatureExpansionActive'
   | 'bootstrapGate'
   | 'homeDefenseGate';
 

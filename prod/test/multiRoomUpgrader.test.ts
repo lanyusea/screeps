@@ -225,6 +225,45 @@ describe('multi-room upgrader planner', () => {
     });
   });
 
+  it('allows Seasonal multi-room upgrader support only toward owned rooms below RCL3', () => {
+    const colony = makeColony();
+    installGame({
+      colony,
+      rooms: [
+        makeRoom({ roomName: 'W2N1', controller: makeOwnedController('W2N1', 2, 20_000) }),
+        makeRoom({ roomName: 'W3N1', controller: makeOwnedController('W3N1', 4, 1_000) })
+      ],
+      routeLengths: { W2N1: 1, W3N1: 1 }
+    });
+    (globalThis as { Game: Partial<Game> }).Game.shard = {
+      name: 'shardSeason',
+      type: 'normal'
+    } as Game['shard'];
+
+    expect(selectMultiRoomUpgradePlan(colony)).toMatchObject({
+      targetRoom: 'W2N1',
+      controllerLevel: 2
+    });
+  });
+
+  it('does not select Seasonal multi-room upgrader support between RCL3+ owned rooms', () => {
+    const colony = makeColony();
+    installGame({
+      colony,
+      rooms: [
+        makeRoom({ roomName: 'W2N1', controller: makeOwnedController('W2N1', 3, 20_000) }),
+        makeRoom({ roomName: 'W3N1', controller: makeOwnedController('W3N1', 4, 1_000) })
+      ],
+      routeLengths: { W2N1: 1, W3N1: 1 }
+    });
+    (globalThis as { Game: Partial<Game> }).Game.shard = {
+      name: 'shardSeason',
+      type: 'normal'
+    } as Game['shard'];
+
+    expect(selectMultiRoomUpgradePlan(colony)).toBeNull();
+  });
+
   it('returns all eligible plans in ranked order', () => {
     const colony = makeColony();
     installGame({

@@ -1,5 +1,8 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
-import { TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY, TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY } from './autoClaim';
+import {
+  TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY,
+  getTerritoryAutoClaimRequiredEnergy
+} from './autoClaim';
 import {
   NEXT_EXPANSION_TARGET_CREATOR,
   maxRoomsForRcl,
@@ -31,19 +34,17 @@ import {
 import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyTemplates';
 import {
   AUTONOMOUS_TERRITORY_CONTROL_ABORT_REASON,
-  AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL,
+  getAutonomousTerritoryControlMinRcl,
   isAutonomousTerritoryControlAllowedForColony
 } from './controlGate';
 
 const DEFAULT_EXPANSION_TRIGGER_SCORE_THRESHOLD = 700;
 const DEFAULT_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY = 0;
-const DEFAULT_EXPANSION_TRIGGER_MIN_RCL = AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL;
 const EXPANSION_TRIGGER_THREAT_MEMORY_STALE_TICKS = 5;
 const EXPANSION_TRIGGER_DOWNGRADE_GUARD_TICKS = 5_000;
 const EXPANSION_PIPELINE_REEVALUATION_SEPARATOR = '>';
 const GCL_LIMIT_PRECONDITION = 'wait for GCL capacity to claim another room';
 const ROOM_LIMIT_PRECONDITION_PREFIX = 'limit expansion to ';
-const MAX_ROOM_ENERGY_CAPACITY_BY_RCL = [0, 300, 550, 800, 1_300, 1_800, 2_300, 5_600, 12_900];
 
 interface ExpansionTriggerConfig {
   scoreThreshold: number;
@@ -768,15 +769,14 @@ function persistPipelineControlPlan(
   if (action === 'claim') {
     pruneLowerPriorityDuplicateClaimPlans(territoryMemory, pipeline.colony, pipeline.targetRoom);
   }
+  const postClaimBootstrapReserveEnergy = getPipelinePostClaimBootstrapReserveEnergy(pipeline, action);
   const target: TerritoryTargetMemory = {
     colony: pipeline.colony,
     roomName: pipeline.targetRoom,
     action,
     createdBy: NEXT_EXPANSION_TARGET_CREATOR,
     ...(pipeline.controllerId ? { controllerId: pipeline.controllerId } : {}),
-    ...(action === 'claim' && TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY > 0
-      ? { postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY }
-      : {})
+    ...(postClaimBootstrapReserveEnergy !== undefined ? { postClaimBootstrapReserveEnergy } : {})
   };
   upsertTerritoryTarget(territoryMemory, target);
 
@@ -790,10 +790,26 @@ function persistPipelineControlPlan(
     updatedAt: gameTime,
     createdBy: NEXT_EXPANSION_TARGET_CREATOR,
     ...(pipeline.controllerId ? { controllerId: pipeline.controllerId } : {}),
-    ...(action === 'claim' && TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY > 0
-      ? { postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY }
-      : {})
+    ...(postClaimBootstrapReserveEnergy !== undefined ? { postClaimBootstrapReserveEnergy } : {})
   });
+}
+
+function getPipelinePostClaimBootstrapReserveEnergy(
+  pipeline: TerritoryExpansionPipelineMemory,
+  action: TerritoryControlAction
+): number | undefined {
+  if (action !== 'claim' || TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY <= 0) {
+    return undefined;
+  }
+
+  const energyCapacityAvailable = getVisibleRoom(pipeline.colony)?.energyCapacityAvailable;
+  if (typeof energyCapacityAvailable !== 'number' || !Number.isFinite(energyCapacityAvailable)) {
+    return TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY;
+  }
+
+  const spawnableReserveEnergy = Math.max(0, Math.floor(energyCapacityAvailable) - TERRITORY_CONTROLLER_BODY_COST);
+  const reserveEnergy = Math.min(TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY, spawnableReserveEnergy);
+  return reserveEnergy > 0 ? reserveEnergy : undefined;
 }
 
 function prunePipelinePlans(
@@ -973,7 +989,10 @@ function getPipelineConfig(pipeline: TerritoryExpansionPipelineMemory): Expansio
       'TERRITORY_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY',
       DEFAULT_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY
     ),
-    minRcl: getConfiguredPositiveInteger('TERRITORY_EXPANSION_TRIGGER_MIN_RCL', DEFAULT_EXPANSION_TRIGGER_MIN_RCL)
+    minRcl: getConfiguredPositiveInteger(
+      'TERRITORY_EXPANSION_TRIGGER_MIN_RCL',
+      getAutonomousTerritoryControlMinRcl()
+    )
   };
 }
 
@@ -987,7 +1006,10 @@ function getExpansionTriggerConfig(): ExpansionTriggerConfig {
       'TERRITORY_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY',
       DEFAULT_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY
     ),
-    minRcl: getConfiguredPositiveInteger('TERRITORY_EXPANSION_TRIGGER_MIN_RCL', DEFAULT_EXPANSION_TRIGGER_MIN_RCL)
+    minRcl: getConfiguredPositiveInteger(
+      'TERRITORY_EXPANSION_TRIGGER_MIN_RCL',
+      getAutonomousTerritoryControlMinRcl()
+    )
   };
 }
 
@@ -1023,24 +1045,7 @@ function isExpansionTriggerReady(
 }
 
 export function getExpansionTriggerRequiredEnergy(controllerLevel: number | undefined): number {
-  const rclCapacity = getMaxRoomEnergyCapacityForRcl(controllerLevel);
-  if (rclCapacity === null) {
-    return TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY;
-  }
-
-  return Math.max(
-    TERRITORY_CONTROLLER_BODY_COST,
-    Math.min(TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY, rclCapacity)
-  );
-}
-
-function getMaxRoomEnergyCapacityForRcl(controllerLevel: number | undefined): number | null {
-  if (typeof controllerLevel !== 'number' || !Number.isFinite(controllerLevel)) {
-    return null;
-  }
-
-  const rcl = Math.max(0, Math.min(8, Math.floor(controllerLevel)));
-  return MAX_ROOM_ENERGY_CAPACITY_BY_RCL[rcl] ?? null;
+  return getTerritoryAutoClaimRequiredEnergy(controllerLevel);
 }
 
 function getBlockingExpansionInProgress(
@@ -1186,17 +1191,12 @@ function getTerritoryTargetRoomName(target: unknown): string | null {
 }
 
 function isSatisfiedClaimTarget(
-  territoryMemory: TerritoryMemory,
-  colony: string,
+  _territoryMemory: TerritoryMemory,
+  _colony: string,
   targetRoom: string,
   colonyOwnerUsername: string | undefined
 ): boolean {
-  const visibleRoom = getVisibleRoom(targetRoom);
-  if (isRoomOwnedByColonyOwner(visibleRoom, colonyOwnerUsername)) {
-    return true;
-  }
-
-  return !visibleRoom && isPostClaimBootstrapSatisfied(territoryMemory, colony, targetRoom);
+  return isRoomOwnedByColonyOwner(getVisibleRoom(targetRoom), colonyOwnerUsername);
 }
 
 function isRoomOwnedByColonyOwner(room: Room | undefined, colonyOwnerUsername: string | undefined): boolean {
@@ -1204,20 +1204,6 @@ function isRoomOwnedByColonyOwner(room: Room | undefined, colonyOwnerUsername: s
   return (
     controller?.my === true ||
     (isNonEmptyString(colonyOwnerUsername) && getControllerOwnerUsername(controller) === colonyOwnerUsername)
-  );
-}
-
-function isPostClaimBootstrapSatisfied(
-  territoryMemory: TerritoryMemory,
-  colony: string,
-  targetRoom: string
-): boolean {
-  const record = territoryMemory.postClaimBootstraps?.[targetRoom] as unknown;
-  return (
-    isRecord(record) &&
-    record.colony === colony &&
-    record.roomName === targetRoom &&
-    (record.status === 'ready' || record.status === 'completed')
   );
 }
 

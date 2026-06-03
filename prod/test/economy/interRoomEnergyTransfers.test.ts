@@ -75,6 +75,39 @@ describe('economy inter-room energy transfers', () => {
     });
   });
 
+  it('allows Seasonal inter-room energy imports into owned rooms below RCL3', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', controllerLevel: 3, storageEnergy: 900 });
+    const targetRoom = makeOwnedRoom({ roomName: 'W2N1', controllerLevel: 2, storageEnergy: 200 });
+    const sourceSpawn = makeSpawn('Spawn1', sourceRoom);
+    installGame([sourceRoom, targetRoom], [sourceSpawn], { shardName: 'shardSeason' });
+
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'W1N1', targetRoom: 'W2N1', amount: 100, updatedAt: 100 }
+    ]);
+    expect(selectCrossRoomEnergyTransfer()?.targetRoom).toBe('W2N1');
+  });
+
+  it('does not create Seasonal inter-room energy transfers between RCL3+ owned rooms', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', controllerLevel: 3, storageEnergy: 900 });
+    const targetRoom = makeOwnedRoom({ roomName: 'W2N1', controllerLevel: 3, storageEnergy: 200 });
+    const sourceSpawn = makeSpawn('Spawn1', sourceRoom);
+    installGame([sourceRoom, targetRoom], [sourceSpawn], { shardName: 'shardSeason' });
+
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([]);
+    expect(Memory.economy?.multiRoomEnergy?.transfers).toContainEqual({
+      targetRoom: 'W2N1',
+      amount: 100,
+      status: 'blocked',
+      reason: 'no-exporter',
+      updatedAt: 100
+    });
+    expect(planCrossRoomHauler()).toBeNull();
+  });
+
   it('orders inter-room imports by critical spawn pressure before controller upgrade and routine deficits', () => {
     const sourceRoom = makeOwnedRoom({
       roomName: 'W1N1',
@@ -121,18 +154,20 @@ function makeOwnedRoom({
   storageEnergy,
   storageCapacity = 1_000,
   energyAvailable = 800,
-  energyCapacityAvailable = 800
+  energyCapacityAvailable = 800,
+  controllerLevel = 4
 }: {
   roomName: string;
   storageEnergy: number;
   storageCapacity?: number;
   energyAvailable?: number;
   energyCapacityAvailable?: number;
+  controllerLevel?: number;
 }): Room {
   const controller = {
     id: `${roomName}-controller`,
     my: true,
-    level: 4
+    level: controllerLevel
   } as StructureController;
   return {
     name: roomName,
@@ -194,9 +229,14 @@ function makeRoomPosition(x: number, y: number, roomName: string): RoomPosition 
   } as unknown as RoomPosition;
 }
 
-function installGame(rooms: Room[], spawns: StructureSpawn[]): void {
+function installGame(
+  rooms: Room[],
+  spawns: StructureSpawn[],
+  options: { shardName?: string } = {}
+): void {
   (globalThis as { Game: Partial<Game> }).Game = {
     time: 100,
+    ...(options.shardName ? { shard: { name: options.shardName, type: 'normal' } as Game['shard'] } : {}),
     creeps: {},
     rooms: Object.fromEntries(rooms.map((room) => [room.name, room])),
     spawns: Object.fromEntries(spawns.map((spawn) => [spawn.name, spawn])),
