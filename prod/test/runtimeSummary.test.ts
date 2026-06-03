@@ -114,7 +114,22 @@ describe('runtime telemetry summaries', () => {
             tick: RUNTIME_SUMMARY_INTERVAL,
             workerCount: 2,
             assignedTaskCount: 1,
-            productiveAssignmentCount: 0
+            productiveAssignmentCount: 0,
+            unassignedWorkerCount: 1,
+            idleReasonCounts: {
+              cpu_shed_assignment_skipped: 0,
+              no_task_available: 0,
+              role_body_unavailable: 0,
+              room_snapshot_missing_creep_memory: 0,
+              task_assignment_not_observed: 1
+            },
+            idleWorkers: [
+              {
+                reason: 'task_assignment_not_observed',
+                carriedEnergy: 20,
+                freeCapacity: 0
+              }
+            ]
           },
           spawnStatus: [
             {
@@ -1702,6 +1717,39 @@ describe('runtime telemetry summaries', () => {
     expect(productiveEnergy.constructionActivity).toEqual(room.constructionActivity);
   });
 
+  it('distinguishes visible construction sites without pending progress from absent construction sites', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      constructionSites: [
+        {
+          id: 'opaque-extension-site',
+          structureType: TEST_GLOBALS.STRUCTURE_EXTENSION
+        }
+      ]
+    });
+
+    emitRuntimeSummary([colony], []);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    const productiveEnergy = (room.resources as Record<string, Record<string, unknown>>).productiveEnergy;
+    expect(productiveEnergy.buildBlockedReason).toBe('construction_site_progress_unavailable');
+    expect(room.constructionActivity).toMatchObject({
+      source: 'runtime-summary',
+      state: 'no_viable_candidate',
+      accepted: false,
+      reason: 'construction_site_progress_unavailable',
+      constructionSiteCount: 1,
+      pendingBuildProgress: 0,
+      buildCarriedEnergy: 0,
+      buildProgress: 0,
+      workerAssignmentEvidenceAvailable: true,
+      buildBlockedReason: 'construction_site_progress_unavailable'
+    });
+    expect(productiveEnergy.constructionActivity).toEqual(room.constructionActivity);
+  });
+
   it('marks construction activity as candidate suppressed when a scored candidate has no site yet', () => {
     const colony = makeColony({
       time: RUNTIME_SUMMARY_INTERVAL,
@@ -1826,10 +1874,155 @@ describe('runtime telemetry summaries', () => {
       tick: RUNTIME_SUMMARY_INTERVAL,
       workerCount: 1,
       assignedTaskCount: 0,
-      productiveAssignmentCount: 0
+      productiveAssignmentCount: 0,
+      unassignedWorkerCount: 1,
+      idleReasonCounts: {
+        cpu_shed_assignment_skipped: 0,
+        no_task_available: 0,
+        role_body_unavailable: 0,
+        room_snapshot_missing_creep_memory: 0,
+        task_assignment_not_observed: 1
+      },
+      idleWorkers: [
+        {
+          name: 'worker-E29N55-idle',
+          reason: 'task_assignment_not_observed',
+          carriedEnergy: 0,
+          freeCapacity: 0
+        }
+      ]
     });
     expect(productiveEnergy.workerAssignmentEvidenceAvailable).toBe(true);
     expect(productiveEnergy.buildBlockedReason).toBe('worker_assignment_gap');
+  });
+
+  it('reports no-task idle reasons from current worker dispatch diagnostics', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false
+    });
+    const idleWorker = makeWorker(
+      {
+        role: 'worker',
+        colony: 'W1N1',
+        workerDispatchDiagnostic: {
+          tick: RUNTIME_SUMMARY_INTERVAL,
+          reason: 'no_selected_task_idle',
+          carriedEnergy: 50,
+          freeCapacity: 0
+        }
+      },
+      50,
+      'NoTaskWorker'
+    );
+
+    emitRuntimeSummary([colony], [idleWorker]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.workerAssignmentEvidence).toMatchObject({
+      workerCount: 1,
+      assignedTaskCount: 0,
+      unassignedWorkerCount: 1,
+      idleReasonCounts: {
+        cpu_shed_assignment_skipped: 0,
+        no_task_available: 1,
+        role_body_unavailable: 0,
+        room_snapshot_missing_creep_memory: 0,
+        task_assignment_not_observed: 0
+      },
+      idleWorkers: [
+        {
+          name: 'NoTaskWorker',
+          reason: 'no_task_available',
+          carriedEnergy: 50,
+          freeCapacity: 0,
+          dispatchReason: 'no_selected_task_idle',
+          dispatchTick: RUNTIME_SUMMARY_INTERVAL
+        }
+      ]
+    });
+  });
+
+  it('reports role or body unavailable when an unassigned worker has no active body parts', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false
+    });
+    const bodylessWorker = {
+      name: 'BodylessWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      body: [],
+      store: makeEnergyStore(0, 50)
+    } as unknown as Creep;
+
+    emitRuntimeSummary([colony], [bodylessWorker]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.workerAssignmentEvidence).toMatchObject({
+      workerCount: 1,
+      assignedTaskCount: 0,
+      unassignedWorkerCount: 1,
+      idleReasonCounts: {
+        cpu_shed_assignment_skipped: 0,
+        no_task_available: 0,
+        role_body_unavailable: 1,
+        room_snapshot_missing_creep_memory: 0,
+        task_assignment_not_observed: 0
+      },
+      idleWorkers: [
+        {
+          name: 'BodylessWorker',
+          reason: 'role_body_unavailable',
+          carriedEnergy: 0,
+          freeCapacity: 50
+        }
+      ]
+    });
+  });
+
+  it('reports CPU-shed idle workers when assignment was skipped without current dispatch evidence', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL * 5,
+      includeEventLog: false
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game.cpu = {
+      getUsed: jest.fn().mockReturnValue(1),
+      limit: 100,
+      bucket: 500,
+      tickLimit: 500
+    } as unknown as CPU;
+    const idleWorker = makeWorker({ role: 'worker', colony: 'W1N1' }, 0, 'CpuSkippedWorker');
+
+    emitRuntimeSummary([colony], [idleWorker]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.workerAssignmentEvidence).toMatchObject({
+      workerCount: 1,
+      assignedTaskCount: 0,
+      unassignedWorkerCount: 1,
+      idleReasonCounts: {
+        cpu_shed_assignment_skipped: 1,
+        no_task_available: 0,
+        role_body_unavailable: 0,
+        room_snapshot_missing_creep_memory: 0,
+        task_assignment_not_observed: 0
+      },
+      idleWorkers: [
+        {
+          name: 'CpuSkippedWorker',
+          reason: 'cpu_shed_assignment_skipped',
+          carriedEnergy: 0,
+          freeCapacity: 0
+        }
+      ]
+    });
+    expect(room.constructionActivity).toMatchObject({
+      cpuPressure: 'degraded',
+      cpuReasons: ['lowBucket']
+    });
   });
 
   it('counts non-display worker task assignments as assigned runtime evidence', () => {
