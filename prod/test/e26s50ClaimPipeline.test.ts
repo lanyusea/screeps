@@ -111,7 +111,7 @@ describe('E18S59 claim pipeline', () => {
     expect(refreshExpansionExecutorIntent(colony, 827)).toEqual({
       status: 'skipped',
       colony: 'E17S59',
-      reason: 'insufficientEvidence'
+      reason: 'unmetPreconditions'
     });
     expect(Memory.territory?.expansionCandidates?.find((candidate) => candidate.roomName === 'E18S59')).toMatchObject({
       colony: 'E17S59',

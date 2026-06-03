@@ -513,7 +513,7 @@ describe('expansion executor', () => {
     expect(refreshExpansionExecutorIntent(colony, 968_900)).toEqual({
       status: 'skipped',
       colony: 'E29N55',
-      reason: 'insufficientEvidence'
+      reason: 'unmetPreconditions'
     });
     expect(Memory.territory?.targets).toBeUndefined();
     expect(

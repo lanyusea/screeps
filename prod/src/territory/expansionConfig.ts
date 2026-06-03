@@ -123,8 +123,8 @@ function dedupeTerritoryExpansionScoutTargets(
     }
 
     targetsByKey.set(key, {
-      ...target,
       ...existingTarget,
+      ...target,
       ...(existingTarget.scoutOnly === true || target.scoutOnly === true ? { scoutOnly: true } : {}),
       ...(existingTarget.allowLongRange === true || target.allowLongRange === true ? { allowLongRange: true } : {})
     });

@@ -4019,8 +4019,8 @@ function dedupeTerritoryExpansionScoutTargets(targets) {
       continue;
     }
     targetsByKey.set(key, {
-      ...target,
       ...existingTarget,
+      ...target,
       ...existingTarget.scoutOnly === true || target.scoutOnly === true ? { scoutOnly: true } : {},
       ...existingTarget.allowLongRange === true || target.allowLongRange === true ? { allowLongRange: true } : {}
     });
@@ -17263,7 +17263,13 @@ function getPreControlGateSkipReason(report) {
   if (report.candidates.length === 0) {
     return "noCandidate";
   }
-  if (report.candidates.some((candidate) => candidate.evidenceStatus === "insufficient-evidence")) {
+  const nonUnavailableCandidates = report.candidates.filter((candidate) => candidate.evidenceStatus !== "unavailable");
+  if (nonUnavailableCandidates.some(
+    (candidate) => candidate.evidenceStatus === "sufficient" || candidate.preconditions.length > 0
+  )) {
+    return "unmetPreconditions";
+  }
+  if (nonUnavailableCandidates.length > 0 && nonUnavailableCandidates.every((candidate) => candidate.evidenceStatus === "insufficient-evidence")) {
     return "insufficientEvidence";
   }
   return "unmetPreconditions";
@@ -46124,7 +46130,7 @@ function refreshExpansionExecutorIntent(colony, gameTime = getGameTime40(), tele
   if (selection.targetRoom) {
     scoutTargetRooms.push(selection.targetRoom);
   }
-  if (selection.status === "skipped" && selection.reason === "insufficientEvidence") {
+  if (!hasActivePipeline && selection.status === "skipped" && (selection.reason === "insufficientEvidence" || selection.reason === "unmetPreconditions" && !isAutonomousTerritoryControlAllowedForController(colony.room.controller))) {
     const scoutTargets = dedupeRoomScoutingTargets([
       ...selectExpansionScoutTargets(report),
       ...getConfiguredExpansionRoomScoutingTargets(colony, gameTime)

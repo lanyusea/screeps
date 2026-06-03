@@ -161,9 +161,10 @@ describe('territory expansion config', () => {
             colony: 'E29N55',
             roomName: 'E34N49',
             nearestOwnedRoom: 'E29N55',
-            nearestOwnedRoomDistance: 11,
-            routeDistance: 11,
-            adjacentToOwnedRoom: false
+            nearestOwnedRoomDistance: 99,
+            routeDistance: 99,
+            adjacentToOwnedRoom: true,
+            allowLongRange: true
           },
           {
             colony: 'E29N55',
@@ -172,7 +173,8 @@ describe('territory expansion config', () => {
             nearestOwnedRoomDistance: 1,
             routeDistance: 1,
             adjacentToOwnedRoom: true,
-            scoutOnly: true
+            scoutOnly: true,
+            allowLongRange: true
           }
         ]
       }
@@ -191,7 +193,18 @@ describe('territory expansion config', () => {
         allowLongRange: true
       }
     ]);
-    expect(targets.filter((target) => target.roomName === 'E29N54')).toHaveLength(1);
+    expect(targets.filter((target) => target.roomName === 'E29N54')).toEqual([
+      {
+        colony: 'E29N55',
+        roomName: 'E29N54',
+        nearestOwnedRoom: 'E29N55',
+        nearestOwnedRoomDistance: 1,
+        routeDistance: 1,
+        adjacentToOwnedRoom: true,
+        scoutOnly: true,
+        allowLongRange: true
+      }
+    ]);
   });
 });
 

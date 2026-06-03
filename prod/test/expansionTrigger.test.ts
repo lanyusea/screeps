@@ -87,7 +87,13 @@ describe('autonomous expansion trigger pipeline', () => {
       energyCapacityAvailable: 800
     });
     const report = makeReport([
-      makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })
+      makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> }),
+      makeCandidate({
+        roomName: 'W3N1',
+        evidenceStatus: 'insufficient-evidence',
+        visible: false,
+        controllerId: null
+      })
     ]);
     const targetRoom = makeTargetRoom('W2N1', 'controller2' as Id<StructureController>);
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
@@ -199,7 +205,13 @@ describe('autonomous expansion trigger pipeline', () => {
       energyCapacityAvailable: 1800
     });
     const report = makeReport([
-      makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })
+      makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> }),
+      makeCandidate({
+        roomName: 'W3N1',
+        evidenceStatus: 'insufficient-evidence',
+        visible: false,
+        controllerId: null
+      })
     ]);
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 9,

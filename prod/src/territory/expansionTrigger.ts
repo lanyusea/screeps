@@ -591,7 +591,19 @@ function getPreControlGateSkipReason(report: ExpansionCandidateReport): NextExpa
     return 'noCandidate';
   }
 
-  if (report.candidates.some((candidate) => candidate.evidenceStatus === 'insufficient-evidence')) {
+  const nonUnavailableCandidates = report.candidates.filter((candidate) => candidate.evidenceStatus !== 'unavailable');
+  if (
+    nonUnavailableCandidates.some(
+      (candidate) => candidate.evidenceStatus === 'sufficient' || candidate.preconditions.length > 0
+    )
+  ) {
+    return 'unmetPreconditions';
+  }
+
+  if (
+    nonUnavailableCandidates.length > 0 &&
+    nonUnavailableCandidates.every((candidate) => candidate.evidenceStatus === 'insufficient-evidence')
+  ) {
     return 'insufficientEvidence';
   }
 
