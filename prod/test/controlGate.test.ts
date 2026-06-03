@@ -1,4 +1,7 @@
-import { isAutonomousTerritoryControlAllowedForColonyName } from '../src/territory/controlGate';
+import {
+  isAutonomousTerritoryControlAllowedForColonyName,
+  isAutonomousTerritoryControlAllowedForController
+} from '../src/territory/controlGate';
 
 describe('autonomous territory control gate', () => {
   afterEach(() => {
@@ -38,5 +41,16 @@ describe('autonomous territory control gate', () => {
     expect(isAutonomousTerritoryControlAllowedForColonyName('W1N1')).toBe(true);
     expect(isAutonomousTerritoryControlAllowedForColonyName('W2N1')).toBe(false);
     expect(isAutonomousTerritoryControlAllowedForColonyName('W3N1')).toBe(false);
+  });
+
+  it('allows Seasonal RCL3 autonomous control without changing persistent RCL3 behavior', () => {
+    expect(isAutonomousTerritoryControlAllowedForController({ my: true, level: 3 })).toBe(false);
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      shard: { name: 'shardSeason', type: 'normal' } as Game['shard']
+    };
+
+    expect(isAutonomousTerritoryControlAllowedForController({ my: true, level: 3 })).toBe(true);
+    expect(isAutonomousTerritoryControlAllowedForController({ my: true, level: 2 })).toBe(false);
   });
 });

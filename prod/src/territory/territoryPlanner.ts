@@ -7,8 +7,9 @@ import {
 } from '../spawn/bodyBuilder';
 import {
   TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY,
-  TERRITORY_AUTO_CLAIM_MIN_RCL,
-  TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY,
+  getTerritoryAutoClaimPostClaimBootstrapReserveEnergy,
+  getTerritoryAutoClaimRequiredEnergy,
+  isTerritoryAutoClaimAllowedForController,
   isTerritoryAutoClaimReservationMature
 } from './autoClaim';
 import type { AutonomousExpansionClaimEvaluation } from './claimExecutor';
@@ -52,6 +53,7 @@ import {
 import { getEffectiveRoomEnergyBufferThreshold } from '../economy/energyBuffer';
 import { isColonyRoomThreatened } from '../defense/colonyThreats';
 import { getActivePostClaimBootstrapBlockers } from './postClaimBootstrap';
+import { hasSeasonalImmatureOwnedExpansionRoom } from '../runtime/seasonalPolicy';
 
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
 export const TERRITORY_SCOUT_ROLE = 'scout';
@@ -1920,15 +1922,16 @@ function getConfiguredTerritoryCandidates(
     );
     const autoClaimApproved =
       actionForTarget !== target.action && isAdjacentReservationAutoClaimTarget(target, actionForTarget);
+    const postClaimBootstrapReserveEnergy = autoClaimApproved
+      ? getTerritoryAutoClaimPostClaimBootstrapReserveEnergy(colony.room.controller?.level)
+      : 0;
     const actionableTarget =
       actionForTarget === target.action
         ? target
         : {
             ...target,
             action: actionForTarget,
-            ...(autoClaimApproved
-              ? { postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY }
-              : {})
+            ...(postClaimBootstrapReserveEnergy > 0 ? { postClaimBootstrapReserveEnergy } : {})
           };
     const ignoreOwnHealthyReservation = actionableTarget.action === 'claim';
     const isConfiguredTerritoryTargetActionable = isVisibleTerritoryIntentActionable(
@@ -2121,7 +2124,7 @@ function shouldAutoClaimAdjacentReservationTarget(
     target.action !== 'reserve' ||
     target.createdBy !== 'adjacentRoomReservation' ||
     !isRoomAdjacentToColony(target.colony, target.roomName) ||
-    !isColonyReadyForAdjacentReservationAutoClaim(colony)
+    !isColonyReadyForAdjacentReservationAutoClaim(colony, colonyOwnerUsername)
   ) {
     return false;
   }
@@ -2143,10 +2146,13 @@ function isAdjacentReservationAutoClaimTarget(
   return action === 'claim' && target.createdBy === 'adjacentRoomReservation';
 }
 
-function isColonyReadyForAdjacentReservationAutoClaim(colony: ColonySnapshot): boolean {
+function isColonyReadyForAdjacentReservationAutoClaim(
+  colony: ColonySnapshot,
+  colonyOwnerUsername: string
+): boolean {
   const controller = colony.room.controller;
   const controllerLevel = controller?.level;
-  if (typeof controllerLevel !== 'number' || controllerLevel < TERRITORY_AUTO_CLAIM_MIN_RCL) {
+  if (!isTerritoryAutoClaimAllowedForController(controller) || typeof controllerLevel !== 'number') {
     return false;
   }
 
@@ -2157,14 +2163,16 @@ function isColonyReadyForAdjacentReservationAutoClaim(colony: ColonySnapshot): b
     return false;
   }
 
-  if (
-    colony.energyCapacityAvailable < TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY ||
-    colony.energyAvailable < TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY
-  ) {
+  const requiredEnergy = getTerritoryAutoClaimRequiredEnergy(controllerLevel);
+  if (colony.energyCapacityAvailable < requiredEnergy || colony.energyAvailable < requiredEnergy) {
     return false;
   }
 
   if (hasActivePostClaimBootstrap(colony.room.name)) {
+    return false;
+  }
+
+  if (hasSeasonalImmatureOwnedExpansionRoom(colony.room.name, colonyOwnerUsername)) {
     return false;
   }
 

@@ -1,5 +1,5 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
-import { AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL } from '../territory/controlGate';
+import { getAutonomousTerritoryControlMinRcl } from '../territory/controlGate';
 
 export type StrategyDefensePosture = 'passive' | 'alert' | 'active';
 
@@ -102,6 +102,7 @@ export function generateStrategyRecommendations(
 
   const state = normalizeRoomState(roomState);
   const recommendations: StrategyRecommendation[] = [];
+  const territoryControlMinRcl = getAutonomousTerritoryControlMinRcl();
 
   const hostilePressure = state.hostileCreepCount + state.hostileStructureCount;
   if (hostilePressure > 0) {
@@ -165,7 +166,7 @@ export function generateStrategyRecommendations(
   const remoteTarget = selectBestTerritoryCandidate(state.territory.remoteTargets);
   if (
     remoteTarget &&
-    state.controllerLevel >= AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL &&
+    state.controllerLevel >= territoryControlMinRcl &&
     state.workerCount >= 3 &&
     hostilePressure === 0
   ) {
@@ -182,7 +183,7 @@ export function generateStrategyRecommendations(
   const expansionCandidate = selectBestTerritoryCandidate(state.territory.expansionCandidates);
   if (
     expansionCandidate &&
-    state.controllerLevel >= AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL &&
+    state.controllerLevel >= territoryControlMinRcl &&
     state.workerCount >= 4 &&
     hostilePressure === 0
   ) {

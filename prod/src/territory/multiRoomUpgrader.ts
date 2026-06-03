@@ -1,6 +1,7 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
 import { WORKER_REPLACEMENT_TICKS_TO_LIVE } from '../creeps/roleCounts';
 import { isKnownDeadZoneRoom } from '../defense/deadZone';
+import { isInterRoomSupportAllowed } from '../runtime/seasonalPolicy';
 
 export const MULTI_ROOM_UPGRADER_DEFAULT_STORAGE_THRESHOLD_RATIO = 0.8;
 export const MULTI_ROOM_UPGRADER_DEFAULT_PER_ROOM_CAP = 1;
@@ -194,6 +195,10 @@ function getVisibleMultiRoomUpgradeCandidate(
   hasStorageSurplus: boolean
 ): MultiRoomUpgradeCandidate | null {
   if (!isNonEmptyString(room.name) || room.name === homeRoom || isKnownDeadZoneRoom(room.name)) {
+    return null;
+  }
+
+  if (!isInterRoomSupportAllowed(homeRoom, room.name)) {
     return null;
   }
 

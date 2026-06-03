@@ -1,5 +1,8 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
-import { TERRITORY_AUTO_CLAIM_MIN_RCL, TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY } from './autoClaim';
+import {
+  getTerritoryAutoClaimRequiredEnergy,
+  isTerritoryAutoClaimAllowedForController
+} from './autoClaim';
 import type { ExpansionCandidateReport } from './expansionScoring';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 
@@ -217,15 +220,16 @@ function buildClaimOwnerCandidate(
   const energyCapacityAvailable = getRoomEnergyCapacityAvailable(colonyName, room, input.colony);
   const energyAvailable = getRoomEnergyAvailable(colonyName, room, input.colony);
   const routeDistance = getClaimRouteDistance(colonyName, input);
+  const requiredEnergy = getTerritoryAutoClaimRequiredEnergy(controllerLevel);
   const claimCapable =
     spawnCount > 0 &&
-    controllerLevel >= TERRITORY_AUTO_CLAIM_MIN_RCL &&
-    energyCapacityAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY;
+    isTerritoryAutoClaimAllowedForController(room.controller) &&
+    energyCapacityAvailable >= requiredEnergy;
   return {
     colony: colonyName,
     activePlan,
     claimCapable,
-    canClaimNow: claimCapable && energyAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY,
+    canClaimNow: claimCapable && energyAvailable >= requiredEnergy,
     controllerLevel,
     energyCapacityAvailable,
     energyAvailable,
