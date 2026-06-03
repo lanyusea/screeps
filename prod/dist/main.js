@@ -38660,6 +38660,7 @@ var MAX_WORKER_EFFICIENCY_REASON_SAMPLES = 5;
 var MAX_REFILL_DELIVERY_SAMPLES = 5;
 var MAX_SPAWN_CRITICAL_REFILL_SAMPLES = 5;
 var MAX_WORKER_ASSIGNMENT_BLOCKED_WORKERS = 12;
+var MAX_WORKER_IDLE_REASON_WORKERS = 8;
 var MAX_TERRITORY_INTENT_SUMMARIES = 5;
 var WORKER_EFFICIENCY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 var WORKER_BEHAVIOR_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
@@ -38838,9 +38839,10 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
   const assignedTaskCount = countAssignedWorkerTasks(colonyWorkers);
   const workerAssignmentEvidence = summarizeWorkerAssignmentEvidence(
     tick,
-    colonyWorkers.length,
+    colonyWorkers,
     assignedTaskCount,
-    resourcesWithoutActivity.productiveEnergy.assignedWorkerCount
+    resourcesWithoutActivity.productiveEnergy.assignedWorkerCount,
+    cpuBudget
   );
   const constructionDeadlockTicks = getRoomConstructionDeadlockTicks(colony.room);
   const survival = summarizeSurvival(colony, roleCounts);
@@ -38903,15 +38905,82 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     ...buildPostClaimBootstrapSummary(colony.room.name)
   };
 }
-function summarizeWorkerAssignmentEvidence(tick, workerCount, assignedTaskCount, productiveAssignmentCount) {
+function summarizeWorkerAssignmentEvidence(tick, workers, assignedTaskCount, productiveAssignmentCount, cpuBudget) {
+  const idleSummary = summarizeWorkerIdleReasons(workers, cpuBudget);
   return {
     source: "runtime-summary",
     available: true,
     tick,
-    workerCount,
+    workerCount: workers.length,
     assignedTaskCount,
-    productiveAssignmentCount
+    productiveAssignmentCount,
+    unassignedWorkerCount: idleSummary.unassignedWorkerCount,
+    idleReasonCounts: idleSummary.reasonCounts,
+    ...idleSummary.workers.length > 0 ? { idleWorkers: idleSummary.workers } : {}
   };
+}
+function summarizeWorkerIdleReasons(workers, cpuBudget) {
+  const reasonCounts = createEmptyWorkerIdleReasonCounts();
+  const idleWorkers = [];
+  let unassignedWorkerCount = 0;
+  for (const worker of workers) {
+    const reason = selectWorkerIdleReason(worker, cpuBudget);
+    if (!reason) {
+      continue;
+    }
+    unassignedWorkerCount += 1;
+    reasonCounts[reason] += 1;
+    if (idleWorkers.length < MAX_WORKER_IDLE_REASON_WORKERS) {
+      idleWorkers.push(formatWorkerIdleReasonDetail(worker, reason));
+    }
+  }
+  idleWorkers.sort(compareWorkerIdleReasonDetails);
+  return { unassignedWorkerCount, reasonCounts, workers: idleWorkers };
+}
+function createEmptyWorkerIdleReasonCounts() {
+  return {
+    cpu_shed_assignment_skipped: 0,
+    no_task_available: 0,
+    role_body_unavailable: 0,
+    room_snapshot_missing_creep_memory: 0,
+    task_assignment_not_observed: 0
+  };
+}
+function selectWorkerIdleReason(worker, cpuBudget) {
+  const memory = worker.memory;
+  if (!memory) {
+    return "room_snapshot_missing_creep_memory";
+  }
+  if (getWorkerTaskType(worker)) {
+    return null;
+  }
+  if (hasObservableWorkerBody(worker) && !hasAnyActiveWorkerBodyPart(worker)) {
+    return "role_body_unavailable";
+  }
+  const diagnostic = getCurrentWorkerDispatchDiagnostic(worker);
+  if ((diagnostic == null ? void 0 : diagnostic.reason) === "no_selected_task_idle") {
+    return "no_task_available";
+  }
+  if (shouldShedNonessentialCpuWork(cpuBudget) && diagnostic === null) {
+    return "cpu_shed_assignment_skipped";
+  }
+  return "task_assignment_not_observed";
+}
+function formatWorkerIdleReasonDetail(worker, reason) {
+  const diagnostic = getCurrentWorkerDispatchDiagnostic(worker);
+  return {
+    ...getWorkerName(worker) ? { name: getWorkerName(worker) } : {},
+    reason,
+    carriedEnergy: getEnergyInStore(worker),
+    freeCapacity: getFreeEnergyCapacityInStore(worker),
+    ...diagnostic ? { dispatchReason: diagnostic.reason, dispatchTick: diagnostic.tick } : {},
+    ...(diagnostic == null ? void 0 : diagnostic.selectedTask) ? { dispatchSelectedTask: diagnostic.selectedTask } : {},
+    ...(diagnostic == null ? void 0 : diagnostic.assignedTask) ? { dispatchAssignedTask: diagnostic.assignedTask } : {}
+  };
+}
+function compareWorkerIdleReasonDetails(left, right) {
+  var _a2, _b;
+  return left.reason.localeCompare(right.reason) || right.carriedEnergy - left.carriedEnergy || ((_a2 = left.name) != null ? _a2 : "").localeCompare((_b = right.name) != null ? _b : "");
 }
 function emptyConstructionPrioritySummary() {
   return {
@@ -38974,6 +39043,14 @@ function summarizeConstructionActivity(productiveEnergy, constructionPriority, e
       state: "candidate_suppressed",
       accepted: true,
       reason: selectConstructionActivitySuppressedReason(productiveEnergy, cpuBudget)
+    };
+  }
+  if (productiveEnergy.constructionSiteCount > 0 && productiveEnergy.pendingBuildProgress <= 0) {
+    return {
+      ...common,
+      state: "no_viable_candidate",
+      accepted: false,
+      reason: "construction_site_progress_unavailable"
     };
   }
   if (productiveEnergy.constructionSiteCount > 0 || productiveEnergy.pendingBuildProgress > 0) {
@@ -40329,8 +40406,11 @@ function summarizeProductiveEnergy(colony, colonyWorkers, constructionSites, roo
 }
 function selectBuildBlockedReason(colony, colonyWorkers, productiveAssignments, pendingBuildProgress, constructionSiteCount, events) {
   var _a2;
-  if (constructionSiteCount <= 0 || pendingBuildProgress <= 0) {
+  if (constructionSiteCount <= 0) {
     return "no_construction_sites";
+  }
+  if (pendingBuildProgress <= 0) {
+    return "construction_site_progress_unavailable";
   }
   if (((_a2 = events == null ? void 0 : events.builtProgress) != null ? _a2 : 0) > 0 || productiveAssignments.buildCarriedEnergy > 0) {
     return void 0;
@@ -40546,6 +40626,15 @@ function hasConstructionEnergyAcquisitionTask(creep) {
 }
 function isConstructionCapableWorker(creep) {
   return hasActiveBodyPart(creep, "WORK", "work") && getEnergyCapacityInStore(creep) > 0;
+}
+function hasObservableWorkerBody(creep) {
+  if (typeof creep.getActiveBodyparts === "function") {
+    return true;
+  }
+  return Array.isArray(creep.body);
+}
+function hasAnyActiveWorkerBodyPart(creep) {
+  return hasActiveBodyPart(creep, "WORK", "work") || hasActiveBodyPart(creep, "CARRY", "carry") || hasActiveBodyPart(creep, "MOVE", "move");
 }
 function hasActiveBodyPart(creep, globalName, fallback) {
   var _a2, _b;
