@@ -56,6 +56,7 @@ WORKER_IDLE_COLLAPSE_TICK_THRESHOLD = 20
 WORKER_IDLE_COLLAPSE_REQUIRED_CONSECUTIVE = 2
 EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND = "extension_count_zero_at_rcl_ge_2"
 WORKER_ASSIGNMENT_GAP_BLOCKED_REASON = "worker_assignment_gap"
+WORKER_ASSIGNMENT_EVIDENCE_UNAVAILABLE_REASON_MISSING_CREEP_MEMORY = "room_snapshot_missing_creep_memory"
 CONSTRUCTION_ACTIVITY_ACTIVE = "active"
 CONSTRUCTION_ACTIVITY_CANDIDATE_SUPPRESSED = "candidate_suppressed"
 CONSTRUCTION_ACTIVITY_NO_VIABLE_CANDIDATE = "no_viable_candidate"
@@ -638,6 +639,7 @@ class RoomSummaryMetrics:
     owned_creep_objects: list[dict[str, Any]]
     task_counts: dict[str, int]
     worker_assignment_evidence_available: bool
+    worker_assignment_evidence_unavailable_reason: str | None
     construction_sites: list[dict[str, Any]]
     pending_build_progress: int | float
     build_carried_energy: int | float
@@ -4247,6 +4249,11 @@ def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, 
     owned_spawns = count_owned_objects(snapshot.objects, snapshot.owner, "spawn", snapshot.expected_owner_id)
     behavior_totals = behavior_pathing_totals(info)
     assignment_blocked_fields = worker_assignment_blocked_fields(snapshot, metrics)
+    assignment_evidence_unavailable_fields = (
+        {"workerAssignmentEvidenceUnavailableReason": metrics.worker_assignment_evidence_unavailable_reason}
+        if metrics.worker_assignment_evidence_unavailable_reason is not None
+        else {}
+    )
     summary = {
         "room": snapshot.ref.key,
         "shard": snapshot.ref.shard,
@@ -4264,6 +4271,7 @@ def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, 
         "expected_owner_id": snapshot.expected_owner_id,
         "taskCounts": metrics.task_counts,
         "workerAssignmentEvidenceAvailable": metrics.worker_assignment_evidence_available,
+        **assignment_evidence_unavailable_fields,
         "pendingBuildProgress": metrics.pending_build_progress,
         "buildCarriedEnergy": metrics.build_carried_energy,
         "constructionDeadlockTicks": metrics.construction_deadlock_ticks,
@@ -4274,7 +4282,10 @@ def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, 
         "extensionPendingBuildProgress": metrics.extension_pending_build_progress,
         "extensionCount": metrics.extension_count,
         "extensionCapacityContribution": metrics.extension_capacity_contribution,
-        "workerLoadEfficiency": worker_load_efficiency(metrics.owned_creep_objects),
+        "workerLoadEfficiency": worker_load_efficiency(
+            metrics.owned_creep_objects,
+            metrics.worker_assignment_evidence_unavailable_reason,
+        ),
         "cpuUsed": metrics.cpu_used,
         "cpuBucket": metrics.cpu_bucket,
         "rclLevel": metrics.rcl_level,
@@ -4873,6 +4884,17 @@ def worker_assignment_evidence_available(
     return any(creep_has_assignment_evidence(creep) for creep in owned_creeps)
 
 
+def worker_assignment_evidence_unavailable_reason(
+    owned_creeps: list[dict[str, Any]],
+    assignment_evidence_available: bool,
+) -> str | None:
+    if assignment_evidence_available:
+        return None
+    if any(creep_name_looks_like_worker(creep) for creep in owned_creeps):
+        return WORKER_ASSIGNMENT_EVIDENCE_UNAVAILABLE_REASON_MISSING_CREEP_MEMORY
+    return None
+
+
 def behavior_pathing_totals(source: dict[str, Any]) -> dict[str, int | float]:
     totals = as_dict(as_dict(source.get("behavior")).get("totals"))
     result: dict[str, int | float] = {}
@@ -4977,10 +4999,16 @@ def room_extension_metrics(structures: list[dict[str, Any]], owner_username: str
     return len(extensions), sum(store_capacity(extension, fallback=50) for extension in extensions)
 
 
-def worker_load_efficiency(owned_creeps: list[dict[str, Any]]) -> dict[str, Any]:
+def worker_load_efficiency(
+    owned_creeps: list[dict[str, Any]],
+    unavailable_reason: str | None = None,
+) -> dict[str, Any]:
     trip_energies = [carried_energy(creep) for creep in owned_creeps if is_worker_creep(creep)]
     if not trip_energies:
-        return {"sampleCount": 0, "tripEnergyMean": None, "tripEnergyMin": None}
+        result: dict[str, Any] = {"sampleCount": 0, "tripEnergyMean": None, "tripEnergyMin": None}
+        if unavailable_reason is not None:
+            result["unavailableReason"] = unavailable_reason
+        return result
     return {
         "sampleCount": len(trip_energies),
         "tripEnergyMean": round(sum(trip_energies) / len(trip_energies), 3),
@@ -5061,6 +5089,11 @@ def creep_memory(creep: dict[str, Any]) -> dict[str, Any]:
 
 def creep_name(creep: dict[str, Any]) -> str | None:
     return string_value(creep.get("name")) or string_value(creep_memory(creep).get("name"))
+
+
+def creep_name_looks_like_worker(creep: dict[str, Any]) -> bool:
+    name = creep_name(creep)
+    return bool(name is not None and name.lower().startswith("worker"))
 
 
 def creep_task_type(creep: dict[str, Any]) -> str | None:
@@ -5411,6 +5444,8 @@ def construction_activity_summary(
         "buildProgress": build_progress,
         "workerAssignmentEvidenceAvailable": metrics.worker_assignment_evidence_available,
     }
+    if metrics.worker_assignment_evidence_unavailable_reason is not None:
+        common["workerAssignmentEvidenceUnavailableReason"] = metrics.worker_assignment_evidence_unavailable_reason
     if metrics.build_blocked_reason is not None:
         common["buildBlockedReason"] = metrics.build_blocked_reason
     blocked_detail = assignment_blocked_fields.get("workerAssignmentBlockedDetail")
@@ -5530,6 +5565,10 @@ def compute_room_summary_metrics(snapshot: RoomSnapshot) -> RoomSummaryMetrics:
         explicit_worker_assignment_blocked_workers(info),
         explicit_worker_assignment_blocked_detail(info),
     )
+    assignment_evidence_unavailable_reason = worker_assignment_evidence_unavailable_reason(
+        owned_creep_objects,
+        assignment_evidence_available,
+    )
     pending_build_progress = sum(construction_site_pending_progress(site) for site in construction_sites)
     extension_pending_build_progress = sum(
         construction_site_pending_progress(site) for site in extension_construction_sites
@@ -5549,6 +5588,7 @@ def compute_room_summary_metrics(snapshot: RoomSnapshot) -> RoomSummaryMetrics:
         owned_creep_objects=owned_creep_objects,
         task_counts=task_counts,
         worker_assignment_evidence_available=assignment_evidence_available,
+        worker_assignment_evidence_unavailable_reason=assignment_evidence_unavailable_reason,
         construction_sites=construction_sites,
         pending_build_progress=pending_build_progress,
         build_carried_energy=build_carried_energy,
@@ -5625,6 +5665,11 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
     ]
     behavior_totals = behavior_pathing_totals(snapshot.info)
     assignment_blocked_fields = worker_assignment_blocked_fields(snapshot, metrics)
+    assignment_evidence_unavailable_fields = (
+        {"workerAssignmentEvidenceUnavailableReason": metrics.worker_assignment_evidence_unavailable_reason}
+        if metrics.worker_assignment_evidence_unavailable_reason is not None
+        else {}
+    )
     construction_activity = construction_activity_summary(snapshot, metrics, assignment_blocked_fields)
     worker_carried_energy = sum(store_energy(obj) for obj in owned_creeps)
     productive_energy = {
@@ -5635,6 +5680,7 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
         "extensionConstructionSiteCount": metrics.extension_construction_site_count,
         "extensionPendingBuildProgress": metrics.extension_pending_build_progress,
         "workerAssignmentEvidenceAvailable": metrics.worker_assignment_evidence_available,
+        **assignment_evidence_unavailable_fields,
         "constructionActivity": construction_activity,
         "buildBlockedReason": metrics.build_blocked_reason,
         **assignment_blocked_fields,
@@ -5645,6 +5691,7 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
         "shard": snapshot.ref.shard,
         "taskCounts": metrics.task_counts,
         "workerAssignmentEvidenceAvailable": metrics.worker_assignment_evidence_available,
+        **assignment_evidence_unavailable_fields,
         "pendingBuildProgress": metrics.pending_build_progress,
         "buildCarriedEnergy": metrics.build_carried_energy,
         "constructionDeadlockTicks": metrics.construction_deadlock_ticks,
@@ -5673,7 +5720,7 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
             "sourceCount": len(sources),
             "productiveEnergy": productive_energy,
         },
-        "workerLoadEfficiency": worker_load_efficiency(owned_creeps),
+        "workerLoadEfficiency": worker_load_efficiency(owned_creeps, metrics.worker_assignment_evidence_unavailable_reason),
         "combat": {
             "hostileCreepCount": len(hostiles),
             "hostileStructureCount": len(hostile_structures),

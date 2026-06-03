@@ -148,6 +148,9 @@ def clean_construction_activity(room: dict[str, Any]) -> JsonObject | None:
     build_carried_energy = first_number(room, resources, productive, key="buildCarriedEnergy")
     build_progress = first_number(room, productive, resources.get("events", {}) if isinstance(resources.get("events"), dict) else {}, key="builtProgress")
     build_blocked_reason = text_value(room.get("buildBlockedReason")) or text_value(productive.get("buildBlockedReason"))
+    worker_assignment_evidence_unavailable_reason = text_value(
+        room.get("workerAssignmentEvidenceUnavailableReason")
+    ) or text_value(productive.get("workerAssignmentEvidenceUnavailableReason"))
     worker_assignment_blocked_detail = text_value(room.get("workerAssignmentBlockedDetail")) or text_value(
         productive.get("workerAssignmentBlockedDetail")
     )
@@ -210,6 +213,11 @@ def clean_construction_activity(room: dict[str, Any]) -> JsonObject | None:
             "buildProgress": build_progress,
             **({"buildBlockedReason": build_blocked_reason} if build_blocked_reason is not None else {}),
             **(
+                {"workerAssignmentEvidenceUnavailableReason": worker_assignment_evidence_unavailable_reason}
+                if worker_assignment_evidence_unavailable_reason is not None
+                else {}
+            ),
+            **(
                 {"workerAssignmentBlockedDetail": worker_assignment_blocked_detail}
                 if worker_assignment_blocked_detail is not None
                 else {}
@@ -245,6 +253,7 @@ def normalize_construction_activity(
         "buildBlockedReason",
         "workerAssignmentBlockedDetail",
         "workerAssignmentEvidenceAvailable",
+        "workerAssignmentEvidenceUnavailableReason",
         "cpuPressure",
     ):
         value = activity.get(key)

@@ -248,6 +248,7 @@ class RuntimeKpiReducerTest(unittest.TestCase):
                                     "buildCarriedEnergy": 0,
                                     "buildProgress": 0,
                                     "workerAssignmentEvidenceAvailable": False,
+                                    "workerAssignmentEvidenceUnavailableReason": "room_snapshot_missing_creep_memory",
                                 },
                             },
                         ],
@@ -267,6 +268,10 @@ class RuntimeKpiReducerTest(unittest.TestCase):
         self.assertEqual(
             construction_activity["rooms"]["W2N2"]["latest"]["workerAssignmentBlockedDetail"],
             "spawn_reserving_energy",
+        )
+        self.assertEqual(
+            construction_activity["rooms"]["W3N3"]["latest"]["workerAssignmentEvidenceUnavailableReason"],
+            "room_snapshot_missing_creep_memory",
         )
 
     def test_fallback_construction_activity_preserves_suppression_fields(self) -> None:
