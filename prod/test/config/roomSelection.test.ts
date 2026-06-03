@@ -66,6 +66,15 @@ describe('room selection config', () => {
           colony: ACTIVE_OFFICIAL_ROOM_SELECTION.roomName,
           nearestOwnedRoom: ACTIVE_OFFICIAL_ROOM_SELECTION.roomName,
           scoutOnly: true
+        }),
+        expect.objectContaining({
+          colony: ACTIVE_OFFICIAL_ROOM_SELECTION.roomName,
+          roomName: 'E34N49',
+          nearestOwnedRoom: ACTIVE_OFFICIAL_ROOM_SELECTION.roomName,
+          nearestOwnedRoomDistance: 11,
+          routeDistance: 11,
+          adjacentToOwnedRoom: false,
+          allowLongRange: true
         })
       ])
     );

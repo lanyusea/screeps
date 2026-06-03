@@ -20,6 +20,7 @@ export interface StaticExpansionScoutTargetSelection {
   routeDistance: number;
   adjacentToOwnedRoom: boolean;
   scoutOnly?: boolean;
+  allowLongRange?: boolean;
 }
 
 export const ACTIVE_OFFICIAL_ROOM_SELECTION = {
@@ -115,6 +116,15 @@ export const TERRITORY_EXPANSION_ROOM_SELECTION = {
       routeDistance: 1,
       adjacentToOwnedRoom: true,
       scoutOnly: true
+    },
+    {
+      colony: activeRoom,
+      roomName: 'E34N49',
+      nearestOwnedRoom: activeRoom,
+      nearestOwnedRoomDistance: 11,
+      routeDistance: 11,
+      adjacentToOwnedRoom: false,
+      allowLongRange: true
     },
     {
       colony: LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,

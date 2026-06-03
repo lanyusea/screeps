@@ -116,6 +116,104 @@ describe('configured territory expansion scoring', () => {
 
     expect(report.candidates.map((candidate) => candidate.roomName)).not.toContain('E17S60');
   });
+
+  it('includes configured E34N49 for E29N55 despite long-range route distance', () => {
+    const colony = makeColony('E29N55');
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 1746986,
+      rooms: {
+        E29N55: colony.room
+      },
+      map: makeMap()
+    };
+
+    const report = buildRuntimeExpansionCandidateReport(colony);
+    const candidate = getCandidate(report, 'E34N49');
+
+    expect(candidate).toMatchObject({
+      roomName: 'E34N49',
+      visible: false,
+      evidenceStatus: 'insufficient-evidence',
+      adjacentToOwnedRoom: false,
+      nearestOwnedRoom: 'E29N55',
+      nearestOwnedRoomDistance: 11,
+      routeDistance: 11,
+      allowLongRange: true,
+      risks: expect.arrayContaining([
+        'controller evidence missing until scout',
+        'source count evidence missing until scout',
+        'hostile evidence missing until scout'
+      ])
+    });
+    expect(selectExpansionScoutTargets(report, 10, 1746986)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ roomName: 'E34N49', distance: 11 })])
+    );
+  });
+
+  it('keeps unconfigured far runtime rooms excluded by the nearby expansion filter', () => {
+    const colony = makeColony('E29N55');
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 1746986,
+      rooms: {
+        E29N55: colony.room,
+        E40N40: makeNeutralRoom('E40N40')
+      },
+      map: makeMap()
+    };
+
+    const report = buildRuntimeExpansionCandidateReport(colony);
+
+    expect(report.candidates.map((candidate) => candidate.roomName)).not.toContain('E40N40');
+  });
+
+  it.each([
+    [
+      'foreign-owned controller',
+      {
+        controller: {
+          id: 'controller-E34N49' as Id<StructureController>,
+          my: false,
+          ownerUsername: 'enemy'
+        }
+      },
+      ['enemy-owned controller cannot be claimed safely']
+    ],
+    [
+      'hostile presence',
+      {
+        hostileCreepCount: 1
+      },
+      ['hostile presence scouted']
+    ]
+  ])('keeps configured E34N49 unavailable with %s scout intel', (_caseName, intelOverrides, expectedRisks) => {
+    const colony = makeColony('E29N55');
+    Memory.territory = {
+      ...(Memory.territory ?? {}),
+      scoutIntel: {
+        'E29N55>E34N49': makeScoutIntel('E29N55', 'E34N49', intelOverrides)
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 1746986,
+      rooms: {
+        E29N55: colony.room
+      },
+      map: makeMap()
+    };
+
+    const report = buildRuntimeExpansionCandidateReport(colony);
+    const candidate = getCandidate(report, 'E34N49');
+
+    expect(candidate).toMatchObject({
+      roomName: 'E34N49',
+      evidenceStatus: 'unavailable',
+      allowLongRange: true,
+      risks: expect.arrayContaining(expectedRisks)
+    });
+    expect(selectExpansionScoutTargets(report, 10, 1746986).map((target) => target.roomName)).not.toContain(
+      'E34N49'
+    );
+  });
 });
 
 function makeColony(roomName: string): ColonySnapshot {
@@ -151,10 +249,88 @@ function makeOwnedRoom(roomName: string): Room {
   } as unknown as Room;
 }
 
+function makeNeutralRoom(roomName: string): Room {
+  return {
+    name: roomName,
+    controller: {
+      id: `controller-${roomName}` as Id<StructureController>,
+      my: false,
+      pos: { x: 25, y: 25, roomName } as RoomPosition
+    } as StructureController,
+    find: jest.fn((findType: number): unknown[] => {
+      if (findType === FIND_SOURCES) {
+        return [
+          { id: `${roomName}-source-a`, pos: { x: 10, y: 20, roomName } },
+          { id: `${roomName}-source-b`, pos: { x: 35, y: 40, roomName } }
+        ];
+      }
+      return [];
+    })
+  } as unknown as Room;
+}
+
 function makeTerrain(mask: number): RoomTerrain {
   return {
     get: jest.fn(() => mask)
   } as unknown as RoomTerrain;
+}
+
+function makeMap(): GameMap {
+  return {
+    describeExits: jest.fn(() => ({})),
+    getRoomTerrain: jest.fn(() => makeTerrain(0)),
+    getRoomLinearDistance: jest.fn((fromRoom: string, targetRoom: string) =>
+      getTestRouteDistance(fromRoom, targetRoom)
+    ),
+    findRoute: jest.fn((fromRoom: string, targetRoom: string) =>
+      Array.from({ length: getTestRouteDistance(fromRoom, targetRoom) }, (_value, index) => ({
+        exit: 1,
+        room: `${targetRoom}-${index}`
+      }))
+    )
+  } as unknown as GameMap;
+}
+
+function getTestRouteDistance(fromRoom: string, targetRoom: string): number {
+  if (fromRoom === targetRoom) {
+    return 0;
+  }
+
+  if (targetRoom === 'E34N49') {
+    return 11;
+  }
+
+  if (targetRoom === 'E40N40') {
+    return 30;
+  }
+
+  return 1;
+}
+
+function makeScoutIntel(
+  colony: string,
+  roomName: string,
+  overrides: Partial<TerritoryScoutIntelMemory> = {}
+): TerritoryScoutIntelMemory {
+  return {
+    colony,
+    roomName,
+    updatedAt: 1746986,
+    controller: {
+      id: `controller-${roomName}` as Id<StructureController>,
+      my: false
+    },
+    sourceIds: [`${roomName}-source-a`, `${roomName}-source-b`],
+    sourceCount: 2,
+    sourceAccessPoints: 8,
+    controllerSourceRange: 23,
+    terrain: { walkableRatio: 0.9, swampRatio: 0.04, wallRatio: 0.1 },
+    mineral: { id: `${roomName}-mineral`, mineralType: 'U' },
+    hostileCreepCount: 0,
+    hostileStructureCount: 0,
+    hostileSpawnCount: 0,
+    ...overrides
+  };
 }
 
 function getCandidate(

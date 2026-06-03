@@ -72,7 +72,13 @@ export function refreshExpansionExecutorIntent(
   if (selection.targetRoom) {
     scoutTargetRooms.push(selection.targetRoom);
   }
-  if (selection.status === 'skipped' && selection.reason === 'insufficientEvidence') {
+  if (
+    !hasActivePipeline &&
+    selection.status === 'skipped' &&
+    (selection.reason === 'insufficientEvidence' ||
+      (selection.reason === 'unmetPreconditions' &&
+        !isAutonomousTerritoryControlAllowedForController(colony.room.controller)))
+  ) {
     const scoutTargets = dedupeRoomScoutingTargets([
       ...selectExpansionScoutTargets(report),
       ...getConfiguredExpansionRoomScoutingTargets(colony, gameTime)

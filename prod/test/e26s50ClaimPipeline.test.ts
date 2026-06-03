@@ -113,7 +113,8 @@ describe('E18S59 claim pipeline', () => {
       colony: 'E17S59',
       reason: 'unmetPreconditions'
     });
-    expect(Memory.territory?.expansionCandidates?.[0]).toMatchObject({
+    const e18s59Candidate = Memory.territory?.expansionCandidates?.find((candidate) => candidate.roomName === 'E18S59');
+    expect(e18s59Candidate).toMatchObject({
       colony: 'E17S59',
       roomName: 'E18S59',
       evidenceStatus: 'sufficient',
@@ -122,7 +123,7 @@ describe('E18S59 claim pipeline', () => {
       nearestOwnedRoomDistance: 1,
       routeDistance: 1
     });
-    expect(Memory.territory?.expansionCandidates?.[0]).not.toHaveProperty('preconditions');
+    expect(e18s59Candidate).not.toHaveProperty('preconditions');
     expect(Memory.territory?.targets).toBeUndefined();
   });
 

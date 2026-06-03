@@ -12,6 +12,7 @@ export interface TerritoryExpansionScoutTargetConfig {
   routeDistance: number;
   adjacentToOwnedRoom: boolean;
   scoutOnly?: boolean;
+  allowLongRange?: boolean;
 }
 
 export const TERRITORY_EXPANSION_SCOUT_TARGETS: readonly TerritoryExpansionScoutTargetConfig[] = [];
@@ -19,10 +20,11 @@ export const TERRITORY_EXPANSION_SCOUT_TARGETS: readonly TerritoryExpansionScout
 export function getTerritoryExpansionScoutTargets(
   colonyName = getRuntimeCurrentRoomName()
 ): TerritoryExpansionScoutTargetConfig[] {
-  return [
+  return dedupeTerritoryExpansionScoutTargets([
     ...getMemoryConfiguredExpansionScoutTargets(colonyName),
-    ...getEnabledRuntimeCurrentRoomScoutOnlyTargets(colonyName)
-  ];
+    ...getEnabledRuntimeCurrentRoomScoutOnlyTargets(colonyName),
+    ...getStaticExpansionScoutTargets(colonyName)
+  ]);
 }
 
 export function getRuntimeCurrentRoomScoutOnlyTargets(
@@ -63,7 +65,7 @@ export function getCurrentRoomScoutOnlyAdjacentRoomNames(roomName: string): stri
 }
 
 export function isConfiguredExpansionScoutOnlyTarget(colony: string, roomName: string): boolean {
-  return [...getTerritoryExpansionScoutTargets(colony), ...TERRITORY_EXPANSION_ROOM_SELECTION.scoutTargets].some(
+  return getTerritoryExpansionScoutTargets(colony).some(
     (target) => target.colony === colony && target.roomName === roomName && target.scoutOnly === true
   );
 }
@@ -94,6 +96,45 @@ function getEnabledRuntimeCurrentRoomScoutOnlyTargets(
   }
 
   return getRuntimeCurrentRoomScoutOnlyTargets(colonyName);
+}
+
+function getStaticExpansionScoutTargets(
+  colonyName: string | undefined
+): TerritoryExpansionScoutTargetConfig[] {
+  return TERRITORY_EXPANSION_ROOM_SELECTION.scoutTargets.flatMap((target) => {
+    if (colonyName && target.colony !== colonyName) {
+      return [];
+    }
+
+    return [{ ...target }];
+  });
+}
+
+function dedupeTerritoryExpansionScoutTargets(
+  targets: TerritoryExpansionScoutTargetConfig[]
+): TerritoryExpansionScoutTargetConfig[] {
+  const targetsByKey = new Map<string, TerritoryExpansionScoutTargetConfig>();
+  for (const target of targets) {
+    const key = getScoutTargetKey(target);
+    const existingTarget = targetsByKey.get(key);
+    if (!existingTarget) {
+      targetsByKey.set(key, target);
+      continue;
+    }
+
+    targetsByKey.set(key, {
+      ...existingTarget,
+      ...target,
+      ...(existingTarget.scoutOnly === true || target.scoutOnly === true ? { scoutOnly: true } : {}),
+      ...(existingTarget.allowLongRange === true || target.allowLongRange === true ? { allowLongRange: true } : {})
+    });
+  }
+
+  return Array.from(targetsByKey.values());
+}
+
+function getScoutTargetKey(target: Pick<TerritoryExpansionScoutTargetConfig, 'colony' | 'roomName'>): string {
+  return `${target.colony}>${target.roomName}`;
 }
 
 function buildRuntimeCurrentRoomScoutOnlyTarget(
@@ -138,7 +179,8 @@ function normalizeExpansionScoutTarget(
     nearestOwnedRoomDistance: normalizePositiveDistance(target.nearestOwnedRoomDistance),
     routeDistance: normalizePositiveDistance(target.routeDistance),
     adjacentToOwnedRoom: target.adjacentToOwnedRoom === true,
-    ...(target.scoutOnly === true ? { scoutOnly: true } : {})
+    ...(target.scoutOnly === true ? { scoutOnly: true } : {}),
+    ...(target.allowLongRange === true ? { allowLongRange: true } : {})
   };
 }
 

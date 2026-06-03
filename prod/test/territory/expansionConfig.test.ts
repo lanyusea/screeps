@@ -75,6 +75,22 @@ describe('territory expansion config', () => {
     expect(getTerritoryExpansionScoutTargets('W8N3')).toEqual([]);
   });
 
+  it('includes the static owner-recommended E34N49 long-range target for E29N55', () => {
+    expect(getTerritoryExpansionScoutTargets('E29N55')).toEqual(
+      expect.arrayContaining([
+        {
+          colony: 'E29N55',
+          roomName: 'E34N49',
+          nearestOwnedRoom: 'E29N55',
+          nearestOwnedRoomDistance: 11,
+          routeDistance: 11,
+          adjacentToOwnedRoom: false,
+          allowLongRange: true
+        }
+      ])
+    );
+  });
+
   it('merges explicit Memory scout targets with runtime current-room scout-only targets', () => {
     const room = makeOwnedRoom('E29N55');
     (globalThis as { Game: Partial<Game> }).Game = {
@@ -112,7 +128,82 @@ describe('territory expansion config', () => {
         routeDistance: 2,
         adjacentToOwnedRoom: false
       },
-      ...makeE29N55ScoutOnlyTargets()
+      ...makeE29N55ScoutOnlyTargets(),
+      {
+        colony: 'E29N55',
+        roomName: 'E34N49',
+        nearestOwnedRoom: 'E29N55',
+        nearestOwnedRoomDistance: 11,
+        routeDistance: 11,
+        adjacentToOwnedRoom: false,
+        allowLongRange: true
+      }
+    ]);
+  });
+
+  it('dedupes memory, runtime, and static scout targets while preserving long-range capability', () => {
+    const room = makeOwnedRoom('E29N55');
+    (globalThis as { Game: Partial<Game> }).Game = {
+      rooms: {
+        E29N55: room
+      },
+      spawns: {
+        Spawn1: makeSpawn('Spawn1', room)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      runtime: {
+        currentRoomName: 'E29N55'
+      },
+      territory: {
+        expansionScoutTargets: [
+          {
+            colony: 'E29N55',
+            roomName: 'E34N49',
+            nearestOwnedRoom: 'E29N55',
+            nearestOwnedRoomDistance: 99,
+            routeDistance: 99,
+            adjacentToOwnedRoom: true,
+            allowLongRange: true
+          },
+          {
+            colony: 'E29N55',
+            roomName: 'E29N54',
+            nearestOwnedRoom: 'E29N55',
+            nearestOwnedRoomDistance: 1,
+            routeDistance: 1,
+            adjacentToOwnedRoom: true,
+            scoutOnly: true,
+            allowLongRange: true
+          }
+        ]
+      }
+    };
+
+    const targets = getTerritoryExpansionScoutTargets('E29N55');
+
+    expect(targets.filter((target) => target.roomName === 'E34N49')).toEqual([
+      {
+        colony: 'E29N55',
+        roomName: 'E34N49',
+        nearestOwnedRoom: 'E29N55',
+        nearestOwnedRoomDistance: 11,
+        routeDistance: 11,
+        adjacentToOwnedRoom: false,
+        allowLongRange: true
+      }
+    ]);
+    expect(targets.filter((target) => target.roomName === 'E29N54')).toEqual([
+      {
+        colony: 'E29N55',
+        roomName: 'E29N54',
+        nearestOwnedRoom: 'E29N55',
+        nearestOwnedRoomDistance: 1,
+        routeDistance: 1,
+        adjacentToOwnedRoom: true,
+        scoutOnly: true,
+        allowLongRange: true
+      }
     ]);
   });
 });

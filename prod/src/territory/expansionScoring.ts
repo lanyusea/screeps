@@ -123,6 +123,7 @@ export interface ExpansionCandidateScore {
   reservation?: ExpansionReservationEvidence;
   requiresControllerPressure?: boolean;
   scoutOnly?: boolean;
+  allowLongRange?: boolean;
   blockReason?: TerritoryExpansionCandidateBlockReason;
   postClaimBootstrapBlocker?: PostClaimBootstrapBlockerSummary;
   ignoredPostClaimBootstrapBlockers?: PostClaimBootstrapIgnoredBlockerSummary[];
@@ -173,6 +174,7 @@ export interface ExpansionCandidateInput {
   hostileStructureCount?: number;
   hostilePressureDistance?: number;
   scoutOnly?: boolean;
+  allowLongRange?: boolean;
 }
 
 export interface ExpansionMineralEvidence {
@@ -244,7 +246,7 @@ export function selectExpansionScoutTargets(
   return report.candidates
     .filter((candidate) =>
       candidate.visible === false &&
-      isScoutableNearbyExpansionCandidate(candidate) &&
+      isScoutableExpansionCandidate(candidate) &&
       (candidate.evidenceStatus === 'insufficient-evidence' ||
         isExpansionCandidateScoutRefreshDue(report.colonyName, candidate.roomName, gameTime))
     )
@@ -254,6 +256,10 @@ export function selectExpansionScoutTargets(
       ...(candidate.nearestOwnedRoomDistance !== undefined ? { distance: candidate.nearestOwnedRoomDistance } : {}),
       ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {})
     }));
+}
+
+function isScoutableExpansionCandidate(candidate: ExpansionCandidateScore): boolean {
+  return candidate.allowLongRange === true || isScoutableNearbyExpansionCandidate(candidate);
 }
 
 function isScoutableNearbyExpansionCandidate(candidate: ExpansionCandidateScore): boolean {
@@ -517,7 +523,8 @@ function buildRuntimeExpansionCandidates(colony: ColonySnapshot): ExpansionCandi
     const adjacentToOwnedRoom =
       configuredScoutTarget?.adjacentToOwnedRoom === true ||
       isAdjacentToOwnedRoom(roomName, nearbyRoomDistancesByOwnedRoom);
-    if (!isNearbyExpansionCandidate(routeDistance, nearestOwnedDistance, adjacentToOwnedRoom)) {
+    const allowLongRange = configuredScoutTarget?.allowLongRange === true;
+    if (!allowLongRange && !isNearbyExpansionCandidate(routeDistance, nearestOwnedDistance, adjacentToOwnedRoom)) {
       return [];
     }
 
@@ -535,6 +542,7 @@ function buildRuntimeExpansionCandidates(colony: ColonySnapshot): ExpansionCandi
           ? { nearestOwnedRoomDistance: nearestOwnedDistance.distance }
           : {}),
         ...(configuredScoutTarget?.scoutOnly === true ? { scoutOnly: true } : {}),
+        ...(allowLongRange ? { allowLongRange: true } : {}),
         ...(room
           ? buildVisibleExpansionCandidateEvidence(room)
           : scoutIntel
@@ -862,6 +870,7 @@ function scoreExpansionCandidate(
     ...(reservation ? { reservation } : {}),
     ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(candidate.scoutOnly === true ? { scoutOnly: true } : {}),
+    ...(candidate.allowLongRange === true ? { allowLongRange: true } : {}),
     ...(postClaimBootstrapBlocker ? { postClaimBootstrapBlocker } : {}),
     ...(ignoredPostClaimBootstrapBlockers.length > 0
       ? { ignoredPostClaimBootstrapBlockers }
@@ -1394,6 +1403,7 @@ function toPersistedExpansionCandidateMemory(
     updatedAt: gameTime,
     adjacentToOwnedRoom: candidate.adjacentToOwnedRoom,
     ...(candidate.scoutOnly === true ? { scoutOnly: true } : {}),
+    ...(candidate.allowLongRange === true ? { allowLongRange: true } : {}),
     ...(recommendedAction ? { recommendedAction } : {}),
     ...(blockReason ? { blockReason } : {}),
     ...(candidate.routeDistance !== undefined ? { routeDistance: candidate.routeDistance } : {}),
@@ -1444,7 +1454,7 @@ function getPersistedExpansionCandidateRecommendedAction(
     return 'claim';
   }
 
-  return candidate.evidenceStatus === 'insufficient-evidence' && isScoutableNearbyExpansionCandidate(candidate)
+  return candidate.evidenceStatus === 'insufficient-evidence' && isScoutableExpansionCandidate(candidate)
     ? 'scout'
     : undefined;
 }

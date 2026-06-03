@@ -513,7 +513,7 @@ describe('expansion executor', () => {
     expect(refreshExpansionExecutorIntent(colony, 968_900)).toEqual({
       status: 'skipped',
       colony: 'E29N55',
-      reason: 'insufficientEvidence'
+      reason: 'unmetPreconditions'
     });
     expect(Memory.territory?.targets).toBeUndefined();
     expect(
@@ -534,10 +534,17 @@ describe('expansion executor', () => {
           action: 'scout',
           status: 'planned',
           updatedAt: 968_900
+        },
+        {
+          colony: 'E29N55',
+          targetRoom: 'E34N49',
+          action: 'scout',
+          status: 'planned',
+          updatedAt: 968_900
         }
       ])
     );
-    expect(Memory.territory?.intents).toHaveLength(2);
+    expect(Memory.territory?.intents).toHaveLength(3);
     expect(Memory.territory?.expansionPipelines).toEqual({});
     expect(Memory.territory?.expansionCandidates).toEqual(
       expect.arrayContaining([
