@@ -91,6 +91,8 @@ REQUIRED_CHECK_ACT_QUERY_FRAGMENTS = {
     "instrumentation why-it-matters": "why_it_matters",
     "semantic inconsistency detection": "SEMANTIC_INCONSISTENCY",
     "rollout readiness default": "NOT_READY",
+    "pipeline ledger freshness": "decision_ledger_freshness",
+    "pipeline readiness ledger proof": "ledger.decision_count > 0",
 }
 
 REQUIRED_QUERY_COVERAGE = {

@@ -304,6 +304,18 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
         self.assertEqual(readiness_row["status"], "NOT_READY")
         self.assertIn("utilityDelta=0", scorecard_row["evidence"])
 
+    def test_rl_pipeline_gate_blocks_canary_readiness_without_ledger_proof(self) -> None:
+        with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (conn, _db_path):
+            insert_fresh_rollout_inputs(conn, include_ledger=False)
+
+            rows = panel_rows(conn, repo_root, "RL Pipeline Gate")
+
+        readiness_row = next(row for row in rows if row["gate_row"] == "rollout_canary_readiness")
+        ledger_row = next(row for row in rows if row["gate_row"] == "decision_ledger_freshness")
+        self.assertEqual(readiness_row["status"], "NOT_READY")
+        self.assertEqual(ledger_row["status"], "BLOCKER_NO_LEDGER")
+        self.assertIn("decisions=0", ledger_row["evidence"])
+
     def test_content_audit_returns_explicit_blocker_rows_for_missing_metric_streams(self) -> None:
         with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (conn, db_path):
             conn.execute(
