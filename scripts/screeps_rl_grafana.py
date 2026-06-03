@@ -85,7 +85,8 @@ REQUIRED_FLYWHEEL_STATES = (
 
 REQUIRED_CHECK_ACT_QUERY_FRAGMENTS = {
     "next action": "next_action",
-    "linked issue": "#1627",
+    "linked issue field": "linked_issue",
+    "evidence link field": "evidence_link",
     "rollback criteria": "rollback",
     "instrumentation why-it-matters": "why_it_matters",
     "semantic inconsistency detection": "SEMANTIC_INCONSISTENCY",

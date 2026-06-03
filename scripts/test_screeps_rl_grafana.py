@@ -68,6 +68,96 @@ def panel_rows(conn: sqlite3.Connection, repo_root: Path, title: str) -> list[sq
     return conn.execute(query).fetchall()
 
 
+def insert_fresh_rollout_inputs(
+    conn: sqlite3.Connection,
+    *,
+    include_training: bool = True,
+    include_ledger: bool = True,
+    policy_metric_name: str = "rl.policy.advantage_territory",
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO runtime_room_metrics (tick, room_name, source_artifact, dedupe_key)
+        VALUES (?, ?, ?, ?)
+        """,
+        (10, "W1N1", "runtime-summary.log", "runtime-proof"),
+    )
+    conn.execute(
+        """
+        INSERT INTO metric_observations (metric_name, tick, value, source_artifact, dedupe_key)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        ("source.rl_metrics_refresh.completed", 10, 1, "rl-metrics-refresh.log", "refresh-proof"),
+    )
+    for metric_name, value, dedupe_key in (
+        ("rl.dataset_gate.status", 1, "dataset-status"),
+        ("rl.dataset_gate.sample_count", 250, "dataset-samples"),
+        ("rl.dataset_gate.quality_samples_accepted", 250, "dataset-accepted"),
+        ("rl.dataset_gate.quality_samples_rejected", 0, "dataset-rejected"),
+    ):
+        conn.execute(
+            """
+            INSERT INTO rl_dataset_gate_metrics (
+              gate_id, status, metric_name, value, source_artifact, dedupe_key
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("gate-a", "pass", metric_name, value, "runtime-artifacts/rl-dataset-gates/gate-a.json", dedupe_key),
+        )
+    if include_training:
+        conn.execute(
+            """
+            INSERT INTO rl_training_execution_metrics (
+              report_id, variant_id, metric_name, value, source_artifact, dedupe_key
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "report-a",
+                "candidate-a",
+                "rl.training.execution_sample_count",
+                250,
+                "runtime-artifacts/rl-training/report-a.json",
+                "training-proof",
+            ),
+        )
+    conn.execute(
+        """
+        INSERT INTO rl_policy_advantage_metrics (
+          report_id, candidate_id, incumbent_id, metric_name, value, directionality,
+          source_artifact, dedupe_key
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "report-a",
+            "candidate-a",
+            "baseline-a",
+            policy_metric_name,
+            5,
+            "higher is better",
+            "runtime-artifacts/rl-training/report-a.json",
+            f"policy-{policy_metric_name}",
+        ),
+    )
+    if include_ledger:
+        conn.execute(
+            """
+            INSERT INTO metric_iteration_decisions (
+              decision_key, status, source_artifact, rationale
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                "rollout-canary",
+                "ready-with-rollback",
+                "runtime-artifacts/rl-control-loop/decision-a.json",
+                "Fresh proof with rollback criteria.",
+            ),
+        )
+    conn.commit()
+
+
 def grafana_docker_command(db_path: Path | None = None) -> list[str]:
     return grafana.build_docker_command(
         repo_root=REPO_ROOT,
@@ -160,6 +250,7 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
         }
         for coverage_name in grafana.REQUIRED_QUERY_COVERAGE:
             self.assertEqual(coverage_checks[f"dashboard query coverage: {coverage_name}"], "PASS")
+        self.assertNotIn("#1627", grafana.REQUIRED_CHECK_ACT_QUERY_FRAGMENTS.values())
         target_contract_check = next(
             check for check in report["checks"] if check["name"] == "dashboard frser SQLite target contract"
         )
@@ -186,6 +277,32 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
         self.assertEqual(report["panelCount"], len(grafana.REQUIRED_V2_PANEL_TITLES))
         self.assertEqual(report["emptyPanelCount"], 0)
         self.assertTrue(all(panel["rowCount"] > 0 for panel in report["panels"]))
+
+    def test_top_decision_strip_blocks_rollout_without_training_or_ledger_proof(self) -> None:
+        with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (conn, _db_path):
+            insert_fresh_rollout_inputs(conn, include_training=False, include_ledger=False)
+
+            rows = panel_rows(conn, repo_root, "Top Decision Strip")
+
+        state_row = next(row for row in rows if row["item"] == "flywheel_state")
+        self.assertEqual(state_row["status"], "STALE_DATA")
+        self.assertNotEqual(state_row["status"], "ROLL_OUT_ALLOWED")
+        self.assertIn("trainingReports=0", state_row["evidence"])
+        self.assertIn("ledgerDecisions=0", state_row["evidence"])
+
+    def test_rl_pipeline_gate_ignores_unrelated_policy_metric_for_readiness(self) -> None:
+        with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (conn, _db_path):
+            insert_fresh_rollout_inputs(
+                conn,
+                policy_metric_name="rl.policy.unrelated_positive_metric",
+            )
+
+            rows = panel_rows(conn, repo_root, "RL Pipeline Gate")
+
+        readiness_row = next(row for row in rows if row["gate_row"] == "rollout_canary_readiness")
+        scorecard_row = next(row for row in rows if row["gate_row"] == "scorecard_freshness")
+        self.assertEqual(readiness_row["status"], "NOT_READY")
+        self.assertIn("utilityDelta=0", scorecard_row["evidence"])
 
     def test_content_audit_returns_explicit_blocker_rows_for_missing_metric_streams(self) -> None:
         with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (conn, db_path):
