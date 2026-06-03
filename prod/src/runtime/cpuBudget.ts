@@ -1,6 +1,7 @@
 export type RuntimeCpuPressure = 'normal' | 'degraded' | 'critical';
 export type RuntimeCpuPressureReason =
   | 'lowCpuLimit'
+  | 'lowBucketRecovery'
   | 'lowBucket'
   | 'criticalBucket'
   | 'usedOverLimit';
@@ -96,6 +97,8 @@ export function buildRuntimeCpuBudget(sample: RuntimeCpuSample): RuntimeCpuBudge
     reasons.push('criticalBucket');
   } else if (sample.bucket !== undefined && sample.bucket < LOW_CPU_BUCKET_THRESHOLD) {
     reasons.push('lowBucket');
+  } else if (hasLowBucketRecoveryPressure(sample)) {
+    reasons.push('lowBucketRecovery');
   }
 
   if (
@@ -214,11 +217,31 @@ export function resetRuntimeCpuTelemetryForTesting(): void {
 }
 
 export function hasLowBucketPressure(budget: RuntimeCpuBudget): boolean {
-  return budget.reasons.includes('lowBucket') || budget.reasons.includes('criticalBucket');
+  return (
+    budget.reasons.includes('lowBucketRecovery') ||
+    budget.reasons.includes('lowBucket') ||
+    budget.reasons.includes('criticalBucket')
+  );
 }
 
 function hasUsedOverLimitPressure(budget: RuntimeCpuBudget): boolean {
   return budget.reasons.includes('usedOverLimit');
+}
+
+function hasLowBucketRecoveryPressure(sample: RuntimeCpuSample): boolean {
+  if (sample.bucket === undefined || sample.bucket < LOW_CPU_BUCKET_THRESHOLD) {
+    return false;
+  }
+
+  return sample.bucket < LOW_CPU_BUCKET_THRESHOLD + getCpuBucketRecoveryHeadroom(sample.limit);
+}
+
+function getCpuBucketRecoveryHeadroom(limit: number | undefined): number {
+  if (limit !== undefined && limit > 0) {
+    return Math.ceil(limit);
+  }
+
+  return LOW_CPU_ACCOUNT_LIMIT;
 }
 
 function updateRuntimeCpuTelemetryState(sample: RuntimeCpuSample): RuntimeCpuTelemetryState {

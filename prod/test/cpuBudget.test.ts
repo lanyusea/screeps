@@ -139,6 +139,27 @@ describe('runtime CPU budget policy', () => {
     ).toBe(true);
   });
 
+  it('sheds optional work before the bucket reaches the low-bucket alert floor', () => {
+    const budget = buildRuntimeCpuBudget({
+      tick: 1749171,
+      used: 10,
+      limit: 70,
+      bucket: 1_007,
+      tickLimit: 500
+    });
+
+    expect(budget).toMatchObject({
+      pressure: 'degraded',
+      degraded: true,
+      critical: false,
+      lowCpuLimit: false,
+      reasons: ['lowBucketRecovery']
+    });
+    expect(shouldRunOptionalCpuWork(budget, 'economy-global-optional')).toBe(false);
+    expect(shouldRunOptionalCpuRoomWork(budget, 'E29N55')).toBe(false);
+    expect(shouldShedNonessentialCpuWork(budget)).toBe(true);
+  });
+
   it('sheds optional work once the current tick exceeds its CPU limit', () => {
     const budget = buildRuntimeCpuBudget({
       tick: 222,
