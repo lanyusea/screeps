@@ -1517,6 +1517,8 @@ def simulator_place_spawn_room_busy_rows(simulator_runs: Sequence[JsonObject]) -
         for variant_index, variant in enumerate(variants):
             if not isinstance(variant, dict):
                 continue
+            if variant.get("ok") is True:
+                continue
             if not variant_has_place_spawn_room_busy(variant):
                 continue
             evidence: JsonObject = {

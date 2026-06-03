@@ -7314,6 +7314,86 @@ export const STRATEGY_REGISTRY = [
         )
         self.assertFalse(update["promotionGate"]["policyUpdateGenerated"])
 
+    def test_successful_room_busy_diagnostic_rows_do_not_block_policy_update_artifact(self) -> None:
+        def stale_room_busy_success(result: JsonObject) -> JsonObject:
+            result = copy.deepcopy(result)
+            result.update(
+                {
+                    "error": "recovered after previous place-spawn room busy: place_spawn_room_busy",
+                    "diagnostic": "last setup retry was place_spawn_room_busy but rollout recovered",
+                    "placeSpawn": {
+                        "phase": "place-spawn",
+                        "classification": "place_spawn_room_busy",
+                        "maxAttempts": 12,
+                    },
+                }
+            )
+            return result
+
+        def unrelated_failure(variant_id: str) -> JsonObject:
+            result = variant_result(variant_id, [])
+            result.update(
+                {
+                    "ok": False,
+                    "ticks_run": 0,
+                    "error": "simulator timeout before scoring",
+                }
+            )
+            return result
+
+        class SequentialSimulator:
+            def __init__(self, runs: list[dict[str, JsonObject]]) -> None:
+                self.runs = runs
+                self.calls: list[JsonObject] = []
+
+            def __call__(self, **kwargs: Any) -> JsonObject:
+                self.calls.append(dict(kwargs))
+                if len(self.calls) > len(self.runs):
+                    raise AssertionError("sequential simulator exhausted")
+                return MockSimulator(
+                    self.runs[len(self.calls) - 1],
+                    inject_runtime_parameters=True,
+                )(**kwargs)
+
+        card = gradient_momentum_training_card()
+        card["simulation"]["repetitions"] = 20
+        card["simulation"]["workers"] = 1
+        card["simulation"]["scale_environments"] = 2
+        card["simulation"]["min_concurrent_environments"] = 2
+        successful_run = gradient_momentum_simulator_results(candidate_rooms=2)
+        stale_diagnostic_run = {
+            "variant-a": stale_room_busy_success(successful_run["variant-a"]),
+            "variant-b": unrelated_failure("variant-b"),
+        }
+        simulator = SequentialSimulator([successful_run for _index in range(19)] + [stale_diagnostic_run])
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                out_dir,
+                report_id="successful-room-busy-diagnostic-does-not-block-policy-update",
+                simulator_runner=simulator,
+            )
+            artifact_path_exists = Path(report["policyUpdateArtifactPath"]).exists()
+
+        self.assertEqual(len(simulator.calls), 20)
+        self.assertFalse(report["scaleValidation"]["ok"])
+        self.assertEqual(report["scaleValidation"]["failedEnvironments"], 1)
+        update = report["policyUpdate"]
+        self.assertNotEqual(
+            update.get("skippedReason"),
+            runner.SIMULATOR_SETUP_PLACE_SPAWN_ROOM_BUSY_SKIP_REASON,
+        )
+        self.assertNotIn("simulatorSetupBlocker", update)
+        self.assertEqual(update["iterations"], 1)
+        self.assertIn("nextCandidatePolicy", update)
+        self.assertIn("policyUpdateArtifactPath", report)
+        self.assertTrue(artifact_path_exists)
+
     def test_unsafe_simulator_flags_fail_before_report_is_persisted(self) -> None:
         start = tick(1, [room("W1N1", energy=100)])
         baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
