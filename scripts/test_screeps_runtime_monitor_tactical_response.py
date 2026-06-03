@@ -2629,6 +2629,24 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["buildCarriedEnergy"], 61)
         self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["constructionDeadlockTicks"], 0)
         self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["constructionSiteCount"], 1)
+        self.assertEqual(
+            payload["rooms"][0]["constructionActivity"],
+            {
+                "source": "runtime-summary",
+                "state": "active",
+                "accepted": True,
+                "reason": "build_energy_carried",
+                "constructionSiteCount": 1,
+                "pendingBuildProgress": 125,
+                "buildCarriedEnergy": 61,
+                "buildProgress": 0,
+                "workerAssignmentEvidenceAvailable": True,
+            },
+        )
+        self.assertEqual(
+            payload["rooms"][0]["resources"]["productiveEnergy"]["constructionActivity"],
+            payload["rooms"][0]["constructionActivity"],
+        )
         self.assertNotIn("buildBlockedReason", payload["rooms"][0]["resources"]["productiveEnergy"])
         self.assertNotIn("behavior", payload["rooms"][0])
         self.assertNotIn("pathFindingFailures", payload["rooms"][0])
@@ -2683,6 +2701,8 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         payload = json.loads(line.split(" ", 1)[1])
         self.assertEqual(payload["tick"], 265631)
         self.assertEqual(payload["rooms"][0]["roomName"], "E26S49")
+        self.assertEqual(payload["rooms"][0]["constructionActivity"]["state"], "no_viable_candidate")
+        self.assertFalse(payload["rooms"][0]["constructionActivity"]["accepted"])
 
     def test_runtime_summary_preserves_explicit_pathing_totals(self) -> None:
         snapshot = monitor.RoomSnapshot(
@@ -2745,6 +2765,26 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
             "worker_assignment_gap",
         )
         self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["constructionDeadlockTicks"], 1)
+        self.assertEqual(
+            payload["rooms"][0]["constructionActivity"],
+            {
+                "source": "runtime-summary",
+                "constructionSiteCount": 1,
+                "pendingBuildProgress": 50,
+                "buildCarriedEnergy": 0,
+                "buildProgress": 0,
+                "workerAssignmentEvidenceAvailable": True,
+                "buildBlockedReason": "worker_assignment_gap",
+                "workerAssignmentBlockedDetail": "unknown",
+                "state": "candidate_suppressed",
+                "accepted": True,
+                "reason": "worker_assignment_gap",
+            },
+        )
+        self.assertEqual(
+            payload["rooms"][0]["resources"]["productiveEnergy"]["constructionActivity"],
+            payload["rooms"][0]["constructionActivity"],
+        )
 
     def test_runtime_summary_payload_keeps_zero_owned_creeps_assignment_evidence_free(self) -> None:
         snapshot = monitor.RoomSnapshot(

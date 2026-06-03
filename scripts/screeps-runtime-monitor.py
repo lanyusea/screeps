@@ -56,6 +56,9 @@ WORKER_IDLE_COLLAPSE_TICK_THRESHOLD = 20
 WORKER_IDLE_COLLAPSE_REQUIRED_CONSECUTIVE = 2
 EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND = "extension_count_zero_at_rcl_ge_2"
 WORKER_ASSIGNMENT_GAP_BLOCKED_REASON = "worker_assignment_gap"
+CONSTRUCTION_ACTIVITY_ACTIVE = "active"
+CONSTRUCTION_ACTIVITY_CANDIDATE_SUPPRESSED = "candidate_suppressed"
+CONSTRUCTION_ACTIVITY_NO_VIABLE_CANDIDATE = "no_viable_candidate"
 WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND = "worker_assignment_gap_sustained"
 WORKER_ASSIGNMENT_GAP_REQUIRED_TICKS = 100
 WORKER_ASSIGNMENT_GAP_RECOVERY_TICK_TOLERANCE = 0
@@ -5288,6 +5291,180 @@ def build_blocked_reason(
     return "worker_assignment_gap"
 
 
+def construction_activity_candidate(source: dict[str, Any]) -> dict[str, Any] | None:
+    for path in (
+        ("constructionActivity", "candidate"),
+        ("resources", "productiveEnergy", "constructionActivity", "candidate"),
+        ("constructionPriority", "nextPrimary"),
+    ):
+        candidate = as_dict(nested_value(source, *path))
+        if not candidate:
+            continue
+        score = number_value(candidate.get("score"))
+        urgency = string_value(candidate.get("urgency"))
+        policy_action = string_value(candidate.get("policyAction"))
+        build_item = string_value(candidate.get("buildItem"))
+        room = string_value(candidate.get("room")) or string_value(candidate.get("roomName"))
+        if (
+            score is None
+            or score <= 0
+            or urgency == "blocked"
+            or (policy_action is not None and policy_action != "build")
+            or build_item is None
+            or room is None
+        ):
+            continue
+        result: dict[str, Any] = {
+            "buildItem": build_item,
+            "room": room,
+            "score": score,
+        }
+        if urgency is not None:
+            result["urgency"] = urgency
+        if policy_action is not None:
+            result["policyAction"] = policy_action
+        return result
+    return None
+
+
+def construction_activity_cpu_pressure(snapshot: RoomSnapshot, metrics: RoomSummaryMetrics) -> str | None:
+    for value in (
+        nested_value(snapshot.info, "constructionActivity", "cpuPressure"),
+        nested_value(snapshot.info, "resources", "productiveEnergy", "constructionActivity", "cpuPressure"),
+        nested_value(snapshot.info, "cpu", "pressure"),
+        snapshot.info.get("pressure"),
+    ):
+        explicit = string_value(value)
+        if explicit is not None:
+            return explicit
+    if metrics.cpu_bucket is not None and metrics.cpu_bucket < CPU_BUCKET_LOW_THRESHOLD:
+        return "critical" if metrics.cpu_bucket <= CPU_BUCKET_CRITICAL_THRESHOLD else "degraded"
+    return None
+
+
+def construction_activity_cpu_reasons(snapshot: RoomSnapshot, metrics: RoomSummaryMetrics) -> list[str]:
+    for path in (
+        ("constructionActivity", "cpuReasons"),
+        ("resources", "productiveEnergy", "constructionActivity", "cpuReasons"),
+        ("cpu", "reasons"),
+        ("reasons",),
+    ):
+        value = nested_value(snapshot.info, *path)
+        if isinstance(value, list):
+            reasons = [item for item in (string_value(item) for item in value) if item is not None]
+            if reasons:
+                return reasons
+    if metrics.cpu_bucket is not None and metrics.cpu_bucket < CPU_BUCKET_LOW_THRESHOLD:
+        return ["criticalBucket" if metrics.cpu_bucket <= CPU_BUCKET_CRITICAL_THRESHOLD else "lowBucket"]
+    return []
+
+
+def construction_activity_build_progress(snapshot: RoomSnapshot) -> int | float:
+    return (
+        first_number_value(
+            snapshot.info,
+            ("constructionActivity", "buildProgress"),
+            ("resources", "productiveEnergy", "constructionActivity", "buildProgress"),
+            ("resources", "events", "builtProgress"),
+            ("resources", "productiveEnergy", "builtProgress"),
+            ("builtProgress",),
+        )
+        or 0
+    )
+
+
+def construction_activity_suppressed_reason(
+    metrics: RoomSummaryMetrics,
+    assignment_blocked_fields: dict[str, Any],
+    cpu_reasons: list[str],
+) -> str | None:
+    if len(metrics.construction_sites) <= 0 and metrics.pending_build_progress <= 0:
+        return None
+    if any(reason in {"lowBucket", "criticalBucket"} for reason in cpu_reasons):
+        return "cpu_shed"
+    if assignment_blocked_fields.get("workerAssignmentBlockedDetail") == "spawn_reserving_energy":
+        return "spawn_reserving_energy"
+    if metrics.build_blocked_reason == "energy_buffer_blocked":
+        return "energy_buffer_blocked"
+    if metrics.build_blocked_reason == WORKER_ASSIGNMENT_GAP_BLOCKED_REASON:
+        return WORKER_ASSIGNMENT_GAP_BLOCKED_REASON
+    return None
+
+
+def construction_activity_summary(
+    snapshot: RoomSnapshot,
+    metrics: RoomSummaryMetrics,
+    assignment_blocked_fields: dict[str, Any],
+) -> dict[str, Any]:
+    build_progress = construction_activity_build_progress(snapshot)
+    candidate = construction_activity_candidate(snapshot.info)
+    cpu_pressure = construction_activity_cpu_pressure(snapshot, metrics)
+    cpu_reasons = construction_activity_cpu_reasons(snapshot, metrics)
+    common: dict[str, Any] = {
+        "source": "runtime-summary",
+        "constructionSiteCount": len(metrics.construction_sites),
+        "pendingBuildProgress": metrics.pending_build_progress,
+        "buildCarriedEnergy": metrics.build_carried_energy,
+        "buildProgress": build_progress,
+        "workerAssignmentEvidenceAvailable": metrics.worker_assignment_evidence_available,
+    }
+    if metrics.build_blocked_reason is not None:
+        common["buildBlockedReason"] = metrics.build_blocked_reason
+    blocked_detail = assignment_blocked_fields.get("workerAssignmentBlockedDetail")
+    if isinstance(blocked_detail, str) and blocked_detail:
+        common["workerAssignmentBlockedDetail"] = blocked_detail
+    if candidate is not None:
+        common["candidate"] = candidate
+    if cpu_pressure is not None and cpu_pressure != "normal":
+        common["cpuPressure"] = cpu_pressure
+    if cpu_reasons:
+        common["cpuReasons"] = cpu_reasons
+
+    if build_progress > 0:
+        return {
+            **common,
+            "state": CONSTRUCTION_ACTIVITY_ACTIVE,
+            "accepted": True,
+            "reason": "build_progress_observed",
+        }
+    if metrics.build_carried_energy > 0:
+        return {
+            **common,
+            "state": CONSTRUCTION_ACTIVITY_ACTIVE,
+            "accepted": True,
+            "reason": "build_energy_carried",
+        }
+
+    suppressed_reason = construction_activity_suppressed_reason(metrics, assignment_blocked_fields, cpu_reasons)
+    if suppressed_reason is not None:
+        return {
+            **common,
+            "state": CONSTRUCTION_ACTIVITY_CANDIDATE_SUPPRESSED,
+            "accepted": True,
+            "reason": suppressed_reason,
+        }
+    if len(metrics.construction_sites) > 0 or metrics.pending_build_progress > 0:
+        return {
+            **common,
+            "state": CONSTRUCTION_ACTIVITY_ACTIVE,
+            "accepted": True,
+            "reason": "site_backlog_visible",
+        }
+    if candidate is not None:
+        return {
+            **common,
+            "state": CONSTRUCTION_ACTIVITY_CANDIDATE_SUPPRESSED,
+            "accepted": True,
+            "reason": "scored_candidate_available",
+        }
+    return {
+        **common,
+        "state": CONSTRUCTION_ACTIVITY_NO_VIABLE_CANDIDATE,
+        "accepted": False,
+        "reason": "no_viable_candidate",
+    }
+
+
 def construction_deadlock_ticks(
     snapshot: RoomSnapshot,
     task_counts: dict[str, int],
@@ -5445,6 +5622,7 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
     ]
     behavior_totals = behavior_pathing_totals(snapshot.info)
     assignment_blocked_fields = worker_assignment_blocked_fields(snapshot, metrics)
+    construction_activity = construction_activity_summary(snapshot, metrics, assignment_blocked_fields)
     worker_carried_energy = sum(store_energy(obj) for obj in owned_creeps)
     productive_energy = {
         "pendingBuildProgress": metrics.pending_build_progress,
@@ -5454,6 +5632,7 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
         "extensionConstructionSiteCount": metrics.extension_construction_site_count,
         "extensionPendingBuildProgress": metrics.extension_pending_build_progress,
         "workerAssignmentEvidenceAvailable": metrics.worker_assignment_evidence_available,
+        "constructionActivity": construction_activity,
         "buildBlockedReason": metrics.build_blocked_reason,
         **assignment_blocked_fields,
     }
@@ -5468,6 +5647,7 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
         "constructionDeadlockTicks": metrics.construction_deadlock_ticks,
         "buildBlockedReason": metrics.build_blocked_reason,
         **assignment_blocked_fields,
+        "constructionActivity": construction_activity,
         "constructionSiteCount": len(metrics.construction_sites),
         "extensionConstructionSiteCount": metrics.extension_construction_site_count,
         "extensionPendingBuildProgress": metrics.extension_pending_build_progress,
