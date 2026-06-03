@@ -16628,6 +16628,30 @@ function getAutonomousExpansionPipelineStateKey(colony) {
     pipeline.updatedAt
   ].join(":");
 }
+function getAutonomousExpansionPipelineSummary(colony) {
+  const territoryMemory = getTerritoryMemoryRecord7();
+  const pipeline = territoryMemory ? getActiveExpansionPipeline(territoryMemory, colony) : null;
+  if (!pipeline) {
+    return null;
+  }
+  return toAutonomousExpansionPipelineSummary(pipeline);
+}
+function getAutonomousExpansionCapacitySummary(colony) {
+  var _a;
+  const ownedRoomCount = countVisibleOwnedRooms2(
+    colony.room.name,
+    getControllerOwnerUsername7(colony.room.controller)
+  );
+  const roomLimitCapacity = maxRoomsForRcl((_a = colony.room.controller) == null ? void 0 : _a.level);
+  const gclRoomCapacity = getGclLevel3();
+  const status = gclRoomCapacity !== null && ownedRoomCount >= gclRoomCapacity ? "gclInsufficient" : ownedRoomCount >= roomLimitCapacity ? "roomLimitReached" : "available";
+  return {
+    ownedRoomCount,
+    roomLimitCapacity,
+    status,
+    ...gclRoomCapacity !== null ? { gclRoomCapacity } : {}
+  };
+}
 function recordExpansionPipelineClaimState({
   colony,
   targetRoom,
@@ -17124,6 +17148,22 @@ function normalizeExpansionPipeline(rawPipeline, colony) {
     ...isFiniteNumber9(rawPipeline.completedAt) ? { completedAt: rawPipeline.completedAt } : {},
     ...isExpansionAbortReason(rawPipeline.abortReason) ? { abortReason: rawPipeline.abortReason } : {},
     ...isFiniteNumber9(rawPipeline.abortedAt) ? { abortedAt: rawPipeline.abortedAt } : {}
+  };
+}
+function toAutonomousExpansionPipelineSummary(pipeline) {
+  return {
+    colony: pipeline.colony,
+    targetRoom: pipeline.targetRoom,
+    status: pipeline.status,
+    stage: pipeline.stage,
+    score: pipeline.score,
+    threshold: pipeline.threshold,
+    startedAt: pipeline.startedAt,
+    updatedAt: pipeline.updatedAt,
+    ...pipeline.claimState ? { claimState: pipeline.claimState } : {},
+    ...pipeline.controllerId ? { controllerId: pipeline.controllerId } : {},
+    ...pipeline.reservationConfirmedAt !== void 0 ? { reservationConfirmedAt: pipeline.reservationConfirmedAt } : {},
+    ...pipeline.claimedAt !== void 0 ? { claimedAt: pipeline.claimedAt } : {}
   };
 }
 function getPipelineConfig(pipeline) {
@@ -38276,6 +38316,7 @@ var WORKER_BEHAVIOR_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 var REFILL_DELIVERY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 var SPAWN_CRITICAL_REFILL_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 var OBSERVED_RAMPART_REPAIR_HITS_CEILING = 15e4;
+var TERRITORY_EXPANSION_PROGRESS_CPU_BUCKET_FLOOR = 500;
 var WORKER_TASK_TYPES = ["harvest", "transfer", "build", "repair", "upgrade"];
 var PRODUCTIVE_WORKER_TASK_TYPES = ["build", "repair", "upgrade"];
 var DEFAULT_EXTENSION_ENERGY_CAPACITY = 50;
@@ -38451,6 +38492,13 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     resources.productiveEnergy.assignedWorkerCount
   );
   const constructionDeadlockTicks = getRoomConstructionDeadlockTicks(colony.room);
+  const survival = summarizeSurvival(colony, roleCounts);
+  const territoryExpansionProgress = buildTerritoryExpansionProgressSummary(
+    colony,
+    survival,
+    territoryExpansion,
+    tick
+  );
   return {
     roomName: colony.room.name,
     energyAvailable: colony.energyAvailable,
@@ -38479,8 +38527,9 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
       strategyRegistry,
       onStrategyRegistryRuntimeUse
     ) : emptyConstructionPrioritySummary(),
-    survival: summarizeSurvival(colony, roleCounts),
+    survival,
     territoryRecommendation,
+    territoryExpansionProgress,
     ...territoryExpansion && territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {},
     ...includeOptionalSummary ? buildTerritoryIntentSummary(colony.room.name, roleCounts) : {},
     ...includeOptionalSummary ? buildTerritoryExecutionHintSummary(colony.room.name) : {},
@@ -38541,6 +38590,400 @@ function buildTerritoryIntentSummary(colonyName, roleCounts) {
 function buildTerritoryExecutionHintSummary(colonyName) {
   const territoryExecutionHints = getActiveTerritoryFollowUpExecutionHints(colonyName);
   return territoryExecutionHints.length > 0 ? { territoryExecutionHints } : {};
+}
+function buildTerritoryExpansionProgressSummary(colony, survival, territoryExpansion, tick) {
+  const colonyName = colony.room.name;
+  const capacity = getAutonomousExpansionCapacitySummary(colony);
+  const activePipeline = getAutonomousExpansionPipelineSummary(colonyName);
+  const cachedSelection = getCachedExpansionSelectionSummary(colony);
+  const controlCounts = getTerritoryExpansionControlCounts(colonyName);
+  const topCandidate = getTopExpansionProgressCandidate(colonyName, territoryExpansion);
+  const activePostClaimBootstrap = getActivePostClaimBootstrapProgressSummary(colonyName, tick);
+  const blocker = selectTerritoryExpansionBlocker({
+    activePipeline,
+    capacity,
+    cachedSelection,
+    topCandidate,
+    activePostClaimBootstrap,
+    survival,
+    territoryExpansion,
+    colony
+  });
+  const lastProgressAt = maxFiniteNumber([
+    activePipeline == null ? void 0 : activePipeline.updatedAt,
+    cachedSelection == null ? void 0 : cachedSelection.refreshedAt,
+    topCandidate == null ? void 0 : topCandidate.updatedAt,
+    activePostClaimBootstrap == null ? void 0 : activePostClaimBootstrap.updatedAt,
+    controlCounts.latestIntentUpdatedAt
+  ]);
+  return {
+    colony: colonyName,
+    source: "runtime-summary",
+    updatedAt: tick,
+    territoryCapable: survival.mode === "TERRITORY_READY",
+    blocker: blocker.blocker,
+    blockerSource: blocker.source,
+    ownedRoomCount: capacity.ownedRoomCount,
+    roomCapacityStatus: capacity.status,
+    roomLimitCapacity: capacity.roomLimitCapacity,
+    ...capacity.gclRoomCapacity !== void 0 ? { gclRoomCapacity: capacity.gclRoomCapacity } : {},
+    activePipelineStateKey: getAutonomousExpansionPipelineStateKey(colonyName),
+    ...activePipeline ? { activePipeline } : {},
+    ...cachedSelection ? { cachedSelection } : {},
+    controlCounts: controlCounts.counts,
+    ...topCandidate ? { topCandidate } : {},
+    ...activePostClaimBootstrap ? { activePostClaimBootstrap } : {},
+    ...lastProgressAt !== void 0 ? { lastProgressAt } : {},
+    ...blocker.targetRoom ? { targetRoom: blocker.targetRoom } : {},
+    ...blocker.reason ? { reason: blocker.reason } : {},
+    ...blocker.reasonDetail ? { reasonDetail: blocker.reasonDetail } : {}
+  };
+}
+function selectTerritoryExpansionBlocker({
+  activePipeline,
+  capacity,
+  cachedSelection,
+  topCandidate,
+  activePostClaimBootstrap,
+  survival,
+  territoryExpansion,
+  colony
+}) {
+  var _a;
+  if (activePipeline) {
+    return {
+      blocker: "activeExpansionPipeline",
+      source: "activePipeline",
+      targetRoom: activePipeline.targetRoom
+    };
+  }
+  if (capacity.status !== "available") {
+    return { blocker: capacity.status, source: "capacity" };
+  }
+  if (activePostClaimBootstrap) {
+    return {
+      blocker: "activePostClaimBootstrap",
+      source: "postClaimBootstrap",
+      targetRoom: activePostClaimBootstrap.roomName
+    };
+  }
+  if ((cachedSelection == null ? void 0 : cachedSelection.status) === "planned") {
+    return {
+      blocker: "none",
+      source: "selection",
+      targetRoom: cachedSelection.targetRoom
+    };
+  }
+  if (cachedSelection == null ? void 0 : cachedSelection.reasonDetail) {
+    return {
+      blocker: getTerritoryExpansionBlockerForReasonDetail(cachedSelection.reasonDetail),
+      source: "selection",
+      reason: cachedSelection.reason,
+      reasonDetail: cachedSelection.reasonDetail,
+      targetRoom: cachedSelection.targetRoom
+    };
+  }
+  if (topCandidate == null ? void 0 : topCandidate.blocker) {
+    return {
+      blocker: topCandidate.blocker,
+      source: "candidate",
+      targetRoom: topCandidate.roomName
+    };
+  }
+  if (cachedSelection == null ? void 0 : cachedSelection.reason) {
+    return {
+      blocker: getTerritoryExpansionBlockerForSelectionReason(cachedSelection.reason),
+      source: "selection",
+      reason: cachedSelection.reason,
+      targetRoom: cachedSelection.targetRoom
+    };
+  }
+  const survivalBlocker = getTerritoryExpansionBlockerForSurvival(survival);
+  if (survivalBlocker) {
+    return { blocker: survivalBlocker, source: "survival" };
+  }
+  const cpuBucket = getCpuBucket2();
+  if (cpuBucket !== void 0 && cpuBucket < TERRITORY_EXPANSION_PROGRESS_CPU_BUCKET_FLOOR) {
+    return { blocker: "cpuBucketLow", source: "cpu" };
+  }
+  if (territoryExpansion) {
+    return {
+      blocker: territoryExpansion.candidates.length === 0 ? "noCandidate" : "unavailable",
+      source: "candidate",
+      ...((_a = territoryExpansion.next) == null ? void 0 : _a.roomName) ? { targetRoom: territoryExpansion.next.roomName } : {}
+    };
+  }
+  if (topCandidate) {
+    return { blocker: "unavailable", source: "candidate", targetRoom: topCandidate.roomName };
+  }
+  const hasNoPersistentTerritoryEvidence = !cachedSelection && !hasAnyTerritoryExpansionProgressMemory(colony.room.name);
+  return {
+    blocker: hasNoPersistentTerritoryEvidence ? "monitorEvidenceMissing" : "unavailable",
+    source: "monitor"
+  };
+}
+function getCachedExpansionSelectionSummary(colony) {
+  const memory = getRoomMemoryRecord(colony);
+  const rawSelection = memory == null ? void 0 : memory.cachedExpansionSelection;
+  if (!isRecord30(rawSelection) || !isRoomExpansionSelectionStatus(rawSelection.status)) {
+    return null;
+  }
+  const refreshedAt = isFiniteNumber11(memory == null ? void 0 : memory.lastExpansionScoreTime) ? memory.lastExpansionScoreTime : void 0;
+  return {
+    status: rawSelection.status,
+    ...refreshedAt !== void 0 ? { refreshedAt } : {},
+    ...isNonEmptyString30(rawSelection.stateKey) ? { stateKey: rawSelection.stateKey } : {},
+    ...isNonEmptyString30(rawSelection.targetRoom) ? { targetRoom: rawSelection.targetRoom } : {},
+    ...isRoomExpansionSelectionReason(rawSelection.reason) ? { reason: rawSelection.reason } : {},
+    ...isRoomExpansionSelectionReasonDetail(rawSelection.reasonDetail) ? { reasonDetail: rawSelection.reasonDetail } : {},
+    ...isFiniteNumber11(rawSelection.score) ? { score: rawSelection.score } : {}
+  };
+}
+function getTerritoryExpansionControlCounts(colonyName) {
+  const counts = {
+    active: emptyTerritoryActionCounts(),
+    planned: emptyTerritoryActionCounts(),
+    targets: { claim: 0, reserve: 0 }
+  };
+  let latestIntentUpdatedAt;
+  const territory = getTerritoryMemoryRecord9();
+  if (!territory) {
+    return { counts };
+  }
+  for (const target of Array.isArray(territory.targets) ? territory.targets : []) {
+    if (!isRecord30(target) || target.colony !== colonyName || target.enabled === false) {
+      continue;
+    }
+    if (target.action === "claim" || target.action === "reserve") {
+      counts.targets[target.action] += 1;
+    }
+  }
+  for (const intent of normalizeTerritoryIntents(territory.intents)) {
+    if (intent.colony !== colonyName) {
+      continue;
+    }
+    if (intent.status === "active") {
+      counts.active[intent.action] += 1;
+    } else if (intent.status === "planned") {
+      counts.planned[intent.action] += 1;
+    }
+    if ((intent.status === "active" || intent.status === "planned") && (latestIntentUpdatedAt === void 0 || intent.updatedAt > latestIntentUpdatedAt)) {
+      latestIntentUpdatedAt = intent.updatedAt;
+    }
+  }
+  return {
+    counts,
+    ...latestIntentUpdatedAt !== void 0 ? { latestIntentUpdatedAt } : {}
+  };
+}
+function emptyTerritoryActionCounts() {
+  return { claim: 0, reserve: 0, scout: 0 };
+}
+function getTopExpansionProgressCandidate(colonyName, territoryExpansion) {
+  var _a;
+  const scoredCandidate = (_a = territoryExpansion == null ? void 0 : territoryExpansion.next) != null ? _a : territoryExpansion == null ? void 0 : territoryExpansion.candidates[0];
+  if (scoredCandidate) {
+    return toExpansionProgressCandidate({
+      roomName: scoredCandidate.roomName,
+      evidenceStatus: scoredCandidate.evidenceStatus,
+      score: scoredCandidate.score,
+      blockReason: scoredCandidate.blockReason,
+      routeDistance: scoredCandidate.routeDistance,
+      nearestOwnedRoom: scoredCandidate.nearestOwnedRoom,
+      nearestOwnedRoomDistance: scoredCandidate.nearestOwnedRoomDistance,
+      sourceCount: scoredCandidate.sourceCount,
+      hostileCreepCount: scoredCandidate.hostileCreepCount,
+      hostileStructureCount: scoredCandidate.hostileStructureCount,
+      requiresControllerPressure: scoredCandidate.requiresControllerPressure
+    });
+  }
+  const persistedCandidate = getPersistedTopExpansionCandidate(colonyName);
+  return persistedCandidate ? toExpansionProgressCandidate(persistedCandidate) : null;
+}
+function toExpansionProgressCandidate(candidate) {
+  const blocker = getTerritoryExpansionBlockerForCandidate(candidate);
+  return {
+    roomName: candidate.roomName,
+    ...isExpansionCandidateEvidenceStatus2(candidate.evidenceStatus) ? { evidenceStatus: candidate.evidenceStatus } : {},
+    ...isFiniteNumber11(candidate.score) ? { score: candidate.score } : {},
+    ...isExpansionCandidateRecommendedAction2(candidate.recommendedAction) ? { recommendedAction: candidate.recommendedAction } : {},
+    ...isExpansionCandidateBlockReason2(candidate.blockReason) ? { blockReason: candidate.blockReason } : {},
+    ...blocker ? { blocker } : {},
+    ...isFiniteNumber11(candidate.updatedAt) ? { updatedAt: candidate.updatedAt } : {},
+    ...isFiniteNumber11(candidate.routeDistance) ? { routeDistance: candidate.routeDistance } : {},
+    ...isNonEmptyString30(candidate.nearestOwnedRoom) ? { nearestOwnedRoom: candidate.nearestOwnedRoom } : {},
+    ...isFiniteNumber11(candidate.nearestOwnedRoomDistance) ? { nearestOwnedRoomDistance: candidate.nearestOwnedRoomDistance } : {},
+    ...isFiniteNumber11(candidate.sourceCount) ? { sourceCount: candidate.sourceCount } : {},
+    ...isFiniteNumber11(candidate.hostileCreepCount) ? { hostileCreepCount: candidate.hostileCreepCount } : {},
+    ...isFiniteNumber11(candidate.hostileStructureCount) ? { hostileStructureCount: candidate.hostileStructureCount } : {},
+    ...candidate.requiresControllerPressure === true ? { requiresControllerPressure: true } : {}
+  };
+}
+function getPersistedTopExpansionCandidate(colonyName) {
+  var _a, _b;
+  const candidates = (_a = getTerritoryMemoryRecord9()) == null ? void 0 : _a.expansionCandidates;
+  if (!Array.isArray(candidates)) {
+    return null;
+  }
+  const colonyCandidates = candidates.filter(
+    (candidate) => isRecord30(candidate) && candidate.colony === colonyName && isNonEmptyString30(candidate.roomName)
+  ).sort(comparePersistedExpansionCandidates);
+  return (_b = colonyCandidates[0]) != null ? _b : null;
+}
+function comparePersistedExpansionCandidates(left, right) {
+  var _a, _b;
+  const leftRank = isFiniteNumber11(left.rank) ? left.rank : Number.MAX_SAFE_INTEGER;
+  const rightRank = isFiniteNumber11(right.rank) ? right.rank : Number.MAX_SAFE_INTEGER;
+  if (leftRank !== rightRank) {
+    return leftRank - rightRank;
+  }
+  return ((_a = right.score) != null ? _a : 0) - ((_b = left.score) != null ? _b : 0);
+}
+function getActivePostClaimBootstrapProgressSummary(colonyName, tick) {
+  const blocker = getActivePostClaimBootstrapBlockers(colonyName, tick)[0];
+  return blocker ? toRuntimeTerritoryExpansionPostClaimBootstrapProgress(blocker) : null;
+}
+function toRuntimeTerritoryExpansionPostClaimBootstrapProgress(blocker) {
+  return {
+    colony: blocker.colony,
+    roomName: blocker.roomName,
+    status: blocker.status,
+    updatedAt: blocker.updatedAt,
+    age: blocker.age,
+    workerTarget: blocker.workerTarget,
+    ...blocker.workerCount !== void 0 ? { workerCount: blocker.workerCount } : {},
+    spawnCount: blocker.spawnCount
+  };
+}
+function getTerritoryExpansionBlockerForReasonDetail(reasonDetail) {
+  switch (reasonDetail) {
+    case "activeExpansionPipeline":
+      return "activeExpansionPipeline";
+    case "activePostClaimBootstrap":
+      return "activePostClaimBootstrap";
+    case "activeClaimTarget":
+      return "activeClaimTarget";
+    case "activeClaimIntent":
+      return "activeClaimIntent";
+  }
+}
+function getTerritoryExpansionBlockerForSelectionReason(reason) {
+  switch (reason) {
+    case "gclInsufficient":
+      return "gclInsufficient";
+    case "roomLimitReached":
+      return "roomLimitReached";
+    case "insufficientEvidence":
+      return "insufficientEvidence";
+    case "noCandidate":
+      return "noCandidate";
+    case "unavailable":
+      return "unavailable";
+    case "unmetPreconditions":
+    default:
+      return "unavailable";
+  }
+}
+function getTerritoryExpansionBlockerForCandidate(candidate) {
+  var _a, _b;
+  if (isExpansionCandidateBlockReason2(candidate.blockReason)) {
+    return normalizeTerritoryExpansionCandidateBlocker(candidate.blockReason);
+  }
+  if (candidate.requiresControllerPressure === true) {
+    return "controllerReserved";
+  }
+  if (((_a = candidate.hostileCreepCount) != null ? _a : 0) > 0 || ((_b = candidate.hostileStructureCount) != null ? _b : 0) > 0) {
+    return "targetHostile";
+  }
+  if (candidate.evidenceStatus === "insufficient-evidence") {
+    return "insufficientEvidence";
+  }
+  if (candidate.evidenceStatus === "unavailable") {
+    return "unavailable";
+  }
+  return void 0;
+}
+function normalizeTerritoryExpansionCandidateBlocker(blockReason) {
+  switch (blockReason) {
+    case "routeUnavailable":
+      return "deadZoneRoute";
+    case "targetUnavailable":
+      return "targetUnavailable";
+    default:
+      return blockReason;
+  }
+}
+function getTerritoryExpansionBlockerForSurvival(survival) {
+  var _a;
+  const reasons = (_a = survival.suppressionReasons) != null ? _a : [];
+  if (reasons.includes("defense")) {
+    return "hostilePresence";
+  }
+  if (reasons.includes("defenseFloor")) {
+    return "homeDefenseGate";
+  }
+  if (reasons.includes("territoryEnergyCapacity")) {
+    return "energyCapacityLow";
+  }
+  if (reasons.includes("controllerLevel")) {
+    return "controllerLevelLow";
+  }
+  if (reasons.includes("controllerDowngradeGuard")) {
+    return "homeDowngradeGuard";
+  }
+  if (reasons.includes("bootstrapWorkerFloor") || reasons.includes("bootstrapRecovery") || reasons.includes("spawnEnergyCritical") || reasons.includes("localWorkerRecovery")) {
+    return "bootstrapGate";
+  }
+  return null;
+}
+function hasAnyTerritoryExpansionProgressMemory(colonyName) {
+  var _a, _b;
+  const territory = getTerritoryMemoryRecord9();
+  if (!territory) {
+    return false;
+  }
+  return Object.values((_a = territory.expansionPipelines) != null ? _a : {}).some(
+    (pipeline) => isRecord30(pipeline) && pipeline.colony === colonyName
+  ) || ((_b = territory.expansionCandidates) != null ? _b : []).some(
+    (candidate) => isRecord30(candidate) && candidate.colony === colonyName
+  ) || normalizeTerritoryIntents(territory.intents).some((intent) => intent.colony === colonyName);
+}
+function getRoomMemoryRecord(colony) {
+  var _a, _b;
+  const roomWithMemory = colony.room;
+  return (_b = (_a = colony.memory) != null ? _a : roomWithMemory.memory) != null ? _b : null;
+}
+function getTerritoryMemoryRecord9() {
+  var _a;
+  const territory = (_a = globalThis.Memory) == null ? void 0 : _a.territory;
+  return isRecord30(territory) ? territory : null;
+}
+function getCpuBucket2() {
+  var _a, _b;
+  const bucket = (_b = (_a = globalThis.Game) == null ? void 0 : _a.cpu) == null ? void 0 : _b.bucket;
+  return isFiniteNumber11(bucket) ? bucket : void 0;
+}
+function maxFiniteNumber(values) {
+  let max;
+  for (const value of values) {
+    if (!isFiniteNumber11(value)) {
+      continue;
+    }
+    max = max === void 0 ? value : Math.max(max, value);
+  }
+  return max;
+}
+function isRoomExpansionSelectionStatus(value) {
+  return value === "planned" || value === "skipped";
+}
+function isRoomExpansionSelectionReason(value) {
+  return value === "noCandidate" || value === "gclInsufficient" || value === "roomLimitReached" || value === "unmetPreconditions" || value === "insufficientEvidence" || value === "unavailable";
+}
+function isRoomExpansionSelectionReasonDetail(value) {
+  return value === "activeExpansionPipeline" || value === "activePostClaimBootstrap" || value === "activeClaimTarget" || value === "activeClaimIntent";
+}
+function isExpansionCandidateEvidenceStatus2(value) {
+  return value === "sufficient" || value === "insufficient-evidence" || value === "unavailable";
 }
 function buildTerritoryScoutSummary(colony, roleCounts) {
   const colonyName = colony.room.name;
@@ -42950,7 +43393,7 @@ var TERRITORY_AUTOMATION_SOURCES = /* @__PURE__ */ new Set([
 ]);
 function refreshTerritoryExecutionTargets(action, options = {}) {
   var _a;
-  const territoryMemory = getTerritoryMemoryRecord9();
+  const territoryMemory = getTerritoryMemoryRecord10();
   if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
     return { action, targetCount: 0, intentCount: 0 };
   }
@@ -43036,7 +43479,7 @@ function refreshExecutionIntent(intents, target, gameTime) {
   });
   return true;
 }
-function getTerritoryMemoryRecord9() {
+function getTerritoryMemoryRecord10() {
   const memory = globalThis.Memory;
   if (!(memory == null ? void 0 : memory.territory) || typeof memory.territory !== "object" || Array.isArray(memory.territory)) {
     return null;
@@ -43282,7 +43725,7 @@ function isAutonomousExpansionClaimGclInsufficient() {
 function getAutonomousExpansionClaimTickContext(gameTime) {
   var _a;
   const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
-  const territoryMemory = getTerritoryMemoryRecord10();
+  const territoryMemory = getTerritoryMemoryRecord11();
   const rawIntents = territoryMemory == null ? void 0 : territoryMemory.intents;
   if (autonomousExpansionClaimTickContext && autonomousExpansionClaimTickContext.gameTime === gameTime && autonomousExpansionClaimTickContext.gameMap === gameMap) {
     if (autonomousExpansionClaimTickContext.territoryMemory !== territoryMemory || autonomousExpansionClaimTickContext.rawIntents !== rawIntents) {
@@ -43724,7 +44167,7 @@ function upsertTerritoryIntent5(intents, nextIntent) {
   }
   intents.push(nextIntent);
 }
-function pruneAutonomousExpansionClaimTargets(colony, territoryMemory = getTerritoryMemoryRecord10(), activeTarget, context) {
+function pruneAutonomousExpansionClaimTargets(colony, territoryMemory = getTerritoryMemoryRecord11(), activeTarget, context) {
   if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
     return;
   }
@@ -43826,7 +44269,7 @@ function getRecommendedExpansionClaimExecutionGate(colony, assignment) {
   if (!isNonEmptyString33(colony)) {
     return null;
   }
-  const territoryMemory = getTerritoryMemoryRecord10();
+  const territoryMemory = getTerritoryMemoryRecord11();
   if (!territoryMemory) {
     return null;
   }
@@ -44256,7 +44699,7 @@ function getGameTime37() {
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
 }
-function getTerritoryMemoryRecord10() {
+function getTerritoryMemoryRecord11() {
   var _a;
   return (_a = globalThis.Memory) == null ? void 0 : _a.territory;
 }
@@ -45833,7 +46276,7 @@ function selectAdjacentRoomReservationPlan(colony, options = {}) {
   };
 }
 function clearAdjacentRoomReservationIntent(colony) {
-  const territoryMemory = getTerritoryMemoryRecord11();
+  const territoryMemory = getTerritoryMemoryRecord12();
   if (!territoryMemory) {
     return;
   }
@@ -46113,7 +46556,7 @@ function upsertAdjacentRoomReservationIntent(intents, nextIntent) {
   intents.push(nextIntent);
 }
 function hasBlockingTerritoryPlan2(colony) {
-  const territoryMemory = getTerritoryMemoryRecord11();
+  const territoryMemory = getTerritoryMemoryRecord12();
   if (!territoryMemory) {
     return false;
   }
@@ -46150,7 +46593,7 @@ function getAdjacentRoomNames9(roomName) {
 }
 function getPersistedExpansionCandidatePriorities(colony) {
   var _a;
-  const rawCandidates = (_a = getTerritoryMemoryRecord11()) == null ? void 0 : _a.expansionCandidates;
+  const rawCandidates = (_a = getTerritoryMemoryRecord12()) == null ? void 0 : _a.expansionCandidates;
   if (!Array.isArray(rawCandidates)) {
     return /* @__PURE__ */ new Map();
   }
@@ -46227,7 +46670,7 @@ function compareOptionalNumbersDescending2(left, right) {
   }
   return right - left;
 }
-function getTerritoryMemoryRecord11() {
+function getTerritoryMemoryRecord12() {
   var _a;
   return (_a = globalThis.Memory) == null ? void 0 : _a.territory;
 }
@@ -46331,7 +46774,7 @@ function refreshColonyExpansionIntent(colony, assessment, gameTime = getGameTime
   };
 }
 function clearColonyExpansionClaimIntent(colony) {
-  const territoryMemory = getTerritoryMemoryRecord12();
+  const territoryMemory = getTerritoryMemoryRecord13();
   if (!territoryMemory) {
     return;
   }
@@ -46528,7 +46971,7 @@ function getColonyExpansionControllerState(colonyName, roomName, ownerUsername) 
   return { kind: "neutral", ...controller.id ? { controllerId: controller.id } : {} };
 }
 function hasBlockingClaimIntent(colony, targetRoom) {
-  const territoryMemory = getTerritoryMemoryRecord12();
+  const territoryMemory = getTerritoryMemoryRecord13();
   if (!territoryMemory) {
     return false;
   }
@@ -46691,7 +47134,7 @@ function getGclLevel7() {
 }
 function hasActivePostClaimBootstrap2(colonyName) {
   var _a;
-  const records = (_a = getTerritoryMemoryRecord12()) == null ? void 0 : _a.postClaimBootstraps;
+  const records = (_a = getTerritoryMemoryRecord13()) == null ? void 0 : _a.postClaimBootstraps;
   if (!isRecord39(records)) {
     return false;
   }
@@ -46704,7 +47147,7 @@ function getControllerOwnerUsername13(controller) {
   const username = (_a = controller == null ? void 0 : controller.owner) == null ? void 0 : _a.username;
   return isNonEmptyString40(username) ? username : void 0;
 }
-function getTerritoryMemoryRecord12() {
+function getTerritoryMemoryRecord13() {
   var _a;
   return (_a = globalThis.Memory) == null ? void 0 : _a.territory;
 }
@@ -46858,7 +47301,7 @@ function selectReservationAssignment(creep) {
   if (!isNonEmptyString41(colony) || !hasReservationEnergyBudget(colony)) {
     return null;
   }
-  const territoryMemory = getTerritoryMemoryRecord13();
+  const territoryMemory = getTerritoryMemoryRecord14();
   const recommendations = getExpansionPlannerReservationRecommendations(colony);
   if (!territoryMemory || recommendations.length === 0) {
     return null;
@@ -46973,7 +47416,7 @@ function getReservationExecutionGate(colony, assignment) {
   if (!isNonEmptyString41(colony)) {
     return null;
   }
-  const territoryMemory = getTerritoryMemoryRecord13();
+  const territoryMemory = getTerritoryMemoryRecord14();
   if (!territoryMemory) {
     return null;
   }
@@ -47005,7 +47448,7 @@ function isReservationExecutionGateRunnable(gate, gameTime) {
 }
 function getMatchingReservationIntent(colony, targetRoom, controllerId, allowUnscopedIntent = false) {
   var _a;
-  const territoryMemory = getTerritoryMemoryRecord13();
+  const territoryMemory = getTerritoryMemoryRecord14();
   if (!territoryMemory) {
     return null;
   }
@@ -47314,7 +47757,7 @@ function getEstimatedTerritoryReservationTicksToEnd2(reservation, gameTime) {
 function completeReservationAssignment(creep) {
   delete creep.memory.territory;
 }
-function getTerritoryMemoryRecord13() {
+function getTerritoryMemoryRecord14() {
   var _a;
   return (_a = globalThis.Memory) == null ? void 0 : _a.territory;
 }
