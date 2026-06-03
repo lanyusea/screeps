@@ -48,6 +48,7 @@ POLICY_UPDATE_ALGORITHM = RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM
 DEFAULT_POLICY_UPDATE_ALGORITHM = TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM
 METADATA_ONLY_POLICY_UPDATE_SKIP_REASON = "candidate_parameters_metadata_only"
 RUNTIME_PARAMETER_INJECTION_INCOMPLETE_SKIP_REASON = "runtime_parameter_injection_missing_or_incomplete"
+SIMULATOR_SETUP_PLACE_SPAWN_ROOM_BUSY_SKIP_REASON = "simulator_setup_place_spawn_room_busy"
 POLICY_UPDATE_ARTIFACT_DIR = "policy-candidates"
 CANDIDATE_SCORECARD_ARTIFACT_DIR = "candidate-scorecards"
 MULTI_CANDIDATE_SCORECARD_SET_TYPE = "screeps-rl-multi-candidate-scorecard-set"
@@ -1476,6 +1477,120 @@ def build_scale_validation_summary(
     }
 
 
+def simulator_setup_policy_update_blocker(
+    simulator_runs: Sequence[JsonObject],
+    scale_validation: JsonObject | None,
+) -> JsonObject | None:
+    """Return setup-failure evidence that must block policy updates for degraded simulator runs."""
+    if not isinstance(scale_validation, dict) or scale_validation.get("ok") is not False:
+        return None
+    room_busy_rows = simulator_place_spawn_room_busy_rows(simulator_runs)
+    if not room_busy_rows:
+        return None
+    return {
+        "classification": SIMULATOR_SETUP_PLACE_SPAWN_ROOM_BUSY_SKIP_REASON,
+        "reason": (
+            "simulator scale validation failed because at least one environment hit persistent "
+            "place-spawn room-busy setup; setup failures are not policy reward evidence"
+        ),
+        "failedEnvironmentCount": scale_validation.get("failedEnvironments"),
+        "successfulEnvironmentCount": scale_validation.get("successfulEnvironments"),
+        "totalEnvironmentCount": scale_validation.get("totalEnvironments"),
+        "minimumSuccessfulEnvironments": scale_validation.get("minimumSuccessfulEnvironments"),
+        "evidence": room_busy_rows[:10],
+        "evidenceCount": len(room_busy_rows),
+        "nextAction": (
+            "repair simulator spawn allocation/setup before emitting a policy update from this training slice"
+        ),
+    }
+
+
+def simulator_place_spawn_room_busy_rows(simulator_runs: Sequence[JsonObject]) -> list[JsonObject]:
+    rows: list[JsonObject] = []
+    for run_index, run in enumerate(simulator_runs):
+        if not isinstance(run, dict):
+            continue
+        run_id = text_or_none(run.get("runId")) or f"run[{run_index}]"
+        variants = run.get("variants")
+        if not isinstance(variants, list):
+            continue
+        for variant_index, variant in enumerate(variants):
+            if not isinstance(variant, dict):
+                continue
+            if variant.get("ok") is True:
+                continue
+            if not variant_has_place_spawn_room_busy(variant):
+                continue
+            evidence: JsonObject = {
+                "runId": run_id,
+                "runIndex": run_index,
+                "variantIndex": variant_index,
+                "variantId": text_or_none(variant.get("variant_id", variant.get("variantId"))),
+                "ok": variant.get("ok") is True,
+                "ticksRun": number_or_none(variant.get("ticks_run", variant.get("ticksRun"))),
+                "error": text_or_none(variant.get("error")),
+            }
+            place_spawn = variant.get("placeSpawn")
+            if isinstance(place_spawn, dict):
+                evidence["placeSpawn"] = {
+                    "classification": text_or_none(place_spawn.get("classification")),
+                    "phase": text_or_none(place_spawn.get("phase")),
+                    "maxAttempts": int_or_none(place_spawn.get("maxAttempts")),
+                }
+            rows.append(evidence)
+    return rows
+
+
+def variant_has_place_spawn_room_busy(variant: JsonObject) -> bool:
+    place_spawn = variant.get("placeSpawn")
+    if isinstance(place_spawn, dict):
+        classification = text_or_none(place_spawn.get("classification"))
+        if classification in {"place_spawn_room_busy", "room_busy"}:
+            return True
+    texts: list[str] = []
+    for key in ("error", "diagnostic", "reason"):
+        value = text_or_none(variant.get(key))
+        if value is not None:
+            texts.append(value)
+    errors = variant.get("errors")
+    if isinstance(errors, list):
+        texts.extend(str(error) for error in errors if error is not None)
+    combined = "\n".join(texts).lower()
+    return "place-spawn room busy" in combined or "place_spawn_room_busy" in combined
+
+
+def build_simulator_setup_blocked_policy_update(
+    *,
+    policy_gradient: JsonObject,
+    blocker: JsonObject,
+) -> JsonObject:
+    algorithm = policy_update_algorithm(policy_gradient)
+    target_family = text_or_none(policy_gradient.get("target_family", policy_gradient.get("targetFamily"))) or "unknown"
+    runtime_injected = not policy_gradient_candidate_parameters_metadata_only(policy_gradient)
+    parameter_evidence: JsonObject = {
+        "candidateParameterScope": "runtime_injected" if runtime_injected else "metadata_only",
+        "runtimeParameterInjection": runtime_injected,
+        "runtimeParameterConsumption": False,
+        "runtimeParameterConsumptionStatus": "blocked_by_simulator_setup",
+        "policyUpdateEligible": False,
+        "reason": blocker["reason"],
+        "setupFailureClassification": blocker["classification"],
+        "simulatorSetupBlocker": copy.deepcopy(blocker),
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
+    return {
+        **build_policy_update_base(algorithm=algorithm, target_family=target_family),
+        "skippedReason": SIMULATOR_SETUP_PLACE_SPAWN_ROOM_BUSY_SKIP_REASON,
+        "candidateCount": policy_gradient_candidate_vector_count(policy_gradient),
+        "parameterEvidence": parameter_evidence,
+        "simulatorSetupBlocker": copy.deepcopy(blocker),
+        "promotionGate": policy_update_promotion_gate(parameter_evidence, policy_update_generated=False),
+    }
+
+
 def scale_validation_environment_id(variant: JsonObject) -> str:
     """Return a stable per-run environment id for scale-proof row counting."""
     for key in ("environmentId", "envId", "environment", "slot"):
@@ -1928,12 +2043,19 @@ def build_training_report(
         report["runtimeParameterInjection"] = runtime_parameter_injection
     if policy_gradient is not None:
         report["policyGradient"] = policy_gradient
-        policy_update = build_policy_update(
-            policy_gradient=policy_gradient,
-            results=results,
-            report_id=report_id,
-            generated_at=generated_at,
-        )
+        setup_blocker = simulator_setup_policy_update_blocker(simulator_runs, scale_validation)
+        if setup_blocker is not None:
+            policy_update = build_simulator_setup_blocked_policy_update(
+                policy_gradient=policy_gradient,
+                blocker=setup_blocker,
+            )
+        else:
+            policy_update = build_policy_update(
+                policy_gradient=policy_gradient,
+                results=results,
+                report_id=report_id,
+                generated_at=generated_at,
+            )
         report["policyUpdateIterations"] = int(policy_update.get("iterations", 0))
         policy_update_algorithm_name = text_or_none(policy_update.get("algorithm"))
         report["policyUpdateAlgorithm"] = policy_update_algorithm_name
