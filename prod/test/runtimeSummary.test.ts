@@ -567,6 +567,62 @@ describe('runtime telemetry summaries', () => {
     expect(onStrategyRegistryRuntimeUse).not.toHaveBeenCalled();
   });
 
+  it('omits optional room telemetry after the current tick exceeds its CPU limit', () => {
+    const worker = makeWorker(
+      {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'harvest', targetId: 'source1' as Id<Source> },
+        behaviorTelemetry: {
+          idleTicks: 1,
+          moveTicks: 0,
+          workTicks: 0,
+          stuckTicks: 0,
+          containerTransfers: 0,
+          sourceContainerWithdrawals: 0,
+          pathLength: 0,
+          lastObservedTick: RUNTIME_SUMMARY_INTERVAL * 5
+        },
+        workerEfficiency: {
+          type: 'nearbyEnergyChoice',
+          tick: RUNTIME_SUMMARY_INTERVAL * 5,
+          carriedEnergy: 5,
+          freeCapacity: 45,
+          selectedTask: 'pickup',
+          targetId: 'drop-1',
+          energy: 50,
+          range: 1
+        }
+      },
+      5,
+      'Worker1'
+    );
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL * 5,
+      creeps: [worker]
+    });
+    const onStrategyRegistryRuntimeUse = jest.fn();
+    (Game as Partial<Game>).cpu = {
+      getUsed: jest.fn().mockReturnValue(71),
+      limit: 70,
+      bucket: 9_000,
+      tickLimit: 500
+    } as unknown as CPU;
+
+    emitRuntimeSummary([colony], [worker], [], {
+      strategyRegistry: DEFAULT_STRATEGY_REGISTRY,
+      onStrategyRegistryRuntimeUse
+    });
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.constructionPriority).toEqual({ candidates: [], nextPrimary: null });
+    expect(room.territoryExpansion).toBeUndefined();
+    expect(room.behavior).toBeUndefined();
+    expect(room.workerEfficiency).toBeUndefined();
+    expect(onStrategyRegistryRuntimeUse).not.toHaveBeenCalled();
+  });
+
   it('reports per-creep behavior counters and resets emitted counters', () => {
     const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
     const worker = makeWorker(
@@ -3659,6 +3715,13 @@ describe('runtime telemetry summaries', () => {
       bucket: 43,
       tickLimit: 63
     });
+    const overLimitBudget = buildRuntimeCpuBudget({
+      tick: RUNTIME_SUMMARY_INTERVAL,
+      used: 71,
+      limit: 70,
+      bucket: 9_000,
+      tickLimit: 500
+    });
     const spawnEvent: RuntimeTelemetryEvent = {
       type: 'spawn',
       roomName: 'W1N1',
@@ -3697,6 +3760,9 @@ describe('runtime telemetry summaries', () => {
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [spawnEvent], criticalBucketBudget)).toBe(false);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [safeModeEvent], criticalBucketBudget)).toBe(true);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [damageOnlyDefenseEvent], criticalBucketBudget)).toBe(true);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [spawnEvent], overLimitBudget)).toBe(false);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL * 5, [spawnEvent], overLimitBudget)).toBe(true);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [safeModeEvent], overLimitBudget)).toBe(true);
   });
 
   it('reports construction-priority runtime use from runtime summary scoring', () => {
