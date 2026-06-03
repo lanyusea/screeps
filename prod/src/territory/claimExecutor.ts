@@ -102,6 +102,7 @@ export interface AutonomousExpansionClaimEvaluation {
   reason?: AutonomousExpansionClaimSkipReason;
   targetRoom?: string;
   controllerId?: Id<StructureController>;
+  requiresControllerPressure?: boolean;
   score?: number;
 }
 
@@ -470,6 +471,7 @@ function evaluateAutonomousExpansionClaim(
     colony: colonyName,
     targetRoom: candidate.roomName,
     score: candidate.score,
+    ...(candidate.requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {})
   };
 
@@ -512,7 +514,11 @@ function evaluateAutonomousExpansionClaim(
   }
 
   const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller);
-  if (controller && isControllerReserved(controller, colonyOwnerUsername)) {
+  if (
+    controller &&
+    isControllerReserved(controller, colonyOwnerUsername) &&
+    candidate.requiresControllerPressure !== true
+  ) {
     return { ...visibleControllerEvaluation, reason: 'controllerReserved' };
   }
 
@@ -532,7 +538,8 @@ function evaluateAutonomousExpansionClaim(
     colony: colonyName,
     targetRoom: candidate.roomName,
     colonyOwnerUsername: getControllerOwnerUsername(colony.room.controller),
-    gameTime
+    gameTime,
+    allowForeignReservationPressure: candidate.requiresControllerPressure === true
   });
   const scoutControllerId = getScoutValidationControllerId(scoutValidation);
   const controllerId = controller?.id ?? scoutControllerId ?? candidate.controllerId;
@@ -587,6 +594,7 @@ function evaluateAutonomousExpansionClaim(
     colony: colonyName,
     targetRoom: candidate.roomName,
     score: candidate.score,
+    ...(candidate.requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(typeof controllerId === 'string' ? { controllerId: controllerId as Id<StructureController> } : {})
   };
 }
@@ -721,7 +729,8 @@ function toExpansionCandidateInput(
     ...(typeof candidate.sourceCount === 'number' ? { sourceCount: candidate.sourceCount } : {}),
     ...(mineral ? { mineral } : {}),
     ...(typeof hostileCreepCount === 'number' ? { hostileCreepCount } : {}),
-    ...(typeof hostileStructureCount === 'number' ? { hostileStructureCount } : {})
+    ...(typeof hostileStructureCount === 'number' ? { hostileStructureCount } : {}),
+    ...(candidate.requiresControllerPressure === true ? { requiresControllerPressure: true } : {})
   };
 }
 
@@ -950,7 +959,8 @@ function persistAutonomousExpansionClaimIntent(
     status: existingIntent?.status === 'active' ? 'active' : 'planned',
     updatedAt: gameTime,
     createdBy: AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR,
-    ...(target.controllerId ? { controllerId: target.controllerId } : {})
+    ...(target.controllerId ? { controllerId: target.controllerId } : {}),
+    ...(evaluation.requiresControllerPressure ? { requiresControllerPressure: true } : {})
   });
   syncAutonomousExpansionClaimIntentContext(context, territoryMemory, intents);
 }

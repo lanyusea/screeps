@@ -1002,6 +1002,7 @@ declare global {
     startedAt: number;
     updatedAt: number;
     controllerId?: Id<StructureController>;
+    requiresControllerPressure?: boolean;
     reservationConfirmedAt?: number;
     claimedAt?: number;
     completedAt?: number;

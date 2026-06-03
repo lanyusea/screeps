@@ -85,6 +85,7 @@ export interface AutonomousExpansionPipelineSummary {
   updatedAt: number;
   claimState?: TerritoryExpansionClaimState;
   controllerId?: Id<StructureController>;
+  requiresControllerPressure?: boolean;
   reservationConfirmedAt?: number;
   claimedAt?: number;
 }
@@ -295,7 +296,8 @@ function refreshScoutingStage(
     colony: pipeline.colony,
     targetRoom: pipeline.targetRoom,
     ...(colonyOwnerUsername ? { colonyOwnerUsername } : {}),
-    gameTime
+    gameTime,
+    allowForeignReservationPressure: pipeline.requiresControllerPressure === true
   });
   const controllerId = pipeline.controllerId ?? validation.intel?.controller?.id;
   recordTerritoryScoutValidation(
@@ -357,7 +359,13 @@ function refreshReservingStage(
   colonyOwnerUsername: string | undefined
 ): NextExpansionTargetSelection {
   const visibleRoom = getVisibleRoom(pipeline.targetRoom);
-  const visibleAbort = visibleRoom ? getVisibleTargetAbortReason(visibleRoom, colonyOwnerUsername) : null;
+  const visibleAbort = visibleRoom
+    ? getVisibleTargetAbortReason(
+        visibleRoom,
+        colonyOwnerUsername,
+        pipeline.requiresControllerPressure === true
+      )
+    : null;
   if (visibleAbort) {
     return abortExpansionPipeline(territoryMemory, pipeline, visibleAbort, gameTime);
   }
@@ -401,7 +409,13 @@ function refreshClaimingStage(
   colonyOwnerUsername: string | undefined
 ): NextExpansionTargetSelection {
   const visibleRoom = getVisibleRoom(pipeline.targetRoom);
-  const visibleAbort = visibleRoom ? getVisibleTargetAbortReason(visibleRoom, colonyOwnerUsername) : null;
+  const visibleAbort = visibleRoom
+    ? getVisibleTargetAbortReason(
+        visibleRoom,
+        colonyOwnerUsername,
+        pipeline.requiresControllerPressure === true
+      )
+    : null;
   if (visibleAbort) {
     return abortExpansionPipeline(territoryMemory, pipeline, visibleAbort, gameTime);
   }
@@ -627,6 +641,7 @@ function createExpansionPipeline(
     threshold: config.scoreThreshold,
     startedAt: gameTime,
     updatedAt: gameTime,
+    ...(candidate.requiresControllerPressure === true ? { requiresControllerPressure: true } : {}),
     ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {})
   };
 }
@@ -743,7 +758,8 @@ function getScoutValidationAbortReason(
 
 function getVisibleTargetAbortReason(
   room: Room,
-  colonyOwnerUsername: string | undefined
+  colonyOwnerUsername: string | undefined,
+  allowForeignReservationPressure = false
 ): TerritoryExpansionAbortReason | null {
   if (hasVisibleHostiles(room)) {
     return 'targetHostile';
@@ -764,7 +780,11 @@ function getVisibleTargetAbortReason(
   }
 
   const reservationUsername = getControllerReservationUsername(controller);
-  if (reservationUsername && reservationUsername !== colonyOwnerUsername) {
+  if (
+    reservationUsername &&
+    reservationUsername !== colonyOwnerUsername &&
+    allowForeignReservationPressure !== true
+  ) {
     return 'controllerReserved';
   }
 
@@ -802,6 +822,7 @@ function persistPipelineControlPlan(
     updatedAt: gameTime,
     createdBy: NEXT_EXPANSION_TARGET_CREATOR,
     ...(pipeline.controllerId ? { controllerId: pipeline.controllerId } : {}),
+    ...(pipeline.requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(postClaimBootstrapReserveEnergy !== undefined ? { postClaimBootstrapReserveEnergy } : {})
   });
 }
@@ -960,6 +981,7 @@ function normalizeExpansionPipeline(
     threshold: rawPipeline.threshold,
     startedAt: rawPipeline.startedAt,
     updatedAt: rawPipeline.updatedAt,
+    ...(rawPipeline.requiresControllerPressure === true ? { requiresControllerPressure: true } : {}),
     ...(typeof rawPipeline.controllerId === 'string'
       ? { controllerId: rawPipeline.controllerId as Id<StructureController> }
       : {}),
@@ -987,6 +1009,7 @@ function toAutonomousExpansionPipelineSummary(
     updatedAt: pipeline.updatedAt,
     ...(pipeline.claimState ? { claimState: pipeline.claimState } : {}),
     ...(pipeline.controllerId ? { controllerId: pipeline.controllerId } : {}),
+    ...(pipeline.requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(pipeline.reservationConfirmedAt !== undefined
       ? { reservationConfirmedAt: pipeline.reservationConfirmedAt }
       : {}),
