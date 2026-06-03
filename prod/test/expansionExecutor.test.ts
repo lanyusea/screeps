@@ -246,9 +246,14 @@ describe('expansion executor', () => {
       intents: []
     };
     ((globalThis as unknown as { Game: Partial<Game> }).Game as { time: number }).time = 181;
+    const replacementRoom = makeExpansionRoom('W3N1', 'controller3' as Id<StructureController>, 2);
+    replacementRoom.controller = {
+      ...replacementRoom.controller,
+      reservation: { username: 'me', ticksToEnd: 4_000 }
+    } as StructureController;
     ((globalThis as unknown as { Game: Partial<Game> }).Game as { rooms: Record<string, Room> }).rooms = {
       W1N1: colony.room,
-      W3N1: makeExpansionRoom('W3N1', 'controller3' as Id<StructureController>, 2)
+      W3N1: replacementRoom
     };
     ((globalThis as unknown as { Game: Partial<Game> }).Game.map as GameMap).describeExits = jest.fn(
       (roomName: string) => (roomName === 'W1N1' ? { '3': 'W3N1' } : {})
@@ -265,6 +270,18 @@ describe('expansion executor', () => {
       colony: 'W1N1',
       targetRoom: 'W3N1'
     });
+    expect(Memory.territory?.targets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          colony: 'W1N1',
+          roomName: 'W3N1',
+          action: 'claim',
+          createdBy: 'nextExpansionScoring',
+          controllerId: 'controller3',
+          postClaimBootstrapReserveEnergy: 150
+        })
+      ])
+    );
   });
 
   it('blocks claiming when recent threat memory was not refreshed on the current tick', () => {
