@@ -248,6 +248,33 @@ describe('runEconomy', () => {
     expect(shouldRunCreepForCpuBudget(creep('scout'), lowBucketBudget, probedRooms)).toBe(false);
   });
 
+  it('sheds nonessential creep roles after the current tick exceeds its CPU limit', () => {
+    const overLimitBudget = buildRuntimeCpuBudget({
+      tick: 127,
+      used: 71,
+      limit: 70,
+      bucket: 9_000,
+      tickLimit: 500
+    });
+    const room = {
+      name: 'W1N1',
+      controller: { my: true, ticksToDowngrade: CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS + 1 } as StructureController
+    } as Room;
+    const creep = (role: string, memory: Partial<CreepMemory> = {}): Creep =>
+      ({ memory: { role, ...memory }, room }) as unknown as Creep;
+    const probedRooms = new Set<string>();
+
+    expect(shouldRunCreepForCpuBudget(creep('worker'), overLimitBudget, probedRooms)).toBe(true);
+    expect(shouldRunCreepForCpuBudget(creep('sourceHarvester'), overLimitBudget, probedRooms)).toBe(true);
+    expect(shouldRunCreepForCpuBudget(creep('hauler'), overLimitBudget, probedRooms)).toBe(true);
+    expect(shouldRunCreepForCpuBudget(creep('crossRoomHauler'), overLimitBudget, probedRooms)).toBe(true);
+    expect(shouldRunCreepForCpuBudget(creep('upgrader'), overLimitBudget, probedRooms)).toBe(false);
+    expect(shouldRunCreepForCpuBudget(creep('remoteHarvester'), overLimitBudget, probedRooms)).toBe(false);
+    expect(shouldRunCreepForCpuBudget(creep('mineralHarvester'), overLimitBudget, probedRooms)).toBe(false);
+    expect(shouldRunCreepForCpuBudget(creep('claimer'), overLimitBudget, probedRooms)).toBe(false);
+    expect(shouldRunCreepForCpuBudget(creep('scout'), overLimitBudget, probedRooms)).toBe(false);
+  });
+
   it('spawns a worker request for an owned colony below target workers', () => {
     const room = { name: 'W1N1', energyAvailable: 300, energyCapacityAvailable: 300 } as Room;
     const spawn = {

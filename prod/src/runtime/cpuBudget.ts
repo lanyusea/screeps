@@ -174,7 +174,7 @@ export function shouldRunOptionalCpuWork(
     return true;
   }
 
-  if (budget.critical || hasLowBucketPressure(budget)) {
+  if (budget.critical || hasLowBucketPressure(budget) || hasUsedOverLimitPressure(budget)) {
     return false;
   }
 
@@ -190,7 +190,7 @@ export function shouldRunOptionalCpuRoomWork(
     return true;
   }
 
-  if (budget.critical || hasLowBucketPressure(budget)) {
+  if (budget.critical || hasLowBucketPressure(budget) || hasUsedOverLimitPressure(budget)) {
     return false;
   }
 
@@ -202,7 +202,7 @@ export function shouldThrottleRuntimeSummaryCadence(budget: RuntimeCpuBudget): b
 }
 
 export function shouldShedNonessentialCpuWork(budget: RuntimeCpuBudget): boolean {
-  return budget.critical || hasLowBucketPressure(budget);
+  return budget.critical || hasLowBucketPressure(budget) || hasUsedOverLimitPressure(budget);
 }
 
 export function resetRuntimeCpuTelemetryForTesting(): void {
@@ -215,6 +215,10 @@ export function resetRuntimeCpuTelemetryForTesting(): void {
 
 export function hasLowBucketPressure(budget: RuntimeCpuBudget): boolean {
   return budget.reasons.includes('lowBucket') || budget.reasons.includes('criticalBucket');
+}
+
+function hasUsedOverLimitPressure(budget: RuntimeCpuBudget): boolean {
+  return budget.reasons.includes('usedOverLimit');
 }
 
 function updateRuntimeCpuTelemetryState(sample: RuntimeCpuSample): RuntimeCpuTelemetryState {

@@ -139,6 +139,27 @@ describe('runtime CPU budget policy', () => {
     ).toBe(true);
   });
 
+  it('sheds optional work once the current tick exceeds its CPU limit', () => {
+    const budget = buildRuntimeCpuBudget({
+      tick: 222,
+      used: 71,
+      limit: 70,
+      bucket: 9_000,
+      tickLimit: 500
+    });
+
+    expect(budget).toMatchObject({
+      pressure: 'degraded',
+      degraded: true,
+      critical: false,
+      lowCpuLimit: false,
+      reasons: ['usedOverLimit']
+    });
+    expect(shouldRunOptionalCpuWork(budget, 'economy-global-optional')).toBe(false);
+    expect(shouldRunOptionalCpuRoomWork(budget, 'E29N55')).toBe(false);
+    expect(shouldShedNonessentialCpuWork(budget)).toBe(true);
+  });
+
   it('refreshes CPU used samples during the same game tick', () => {
     const getUsed = jest.fn().mockReturnValueOnce(21).mockReturnValueOnce(71);
     (globalThis as unknown as { Game: Partial<Game> }).Game = {

@@ -1029,7 +1029,7 @@ function shouldRunOptionalCpuWork(budget, key, interval = DEGRADED_OPTIONAL_WORK
   if (!budget.degraded) {
     return true;
   }
-  if (budget.critical || hasLowBucketPressure(budget)) {
+  if (budget.critical || hasLowBucketPressure(budget) || hasUsedOverLimitPressure(budget)) {
     return false;
   }
   return isCadenceTick(budget.tick, key, interval);
@@ -1038,7 +1038,7 @@ function shouldRunOptionalCpuRoomWork(budget, roomName, interval = DEGRADED_ROOM
   if (!budget.degraded) {
     return true;
   }
-  if (budget.critical || hasLowBucketPressure(budget)) {
+  if (budget.critical || hasLowBucketPressure(budget) || hasUsedOverLimitPressure(budget)) {
     return false;
   }
   return isCadenceTick(budget.tick, roomName, interval);
@@ -1047,10 +1047,13 @@ function shouldThrottleRuntimeSummaryCadence(budget) {
   return budget.degraded;
 }
 function shouldShedNonessentialCpuWork(budget) {
-  return budget.critical || hasLowBucketPressure(budget);
+  return budget.critical || hasLowBucketPressure(budget) || hasUsedOverLimitPressure(budget);
 }
 function hasLowBucketPressure(budget) {
   return budget.reasons.includes("lowBucket") || budget.reasons.includes("criticalBucket");
+}
+function hasUsedOverLimitPressure(budget) {
+  return budget.reasons.includes("usedOverLimit");
 }
 function updateRuntimeCpuTelemetryState(sample) {
   resetRuntimeCpuTelemetryStateForTick(sample.tick);
