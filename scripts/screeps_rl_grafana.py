@@ -93,6 +93,8 @@ REQUIRED_CHECK_ACT_QUERY_FRAGMENTS = {
     "rollout readiness default": "NOT_READY",
     "pipeline ledger freshness": "decision_ledger_freshness",
     "pipeline readiness ledger proof": "ledger.decision_count > 0",
+    "pipeline instrumentation proof": "instrumentation_proof",
+    "pipeline readiness instrumentation proof": "instrumentation_proof.blocker_count = 0",
 }
 
 REQUIRED_QUERY_COVERAGE = {

@@ -23,6 +23,19 @@ import screeps_rl_metrics_ingestor as ingestor
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+REQUIRED_CHECK_ACT_METRICS = (
+    "creep.stuck_ticks",
+    "creep.low_load_return_count",
+    "cpu.used",
+    "cpu.bucket",
+    "reliability.loop_exception_count",
+    "reliability.telemetry_silence_ticks",
+    "territory.controller_progress",
+    "upgrade.carried_energy",
+    "economy.import_demand",
+    "economy.blocked_import_energy",
+    "economy.multi_room_deficit_energy",
+)
 
 
 @contextmanager
@@ -154,6 +167,18 @@ def insert_fresh_rollout_inputs(
                 "runtime-artifacts/rl-control-loop/decision-a.json",
                 "Fresh proof with rollback criteria.",
             ),
+        )
+    conn.commit()
+
+
+def insert_required_instrumentation_proof(conn: sqlite3.Connection) -> None:
+    for metric_name in REQUIRED_CHECK_ACT_METRICS:
+        conn.execute(
+            """
+            INSERT INTO metric_observations (metric_name, tick, value, source_artifact, dedupe_key)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (metric_name, 10, 1, "runtime-summary.log", f"coverage-proof-{metric_name}"),
         )
     conn.commit()
 
@@ -315,6 +340,33 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
         self.assertEqual(readiness_row["status"], "NOT_READY")
         self.assertEqual(ledger_row["status"], "BLOCKER_NO_LEDGER")
         self.assertIn("decisions=0", ledger_row["evidence"])
+
+    def test_rl_pipeline_gate_blocks_canary_readiness_without_instrumentation_proof(self) -> None:
+        with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (conn, _db_path):
+            insert_fresh_rollout_inputs(conn)
+
+            rows = panel_rows(conn, repo_root, "RL Pipeline Gate")
+
+        readiness_row = next(row for row in rows if row["gate_row"] == "rollout_canary_readiness")
+        instrumentation_row = next(row for row in rows if row["gate_row"] == "instrumentation_proof")
+        self.assertEqual(readiness_row["status"], "NOT_READY")
+        self.assertEqual(instrumentation_row["status"], "BLOCKED")
+        self.assertIn(f"missingMetrics={len(REQUIRED_CHECK_ACT_METRICS)}", instrumentation_row["evidence"])
+        self.assertIn(f"instrumentationBlockers={len(REQUIRED_CHECK_ACT_METRICS)}", readiness_row["evidence"])
+
+    def test_rl_pipeline_gate_allows_canary_readiness_with_instrumentation_proof(self) -> None:
+        with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (conn, _db_path):
+            insert_fresh_rollout_inputs(conn)
+            insert_required_instrumentation_proof(conn)
+
+            rows = panel_rows(conn, repo_root, "RL Pipeline Gate")
+
+        readiness_row = next(row for row in rows if row["gate_row"] == "rollout_canary_readiness")
+        instrumentation_row = next(row for row in rows if row["gate_row"] == "instrumentation_proof")
+        self.assertEqual(readiness_row["status"], "READY")
+        self.assertEqual(instrumentation_row["status"], "COVERED")
+        self.assertIn("blockers=0", instrumentation_row["evidence"])
+        self.assertIn("instrumentationBlockers=0", readiness_row["evidence"])
 
     def test_content_audit_returns_explicit_blocker_rows_for_missing_metric_streams(self) -> None:
         with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (conn, db_path):
