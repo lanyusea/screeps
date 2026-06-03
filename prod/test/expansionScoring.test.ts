@@ -1235,6 +1235,130 @@ describe('next expansion scoring', () => {
     });
   });
 
+  it('uses fresh source-scarce scout proof to persist a controller-pressure claim target', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutIntel: {
+          'W1N1>W2N1': makeScoutIntel('W2N1', {
+            updatedAt: 800,
+            sourceCount: 1,
+            controller: {
+              id: 'controller-W2N1' as Id<StructureController>,
+              my: false,
+              reservationUsername: 'enemy',
+              reservationTicksToEnd: 3_000
+            }
+          })
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 801,
+      rooms: {
+        W1N1: colony.room
+      }
+    };
+
+    const report = scoreExpansionCandidates(
+      makeInput(
+        [makeUnscoredCandidate('W2N1', 0)],
+        {
+          claimedRooms: [{ roomName: 'W1N1', sourceCount: 1 }]
+        }
+      )
+    );
+
+    expect(report.next).toMatchObject({
+      roomName: 'W2N1',
+      evidenceStatus: 'sufficient',
+      visible: false,
+      sourceCount: 1,
+      requiresControllerPressure: true,
+      reservation: { username: 'enemy', relation: 'foreign', ticksToEnd: 3_000 }
+    });
+    expect(report.next?.rationale).toContain('synergy fills energy source coverage gap');
+    expect(refreshNextExpansionTargetSelection(colony, report, 801)).toEqual({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller-W2N1',
+      score: report.candidates[0].score
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        createdBy: 'nextExpansionScoring',
+        controllerId: 'controller-W2N1'
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 801,
+        createdBy: 'nextExpansionScoring',
+        controllerId: 'controller-W2N1',
+        requiresControllerPressure: true
+      }
+    ]);
+  });
+
+  it('keeps source-scarce controller-pressure candidates blocked when scout proof finds hostiles', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutIntel: {
+          'W1N1>W2N1': makeScoutIntel('W2N1', {
+            updatedAt: 800,
+            sourceCount: 1,
+            hostileCreepCount: 1,
+            controller: {
+              id: 'controller-W2N1' as Id<StructureController>,
+              my: false,
+              reservationUsername: 'enemy',
+              reservationTicksToEnd: 3_000
+            }
+          })
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 801,
+      rooms: {
+        W1N1: colony.room
+      }
+    };
+
+    const report = scoreExpansionCandidates(
+      makeInput(
+        [makeUnscoredCandidate('W2N1', 0)],
+        {
+          claimedRooms: [{ roomName: 'W1N1', sourceCount: 1 }]
+        }
+      )
+    );
+
+    expect(getCandidate(report, 'W2N1')).toMatchObject({
+      roomName: 'W2N1',
+      evidenceStatus: 'unavailable',
+      hostileCreepCount: 1,
+      blockReason: 'targetHostile'
+    });
+    expect(report.next).toBeNull();
+    expect(refreshNextExpansionTargetSelection(colony, report, 801)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'unavailable'
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toBeUndefined();
+  });
+
   it('requests a scout refresh instead of claiming from stale second-ring intel', () => {
     const colony = makeSafeColony();
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {

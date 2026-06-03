@@ -77,6 +77,82 @@ describe('autonomous expansion trigger pipeline', () => {
     });
   });
 
+  it('passes controller-pressure scout validation through the autonomous pipeline', () => {
+    const gameTime = 40;
+    const controllerId = 'controller2' as Id<StructureController>;
+    const colony = makeColony({
+      storageEnergy: 2_000,
+      rcl: 5,
+      energyAvailable: getExpansionTriggerRequiredEnergy(5),
+      energyCapacityAvailable: 1800
+    });
+    const report = makeReport([
+      makeCandidate({
+        roomName: 'W2N1',
+        evidenceStatus: 'insufficient-evidence',
+        visible: false,
+        controllerId,
+        requiresControllerPressure: true
+      })
+    ]);
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutIntel: {
+          'W1N1>W2N1': {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            updatedAt: gameTime - 1,
+            controller: {
+              id: controllerId,
+              my: false,
+              reservationUsername: 'enemy',
+              reservationTicksToEnd: 3_000
+            },
+            sourceIds: ['source1'],
+            sourceCount: 1,
+            hostileCreepCount: 0,
+            hostileStructureCount: 0,
+            hostileSpawnCount: 0
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: gameTime,
+      rooms: {
+        W1N1: colony.room
+      }
+    };
+    setSafeHomeThreat('W1N1', gameTime);
+
+    expect(refreshAutonomousExpansionPipeline(colony, report, gameTime)).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId,
+      score: 900
+    });
+    expect(Memory.territory?.expansionPipelines?.W1N1).toMatchObject({
+      status: 'active',
+      stage: 'reserving',
+      targetRoom: 'W2N1',
+      controllerId,
+      requiresControllerPressure: true
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: gameTime,
+        createdBy: 'nextExpansionScoring',
+        controllerId,
+        requiresControllerPressure: true
+      }
+    ]);
+  });
+
   it('starts a Seasonal RCL3 pipeline when room energy reaches the RCL3 threshold', () => {
     const threshold = getExpansionTriggerRequiredEnergy(3);
     expect(threshold).toBe(800);
@@ -978,13 +1054,15 @@ function makeCandidate({
   score = 900,
   evidenceStatus = 'sufficient',
   visible = true,
-  controllerId = `${roomName}-controller` as Id<StructureController>
+  controllerId = `${roomName}-controller` as Id<StructureController>,
+  requiresControllerPressure = false
 }: {
   roomName: string;
   score?: number;
   evidenceStatus?: ExpansionCandidateScore['evidenceStatus'];
   visible?: boolean;
   controllerId?: Id<StructureController> | null;
+  requiresControllerPressure?: boolean;
 }): ExpansionCandidateScore {
   return {
     roomName,
@@ -997,6 +1075,7 @@ function makeCandidate({
     risks: [],
     adjacentToOwnedRoom: true,
     sourceCount: 2,
+    ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(controllerId ? { controllerId } : {})
   };
 }

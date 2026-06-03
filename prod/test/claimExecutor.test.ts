@@ -1234,8 +1234,9 @@ describe('autonomous expansion claim executor', () => {
     });
   });
 
-  it('blocks visible foreign-reserved controllers before autonomous claim planning', () => {
+  it('plans controller-pressure work for visible foreign-reserved controllers', () => {
     const controllerId = 'controller2' as Id<StructureController>;
+    const colony = makeColony({ mineralType: 'O' });
     (Game.rooms as Record<string, Room>).W2N1 = makeTargetRoom('W2N1', {
       controllerId,
       reservationUsername: 'enemy',
@@ -1243,7 +1244,7 @@ describe('autonomous expansion claim executor', () => {
     });
 
     const evaluation = refreshAutonomousExpansionClaimIntent(
-      makeColony(),
+      colony,
       makeReport([
         makeCandidate({
           roomName: 'W2N1',
@@ -1255,13 +1256,33 @@ describe('autonomous expansion claim executor', () => {
     );
 
     expect(evaluation).toMatchObject({
-      status: 'skipped',
+      status: 'planned',
       colony: 'W1N1',
       targetRoom: 'W2N1',
       controllerId,
-      reason: 'controllerReserved'
+      requiresControllerPressure: true
     });
-    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        createdBy: 'autonomousExpansionClaim',
+        controllerId
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 152,
+        createdBy: 'autonomousExpansionClaim',
+        controllerId,
+        requiresControllerPressure: true
+      }
+    ]);
     expect(Memory.territory?.scoutIntel?.['W1N1>W2N1']).toMatchObject({
       colony: 'W1N1',
       roomName: 'W2N1',
@@ -1763,13 +1784,15 @@ function makeCandidate({
   controllerId,
   source = 'adjacent',
   action = 'reserve',
-  sourceCount = 1
+  sourceCount = 1,
+  requiresControllerPressure = false
 }: {
   roomName: string;
   controllerId?: Id<StructureController>;
   source?: OccupationRecommendationScore['source'];
   action?: OccupationRecommendationScore['action'];
   sourceCount?: number | null;
+  requiresControllerPressure?: boolean;
 }): OccupationRecommendationScore {
   return {
     roomName,
@@ -1782,6 +1805,7 @@ function makeCandidate({
     risks: [],
     routeDistance: 1,
     roadDistance: 1,
+    ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(typeof sourceCount === 'number' ? { sourceCount } : {}),
     ...(controllerId ? { controllerId } : {})
   };

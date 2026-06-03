@@ -173,6 +173,7 @@ export interface ExpansionCandidateInput {
   hostileCreepCount?: number;
   hostileStructureCount?: number;
   hostilePressureDistance?: number;
+  requiresControllerPressure?: boolean;
   scoutOnly?: boolean;
   allowLongRange?: boolean;
 }
@@ -388,7 +389,8 @@ function validateNextExpansionScoutIntel(
     colony: colonyName,
     targetRoom: candidate.roomName,
     colonyOwnerUsername: getControllerOwnerUsername(colony.room.controller),
-    gameTime
+    gameTime,
+    allowForeignReservationPressure: candidate.requiresControllerPressure === true
   });
   recordTerritoryScoutValidation(
     colonyName,
@@ -840,7 +842,8 @@ function scoreExpansionCandidate(
 
   const score = calculateExpansionScore(input, candidate, evidenceStatus, synergy.score);
   const reservation = getReservationEvidence(input, candidate.controller);
-  const requiresControllerPressure = reservation?.relation === 'foreign';
+  const requiresControllerPressure =
+    candidate.requiresControllerPressure === true || reservation?.relation === 'foreign';
   const scoredCandidate: ExpansionCandidateScore = {
     roomName: candidate.roomName,
     score,

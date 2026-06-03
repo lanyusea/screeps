@@ -4468,7 +4468,8 @@ function validateTerritoryScoutIntelForClaim({
   colony,
   targetRoom,
   colonyOwnerUsername,
-  gameTime
+  gameTime,
+  allowForeignReservationPressure = false
 }) {
   const attempt = getTerritoryScoutAttempt(colony, targetRoom);
   const intel = getTerritoryScoutIntel(colony, targetRoom);
@@ -4488,7 +4489,7 @@ function validateTerritoryScoutIntelForClaim({
   if (isNonEmptyString6(controller.ownerUsername)) {
     return { status: "blocked", reason: "controllerOwned", intel };
   }
-  if (isNonEmptyString6(controller.reservationUsername) && controller.reservationUsername !== colonyOwnerUsername) {
+  if (isNonEmptyString6(controller.reservationUsername) && controller.reservationUsername !== colonyOwnerUsername && allowForeignReservationPressure !== true) {
     return { status: "blocked", reason: "controllerReserved", intel };
   }
   if (intel.hostileCreepCount > 0 || intel.hostileStructureCount > 0 || intel.hostileSpawnCount > 0) {
@@ -8645,7 +8646,7 @@ function scoreExpansionCandidate(input, candidate) {
   rationale.push(...synergy.rationale);
   const score = calculateExpansionScore(input, candidate, evidenceStatus, synergy.score);
   const reservation = getReservationEvidence(input, candidate.controller);
-  const requiresControllerPressure = (reservation == null ? void 0 : reservation.relation) === "foreign";
+  const requiresControllerPressure = candidate.requiresControllerPressure === true || (reservation == null ? void 0 : reservation.relation) === "foreign";
   const scoredCandidate = {
     roomName: candidate.roomName,
     score,
@@ -17065,7 +17066,8 @@ function refreshScoutingStage(colony, pipeline, gameTime, telemetryEvents, terri
     colony: pipeline.colony,
     targetRoom: pipeline.targetRoom,
     ...colonyOwnerUsername ? { colonyOwnerUsername } : {},
-    gameTime
+    gameTime,
+    allowForeignReservationPressure: pipeline.requiresControllerPressure === true
   });
   const controllerId = (_c = pipeline.controllerId) != null ? _c : (_b = (_a2 = validation.intel) == null ? void 0 : _a2.controller) == null ? void 0 : _b.id;
   recordTerritoryScoutValidation(
@@ -17112,7 +17114,11 @@ function refreshScoutingStage(colony, pipeline, gameTime, telemetryEvents, terri
 }
 function refreshReservingStage(colony, pipeline, gameTime, telemetryEvents, territoryMemory, colonyOwnerUsername) {
   const visibleRoom = getVisibleRoom3(pipeline.targetRoom);
-  const visibleAbort = visibleRoom ? getVisibleTargetAbortReason(visibleRoom, colonyOwnerUsername) : null;
+  const visibleAbort = visibleRoom ? getVisibleTargetAbortReason(
+    visibleRoom,
+    colonyOwnerUsername,
+    pipeline.requiresControllerPressure === true
+  ) : null;
   if (visibleAbort) {
     return abortExpansionPipeline(territoryMemory, pipeline, visibleAbort, gameTime);
   }
@@ -17145,7 +17151,11 @@ function refreshReservingStage(colony, pipeline, gameTime, telemetryEvents, terr
 }
 function refreshClaimingStage(colony, pipeline, gameTime, telemetryEvents, territoryMemory, colonyOwnerUsername) {
   const visibleRoom = getVisibleRoom3(pipeline.targetRoom);
-  const visibleAbort = visibleRoom ? getVisibleTargetAbortReason(visibleRoom, colonyOwnerUsername) : null;
+  const visibleAbort = visibleRoom ? getVisibleTargetAbortReason(
+    visibleRoom,
+    colonyOwnerUsername,
+    pipeline.requiresControllerPressure === true
+  ) : null;
   if (visibleAbort) {
     return abortExpansionPipeline(territoryMemory, pipeline, visibleAbort, gameTime);
   }
@@ -17300,6 +17310,7 @@ function createExpansionPipeline(colony, candidate, config, gameTime) {
     threshold: config.scoreThreshold,
     startedAt: gameTime,
     updatedAt: gameTime,
+    ...candidate.requiresControllerPressure === true ? { requiresControllerPressure: true } : {},
     ...candidate.controllerId ? { controllerId: candidate.controllerId } : {}
   };
 }
@@ -17378,7 +17389,7 @@ function getScoutValidationAbortReason(validation) {
       return "scoutTimedOut";
   }
 }
-function getVisibleTargetAbortReason(room, colonyOwnerUsername) {
+function getVisibleTargetAbortReason(room, colonyOwnerUsername, allowForeignReservationPressure = false) {
   if (hasVisibleHostiles(room)) {
     return "targetHostile";
   }
@@ -17394,7 +17405,7 @@ function getVisibleTargetAbortReason(room, colonyOwnerUsername) {
     return "controllerOwned";
   }
   const reservationUsername = getControllerReservationUsername5(controller);
-  if (reservationUsername && reservationUsername !== colonyOwnerUsername) {
+  if (reservationUsername && reservationUsername !== colonyOwnerUsername && allowForeignReservationPressure !== true) {
     return "controllerReserved";
   }
   return null;
@@ -17424,6 +17435,7 @@ function persistPipelineControlPlan(territoryMemory, pipeline, action, gameTime)
     updatedAt: gameTime,
     createdBy: NEXT_EXPANSION_TARGET_CREATOR,
     ...pipeline.controllerId ? { controllerId: pipeline.controllerId } : {},
+    ...pipeline.requiresControllerPressure ? { requiresControllerPressure: true } : {},
     ...postClaimBootstrapReserveEnergy !== void 0 ? { postClaimBootstrapReserveEnergy } : {}
   });
 }
@@ -17519,6 +17531,7 @@ function normalizeExpansionPipeline(rawPipeline, colony) {
     threshold: rawPipeline.threshold,
     startedAt: rawPipeline.startedAt,
     updatedAt: rawPipeline.updatedAt,
+    ...rawPipeline.requiresControllerPressure === true ? { requiresControllerPressure: true } : {},
     ...typeof rawPipeline.controllerId === "string" ? { controllerId: rawPipeline.controllerId } : {},
     ...isFiniteNumber9(rawPipeline.reservationConfirmedAt) ? { reservationConfirmedAt: rawPipeline.reservationConfirmedAt } : {},
     ...isFiniteNumber9(rawPipeline.claimedAt) ? { claimedAt: rawPipeline.claimedAt } : {},
@@ -17539,6 +17552,7 @@ function toAutonomousExpansionPipelineSummary(pipeline) {
     updatedAt: pipeline.updatedAt,
     ...pipeline.claimState ? { claimState: pipeline.claimState } : {},
     ...pipeline.controllerId ? { controllerId: pipeline.controllerId } : {},
+    ...pipeline.requiresControllerPressure ? { requiresControllerPressure: true } : {},
     ...pipeline.reservationConfirmedAt !== void 0 ? { reservationConfirmedAt: pipeline.reservationConfirmedAt } : {},
     ...pipeline.claimedAt !== void 0 ? { claimedAt: pipeline.claimedAt } : {}
   };
@@ -44248,6 +44262,7 @@ function evaluateAutonomousExpansionClaim(colony, report, gameTime, context, tel
     colony: colonyName,
     targetRoom: candidate.roomName,
     score: candidate.score,
+    ...candidate.requiresControllerPressure ? { requiresControllerPressure: true } : {},
     ...candidate.controllerId ? { controllerId: candidate.controllerId } : {}
   };
   if (isPostClaimBootstrapBlockedCandidate(candidate)) {
@@ -44279,7 +44294,7 @@ function evaluateAutonomousExpansionClaim(colony, report, gameTime, context, tel
     return { ...visibleControllerEvaluation, reason: "controllerOwned" };
   }
   const colonyOwnerUsername = getControllerOwnerUsername11(colony.room.controller);
-  if (controller && isControllerReserved(controller, colonyOwnerUsername)) {
+  if (controller && isControllerReserved(controller, colonyOwnerUsername) && candidate.requiresControllerPressure !== true) {
     return { ...visibleControllerEvaluation, reason: "controllerReserved" };
   }
   if (isAutonomousExpansionClaimGclInsufficient()) {
@@ -44295,7 +44310,8 @@ function evaluateAutonomousExpansionClaim(colony, report, gameTime, context, tel
     colony: colonyName,
     targetRoom: candidate.roomName,
     colonyOwnerUsername: getControllerOwnerUsername11(colony.room.controller),
-    gameTime
+    gameTime,
+    allowForeignReservationPressure: candidate.requiresControllerPressure === true
   });
   const scoutControllerId = getScoutValidationControllerId(scoutValidation);
   const controllerId = (_c = (_b = controller == null ? void 0 : controller.id) != null ? _b : scoutControllerId) != null ? _c : candidate.controllerId;
@@ -44345,6 +44361,7 @@ function evaluateAutonomousExpansionClaim(colony, report, gameTime, context, tel
     colony: colonyName,
     targetRoom: candidate.roomName,
     score: candidate.score,
+    ...candidate.requiresControllerPressure ? { requiresControllerPressure: true } : {},
     ...typeof controllerId === "string" ? { controllerId } : {}
   };
 }
@@ -44433,7 +44450,8 @@ function toExpansionCandidateInput(candidate, order, colonyName, includeMineralS
     ...typeof candidate.sourceCount === "number" ? { sourceCount: candidate.sourceCount } : {},
     ...mineral ? { mineral } : {},
     ...typeof hostileCreepCount === "number" ? { hostileCreepCount } : {},
-    ...typeof hostileStructureCount === "number" ? { hostileStructureCount } : {}
+    ...typeof hostileStructureCount === "number" ? { hostileStructureCount } : {},
+    ...candidate.requiresControllerPressure === true ? { requiresControllerPressure: true } : {}
   };
 }
 function summarizeScoutedExpansionMineral(mineral) {
@@ -44579,7 +44597,8 @@ function persistAutonomousExpansionClaimIntent(colony, evaluation, gameTime, con
     status: (existingIntent == null ? void 0 : existingIntent.status) === "active" ? "active" : "planned",
     updatedAt: gameTime,
     createdBy: AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR,
-    ...target.controllerId ? { controllerId: target.controllerId } : {}
+    ...target.controllerId ? { controllerId: target.controllerId } : {},
+    ...evaluation.requiresControllerPressure ? { requiresControllerPressure: true } : {}
   });
   syncAutonomousExpansionClaimIntentContext(context, territoryMemory, intents);
 }
