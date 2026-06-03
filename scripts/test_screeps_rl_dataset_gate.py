@@ -317,6 +317,69 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
             "no_runtime_summary_artifacts",
         )
 
+    def test_stale_only_source_window_reports_recent_capture_blocker(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = root / "datasets" / "stale-only-run"
+            run_dir.mkdir(parents=True)
+            file_paths = {
+                "runDir": run_dir,
+                "scenarioManifest": run_dir / "scenario_manifest.json",
+                "runManifest": run_dir / "run_manifest.json",
+                "sourceIndex": run_dir / "source_index.json",
+                "ticks": run_dir / "ticks.ndjson",
+                "kpiWindows": run_dir / "kpi_windows.json",
+                "episodes": run_dir / "episodes.json",
+                "datasetCard": run_dir / "dataset_card.md",
+            }
+            for key, path in file_paths.items():
+                if key == "runDir":
+                    continue
+                path.write_text("{}\n", encoding="utf-8")
+
+            dataset_summary = {
+                "ok": True,
+                "runId": "stale-only-run",
+                "sampleCount": 0,
+                "sourceArtifactCount": 0,
+                "runtimeSummaryArtifactCount": 0,
+                "skippedFileCount": 12,
+                "skippedFileReasons": {"older_than_max_age": 12},
+                "skippedSampleCount": 0,
+                "skippedSampleReasons": {},
+                "splitCounts": {},
+            }
+            run_manifest = {
+                "type": dataset_export.RUN_MANIFEST_TYPE,
+                "source": {
+                    "inputPaths": ["runtime-artifacts/runtime-summary-console"],
+                    "sourceMaxAgeHours": dataset_export.CONSOLE_CAPTURE_MAX_AGE_HOURS,
+                    "scannedFiles": 0,
+                    "sourceArtifactCount": 0,
+                    "matchedArtifactCount": 0,
+                    "skippedFileCount": 12,
+                    "skippedFileReasons": {"older_than_max_age": 12},
+                },
+                "strategy": {"liveEffect": False},
+                "safety": {"officialMmoControl": "forbidden until offline gates pass"},
+            }
+
+            readiness = gate.evaluate_dataset_readiness(
+                dataset_summary,
+                file_paths,
+                run_manifest,
+                ticks_count=0,
+                min_samples=1,
+            )
+
+        diagnostics = readiness["diagnostics"]
+        self.assertEqual(readiness["status"], "fail")
+        self.assertEqual(diagnostics["status"], "blocked")
+        self.assertEqual(diagnostics["classification"], "no_recent_source_artifacts_within_max_age")
+        self.assertEqual(diagnostics["sourceMaxAgeHours"], dataset_export.CONSOLE_CAPTURE_MAX_AGE_HOURS)
+        self.assertEqual(diagnostics["skippedFileReasons"], {"older_than_max_age": 12})
+        self.assertIn("Refresh runtime-summary-console captures", diagnostics["recommendedAction"])
+
     def test_run_rejects_dead_room_dataset_samples(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

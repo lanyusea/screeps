@@ -267,6 +267,61 @@ class RlDatasetExportTest(unittest.TestCase):
         self.assertEqual(summary["sampleCount"], 1)
         self.assertEqual(summary["runtimeSummaryArtifactCount"], 1)
 
+    def test_console_capture_only_defaults_to_recent_source_window(self) -> None:
+        old_payload = {
+            "type": "runtime-summary",
+            "tick": 119,
+            "rooms": [{"roomName": "E26S49", "resources": {"storedEnergy": 10}}],
+        }
+        current_payload = {
+            "type": "runtime-summary",
+            "tick": 120,
+            "rooms": [{"roomName": "E29N55", "resources": {"storedEnergy": 250}}],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            console_root = root / "runtime-summary-console"
+            console_root.mkdir()
+            old_artifact = console_root / "runtime-summary-console-20260510T173515Z.log"
+            current_artifact = console_root / "runtime-summary-console-20260603T150458Z.log"
+            old_artifact.write_text(runtime_line(old_payload), encoding="utf-8")
+            current_artifact.write_text(runtime_line(current_payload), encoding="utf-8")
+            os.utime(old_artifact, (0, 0))
+            out_dir = root / "datasets"
+            stdout = io.StringIO()
+
+            with mock.patch.object(exporter, "CONSOLE_CAPTURE_INPUT_PATHS", (str(console_root),)):
+                exit_code = exporter.main(
+                    [
+                        "--console-capture-only",
+                        "--out-dir",
+                        str(out_dir),
+                        "--run-id",
+                        "recent-console-capture-run",
+                        "--bot-commit",
+                        "1" * 40,
+                    ],
+                    stdout=stdout,
+                    stderr=io.StringIO(),
+                )
+
+            summary = json.loads(stdout.getvalue())
+            rows = read_ndjson(out_dir / "recent-console-capture-run" / "ticks.ndjson")
+            source_index = read_json(out_dir / "recent-console-capture-run" / "source_index.json")
+            run_manifest = read_json(out_dir / "recent-console-capture-run" / "run_manifest.json")
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(summary["sampleCount"], 1)
+        self.assertEqual(summary["runtimeSummaryArtifactCount"], 1)
+        self.assertEqual(summary["skippedFileReasons"], {"older_than_max_age": 1})
+        self.assertEqual(summary["sourceMaxAgeHours"], exporter.CONSOLE_CAPTURE_MAX_AGE_HOURS)
+        self.assertEqual(rows[0]["observation"]["roomName"], "E29N55")
+        self.assertEqual(source_index["sourceMaxAgeHours"], exporter.CONSOLE_CAPTURE_MAX_AGE_HOURS)
+        self.assertEqual(source_index["skippedFileReasons"], {"older_than_max_age": 1})
+        self.assertEqual(run_manifest["source"]["sourceMaxAgeHours"], exporter.CONSOLE_CAPTURE_MAX_AGE_HOURS)
+        self.assertEqual(run_manifest["source"]["skippedFileReasons"], {"older_than_max_age": 1})
+
     def test_duplicate_input_roots_are_scanned_once(self) -> None:
         payload = {
             "type": "runtime-summary",
