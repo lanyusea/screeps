@@ -132,7 +132,11 @@ function shouldSuppressRecoveryDefenseTelemetry(
 }
 
 function hasLowBucketPressure(cpuBudget: RuntimeCpuBudget): boolean {
-  return cpuBudget.reasons.includes('lowBucket') || cpuBudget.reasons.includes('criticalBucket');
+  return (
+    cpuBudget.reasons.includes('lowBucketRecovery') ||
+    cpuBudget.reasons.includes('lowBucket') ||
+    cpuBudget.reasons.includes('criticalBucket')
+  );
 }
 
 function pruneStaleForwardedDefenseEvents(

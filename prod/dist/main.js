@@ -976,6 +976,8 @@ function buildRuntimeCpuBudget(sample) {
     reasons.push("criticalBucket");
   } else if (sample.bucket !== void 0 && sample.bucket < LOW_CPU_BUCKET_THRESHOLD) {
     reasons.push("lowBucket");
+  } else if (hasLowBucketRecoveryPressure(sample)) {
+    reasons.push("lowBucketRecovery");
   }
   if (sample.used !== void 0 && sample.limit !== void 0 && sample.limit > 0 && sample.used > sample.limit) {
     reasons.push("usedOverLimit");
@@ -1050,10 +1052,22 @@ function shouldShedNonessentialCpuWork(budget) {
   return budget.critical || hasLowBucketPressure(budget) || hasUsedOverLimitPressure(budget);
 }
 function hasLowBucketPressure(budget) {
-  return budget.reasons.includes("lowBucket") || budget.reasons.includes("criticalBucket");
+  return budget.reasons.includes("lowBucketRecovery") || budget.reasons.includes("lowBucket") || budget.reasons.includes("criticalBucket");
 }
 function hasUsedOverLimitPressure(budget) {
   return budget.reasons.includes("usedOverLimit");
+}
+function hasLowBucketRecoveryPressure(sample) {
+  if (sample.bucket === void 0 || sample.bucket < LOW_CPU_BUCKET_THRESHOLD) {
+    return false;
+  }
+  return sample.bucket < LOW_CPU_BUCKET_THRESHOLD + getCpuBucketRecoveryHeadroom(sample.limit);
+}
+function getCpuBucketRecoveryHeadroom(limit) {
+  if (limit !== void 0 && limit > 0) {
+    return Math.ceil(limit);
+  }
+  return LOW_CPU_ACCOUNT_LIMIT;
 }
 function updateRuntimeCpuTelemetryState(sample) {
   resetRuntimeCpuTelemetryStateForTick(sample.tick);
@@ -49911,7 +49925,7 @@ function shouldSuppressRecoveryDefenseTelemetry(event, cpuBudget) {
   return event.action === "towerRepair" || event.action === "towerHeal";
 }
 function hasLowBucketPressure2(cpuBudget) {
-  return cpuBudget.reasons.includes("lowBucket") || cpuBudget.reasons.includes("criticalBucket");
+  return cpuBudget.reasons.includes("lowBucketRecovery") || cpuBudget.reasons.includes("lowBucket") || cpuBudget.reasons.includes("criticalBucket");
 }
 function pruneStaleForwardedDefenseEvents(lastForwardedDefenseEventTick, tick) {
   for (const [key, lastForwardedTick] of lastForwardedDefenseEventTick) {
