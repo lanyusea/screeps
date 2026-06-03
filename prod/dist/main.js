@@ -959,12 +959,6 @@ function getRuntimeCpuBudget(game) {
   const runtimeGame = game != null ? game : getRuntimeGame();
   return buildRuntimeCpuBudget(readRuntimeCpuSample(runtimeGame));
 }
-function isRuntimeCpuBucketCritical(game) {
-  var _a;
-  const runtimeGame = game != null ? game : getRuntimeGame();
-  const bucket = (_a = runtimeGame == null ? void 0 : runtimeGame.cpu) == null ? void 0 : _a.bucket;
-  return typeof bucket === "number" && Number.isFinite(bucket) && bucket <= CRITICAL_CPU_BUCKET_THRESHOLD;
-}
 function isRuntimeCpuBucketLow(game) {
   var _a;
   const runtimeGame = game != null ? game : getRuntimeGame();
@@ -21850,7 +21844,7 @@ var BEHAVIOR_COUNTER_KEYS = [
 var TOP_IDLE_WORKER_COUNT = 3;
 function observeCreepBehaviorTick(creep, tick = getGameTime24()) {
   var _a, _b;
-  if (isRuntimeCpuBucketCritical()) {
+  if (shouldSuppressBehaviorTelemetryForCpuRecovery()) {
     return;
   }
   const telemetry = ensureCreepBehaviorTelemetry(creep);
@@ -21875,7 +21869,7 @@ function observeCreepBehaviorTick(creep, tick = getGameTime24()) {
 }
 function recordCreepBehaviorIdle(creep, tick = getGameTime24()) {
   var _a;
-  if (isRuntimeCpuBucketCritical()) {
+  if (shouldSuppressBehaviorTelemetryForCpuRecovery()) {
     return;
   }
   const telemetry = ensureCreepBehaviorTelemetry(creep);
@@ -21887,7 +21881,7 @@ function recordCreepBehaviorIdle(creep, tick = getGameTime24()) {
 }
 function recordCreepBehaviorMove(creep, tick = getGameTime24()) {
   var _a;
-  if (isRuntimeCpuBucketCritical()) {
+  if (shouldSuppressBehaviorTelemetryForCpuRecovery()) {
     return;
   }
   const telemetry = ensureCreepBehaviorTelemetry(creep);
@@ -21898,7 +21892,7 @@ function recordCreepBehaviorMove(creep, tick = getGameTime24()) {
   telemetry.lastMoveTick = tick;
 }
 function recordCreepBehaviorMoveTask(creep, task) {
-  if (isRuntimeCpuBucketCritical()) {
+  if (shouldSuppressBehaviorTelemetryForCpuRecovery()) {
     return;
   }
   const telemetry = ensureCreepBehaviorTelemetry(creep);
@@ -21915,7 +21909,7 @@ function recordCreepBehaviorMoveTask(creep, task) {
 }
 function recordCreepBehaviorWork(creep, tick = getGameTime24()) {
   var _a;
-  if (isRuntimeCpuBucketCritical()) {
+  if (shouldSuppressBehaviorTelemetryForCpuRecovery()) {
     return;
   }
   const telemetry = ensureCreepBehaviorTelemetry(creep);
@@ -21926,14 +21920,14 @@ function recordCreepBehaviorWork(creep, tick = getGameTime24()) {
   telemetry.lastWorkTick = tick;
 }
 function recordCreepBehaviorRepairTarget(creep, targetId) {
-  if (isRuntimeCpuBucketCritical()) {
+  if (shouldSuppressBehaviorTelemetryForCpuRecovery()) {
     return;
   }
   ensureCreepBehaviorTelemetry(creep).repairTargetId = targetId;
 }
 function recordCreepBehaviorContainerTransfer(creep) {
   var _a;
-  if (isRuntimeCpuBucketCritical()) {
+  if (shouldSuppressBehaviorTelemetryForCpuRecovery()) {
     return;
   }
   const telemetry = ensureCreepBehaviorTelemetry(creep);
@@ -21941,7 +21935,7 @@ function recordCreepBehaviorContainerTransfer(creep) {
 }
 function recordCreepBehaviorSourceContainerWithdrawal(creep, tick = getGameTime24()) {
   var _a;
-  if (isRuntimeCpuBucketCritical()) {
+  if (shouldSuppressBehaviorTelemetryForCpuRecovery()) {
     return;
   }
   const telemetry = ensureCreepBehaviorTelemetry(creep);
@@ -21953,7 +21947,7 @@ function recordCreepBehaviorSourceContainerWithdrawal(creep, tick = getGameTime2
 }
 function recordCreepBehaviorEnergyAcquisition(creep, method) {
   var _a;
-  if (isRuntimeCpuBucketCritical()) {
+  if (shouldSuppressBehaviorTelemetryForCpuRecovery()) {
     return;
   }
   const telemetry = ensureCreepBehaviorTelemetry(creep);
@@ -21981,6 +21975,9 @@ function ensureCreepBehaviorTelemetry(creep) {
     creep.memory.behaviorTelemetry = {};
   }
   return creep.memory.behaviorTelemetry;
+}
+function shouldSuppressBehaviorTelemetryForCpuRecovery() {
+  return isRuntimeCpuBucketLow();
 }
 function recordBuildTargetStuckObservation(telemetry) {
   var _a;
