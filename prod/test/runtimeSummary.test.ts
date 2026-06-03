@@ -722,6 +722,226 @@ describe('runtime telemetry summaries', () => {
     });
   });
 
+  it('separates one-source RCL3 congestion from actual moveTo ERR_NO_PATH and transient dropped energy', () => {
+    const roomName = 'E29N56';
+    const source = {
+      id: 'source-e29n56',
+      pos: { x: 12, y: 20, roomName } as RoomPosition
+    } as Source;
+    const sourceContainer = {
+      id: 'container-e29n56',
+      structureType: TEST_GLOBALS.STRUCTURE_CONTAINER,
+      pos: { x: 12, y: 21, roomName } as RoomPosition,
+      store: makeEnergyStore(400, 2000)
+    } as unknown as StructureContainer;
+    const droppedEnergy = {
+      id: 'drop-e29n56',
+      resourceType: TEST_GLOBALS.RESOURCE_ENERGY,
+      amount: 141
+    };
+    const harvester = makeWorker(
+      {
+        role: 'worker',
+        colony: roomName,
+        task: { type: 'harvest', targetId: source.id as Id<Source> },
+        behaviorTelemetry: {
+          workTicks: 1,
+          energyAcquisitionHarvested: 1
+        }
+      },
+      0,
+      'E29N56-Harvester'
+    );
+    const upgrader = makeWorker(
+      {
+        role: 'worker',
+        colony: roomName,
+        task: { type: 'upgrade', targetId: 'controller-e29n56' as Id<StructureController> },
+        behaviorTelemetry: {
+          moveTicks: 2,
+          workTicks: 0,
+          stuckTicks: 2,
+          moveToAttempts: 2,
+          moveToFailures: 0,
+          moveToErrNoPath: 0,
+          lastMoveToResult: 0,
+          lastMoveToTask: 'upgrade',
+          lastMoveToTargetId: 'controller-e29n56',
+          lastMoveToRange: 3
+        }
+      },
+      50,
+      'E29N56-Upgrader'
+    );
+    const workers = [harvester, upgrader];
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      roomName,
+      controllerLevel: 3,
+      sources: [source],
+      structures: [sourceContainer],
+      creeps: workers,
+      droppedResources: [droppedEnergy],
+      includeEventLog: false
+    });
+
+    emitRuntimeSummary([colony], workers);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    const behavior = room.behavior as Record<string, unknown>;
+    const totals = behavior.totals as Record<string, unknown>;
+    const resources = room.resources as Record<string, unknown>;
+    expect(room.controller).toMatchObject({ level: 3 });
+    expect(resources).toMatchObject({
+      droppedEnergy: 141,
+      sourceCount: 1,
+      sourceContainers: {
+        sourceCount: 1,
+        sourcesWithContainers: 1,
+        sourcesWithContainerSites: 0,
+        sourcesMissingContainers: 0
+      }
+    });
+    expect(totals).toMatchObject({
+      moveTicks: 2,
+      workTicks: 1,
+      stuckTicks: 2,
+      pathFindingFailures: 2,
+      destinationBlocked: 1,
+      moveTo: {
+        attempts: 2,
+        failures: 0,
+        errNoPath: 0
+      }
+    });
+    const creeps = behavior.creeps as Array<Record<string, unknown>>;
+    expect(creeps.find((creep) => creep.creepName === 'E29N56-Upgrader')).toMatchObject({
+      pathFindingFailures: 2,
+      destinationBlocked: 1,
+      moveTo: {
+        attempts: 2,
+        failures: 0,
+        errNoPath: 0,
+        lastResult: 0,
+        lastTask: 'upgrade',
+        lastTargetId: 'controller-e29n56',
+        lastRange: 3
+      }
+    });
+
+    logSpy.mockClear();
+    const recoveredColony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL * 2,
+      roomName,
+      controllerLevel: 3,
+      sources: [source],
+      structures: [sourceContainer],
+      creeps: workers,
+      droppedResources: [],
+      includeEventLog: false
+    });
+
+    emitRuntimeSummary([recoveredColony], workers);
+
+    const recoveredPayload = parseLoggedSummary();
+    const [recoveredRoom] = recoveredPayload.rooms as Array<Record<string, unknown>>;
+    expect((recoveredRoom.resources as Record<string, unknown>).droppedEnergy).toBe(0);
+  });
+
+  it('reports actual moveTo ERR_NO_PATH context separately from inferred stuck counters', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    const worker = makeWorker(
+      {
+        role: 'worker',
+        colony: 'W1N1',
+        behaviorTelemetry: {
+          moveTicks: 1,
+          workTicks: 0,
+          stuckTicks: 1,
+          moveToAttempts: 1,
+          moveToFailures: 1,
+          moveToErrNoPath: 1,
+          lastMoveToResult: -2,
+          lastMoveToTask: 'harvest',
+          lastMoveToTargetId: 'source1',
+          lastMoveToRange: 1
+        }
+      },
+      0,
+      'NoPathWorker'
+    );
+
+    emitRuntimeSummary([colony], [worker]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    const behavior = room.behavior as Record<string, unknown>;
+    const totals = behavior.totals as Record<string, unknown>;
+    expect(totals).toMatchObject({
+      pathFindingFailures: 1,
+      destinationBlocked: 1,
+      moveTo: {
+        attempts: 1,
+        failures: 1,
+        errNoPath: 1
+      }
+    });
+    expect((behavior.creeps as Array<Record<string, unknown>>)[0]).toMatchObject({
+      creepName: 'NoPathWorker',
+      moveTo: {
+        attempts: 1,
+        failures: 1,
+        errNoPath: 1,
+        lastResult: -2,
+        lastTask: 'harvest',
+        lastTargetId: 'source1',
+        lastRange: 1
+      }
+    });
+  });
+
+  it('keeps moveTo counters when persistent memory lacks a last moveTo result', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    const worker = makeWorker(
+      {
+        role: 'worker',
+        colony: 'W1N1',
+        behaviorTelemetry: {
+          moveToAttempts: 2,
+          moveToFailures: 1,
+          moveToErrNoPath: 1
+        }
+      },
+      0,
+      'StaleMoveToWorker'
+    );
+
+    emitRuntimeSummary([colony], [worker]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    const behavior = room.behavior as Record<string, unknown>;
+    const totals = behavior.totals as Record<string, unknown>;
+    expect(totals).toMatchObject({
+      moveTo: {
+        attempts: 2,
+        failures: 1,
+        errNoPath: 1
+      }
+    });
+    expect((behavior.creeps as Array<Record<string, unknown>>)[0]).toMatchObject({
+      creepName: 'StaleMoveToWorker',
+      moveTo: {
+        attempts: 2,
+        failures: 1,
+        errNoPath: 1
+      }
+    });
+    expect(((behavior.creeps as Array<Record<string, unknown>>)[0].moveTo as Record<string, unknown>).lastResult)
+      .toBeUndefined();
+  });
+
   it('reports energy acquisition method distribution across workers and haulers', () => {
     const worker = makeWorker(
       {
@@ -3625,6 +3845,8 @@ function makeColony(options: {
   };
   constructionSites?: unknown[];
   sources?: unknown[];
+  droppedResources?: unknown[];
+  controllerLevel?: number;
   installGlobals?: boolean;
   includeRoomFind?: boolean;
   includeEventLog?: boolean;
@@ -3644,7 +3866,7 @@ function makeColony(options: {
     energyCapacityAvailable: 300,
     controller: {
       my: true,
-      level: 2,
+      level: options.controllerLevel ?? 2,
       progress: DEFAULT_TEST_CONTROLLER_PROGRESS,
       progressTotal: DEFAULT_TEST_CONTROLLER_PROGRESS_TOTAL,
       ticksToDowngrade: 15000
@@ -3663,6 +3885,10 @@ function makeColony(options: {
   ];
   const constructionSites = options.constructionSites ?? [];
   const sources = options.sources ?? [{ id: 'source1' }, { id: 'source2' }];
+  const droppedResources = options.droppedResources ?? [
+    { resourceType: TEST_GLOBALS.RESOURCE_ENERGY, amount: 25 },
+    { resourceType: 'power', amount: 100 }
+  ];
   const roomCreeps = options.creeps ?? [];
 
   if (options.includeRoomFind !== false) {
@@ -3678,10 +3904,7 @@ function makeColony(options: {
         case TEST_GLOBALS.FIND_MY_CREEPS:
           return roomCreeps;
         case TEST_GLOBALS.FIND_DROPPED_RESOURCES:
-          return [
-            { resourceType: TEST_GLOBALS.RESOURCE_ENERGY, amount: 25 },
-            { resourceType: 'power', amount: 100 }
-          ];
+          return droppedResources;
         case TEST_GLOBALS.FIND_SOURCES:
           return sources;
         case TEST_GLOBALS.FIND_HOSTILE_CREEPS:

@@ -695,6 +695,7 @@ interface RuntimeCreepBehaviorSummary {
   stuckTicks: number;
   pathFindingFailures: number;
   destinationBlocked: number;
+  moveTo?: RuntimeCreepMoveToSummary;
   containerTransfers: number;
   sourceContainerWithdrawals: number;
   pathLength: number;
@@ -709,10 +710,24 @@ interface RuntimeBehaviorTotals {
   stuckTicks: number;
   pathFindingFailures: number;
   destinationBlocked: number;
+  moveTo?: RuntimeMoveToSummary;
   containerTransfers: number;
   sourceContainerWithdrawals: number;
   pathLength: number;
   energyAcquisition?: RuntimeEnergyAcquisitionMethodDistribution;
+}
+
+interface RuntimeMoveToSummary {
+  attempts: number;
+  failures: number;
+  errNoPath: number;
+}
+
+interface RuntimeCreepMoveToSummary extends RuntimeMoveToSummary {
+  lastResult?: number;
+  lastTask?: CreepTaskMemory['type'];
+  lastTargetId?: string;
+  lastRange?: number;
 }
 
 interface RuntimeWorkerTaskBehaviorSummary {

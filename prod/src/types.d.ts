@@ -1332,6 +1332,13 @@ declare global {
     energyAcquisitionPickedUp?: number;
     energyAcquisitionWithdrawn?: number;
     pathLength?: number;
+    moveToAttempts?: number;
+    moveToFailures?: number;
+    moveToErrNoPath?: number;
+    lastMoveToResult?: number;
+    lastMoveToTask?: CreepTaskMemory['type'];
+    lastMoveToTargetId?: string;
+    lastMoveToRange?: number;
     buildTargetStuckTicks?: number;
     buildTargetStuckTargetId?: string;
     lastMoveBuildTargetId?: string;
