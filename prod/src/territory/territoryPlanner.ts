@@ -53,6 +53,7 @@ import {
 import { getEffectiveRoomEnergyBufferThreshold } from '../economy/energyBuffer';
 import { isColonyRoomThreatened } from '../defense/colonyThreats';
 import { getActivePostClaimBootstrapBlockers } from './postClaimBootstrap';
+import { hasSeasonalImmatureOwnedExpansionRoom } from '../runtime/seasonalPolicy';
 
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
 export const TERRITORY_SCOUT_ROLE = 'scout';
@@ -2123,7 +2124,7 @@ function shouldAutoClaimAdjacentReservationTarget(
     target.action !== 'reserve' ||
     target.createdBy !== 'adjacentRoomReservation' ||
     !isRoomAdjacentToColony(target.colony, target.roomName) ||
-    !isColonyReadyForAdjacentReservationAutoClaim(colony)
+    !isColonyReadyForAdjacentReservationAutoClaim(colony, colonyOwnerUsername)
   ) {
     return false;
   }
@@ -2145,7 +2146,10 @@ function isAdjacentReservationAutoClaimTarget(
   return action === 'claim' && target.createdBy === 'adjacentRoomReservation';
 }
 
-function isColonyReadyForAdjacentReservationAutoClaim(colony: ColonySnapshot): boolean {
+function isColonyReadyForAdjacentReservationAutoClaim(
+  colony: ColonySnapshot,
+  colonyOwnerUsername: string
+): boolean {
   const controller = colony.room.controller;
   const controllerLevel = controller?.level;
   if (!isTerritoryAutoClaimAllowedForController(controller) || typeof controllerLevel !== 'number') {
@@ -2165,6 +2169,10 @@ function isColonyReadyForAdjacentReservationAutoClaim(colony: ColonySnapshot): b
   }
 
   if (hasActivePostClaimBootstrap(colony.room.name)) {
+    return false;
+  }
+
+  if (hasSeasonalImmatureOwnedExpansionRoom(colony.room.name, colonyOwnerUsername)) {
     return false;
   }
 

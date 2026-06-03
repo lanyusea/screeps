@@ -19084,7 +19084,7 @@ function getConfiguredTerritoryCandidateAction(target, colony, colonyOwnerUserna
 }
 function shouldAutoClaimAdjacentReservationTarget(target, colony, colonyOwnerUsername) {
   var _a2;
-  if (target.action !== "reserve" || target.createdBy !== "adjacentRoomReservation" || !isRoomAdjacentToColony(target.colony, target.roomName) || !isColonyReadyForAdjacentReservationAutoClaim(colony)) {
+  if (target.action !== "reserve" || target.createdBy !== "adjacentRoomReservation" || !isRoomAdjacentToColony(target.colony, target.roomName) || !isColonyReadyForAdjacentReservationAutoClaim(colony, colonyOwnerUsername)) {
     return false;
   }
   const controller = getVisibleController2(target.roomName, target.controllerId);
@@ -19098,7 +19098,7 @@ function shouldAutoClaimAdjacentReservationTarget(target, colony, colonyOwnerUse
 function isAdjacentReservationAutoClaimTarget(target, action) {
   return action === "claim" && target.createdBy === "adjacentRoomReservation";
 }
-function isColonyReadyForAdjacentReservationAutoClaim(colony) {
+function isColonyReadyForAdjacentReservationAutoClaim(colony, colonyOwnerUsername) {
   const controller = colony.room.controller;
   const controllerLevel = controller == null ? void 0 : controller.level;
   if (!isTerritoryAutoClaimAllowedForController(controller) || typeof controllerLevel !== "number") {
@@ -19112,6 +19112,9 @@ function isColonyReadyForAdjacentReservationAutoClaim(colony) {
     return false;
   }
   if (hasActivePostClaimBootstrap(colony.room.name)) {
+    return false;
+  }
+  if (hasSeasonalImmatureOwnedExpansionRoom(colony.room.name, colonyOwnerUsername)) {
     return false;
   }
   const ownedRoomCount = getVisibleOwnedRoomNames4(colony.room.name).length;

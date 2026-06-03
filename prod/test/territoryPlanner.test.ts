@@ -2077,6 +2077,75 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('blocks a Seasonal RCL3 adjacent auto-claim while another owned expansion is below RCL3', () => {
+    const postClaimReserveEnergy = 800 - TERRITORY_CONTROLLER_BODY_COST;
+    const colony = makeSafeColony({
+      controller: {
+        my: true,
+        owner: { username: 'me' },
+        level: 3,
+        ticksToDowngrade: 10_000
+      } as StructureController,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      shard: { name: 'shardSeason', type: 'normal' } as Game['shard'],
+      map: { describeExits: jest.fn(() => ({ '1': 'W1N2' })) } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room,
+        W1N2: makeRecommendationRoom('W1N2', {
+          sourceCount: 2,
+          controller: {
+            id: 'controller2' as Id<StructureController>,
+            my: false,
+            reservation: { username: 'me', ticksToEnd: TERRITORY_AUTO_CLAIM_RESERVATION_MIN_TICKS }
+          } as StructureController
+        }),
+        W2N1: makeOwnedRecommendationRoom('W2N1', 2)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W1N2',
+            action: 'reserve',
+            createdBy: 'adjacentRoomReservation',
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 1002)).toBeNull();
+    expect(Memory.territory?.intents ?? []).toEqual([]);
+
+    (Game.rooms.W2N1.controller as StructureController).level = 3;
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 1003)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'claim',
+      createdBy: 'adjacentRoomReservation',
+      controllerId: 'controller2',
+      postClaimBootstrapReserveEnergy: postClaimReserveEnergy
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 1003,
+        createdBy: 'adjacentRoomReservation',
+        controllerId: 'controller2',
+        postClaimBootstrapReserveEnergy: postClaimReserveEnergy
+      }
+    ]);
+  });
+
   it('upgrades a mature Seasonal RCL3 adjacent reservation target at 800 energy', () => {
     const postClaimReserveEnergy = 800 - TERRITORY_CONTROLLER_BODY_COST;
     const colony = makeSafeColony({
@@ -2138,6 +2207,49 @@ describe('planTerritoryIntent', () => {
         postClaimBootstrapReserveEnergy: postClaimReserveEnergy
       }
     ]);
+  });
+
+  it('keeps persistent RCL3 adjacent auto-claim gated for mature reservations', () => {
+    const colony = makeSafeColony({
+      controller: {
+        my: true,
+        owner: { username: 'me' },
+        level: 3,
+        ticksToDowngrade: 10_000
+      } as StructureController,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits: jest.fn(() => ({ '1': 'W1N2' })) } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room,
+        W1N2: makeRecommendationRoom('W1N2', {
+          sourceCount: 2,
+          controller: {
+            id: 'controller2' as Id<StructureController>,
+            my: false,
+            reservation: { username: 'me', ticksToEnd: TERRITORY_AUTO_CLAIM_RESERVATION_MIN_TICKS }
+          } as StructureController
+        })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W1N2',
+            action: 'reserve',
+            createdBy: 'adjacentRoomReservation',
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 1004)).toBeNull();
+    expect(Memory.territory?.intents ?? []).toEqual([]);
   });
 
   it('keeps an approved adjacent auto-claim when occupation evidence is unavailable', () => {
@@ -8090,6 +8202,17 @@ function makeRecommendationRoom(
       }
     })
   } as unknown as Room;
+}
+
+function makeOwnedRecommendationRoom(roomName: string, level: number): Room {
+  return makeRecommendationRoom(roomName, {
+    controller: {
+      my: true,
+      owner: { username: 'me' },
+      level,
+      ticksToDowngrade: 10_000
+    } as StructureController
+  });
 }
 
 function makeRemoteMiningBootstrap(): TerritoryPostClaimBootstrapMemory {
