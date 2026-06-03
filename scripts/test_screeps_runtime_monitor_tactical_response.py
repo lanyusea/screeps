@@ -2848,6 +2848,12 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
                     self.assertEqual(activity["cpuPressure"], "critical")
                     self.assertEqual(activity["cpuReasons"], ["criticalBucket"])
 
+                self.assertEqual(
+                    payload["rooms"][0]["resources"]["productiveEnergy"]["constructionActivity"],
+                    activity,
+                    "constructionActivity must be mirrored into productiveEnergy for downstream consumers",
+                )
+
     def test_runtime_summary_payload_keeps_zero_owned_creeps_assignment_evidence_free(self) -> None:
         snapshot = monitor.RoomSnapshot(
             ref=monitor.RoomRef(shard="shardX", room="E29N55"),

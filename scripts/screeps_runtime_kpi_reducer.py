@@ -163,6 +163,10 @@ def clean_construction_activity(room: dict[str, Any]) -> JsonObject | None:
     cpu_bucket = first_number(room, cpu, key="cpuBucket")
     if cpu_bucket is None:
         cpu_bucket = first_number(cpu, room, key="bucket")
+    has_construction_backlog = any(
+        (value or 0) > 0
+        for value in (construction_site_count, pending_build_progress, build_carried_energy, build_progress)
+    )
     if cpu_bucket is not None and cpu_bucket < CPU_BUCKET_LOW_THRESHOLD:
         cpu_pressure = cpu_pressure or ("critical" if cpu_bucket <= CPU_BUCKET_CRITICAL_THRESHOLD else "degraded")
         if not cpu_reasons:
@@ -172,6 +176,7 @@ def clean_construction_activity(room: dict[str, Any]) -> JsonObject | None:
         worker_assignment_blocked_detail,
         cpu_pressure,
         cpu_reasons,
+        has_construction_backlog,
     )
     if all(
         value is None
@@ -281,11 +286,13 @@ def fallback_construction_suppressed_reason(
     worker_assignment_blocked_detail: str | None,
     cpu_pressure: str | None,
     cpu_reasons: list[str],
+    has_construction_backlog: bool,
 ) -> str | None:
-    if any(reason in {"lowBucket", "criticalBucket"} for reason in cpu_reasons):
-        return "cpu_shed"
-    if cpu_pressure is not None and cpu_pressure != "normal":
-        return "cpu_shed"
+    if has_construction_backlog:
+        if any(reason in {"lowBucket", "criticalBucket"} for reason in cpu_reasons):
+            return "cpu_shed"
+        if cpu_pressure is not None and cpu_pressure != "normal":
+            return "cpu_shed"
     if worker_assignment_blocked_detail == "spawn_reserving_energy":
         return "spawn_reserving_energy"
     if build_blocked_reason in {"energy_buffer_blocked", "worker_assignment_gap"}:
