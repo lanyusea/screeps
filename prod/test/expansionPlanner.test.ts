@@ -762,6 +762,13 @@ describe('expansion planner', () => {
         controllerId: 'controller-E30N55',
         sourceCount: 2,
         terrainType: 'unknown'
+      },
+      {
+        colony: 'E29N55',
+        roomName: 'E34N49',
+        status: 'requested',
+        updatedAt: 968_900,
+        distance: 11
       }
     ]);
     expect(Memory.territory?.targets).toBeUndefined();

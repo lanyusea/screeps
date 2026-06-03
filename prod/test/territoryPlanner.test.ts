@@ -1068,7 +1068,7 @@ describe('planTerritoryIntent', () => {
     );
 
     expect(plan?.action).toBe('scout');
-    expect(plan?.targetRoom).toBe('E29N56');
+    expect(plan?.targetRoom).toBe('E29N54');
     expect(Memory.territory?.targets).toBeUndefined();
     expect(
       (Memory.territory?.intents ?? []).filter((intent) => intent.action === 'claim' || intent.action === 'reserve')
@@ -1076,14 +1076,13 @@ describe('planTerritoryIntent', () => {
     expect(Memory.territory?.intents).toEqual([
       {
         colony: 'E29N55',
-        targetRoom: 'E29N56',
+        targetRoom: 'E29N54',
         action: 'scout',
         status: 'planned',
-        updatedAt: gameTime,
-        blockReason: 'controllerLevelLow'
+        updatedAt: gameTime
       }
     ]);
-    expect(Memory.territory?.expansionCandidates?.[0]).toMatchObject({
+    expect(getPersistedExpansionCandidate('E29N56')).toMatchObject({
       colony: 'E29N55',
       roomName: 'E29N56',
       scoutOnly: true,
@@ -1162,10 +1161,25 @@ describe('planTerritoryIntent', () => {
 
     const plan = planTerritoryIntent(colony, { worker: 4, claimer: 0, claimersByTargetRoom: {} }, 4, gameTime);
 
-    expect(plan).toBeNull();
+    expect(plan).toEqual({
+      colony: 'E29N55',
+      targetRoom: 'E29N54',
+      action: 'scout'
+    });
     expect(Memory.territory?.targets).toBeUndefined();
-    expect(Memory.territory?.intents).toBeUndefined();
-    expect(Memory.territory?.expansionCandidates?.[0]).toMatchObject({
+    expect(
+      (Memory.territory?.intents ?? []).filter((intent) => intent.action === 'claim' || intent.action === 'reserve')
+    ).toEqual([]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'E29N55',
+        targetRoom: 'E29N54',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: gameTime
+      }
+    ]);
+    expect(getPersistedExpansionCandidate('E29N56')).toMatchObject({
       colony: 'E29N55',
       roomName: 'E29N56',
       scoutOnly: true,
@@ -8336,6 +8350,10 @@ function makeExpansionCandidateMemory(
     recommendedAction: 'scout',
     ...overrides
   };
+}
+
+function getPersistedExpansionCandidate(roomName: string): TerritoryExpansionCandidateMemory | undefined {
+  return Memory.territory?.expansionCandidates?.find((candidate) => candidate.roomName === roomName);
 }
 
 function makeScoutIntel(

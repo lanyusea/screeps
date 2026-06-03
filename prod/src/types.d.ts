@@ -821,6 +821,7 @@ declare global {
     routeDistance: number;
     adjacentToOwnedRoom: boolean;
     scoutOnly?: boolean;
+    allowLongRange?: boolean;
   }
 
   interface TerritoryTargetMemory {
@@ -967,6 +968,7 @@ declare global {
     updatedAt: number;
     adjacentToOwnedRoom: boolean;
     scoutOnly?: boolean;
+    allowLongRange?: boolean;
     recommendedAction?: TerritoryExpansionCandidateRecommendedAction;
     blockReason?: TerritoryExpansionCandidateBlockReason;
     routeDistance?: number;

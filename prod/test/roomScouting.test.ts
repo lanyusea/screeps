@@ -248,13 +248,15 @@ describe('room scouting', () => {
     expect(result.records).toEqual([
       makeRequestedScoutRecord('E29N54', 968_800),
       makeRequestedScoutRecord('E28N55', 968_800),
-      makeRequestedScoutRecord('E30N55', 968_800)
+      makeRequestedScoutRecord('E30N55', 968_800),
+      makeRequestedScoutRecord('E34N49', 968_800, 11)
     ]);
     expect(Memory.territory?.targets).toBeUndefined();
     expect(Memory.territory?.intents).toEqual([
       makeScoutIntent('E29N54', 968_800),
       makeScoutIntent('E28N55', 968_800),
-      makeScoutIntent('E30N55', 968_800)
+      makeScoutIntent('E30N55', 968_800),
+      makeScoutIntent('E34N49', 968_800)
     ]);
   });
 
@@ -280,14 +282,16 @@ describe('room scouting', () => {
       makeRequestedScoutRecord('E29N56', 968_801),
       makeRequestedScoutRecord('E29N54', 968_801),
       makeRequestedScoutRecord('E28N55', 968_801),
-      makeRequestedScoutRecord('E30N55', 968_801)
+      makeRequestedScoutRecord('E30N55', 968_801),
+      makeRequestedScoutRecord('E34N49', 968_801, 11)
     ]);
     expect(Memory.territory?.targets).toBeUndefined();
     expect(Memory.territory?.intents).toEqual([
       makeScoutIntent('E29N56', 968_801),
       makeScoutIntent('E29N54', 968_801),
       makeScoutIntent('E28N55', 968_801),
-      makeScoutIntent('E30N55', 968_801)
+      makeScoutIntent('E30N55', 968_801),
+      makeScoutIntent('E34N49', 968_801)
     ]);
   });
 });
@@ -379,13 +383,13 @@ function makeSpawn(name: string, room: Room): StructureSpawn {
   } as StructureSpawn;
 }
 
-function makeRequestedScoutRecord(roomName: string, updatedAt: number) {
+function makeRequestedScoutRecord(roomName: string, updatedAt: number, distance = 1) {
   return {
     colony: 'E29N55',
     roomName,
     status: 'requested',
     updatedAt,
-    distance: 1
+    distance
   };
 }
 
