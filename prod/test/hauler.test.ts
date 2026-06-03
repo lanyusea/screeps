@@ -1,5 +1,5 @@
 import { runHauler } from '../src/creeps/hauler';
-import { CRITICAL_CPU_BUCKET_THRESHOLD } from '../src/runtime/cpuBudget';
+import { CRITICAL_CPU_BUCKET_THRESHOLD, LOW_CPU_BUCKET_THRESHOLD } from '../src/runtime/cpuBudget';
 
 const OK_CODE = 0 as ScreepsReturnCode;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
@@ -89,6 +89,34 @@ describe('runHauler', () => {
     expect(creep.memory.task).toEqual({ type: 'withdraw', targetId: 'container-rich' });
     expect(creep.withdraw).toHaveBeenCalledWith(richContainer, RESOURCE_ENERGY);
     expect(creep.memory.behaviorTelemetry).toBeUndefined();
+  });
+
+  it('skips behavior telemetry writes during noncritical low-bucket recovery', () => {
+    const assignedContainer = makeStoreStructure('container1', STRUCTURE_CONTAINER, 100, 0);
+    const richContainer = makeStoreStructure('container-rich', STRUCTURE_CONTAINER, 800, 0);
+    const remoteRoom = makeRoom('W2N1', true, [], [], [
+      assignedContainer as unknown as Structure,
+      richContainer as unknown as Structure
+    ]);
+    const creep = makeHauler(remoteRoom, 0);
+    const getUsed = jest.fn().mockReturnValue(21);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { W2N1: remoteRoom },
+      cpu: {
+        getUsed,
+        limit: 70,
+        bucket: LOW_CPU_BUCKET_THRESHOLD - 1,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById: jest.fn((id: string) => (id === 'container1' ? assignedContainer : null))
+    };
+
+    runHauler(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'withdraw', targetId: 'container-rich' });
+    expect(creep.withdraw).toHaveBeenCalledWith(richContainer, RESOURCE_ENERGY);
+    expect(creep.memory.behaviorTelemetry).toBeUndefined();
+    expect(getUsed).not.toHaveBeenCalled();
   });
 
   it('withdraws from an overflow-risk container before richer durable storage', () => {
