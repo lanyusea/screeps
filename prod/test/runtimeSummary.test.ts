@@ -134,6 +134,24 @@ describe('runtime telemetry summaries', () => {
           },
           constructionSiteCount: 0,
           constructionDeadlockTicks: 0,
+          constructionActivity: {
+            source: 'runtime-summary',
+            state: 'active',
+            accepted: true,
+            reason: 'build_progress_observed',
+            constructionSiteCount: 0,
+            pendingBuildProgress: 0,
+            buildCarriedEnergy: 0,
+            buildProgress: 25,
+            workerAssignmentEvidenceAvailable: true,
+            buildBlockedReason: 'no_construction_sites',
+            candidate: {
+              buildItem: 'build rampart defense',
+              room: 'W1N1',
+              score: 49,
+              urgency: 'critical'
+            }
+          },
           structures: {
             towerCount: 0,
             rampartCount: 0,
@@ -175,6 +193,24 @@ describe('runtime telemetry summaries', () => {
               constructionSiteCount: 0,
               constructionDeadlockTicks: 0,
               pendingBuildProgress: 0,
+              constructionActivity: {
+                source: 'runtime-summary',
+                state: 'active',
+                accepted: true,
+                reason: 'build_progress_observed',
+                constructionSiteCount: 0,
+                pendingBuildProgress: 0,
+                buildCarriedEnergy: 0,
+                buildProgress: 25,
+                workerAssignmentEvidenceAvailable: true,
+                buildBlockedReason: 'no_construction_sites',
+                candidate: {
+                  buildItem: 'build rampart defense',
+                  room: 'W1N1',
+                  score: 49,
+                  urgency: 'critical'
+                }
+              },
               repairBacklogHits: 0,
               buildBlockedReason: 'no_construction_sites',
               controllerProgressRemaining: 43766
@@ -1392,7 +1428,8 @@ describe('runtime telemetry summaries', () => {
     const payload = parseLoggedSummary();
     const [room] = payload.rooms as Array<Record<string, unknown>>;
     expect(room.taskCounts).toMatchObject({ build: 1, repair: 1, upgrade: 1, transfer: 1, none: 0 });
-    expect((room.resources as Record<string, unknown>).productiveEnergy).toEqual({
+    const productiveEnergy = (room.resources as Record<string, Record<string, unknown>>).productiveEnergy;
+    expect(productiveEnergy).toMatchObject({
       workerAssignmentEvidenceAvailable: true,
       assignedWorkerCount: 3,
       assignedCarriedEnergy: 70,
@@ -1404,6 +1441,17 @@ describe('runtime telemetry summaries', () => {
       pendingBuildProgress: 95,
       repairBacklogHits: 33099,
       controllerProgressRemaining: 43766
+    });
+    expect(productiveEnergy.constructionActivity).toMatchObject({
+      source: 'runtime-summary',
+      state: 'active',
+      accepted: true,
+      reason: 'build_energy_carried',
+      constructionSiteCount: 2,
+      pendingBuildProgress: 95,
+      buildCarriedEnergy: 40,
+      buildProgress: 0,
+      workerAssignmentEvidenceAvailable: true
     });
   });
 
@@ -1562,6 +1610,73 @@ describe('runtime telemetry summaries', () => {
     const [room] = payload.rooms as Array<Record<string, unknown>>;
     expect((room.resources as Record<string, Record<string, unknown>>).productiveEnergy.buildBlockedReason).toBe(
       'worker_assignment_gap'
+    );
+  });
+
+  it('marks construction activity as no viable candidate when no site or scored build candidate exists', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false
+    });
+    (colony.room.controller as StructureController).level = 1;
+
+    emitRuntimeSummary([colony], []);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    const productiveEnergy = (room.resources as Record<string, Record<string, unknown>>).productiveEnergy;
+    expect(room.constructionPriority).toMatchObject({
+      nextPrimary: {
+        buildItem: 'observe construction backlog',
+        score: 0
+      }
+    });
+    expect(room.constructionActivity).toEqual({
+      source: 'runtime-summary',
+      state: 'no_viable_candidate',
+      accepted: false,
+      reason: 'no_viable_candidate',
+      constructionSiteCount: 0,
+      pendingBuildProgress: 0,
+      buildCarriedEnergy: 0,
+      buildProgress: 0,
+      workerAssignmentEvidenceAvailable: true,
+      buildBlockedReason: 'no_construction_sites'
+    });
+    expect(productiveEnergy.constructionActivity).toEqual(room.constructionActivity);
+  });
+
+  it('marks construction activity as candidate suppressed when a scored candidate has no site yet', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false
+    });
+
+    emitRuntimeSummary([colony], []);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    const constructionActivity = room.constructionActivity as Record<string, unknown>;
+    expect(constructionActivity).toMatchObject({
+      source: 'runtime-summary',
+      state: 'candidate_suppressed',
+      accepted: true,
+      reason: 'scored_candidate_available',
+      constructionSiteCount: 0,
+      pendingBuildProgress: 0,
+      buildCarriedEnergy: 0,
+      buildProgress: 0,
+      workerAssignmentEvidenceAvailable: true,
+      buildBlockedReason: 'no_construction_sites',
+      candidate: {
+        buildItem: 'build rampart defense',
+        room: 'W1N1',
+        score: 49,
+        urgency: 'critical'
+      }
+    });
+    expect((room.resources as Record<string, Record<string, unknown>>).productiveEnergy.constructionActivity).toEqual(
+      room.constructionActivity
     );
   });
 
@@ -1786,8 +1901,22 @@ describe('runtime telemetry summaries', () => {
     expect(room.workerAssignmentBlockedDetail).toBe('spawn_reserving_energy');
     expect((room.resources as Record<string, Record<string, unknown>>).productiveEnergy).toMatchObject({
       buildBlockedReason: 'worker_assignment_gap',
-      workerAssignmentBlockedDetail: 'spawn_reserving_energy'
+      workerAssignmentBlockedDetail: 'spawn_reserving_energy',
+      constructionActivity: {
+        state: 'candidate_suppressed',
+        accepted: true,
+        reason: 'spawn_reserving_energy',
+        constructionSiteCount: 1,
+        pendingBuildProgress: 50,
+        buildCarriedEnergy: 0,
+        workerAssignmentEvidenceAvailable: true,
+        buildBlockedReason: 'worker_assignment_gap',
+        workerAssignmentBlockedDetail: 'spawn_reserving_energy'
+      }
     });
+    expect(room.constructionActivity).toEqual(
+      (room.resources as Record<string, Record<string, unknown>>).productiveEnergy.constructionActivity
+    );
   });
 
   it('reports per-worker build and repair rejection reasons for construction assignment gaps', () => {
