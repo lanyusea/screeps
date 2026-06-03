@@ -1,4 +1,4 @@
-import { isRuntimeCpuBucketCritical } from '../runtime/cpuBudget';
+import { isRuntimeCpuBucketLow } from '../runtime/cpuBudget';
 
 export interface RuntimeCreepBehaviorSummary {
   creepName?: string;
@@ -73,7 +73,7 @@ const BEHAVIOR_COUNTER_KEYS: CreepBehaviorCounterKey[] = [
 const TOP_IDLE_WORKER_COUNT = 3;
 
 export function observeCreepBehaviorTick(creep: Creep, tick: number = getGameTime()): void {
-  if (isRuntimeCpuBucketCritical()) {
+  if (shouldSuppressBehaviorTelemetryForCpuRecovery()) {
     return;
   }
 
@@ -101,7 +101,7 @@ export function observeCreepBehaviorTick(creep: Creep, tick: number = getGameTim
 }
 
 export function recordCreepBehaviorIdle(creep: Creep, tick: number = getGameTime()): void {
-  if (isRuntimeCpuBucketCritical()) {
+  if (shouldSuppressBehaviorTelemetryForCpuRecovery()) {
     return;
   }
 
@@ -115,7 +115,7 @@ export function recordCreepBehaviorIdle(creep: Creep, tick: number = getGameTime
 }
 
 export function recordCreepBehaviorMove(creep: Creep, tick: number = getGameTime()): void {
-  if (isRuntimeCpuBucketCritical()) {
+  if (shouldSuppressBehaviorTelemetryForCpuRecovery()) {
     return;
   }
 
@@ -129,7 +129,7 @@ export function recordCreepBehaviorMove(creep: Creep, tick: number = getGameTime
 }
 
 export function recordCreepBehaviorMoveTask(creep: Creep, task: CreepTaskMemory): void {
-  if (isRuntimeCpuBucketCritical()) {
+  if (shouldSuppressBehaviorTelemetryForCpuRecovery()) {
     return;
   }
 
@@ -148,7 +148,7 @@ export function recordCreepBehaviorMoveTask(creep: Creep, task: CreepTaskMemory)
 }
 
 export function recordCreepBehaviorWork(creep: Creep, tick: number = getGameTime()): void {
-  if (isRuntimeCpuBucketCritical()) {
+  if (shouldSuppressBehaviorTelemetryForCpuRecovery()) {
     return;
   }
 
@@ -162,7 +162,7 @@ export function recordCreepBehaviorWork(creep: Creep, tick: number = getGameTime
 }
 
 export function recordCreepBehaviorRepairTarget(creep: Creep, targetId: string): void {
-  if (isRuntimeCpuBucketCritical()) {
+  if (shouldSuppressBehaviorTelemetryForCpuRecovery()) {
     return;
   }
 
@@ -170,7 +170,7 @@ export function recordCreepBehaviorRepairTarget(creep: Creep, targetId: string):
 }
 
 export function recordCreepBehaviorContainerTransfer(creep: Creep): void {
-  if (isRuntimeCpuBucketCritical()) {
+  if (shouldSuppressBehaviorTelemetryForCpuRecovery()) {
     return;
   }
 
@@ -179,7 +179,7 @@ export function recordCreepBehaviorContainerTransfer(creep: Creep): void {
 }
 
 export function recordCreepBehaviorSourceContainerWithdrawal(creep: Creep, tick: number = getGameTime()): void {
-  if (isRuntimeCpuBucketCritical()) {
+  if (shouldSuppressBehaviorTelemetryForCpuRecovery()) {
     return;
   }
 
@@ -196,7 +196,7 @@ export function recordCreepBehaviorEnergyAcquisition(
   creep: Creep,
   method: RuntimeEnergyAcquisitionMethod
 ): void {
-  if (isRuntimeCpuBucketCritical()) {
+  if (shouldSuppressBehaviorTelemetryForCpuRecovery()) {
     return;
   }
 
@@ -234,6 +234,10 @@ function ensureCreepBehaviorTelemetry(creep: Creep): CreepBehaviorTelemetryMemor
   }
 
   return creep.memory.behaviorTelemetry;
+}
+
+function shouldSuppressBehaviorTelemetryForCpuRecovery(): boolean {
+  return isRuntimeCpuBucketLow();
 }
 
 function recordBuildTargetStuckObservation(telemetry: CreepBehaviorTelemetryMemory): void {

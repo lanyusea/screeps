@@ -18,6 +18,7 @@ import {
 } from '../src/colony/survivalMode';
 import { OCCUPIED_CONTROLLER_SIGN_TEXT } from '../src/territory/controllerSigning';
 import { TERRITORY_RESERVATION_RENEWAL_TICKS } from '../src/territory/territoryPlanner';
+import { LOW_CPU_BUCKET_THRESHOLD } from '../src/runtime/cpuBudget';
 import { installVisibleOwnedRcl6ColonyRoomDefault } from './helpers/territoryControlGate';
 
 function withRangeTo<T extends { id: string }>(object: T, rangesByTargetId: Record<string, number>): T {
@@ -2262,6 +2263,37 @@ describe('runWorker', () => {
       lastMoveTick: 11,
       lastObservedTick: 12
     });
+  });
+
+  it('skips worker behavior telemetry writes during noncritical low-bucket recovery', () => {
+    const source = { id: 'source1' } as Source;
+    const creep = {
+      name: 'Worker1',
+      memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+      pos: { x: 10, y: 10, roomName: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: { name: 'W1N1', find: jest.fn().mockReturnValue([source]) },
+      harvest: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 10,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: LOW_CPU_BUCKET_THRESHOLD - 1,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById: jest.fn().mockReturnValue(source)
+    };
+
+    runWorker(creep);
+
+    expect(creep.harvest).toHaveBeenCalledWith(source);
+    expect(creep.memory.behaviorTelemetry).toBeUndefined();
   });
 
   it('switches a full source-container harvester to controller work', () => {

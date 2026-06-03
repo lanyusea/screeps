@@ -22,6 +22,13 @@ import {
   type ExpansionCandidateReport
 } from '../territory/expansionScoring';
 import {
+  getAutonomousExpansionCapacitySummary,
+  getAutonomousExpansionPipelineStateKey,
+  getAutonomousExpansionPipelineSummary,
+  type AutonomousExpansionCapacitySummary,
+  type AutonomousExpansionPipelineSummary
+} from '../territory/expansionTrigger';
+import {
   HEURISTIC_WORKER_TASK_POLICY_ID,
   WORKER_TASK_BC_ACTION_TYPES,
   isWorkerTaskBehaviorActionType,
@@ -33,7 +40,13 @@ import {
   getTerritoryIntentProgressSummaries,
   type TerritoryIntentProgressSummary
 } from '../territory/territoryPlanner';
-import { getPostClaimBootstrapSummary, type PostClaimBootstrapSummary } from '../territory/postClaimBootstrap';
+import { normalizeTerritoryIntents } from '../territory/territoryMemoryUtils';
+import {
+  getActivePostClaimBootstrapBlockers,
+  getPostClaimBootstrapSummary,
+  type PostClaimBootstrapSummary,
+  type PostClaimBootstrapBlockerSummary
+} from '../territory/postClaimBootstrap';
 import {
   TERRITORY_SCOUT_VALIDATION_TIMEOUT_TICKS,
   getTerritoryScoutSummary
@@ -95,6 +108,7 @@ const WORKER_BEHAVIOR_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 const REFILL_DELIVERY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 const SPAWN_CRITICAL_REFILL_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 const OBSERVED_RAMPART_REPAIR_HITS_CEILING = 150_000;
+const TERRITORY_EXPANSION_PROGRESS_CPU_BUCKET_FLOOR = 500;
 
 const WORKER_TASK_TYPES = ['harvest', 'transfer', 'build', 'repair', 'upgrade'] as const;
 const PRODUCTIVE_WORKER_TASK_TYPES = ['build', 'repair', 'upgrade'] as const;
@@ -299,6 +313,7 @@ interface RuntimeRoomSummary {
   constructionPriority: RuntimeConstructionPrioritySummary;
   survival: RuntimeSurvivalSummary;
   territoryRecommendation: OccupationRecommendationReport;
+  territoryExpansionProgress: RuntimeTerritoryExpansionProgressSummary;
   territoryExpansion?: ExpansionCandidateReport;
   territoryIntents?: TerritoryIntentProgressSummary[];
   omittedTerritoryIntentCount?: number;
@@ -345,6 +360,110 @@ interface RuntimeTerritoryScoutOnlyTargetSummary {
   hostileCreepCount?: number;
   hostileStructureCount?: number;
   hostileSpawnCount?: number;
+}
+
+type RuntimeTerritoryExpansionBlocker =
+  | 'none'
+  | 'activeExpansionPipeline'
+  | 'activeClaimIntent'
+  | 'activeClaimTarget'
+  | 'activePostClaimBootstrap'
+  | 'postClaimBootstrapActive'
+  | 'roomLimitReached'
+  | 'gclInsufficient'
+  | 'insufficientEvidence'
+  | 'controllerReserved'
+  | 'controllerOwned'
+  | 'controllerMissing'
+  | 'sourcesMissing'
+  | 'controllerRangeMissing'
+  | 'terrainMissing'
+  | 'targetHostile'
+  | 'targetUnavailable'
+  | 'hostilePresence'
+  | 'deadZoneRoute'
+  | 'noCandidate'
+  | 'unavailable'
+  | 'monitorEvidenceMissing'
+  | 'cpuBucketLow'
+  | 'energyCapacityLow'
+  | 'energyBufferLow'
+  | 'homeAlertActive'
+  | 'controllerLevelLow'
+  | 'homeDowngradeGuard'
+  | 'seasonalImmatureExpansionActive'
+  | 'bootstrapGate'
+  | 'homeDefenseGate';
+
+interface RuntimeTerritoryExpansionProgressSummary {
+  colony: string;
+  source: 'runtime-summary';
+  updatedAt: number;
+  territoryCapable: boolean;
+  blocker: RuntimeTerritoryExpansionBlocker;
+  blockerSource: 'activePipeline' | 'capacity' | 'selection' | 'candidate' | 'postClaimBootstrap' | 'survival' | 'cpu' | 'monitor';
+  ownedRoomCount: number;
+  roomCapacityStatus: AutonomousExpansionCapacitySummary['status'];
+  roomLimitCapacity: number;
+  gclRoomCapacity?: number;
+  activePipelineStateKey: string;
+  activePipeline?: RuntimeTerritoryExpansionPipelineProgressSummary;
+  cachedSelection?: RuntimeTerritoryExpansionCachedSelectionSummary;
+  controlCounts: RuntimeTerritoryExpansionControlCounts;
+  topCandidate?: RuntimeTerritoryExpansionCandidateProgressSummary;
+  activePostClaimBootstrap?: RuntimeTerritoryExpansionPostClaimBootstrapProgressSummary;
+  lastProgressAt?: number;
+  targetRoom?: string;
+  reason?: RoomExpansionSelectionReason;
+  reasonDetail?: RoomExpansionSelectionReasonDetail;
+}
+
+type RuntimeTerritoryActionCounts = Record<TerritoryIntentAction, number>;
+
+interface RuntimeTerritoryExpansionControlCounts {
+  active: RuntimeTerritoryActionCounts;
+  planned: RuntimeTerritoryActionCounts;
+  targets: Record<TerritoryControlAction, number>;
+}
+
+type RuntimeTerritoryExpansionPipelineProgressSummary = AutonomousExpansionPipelineSummary;
+
+interface RuntimeTerritoryExpansionCachedSelectionSummary {
+  status: RoomExpansionSelectionStatus;
+  refreshedAt?: number;
+  stateKey?: string;
+  targetRoom?: string;
+  reason?: RoomExpansionSelectionReason;
+  reasonDetail?: RoomExpansionSelectionReasonDetail;
+  score?: number;
+}
+
+interface RuntimeTerritoryExpansionCandidateProgressSummary {
+  roomName: string;
+  evidenceStatus?: TerritoryExpansionCandidateEvidenceStatus;
+  score?: number;
+  recommendedAction?: TerritoryExpansionCandidateRecommendedAction;
+  blockReason?: TerritoryExpansionCandidateBlockReason;
+  blocker?: RuntimeTerritoryExpansionBlocker;
+  updatedAt?: number;
+  routeDistance?: number;
+  nearestOwnedRoom?: string;
+  nearestOwnedRoomDistance?: number;
+  sourceCount?: number;
+  hostileCreepCount?: number;
+  hostileStructureCount?: number;
+  requiresControllerPressure?: boolean;
+}
+
+interface RuntimeTerritoryExpansionPostClaimBootstrapProgressSummary {
+  colony: string;
+  roomName: string;
+  status: TerritoryPostClaimBootstrapStatus;
+  updatedAt: number;
+  age: number;
+  workerTarget: number;
+  workerCount?: number;
+  spawnCount: number;
 }
 
 interface RuntimeControllerSummary {
@@ -991,6 +1110,13 @@ function summarizeRoom(
     resources.productiveEnergy.assignedWorkerCount
   );
   const constructionDeadlockTicks = getRoomConstructionDeadlockTicks(colony.room);
+  const survival = summarizeSurvival(colony, roleCounts);
+  const territoryExpansionProgress = buildTerritoryExpansionProgressSummary(
+    colony,
+    survival,
+    territoryExpansion,
+    tick
+  );
 
   return {
     roomName: colony.room.name,
@@ -1022,8 +1148,9 @@ function summarizeRoom(
           onStrategyRegistryRuntimeUse
         )
       : emptyConstructionPrioritySummary(),
-    survival: summarizeSurvival(colony, roleCounts),
+    survival,
     territoryRecommendation,
+    territoryExpansionProgress,
     ...(territoryExpansion && territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {}),
     ...(includeOptionalSummary ? buildTerritoryIntentSummary(colony.room.name, roleCounts) : {}),
     ...(includeOptionalSummary ? buildTerritoryExecutionHintSummary(colony.room.name) : {}),
@@ -1117,6 +1244,545 @@ function buildTerritoryExecutionHintSummary(
 ): { territoryExecutionHints?: TerritoryExecutionHintMemory[] } {
   const territoryExecutionHints = getActiveTerritoryFollowUpExecutionHints(colonyName);
   return territoryExecutionHints.length > 0 ? { territoryExecutionHints } : {};
+}
+
+interface RuntimeTerritoryExpansionControlCountSummary {
+  counts: RuntimeTerritoryExpansionControlCounts;
+  latestIntentUpdatedAt?: number;
+}
+
+interface RuntimeTerritoryExpansionBlockerEvidence {
+  blocker: RuntimeTerritoryExpansionBlocker;
+  source: RuntimeTerritoryExpansionProgressSummary['blockerSource'];
+  targetRoom?: string;
+  reason?: RoomExpansionSelectionReason;
+  reasonDetail?: RoomExpansionSelectionReasonDetail;
+}
+
+function buildTerritoryExpansionProgressSummary(
+  colony: ColonySnapshot,
+  survival: RuntimeSurvivalSummary,
+  territoryExpansion: ExpansionCandidateReport | undefined,
+  tick: number
+): RuntimeTerritoryExpansionProgressSummary {
+  const colonyName = colony.room.name;
+  const capacity = getAutonomousExpansionCapacitySummary(colony);
+  const activePipeline = getAutonomousExpansionPipelineSummary(colonyName);
+  const cachedSelection = getCachedExpansionSelectionSummary(colony);
+  const controlCounts = getTerritoryExpansionControlCounts(colonyName);
+  const topCandidate = getTopExpansionProgressCandidate(colonyName, territoryExpansion);
+  const activePostClaimBootstrap = getActivePostClaimBootstrapProgressSummary(colonyName, tick);
+  const blocker = selectTerritoryExpansionBlocker({
+    activePipeline,
+    capacity,
+    cachedSelection,
+    topCandidate,
+    activePostClaimBootstrap,
+    survival,
+    territoryExpansion,
+    colony
+  });
+  const lastProgressAt = maxFiniteNumber([
+    activePipeline?.updatedAt,
+    cachedSelection?.refreshedAt,
+    topCandidate?.updatedAt,
+    activePostClaimBootstrap?.updatedAt,
+    controlCounts.latestIntentUpdatedAt
+  ]);
+
+  return {
+    colony: colonyName,
+    source: 'runtime-summary',
+    updatedAt: tick,
+    territoryCapable: survival.mode === 'TERRITORY_READY',
+    blocker: blocker.blocker,
+    blockerSource: blocker.source,
+    ownedRoomCount: capacity.ownedRoomCount,
+    roomCapacityStatus: capacity.status,
+    roomLimitCapacity: capacity.roomLimitCapacity,
+    ...(capacity.gclRoomCapacity !== undefined ? { gclRoomCapacity: capacity.gclRoomCapacity } : {}),
+    activePipelineStateKey: getAutonomousExpansionPipelineStateKey(colonyName),
+    ...(activePipeline ? { activePipeline } : {}),
+    ...(cachedSelection ? { cachedSelection } : {}),
+    controlCounts: controlCounts.counts,
+    ...(topCandidate ? { topCandidate } : {}),
+    ...(activePostClaimBootstrap ? { activePostClaimBootstrap } : {}),
+    ...(lastProgressAt !== undefined ? { lastProgressAt } : {}),
+    ...(blocker.targetRoom ? { targetRoom: blocker.targetRoom } : {}),
+    ...(blocker.reason ? { reason: blocker.reason } : {}),
+    ...(blocker.reasonDetail ? { reasonDetail: blocker.reasonDetail } : {})
+  };
+}
+
+function selectTerritoryExpansionBlocker({
+  activePipeline,
+  capacity,
+  cachedSelection,
+  topCandidate,
+  activePostClaimBootstrap,
+  survival,
+  territoryExpansion,
+  colony
+}: {
+  activePipeline: AutonomousExpansionPipelineSummary | null;
+  capacity: AutonomousExpansionCapacitySummary;
+  cachedSelection: RuntimeTerritoryExpansionCachedSelectionSummary | null;
+  topCandidate: RuntimeTerritoryExpansionCandidateProgressSummary | null;
+  activePostClaimBootstrap: RuntimeTerritoryExpansionPostClaimBootstrapProgressSummary | null;
+  survival: RuntimeSurvivalSummary;
+  territoryExpansion: ExpansionCandidateReport | undefined;
+  colony: ColonySnapshot;
+}): RuntimeTerritoryExpansionBlockerEvidence {
+  if (activePipeline) {
+    return {
+      blocker: 'activeExpansionPipeline',
+      source: 'activePipeline',
+      targetRoom: activePipeline.targetRoom
+    };
+  }
+
+  if (capacity.status !== 'available') {
+    return { blocker: capacity.status, source: 'capacity' };
+  }
+
+  if (activePostClaimBootstrap) {
+    return {
+      blocker: 'activePostClaimBootstrap',
+      source: 'postClaimBootstrap',
+      targetRoom: activePostClaimBootstrap.roomName
+    };
+  }
+
+  if (cachedSelection?.status === 'planned') {
+    return {
+      blocker: 'none',
+      source: 'selection',
+      targetRoom: cachedSelection.targetRoom
+    };
+  }
+
+  if (cachedSelection?.reasonDetail) {
+    return {
+      blocker: getTerritoryExpansionBlockerForReasonDetail(cachedSelection.reasonDetail),
+      source: 'selection',
+      reason: cachedSelection.reason,
+      reasonDetail: cachedSelection.reasonDetail,
+      targetRoom: cachedSelection.targetRoom
+    };
+  }
+
+  if (topCandidate?.blocker) {
+    return {
+      blocker: topCandidate.blocker,
+      source: 'candidate',
+      targetRoom: topCandidate.roomName
+    };
+  }
+
+  if (cachedSelection?.reason) {
+    return {
+      blocker: getTerritoryExpansionBlockerForSelectionReason(cachedSelection.reason),
+      source: 'selection',
+      reason: cachedSelection.reason,
+      targetRoom: cachedSelection.targetRoom
+    };
+  }
+
+  const survivalBlocker = getTerritoryExpansionBlockerForSurvival(survival);
+  if (survivalBlocker) {
+    return { blocker: survivalBlocker, source: 'survival' };
+  }
+
+  const cpuBucket = getCpuBucket();
+  if (
+    cpuBucket !== undefined &&
+    cpuBucket < TERRITORY_EXPANSION_PROGRESS_CPU_BUCKET_FLOOR
+  ) {
+    return { blocker: 'cpuBucketLow', source: 'cpu' };
+  }
+
+  if (territoryExpansion) {
+    return {
+      blocker: territoryExpansion.candidates.length === 0 ? 'noCandidate' : 'unavailable',
+      source: 'candidate',
+      ...(territoryExpansion.next?.roomName ? { targetRoom: territoryExpansion.next.roomName } : {})
+    };
+  }
+
+  if (topCandidate) {
+    return { blocker: 'unavailable', source: 'candidate', targetRoom: topCandidate.roomName };
+  }
+
+  const hasNoPersistentTerritoryEvidence =
+    !cachedSelection &&
+    !hasAnyTerritoryExpansionProgressMemory(colony.room.name);
+  return {
+    blocker: hasNoPersistentTerritoryEvidence ? 'monitorEvidenceMissing' : 'unavailable',
+    source: 'monitor'
+  };
+}
+
+function getCachedExpansionSelectionSummary(
+  colony: ColonySnapshot
+): RuntimeTerritoryExpansionCachedSelectionSummary | null {
+  const memory = getRoomMemoryRecord(colony);
+  const rawSelection = memory?.cachedExpansionSelection;
+  if (!isRecord(rawSelection) || !isRoomExpansionSelectionStatus(rawSelection.status)) {
+    return null;
+  }
+
+  const refreshedAt = isFiniteNumber(memory?.lastExpansionScoreTime)
+    ? memory.lastExpansionScoreTime
+    : undefined;
+  return {
+    status: rawSelection.status,
+    ...(refreshedAt !== undefined ? { refreshedAt } : {}),
+    ...(isNonEmptyString(rawSelection.stateKey) ? { stateKey: rawSelection.stateKey } : {}),
+    ...(isNonEmptyString(rawSelection.targetRoom) ? { targetRoom: rawSelection.targetRoom } : {}),
+    ...(isRoomExpansionSelectionReason(rawSelection.reason) ? { reason: rawSelection.reason } : {}),
+    ...(isRoomExpansionSelectionReasonDetail(rawSelection.reasonDetail)
+      ? { reasonDetail: rawSelection.reasonDetail }
+      : {}),
+    ...(isFiniteNumber(rawSelection.score) ? { score: rawSelection.score } : {})
+  };
+}
+
+function getTerritoryExpansionControlCounts(
+  colonyName: string
+): RuntimeTerritoryExpansionControlCountSummary {
+  const counts: RuntimeTerritoryExpansionControlCounts = {
+    active: emptyTerritoryActionCounts(),
+    planned: emptyTerritoryActionCounts(),
+    targets: { claim: 0, reserve: 0 }
+  };
+  let latestIntentUpdatedAt: number | undefined;
+  const territory = getTerritoryMemoryRecord();
+  if (!territory) {
+    return { counts };
+  }
+
+  for (const target of Array.isArray(territory.targets) ? territory.targets : []) {
+    if (!isRecord(target) || target.colony !== colonyName || target.enabled === false) {
+      continue;
+    }
+    if (target.action === 'claim' || target.action === 'reserve') {
+      counts.targets[target.action] += 1;
+    }
+  }
+
+  for (const intent of normalizeTerritoryIntents(territory.intents)) {
+    if (intent.colony !== colonyName) {
+      continue;
+    }
+    if (intent.status === 'active') {
+      counts.active[intent.action] += 1;
+    } else if (intent.status === 'planned') {
+      counts.planned[intent.action] += 1;
+    }
+    if (
+      (intent.status === 'active' || intent.status === 'planned') &&
+      (latestIntentUpdatedAt === undefined || intent.updatedAt > latestIntentUpdatedAt)
+    ) {
+      latestIntentUpdatedAt = intent.updatedAt;
+    }
+  }
+
+  return {
+    counts,
+    ...(latestIntentUpdatedAt !== undefined ? { latestIntentUpdatedAt } : {})
+  };
+}
+
+function emptyTerritoryActionCounts(): RuntimeTerritoryActionCounts {
+  return { claim: 0, reserve: 0, scout: 0 };
+}
+
+function getTopExpansionProgressCandidate(
+  colonyName: string,
+  territoryExpansion: ExpansionCandidateReport | undefined
+): RuntimeTerritoryExpansionCandidateProgressSummary | null {
+  const scoredCandidate = territoryExpansion?.next ?? territoryExpansion?.candidates[0];
+  if (scoredCandidate) {
+    return toExpansionProgressCandidate({
+      roomName: scoredCandidate.roomName,
+      evidenceStatus: scoredCandidate.evidenceStatus,
+      score: scoredCandidate.score,
+      blockReason: scoredCandidate.blockReason,
+      routeDistance: scoredCandidate.routeDistance,
+      nearestOwnedRoom: scoredCandidate.nearestOwnedRoom,
+      nearestOwnedRoomDistance: scoredCandidate.nearestOwnedRoomDistance,
+      sourceCount: scoredCandidate.sourceCount,
+      hostileCreepCount: scoredCandidate.hostileCreepCount,
+      hostileStructureCount: scoredCandidate.hostileStructureCount,
+      requiresControllerPressure: scoredCandidate.requiresControllerPressure
+    });
+  }
+
+  const persistedCandidate = getPersistedTopExpansionCandidate(colonyName);
+  return persistedCandidate ? toExpansionProgressCandidate(persistedCandidate) : null;
+}
+
+function toExpansionProgressCandidate(
+  candidate: Partial<TerritoryExpansionCandidateMemory> & { roomName: string }
+): RuntimeTerritoryExpansionCandidateProgressSummary {
+  const blocker = getTerritoryExpansionBlockerForCandidate(candidate);
+  return {
+    roomName: candidate.roomName,
+    ...(isExpansionCandidateEvidenceStatus(candidate.evidenceStatus)
+      ? { evidenceStatus: candidate.evidenceStatus }
+      : {}),
+    ...(isFiniteNumber(candidate.score) ? { score: candidate.score } : {}),
+    ...(isExpansionCandidateRecommendedAction(candidate.recommendedAction)
+      ? { recommendedAction: candidate.recommendedAction }
+      : {}),
+    ...(isExpansionCandidateBlockReason(candidate.blockReason) ? { blockReason: candidate.blockReason } : {}),
+    ...(blocker ? { blocker } : {}),
+    ...(isFiniteNumber(candidate.updatedAt) ? { updatedAt: candidate.updatedAt } : {}),
+    ...(isFiniteNumber(candidate.routeDistance) ? { routeDistance: candidate.routeDistance } : {}),
+    ...(isNonEmptyString(candidate.nearestOwnedRoom) ? { nearestOwnedRoom: candidate.nearestOwnedRoom } : {}),
+    ...(isFiniteNumber(candidate.nearestOwnedRoomDistance)
+      ? { nearestOwnedRoomDistance: candidate.nearestOwnedRoomDistance }
+      : {}),
+    ...(isFiniteNumber(candidate.sourceCount) ? { sourceCount: candidate.sourceCount } : {}),
+    ...(isFiniteNumber(candidate.hostileCreepCount) ? { hostileCreepCount: candidate.hostileCreepCount } : {}),
+    ...(isFiniteNumber(candidate.hostileStructureCount)
+      ? { hostileStructureCount: candidate.hostileStructureCount }
+      : {}),
+    ...(candidate.requiresControllerPressure === true ? { requiresControllerPressure: true } : {})
+  };
+}
+
+function getPersistedTopExpansionCandidate(colonyName: string): TerritoryExpansionCandidateMemory | null {
+  const candidates = getTerritoryMemoryRecord()?.expansionCandidates;
+  if (!Array.isArray(candidates)) {
+    return null;
+  }
+
+  const colonyCandidates = candidates
+    .filter(
+      (candidate): candidate is TerritoryExpansionCandidateMemory =>
+        isRecord(candidate) &&
+        candidate.colony === colonyName &&
+        isNonEmptyString(candidate.roomName)
+    )
+    .sort(comparePersistedExpansionCandidates);
+  return colonyCandidates[0] ?? null;
+}
+
+function comparePersistedExpansionCandidates(
+  left: TerritoryExpansionCandidateMemory,
+  right: TerritoryExpansionCandidateMemory
+): number {
+  const leftRank = isFiniteNumber(left.rank) ? left.rank : Number.MAX_SAFE_INTEGER;
+  const rightRank = isFiniteNumber(right.rank) ? right.rank : Number.MAX_SAFE_INTEGER;
+  if (leftRank !== rightRank) {
+    return leftRank - rightRank;
+  }
+
+  return (right.score ?? 0) - (left.score ?? 0);
+}
+
+function getActivePostClaimBootstrapProgressSummary(
+  colonyName: string,
+  tick: number
+): RuntimeTerritoryExpansionPostClaimBootstrapProgressSummary | null {
+  const blocker = getActivePostClaimBootstrapBlockers(colonyName, tick)[0];
+  return blocker ? toRuntimeTerritoryExpansionPostClaimBootstrapProgress(blocker) : null;
+}
+
+function toRuntimeTerritoryExpansionPostClaimBootstrapProgress(
+  blocker: PostClaimBootstrapBlockerSummary
+): RuntimeTerritoryExpansionPostClaimBootstrapProgressSummary {
+  return {
+    colony: blocker.colony,
+    roomName: blocker.roomName,
+    status: blocker.status,
+    updatedAt: blocker.updatedAt,
+    age: blocker.age,
+    workerTarget: blocker.workerTarget,
+    ...(blocker.workerCount !== undefined ? { workerCount: blocker.workerCount } : {}),
+    spawnCount: blocker.spawnCount
+  };
+}
+
+function getTerritoryExpansionBlockerForReasonDetail(
+  reasonDetail: RoomExpansionSelectionReasonDetail
+): RuntimeTerritoryExpansionBlocker {
+  switch (reasonDetail) {
+    case 'activeExpansionPipeline':
+      return 'activeExpansionPipeline';
+    case 'activePostClaimBootstrap':
+      return 'activePostClaimBootstrap';
+    case 'activeClaimTarget':
+      return 'activeClaimTarget';
+    case 'activeClaimIntent':
+      return 'activeClaimIntent';
+  }
+}
+
+function getTerritoryExpansionBlockerForSelectionReason(
+  reason: RoomExpansionSelectionReason
+): RuntimeTerritoryExpansionBlocker {
+  switch (reason) {
+    case 'gclInsufficient':
+      return 'gclInsufficient';
+    case 'roomLimitReached':
+      return 'roomLimitReached';
+    case 'insufficientEvidence':
+      return 'insufficientEvidence';
+    case 'noCandidate':
+      return 'noCandidate';
+    case 'unavailable':
+      return 'unavailable';
+    case 'unmetPreconditions':
+    default:
+      return 'unavailable';
+  }
+}
+
+function getTerritoryExpansionBlockerForCandidate(
+  candidate: Partial<TerritoryExpansionCandidateMemory>
+): RuntimeTerritoryExpansionBlocker | undefined {
+  if (isExpansionCandidateBlockReason(candidate.blockReason)) {
+    return normalizeTerritoryExpansionCandidateBlocker(candidate.blockReason);
+  }
+
+  if (candidate.requiresControllerPressure === true) {
+    return 'controllerReserved';
+  }
+
+  if ((candidate.hostileCreepCount ?? 0) > 0 || (candidate.hostileStructureCount ?? 0) > 0) {
+    return 'targetHostile';
+  }
+
+  if (candidate.evidenceStatus === 'insufficient-evidence') {
+    return 'insufficientEvidence';
+  }
+
+  if (candidate.evidenceStatus === 'unavailable') {
+    return 'unavailable';
+  }
+
+  return undefined;
+}
+
+function normalizeTerritoryExpansionCandidateBlocker(
+  blockReason: TerritoryExpansionCandidateBlockReason
+): RuntimeTerritoryExpansionBlocker {
+  switch (blockReason) {
+    case 'routeUnavailable':
+      return 'deadZoneRoute';
+    case 'targetUnavailable':
+      return 'targetUnavailable';
+    default:
+      return blockReason;
+  }
+}
+
+function getTerritoryExpansionBlockerForSurvival(
+  survival: RuntimeSurvivalSummary
+): RuntimeTerritoryExpansionBlocker | null {
+  const reasons = survival.suppressionReasons ?? [];
+  if (reasons.includes('defense')) {
+    return 'hostilePresence';
+  }
+  if (reasons.includes('defenseFloor')) {
+    return 'homeDefenseGate';
+  }
+  if (reasons.includes('territoryEnergyCapacity')) {
+    return 'energyCapacityLow';
+  }
+  if (reasons.includes('controllerLevel')) {
+    return 'controllerLevelLow';
+  }
+  if (reasons.includes('controllerDowngradeGuard')) {
+    return 'homeDowngradeGuard';
+  }
+  if (
+    reasons.includes('bootstrapWorkerFloor') ||
+    reasons.includes('bootstrapRecovery') ||
+    reasons.includes('spawnEnergyCritical') ||
+    reasons.includes('localWorkerRecovery')
+  ) {
+    return 'bootstrapGate';
+  }
+
+  return null;
+}
+
+function hasAnyTerritoryExpansionProgressMemory(colonyName: string): boolean {
+  const territory = getTerritoryMemoryRecord();
+  if (!territory) {
+    return false;
+  }
+
+  return (
+    Object.values(territory.expansionPipelines ?? {}).some(
+      (pipeline) => isRecord(pipeline) && pipeline.colony === colonyName
+    ) ||
+    (territory.expansionCandidates ?? []).some(
+      (candidate) => isRecord(candidate) && candidate.colony === colonyName
+    ) ||
+    normalizeTerritoryIntents(territory.intents).some((intent) => intent.colony === colonyName)
+  );
+}
+
+function getRoomMemoryRecord(colony: ColonySnapshot): RoomMemory | null {
+  const roomWithMemory = colony.room as Room & { memory?: RoomMemory };
+  return colony.memory ?? roomWithMemory.memory ?? null;
+}
+
+function getTerritoryMemoryRecord(): TerritoryMemory | null {
+  const territory = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory;
+  return isRecord(territory) ? (territory as TerritoryMemory) : null;
+}
+
+function getCpuBucket(): number | undefined {
+  const bucket = (globalThis as { Game?: Partial<Game> }).Game?.cpu?.bucket;
+  return isFiniteNumber(bucket) ? bucket : undefined;
+}
+
+function maxFiniteNumber(values: Array<number | undefined>): number | undefined {
+  let max: number | undefined;
+  for (const value of values) {
+    if (!isFiniteNumber(value)) {
+      continue;
+    }
+    max = max === undefined ? value : Math.max(max, value);
+  }
+  return max;
+}
+
+function isRoomExpansionSelectionStatus(value: unknown): value is RoomExpansionSelectionStatus {
+  return value === 'planned' || value === 'skipped';
+}
+
+function isRoomExpansionSelectionReason(value: unknown): value is RoomExpansionSelectionReason {
+  return (
+    value === 'noCandidate' ||
+    value === 'gclInsufficient' ||
+    value === 'roomLimitReached' ||
+    value === 'unmetPreconditions' ||
+    value === 'insufficientEvidence' ||
+    value === 'unavailable'
+  );
+}
+
+function isRoomExpansionSelectionReasonDetail(
+  value: unknown
+): value is RoomExpansionSelectionReasonDetail {
+  return (
+    value === 'activeExpansionPipeline' ||
+    value === 'activePostClaimBootstrap' ||
+    value === 'activeClaimTarget' ||
+    value === 'activeClaimIntent'
+  );
+}
+
+function isExpansionCandidateEvidenceStatus(
+  value: unknown
+): value is TerritoryExpansionCandidateEvidenceStatus {
+  return value === 'sufficient' || value === 'insufficient-evidence' || value === 'unavailable';
 }
 
 function buildTerritoryScoutSummary(

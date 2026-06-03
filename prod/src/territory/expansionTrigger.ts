@@ -67,6 +67,28 @@ interface ExpansionProgressBlocker {
   targetRoom?: string;
 }
 
+export interface AutonomousExpansionCapacitySummary {
+  ownedRoomCount: number;
+  roomLimitCapacity: number;
+  status: 'available' | 'gclInsufficient' | 'roomLimitReached';
+  gclRoomCapacity?: number;
+}
+
+export interface AutonomousExpansionPipelineSummary {
+  colony: string;
+  targetRoom: string;
+  status: TerritoryExpansionPipelineStatus;
+  stage: TerritoryExpansionPipelineStage;
+  score: number;
+  threshold: number;
+  startedAt: number;
+  updatedAt: number;
+  claimState?: TerritoryExpansionClaimState;
+  controllerId?: Id<StructureController>;
+  reservationConfirmedAt?: number;
+  claimedAt?: number;
+}
+
 export function refreshAutonomousExpansionPipeline(
   colony: ColonySnapshot,
   report: ExpansionCandidateReport,
@@ -149,6 +171,42 @@ export function getAutonomousExpansionPipelineStateKey(colony: string): string {
     pipeline.claimState ?? 'none',
     pipeline.updatedAt
   ].join(':');
+}
+
+export function getAutonomousExpansionPipelineSummary(
+  colony: string
+): AutonomousExpansionPipelineSummary | null {
+  const territoryMemory = getTerritoryMemoryRecord();
+  const pipeline = territoryMemory ? getActiveExpansionPipeline(territoryMemory, colony) : null;
+  if (!pipeline) {
+    return null;
+  }
+
+  return toAutonomousExpansionPipelineSummary(pipeline);
+}
+
+export function getAutonomousExpansionCapacitySummary(
+  colony: ColonySnapshot
+): AutonomousExpansionCapacitySummary {
+  const ownedRoomCount = countVisibleOwnedRooms(
+    colony.room.name,
+    getControllerOwnerUsername(colony.room.controller)
+  );
+  const roomLimitCapacity = maxRoomsForRcl(colony.room.controller?.level);
+  const gclRoomCapacity = getGclLevel();
+  const status =
+    gclRoomCapacity !== null && ownedRoomCount >= gclRoomCapacity
+      ? 'gclInsufficient'
+      : ownedRoomCount >= roomLimitCapacity
+        ? 'roomLimitReached'
+        : 'available';
+
+  return {
+    ownedRoomCount,
+    roomLimitCapacity,
+    status,
+    ...(gclRoomCapacity !== null ? { gclRoomCapacity } : {})
+  };
 }
 
 export function recordExpansionPipelineClaimState({
@@ -900,6 +958,27 @@ function normalizeExpansionPipeline(
     ...(isFiniteNumber(rawPipeline.completedAt) ? { completedAt: rawPipeline.completedAt } : {}),
     ...(isExpansionAbortReason(rawPipeline.abortReason) ? { abortReason: rawPipeline.abortReason } : {}),
     ...(isFiniteNumber(rawPipeline.abortedAt) ? { abortedAt: rawPipeline.abortedAt } : {})
+  };
+}
+
+function toAutonomousExpansionPipelineSummary(
+  pipeline: TerritoryExpansionPipelineMemory
+): AutonomousExpansionPipelineSummary {
+  return {
+    colony: pipeline.colony,
+    targetRoom: pipeline.targetRoom,
+    status: pipeline.status,
+    stage: pipeline.stage,
+    score: pipeline.score,
+    threshold: pipeline.threshold,
+    startedAt: pipeline.startedAt,
+    updatedAt: pipeline.updatedAt,
+    ...(pipeline.claimState ? { claimState: pipeline.claimState } : {}),
+    ...(pipeline.controllerId ? { controllerId: pipeline.controllerId } : {}),
+    ...(pipeline.reservationConfirmedAt !== undefined
+      ? { reservationConfirmedAt: pipeline.reservationConfirmedAt }
+      : {}),
+    ...(pipeline.claimedAt !== undefined ? { claimedAt: pipeline.claimedAt } : {})
   };
 }
 

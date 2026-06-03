@@ -292,6 +292,23 @@ describe('runtime telemetry summaries', () => {
               repairHitsCeiling: 25_000
             }
           },
+          territoryExpansionProgress: {
+            colony: 'W1N1',
+            source: 'runtime-summary',
+            updatedAt: RUNTIME_SUMMARY_INTERVAL,
+            territoryCapable: false,
+            blocker: 'roomLimitReached',
+            blockerSource: 'capacity',
+            ownedRoomCount: 1,
+            roomCapacityStatus: 'roomLimitReached',
+            roomLimitCapacity: 1,
+            activePipelineStateKey: 'pipeline:none',
+            controlCounts: {
+              active: { claim: 0, reserve: 0, scout: 0 },
+              planned: { claim: 0, reserve: 0, scout: 0 },
+              targets: { claim: 0, reserve: 0 }
+            }
+          },
           territoryRecommendation: {
             candidates: [],
             next: null,
@@ -2402,6 +2419,64 @@ describe('runtime telemetry summaries', () => {
     expect(room.territoryExecutionHints).toEqual([executionHint]);
   });
 
+  it('emits compact active expansion pipeline progress for monitor alerts', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        expansionPipelines: {
+          W1N1: {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            status: 'active',
+            stage: 'claiming',
+            claimState: 'scouted',
+            score: 900,
+            threshold: 700,
+            startedAt: RUNTIME_SUMMARY_INTERVAL - 50,
+            updatedAt: RUNTIME_SUMMARY_INTERVAL - 1,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        },
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'planned',
+            updatedAt: RUNTIME_SUMMARY_INTERVAL - 1,
+            createdBy: 'nextExpansionScoring'
+          }
+        ]
+      }
+    };
+
+    emitRuntimeSummary([colony], [], [], { persistOccupationRecommendations: false });
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.territoryExpansionProgress).toMatchObject({
+      colony: 'W1N1',
+      blocker: 'activeExpansionPipeline',
+      blockerSource: 'activePipeline',
+      targetRoom: 'W2N1',
+      lastProgressAt: RUNTIME_SUMMARY_INTERVAL - 1,
+      activePipelineStateKey: expect.stringContaining('pipeline:active:claiming:W2N1'),
+      activePipeline: {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        status: 'active',
+        stage: 'claiming',
+        claimState: 'scouted',
+        updatedAt: RUNTIME_SUMMARY_INTERVAL - 1
+      },
+      controlCounts: {
+        active: { claim: 0, reserve: 0, scout: 0 },
+        planned: { claim: 1, reserve: 0, scout: 0 },
+        targets: { claim: 0, reserve: 0 }
+      }
+    });
+  });
+
   it('groups creeps by colony before building per-room summaries', () => {
     const firstColony = makeColony({
       time: RUNTIME_SUMMARY_INTERVAL,
@@ -3180,6 +3255,20 @@ describe('runtime telemetry summaries', () => {
     const recommendation = summaryRoom.territoryRecommendation as Record<string, unknown>;
 
     expect(summaryRoom.territoryExpansion).toBeUndefined();
+    expect(summaryRoom.territoryExpansionProgress).toMatchObject({
+      colony: 'E29N55',
+      source: 'runtime-summary',
+      blocker: 'cpuBucketLow',
+      blockerSource: 'cpu',
+      ownedRoomCount: 1,
+      roomCapacityStatus: 'available',
+      activePipelineStateKey: 'pipeline:none',
+      controlCounts: {
+        active: { claim: 0, reserve: 0, scout: 0 },
+        planned: { claim: 0, reserve: 0, scout: 0 },
+        targets: { claim: 0, reserve: 0 }
+      }
+    });
     expect(recommendation).toMatchObject({
       candidates: [],
       next: null,
