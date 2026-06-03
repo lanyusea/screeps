@@ -741,6 +741,16 @@ def official_mmo_control_forbidden(value: Any) -> bool:
     return value is False or (isinstance(value, str) and value.startswith("forbidden"))
 
 
+def source_max_age_window_text(source_max_age_hours: Any) -> str:
+    if (
+        isinstance(source_max_age_hours, (int, float))
+        and not isinstance(source_max_age_hours, bool)
+        and math.isfinite(float(source_max_age_hours))
+    ):
+        return f"configured {source_max_age_hours:g}h max age"
+    return "configured max-age window"
+
+
 def dataset_source_diagnostics(
     dataset_summary: JsonObject,
     run_manifest: JsonObject,
@@ -754,6 +764,10 @@ def dataset_source_diagnostics(
     runtime_summary_count = dataset_summary.get("runtimeSummaryArtifactCount")
     skipped_sample_count = dataset_summary.get("skippedSampleCount")
     skipped_sample_reasons = dataset_summary.get("skippedSampleReasons")
+    skipped_file_reasons = source.get("skippedFileReasons")
+    if not isinstance(skipped_file_reasons, dict):
+        skipped_file_reasons = dataset_summary.get("skippedFileReasons")
+    source_max_age_hours = source.get("sourceMaxAgeHours", dataset_summary.get("sourceMaxAgeHours"))
 
     if sample_count >= min_samples:
         return {
@@ -762,7 +776,17 @@ def dataset_source_diagnostics(
             "inputPaths": input_paths,
         }
 
-    if source_artifact_count == 0:
+    if (
+        source_artifact_count == 0
+        and isinstance(skipped_file_reasons, dict)
+        and int(skipped_file_reasons.get("older_than_max_age", 0)) > 0
+    ):
+        classification = "no_recent_source_artifacts_within_max_age"
+        recommended_action = (
+            "Refresh runtime-summary-console captures or increase the console-capture source window; "
+            f"all scanned source files were older than the {source_max_age_window_text(source_max_age_hours)}."
+        )
+    elif source_artifact_count == 0:
         classification = "no_source_artifacts_scanned"
         recommended_action = (
             "Point the full E1 gate at runtime-summary source artifacts, such as "
@@ -790,9 +814,11 @@ def dataset_source_diagnostics(
         "recommendedAction": recommended_action,
         "inputPaths": input_paths,
         "scannedFiles": source.get("scannedFiles"),
+        "sourceMaxAgeHours": source_max_age_hours,
         "sourceArtifactCount": source_artifact_count,
         "runtimeSummaryArtifactCount": runtime_summary_count,
         "skippedFileCount": source.get("skippedFileCount"),
+        "skippedFileReasons": skipped_file_reasons,
         "skippedSampleCount": skipped_sample_count,
         "skippedSampleReasons": skipped_sample_reasons,
     }

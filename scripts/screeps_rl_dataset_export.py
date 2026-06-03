@@ -37,6 +37,7 @@ CONSOLE_CAPTURE_INPUT_PATHS = (
     "/root/screeps/runtime-artifacts/runtime-summary-console",
     "runtime-artifacts/runtime-summary-console",
 )
+CONSOLE_CAPTURE_MAX_AGE_HOURS = 24.0
 DEFAULT_OUT_DIR = Path("runtime-artifacts/rl-datasets")
 DEFAULT_MAX_FILE_BYTES = 5 * 1024 * 1024
 DEFAULT_SAMPLE_LIMIT = 200
@@ -124,6 +125,16 @@ def eval_ratio(value: str) -> float:
     return parsed
 
 
+def positive_float(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be a number") from error
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a finite positive number")
+    return parsed
+
+
 def display_path(path: Path | str) -> str:
     text = str(path)
     try:
@@ -191,7 +202,7 @@ def collect_artifact_records(
     paths: Sequence[str],
     max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
     excluded_roots: Sequence[Path | str] = (),
-    max_age_hours: int | None = None,
+    max_age_hours: float | None = None,
     excluded_directory_names: Sequence[str] = (),
     binary_file_extensions: Sequence[str] = (),
     use_default_paths: bool = True,
@@ -897,6 +908,7 @@ def build_dataset(
     repo_root: Path | None = None,
     created_at: str | None = None,
     home_room: str | None = None,
+    source_max_age_hours: float | None = None,
 ) -> JsonObject:
     repo = repo_root or Path.cwd()
     resolved_bot_commit = bot_commit or git_commit(repo)
@@ -906,6 +918,7 @@ def build_dataset(
         paths,
         max_file_bytes=max_file_bytes,
         excluded_roots=[resolved_out_dir],
+        max_age_hours=source_max_age_hours,
         excluded_directory_names=GENERATED_ARTIFACT_DIRECTORY_NAMES,
     )
     filter_incomplete_derived_runtime_records(scan)
@@ -927,7 +940,7 @@ def build_dataset(
 
     runtime_lines = runtime_lines_from_records(scan.records)
     kpi_windows = reducer.reduce_runtime_kpis(runtime_lines)
-    source_index = build_source_index(scan)
+    source_index = build_source_index(scan, source_max_age_hours=source_max_age_hours)
     split_counts = count_splits(rows)
     scenario_manifest = build_scenario_manifest(resolved_run_id, scan, resolved_bot_commit)
     episodes = build_episodes(resolved_run_id, rows, kpi_windows)
@@ -940,6 +953,7 @@ def build_dataset(
         split_seed=split_seed,
         eval_ratio_value=eval_ratio_value,
         files=files,
+        source_max_age_hours=source_max_age_hours,
     )
     dataset_card = render_dataset_card(resolved_run_id, run_manifest, episodes)
 
@@ -974,6 +988,8 @@ def build_dataset(
         "runtimeSummaryArtifactCount": len(scan.records),
         "strategyShadowReportCount": len(scan.strategy_shadow_reports),
         "skippedFileCount": len(scan.skipped_files),
+        "skippedFileReasons": count_skipped_file_field(scan, "reason"),
+        **optional_source_max_age(source_max_age_hours),
         **build_skipped_sample_summary(scan),
         "splitCounts": split_counts,
         "files": files,
@@ -1346,13 +1362,20 @@ def count_skipped_sample_field(scan: ScanResult, field_name: str) -> JsonObject:
     return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
 
 
-def build_source_index(scan: ScanResult) -> JsonObject:
+def optional_source_max_age(source_max_age_hours: float | None) -> JsonObject:
+    if source_max_age_hours is None:
+        return {}
+    return {"sourceMaxAgeHours": source_max_age_hours}
+
+
+def build_source_index(scan: ScanResult, *, source_max_age_hours: float | None = None) -> JsonObject:
     skipped_file_summary = build_skipped_file_summary(scan)
     skipped_sample_summary = build_skipped_sample_summary(scan)
     return {
         "type": "screeps-rl-source-index",
         "schemaVersion": SCHEMA_VERSION,
         "inputPaths": redacted_input_paths(scan.input_paths),
+        **optional_source_max_age(source_max_age_hours),
         "scannedFiles": scan.scanned_files,
         "matchedArtifactCount": len(scan.records),
         "strategyShadowReportCount": len(scan.strategy_shadow_reports),
@@ -1435,6 +1458,7 @@ def build_run_manifest(
     split_seed: str,
     eval_ratio_value: float,
     files: JsonObject,
+    source_max_age_hours: float | None = None,
 ) -> JsonObject:
     action_surfaces = sorted(
         {
@@ -1462,11 +1486,13 @@ def build_run_manifest(
         "botCommit": bot_commit,
         "source": {
             "inputPaths": redacted_input_paths(scan.input_paths),
+            **optional_source_max_age(source_max_age_hours),
             "scannedFiles": scan.scanned_files,
             "sourceArtifactCount": len(scan.source_files),
             "matchedArtifactCount": len(scan.records),
             "strategyShadowReportCount": len(scan.strategy_shadow_reports),
             "skippedFileCount": len(scan.skipped_files),
+            "skippedFileReasons": count_skipped_file_field(scan, "reason"),
             **build_skipped_sample_summary(scan),
         },
         "strategy": {
@@ -1710,6 +1736,15 @@ def build_parser() -> argparse.ArgumentParser:
         default="screeps-rl-v1",
         help="Seed string for deterministic train/eval assignment.",
     )
+    parser.add_argument(
+        "--source-max-age-hours",
+        type=positive_float,
+        default=None,
+        help=(
+            "Skip source files older than this many hours by mtime. "
+            f"Default: {CONSOLE_CAPTURE_MAX_AGE_HOURS:g} in --console-capture-only mode, otherwise unbounded."
+        ),
+    )
     return parser
 
 
@@ -1724,6 +1759,9 @@ def resolve_cli_input_paths(args: argparse.Namespace, stderr: TextIO = sys.stder
 def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: TextIO = sys.stderr) -> int:
     args = build_parser().parse_args(argv)
     input_paths = resolve_cli_input_paths(args, stderr)
+    source_max_age_hours = args.source_max_age_hours
+    if args.console_capture_only and source_max_age_hours is None:
+        source_max_age_hours = CONSOLE_CAPTURE_MAX_AGE_HOURS
     summary = build_dataset(
         input_paths,
         args.out_dir,
@@ -1733,6 +1771,7 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: Tex
         sample_limit=args.sample_limit,
         eval_ratio_value=args.eval_ratio,
         split_seed=args.split_seed,
+        source_max_age_hours=source_max_age_hours,
     )
     stdout.write(json.dumps(summary, indent=2, sort_keys=True))
     stdout.write("\n")
