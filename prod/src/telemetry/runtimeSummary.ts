@@ -1329,7 +1329,7 @@ function selectWorkerIdleReason(
     return 'room_snapshot_missing_creep_memory';
   }
 
-  if (memory.task) {
+  if (getWorkerTaskType(worker)) {
     return null;
   }
 

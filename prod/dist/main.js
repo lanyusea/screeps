@@ -38951,7 +38951,7 @@ function selectWorkerIdleReason(worker, cpuBudget) {
   if (!memory) {
     return "room_snapshot_missing_creep_memory";
   }
-  if (memory.task) {
+  if (getWorkerTaskType(worker)) {
     return null;
   }
   if (hasObservableWorkerBody(worker) && !hasAnyActiveWorkerBodyPart(worker)) {

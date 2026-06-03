@@ -1896,6 +1896,60 @@ describe('runtime telemetry summaries', () => {
     expect(productiveEnergy.buildBlockedReason).toBe('worker_assignment_gap');
   });
 
+  it('counts malformed stale worker task memory as unassigned idle evidence', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      roomName: 'E29N55',
+      includeEventLog: false,
+      constructionSites: [
+        { id: 'extension-site', structureType: TEST_GLOBALS.STRUCTURE_EXTENSION, progress: 0, progressTotal: 50 }
+      ]
+    });
+    const malformedTaskWorker = makeWorker(
+      {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { targetId: 'stale-construction-site' } as unknown as CreepMemory['task']
+      },
+      0,
+      'worker-E29N55-malformed-task'
+    );
+
+    emitRuntimeSummary([colony], [malformedTaskWorker]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.taskCounts).toMatchObject({
+      build: 0,
+      harvest: 0,
+      none: 1,
+      repair: 0,
+      transfer: 0,
+      upgrade: 0
+    });
+    expect(room.workerAssignmentEvidence).toMatchObject({
+      workerCount: 1,
+      assignedTaskCount: 0,
+      productiveAssignmentCount: 0,
+      unassignedWorkerCount: 1,
+      idleReasonCounts: {
+        cpu_shed_assignment_skipped: 0,
+        no_task_available: 0,
+        role_body_unavailable: 0,
+        room_snapshot_missing_creep_memory: 0,
+        task_assignment_not_observed: 1
+      },
+      idleWorkers: [
+        {
+          name: 'worker-E29N55-malformed-task',
+          reason: 'task_assignment_not_observed',
+          carriedEnergy: 0,
+          freeCapacity: 0
+        }
+      ]
+    });
+  });
+
   it('reports no-task idle reasons from current worker dispatch diagnostics', () => {
     const colony = makeColony({
       time: RUNTIME_SUMMARY_INTERVAL,
