@@ -105,6 +105,52 @@ class ScreepsRlScorecardComputeEvidenceTest(unittest.TestCase):
         )
         self.assertEqual(accumulator.summarize(), {})
 
+    def test_runtime_summary_construction_activity_acceptance_metric(self) -> None:
+        accumulator = scorecard.MetricAccumulator()
+        scorecard.ingest_runtime_summary(
+            accumulator,
+            {
+                "type": "runtime-summary",
+                "tick": 123,
+                "rooms": [
+                    {
+                        "roomName": "W1N1",
+                        "constructionActivity": {
+                            "state": "active",
+                            "accepted": True,
+                            "reason": "build_energy_carried",
+                        },
+                        "resources": {"productiveEnergy": {"buildCarriedEnergy": 20}},
+                    },
+                    {
+                        "roomName": "W2N2",
+                        "resources": {
+                            "productiveEnergy": {
+                                "constructionActivity": {
+                                    "state": "candidate_suppressed",
+                                    "accepted": True,
+                                    "reason": "spawn_reserving_energy",
+                                }
+                            }
+                        },
+                    },
+                    {
+                        "roomName": "W3N3",
+                        "constructionActivity": {
+                            "state": "no_viable_candidate",
+                            "accepted": False,
+                            "reason": "no_viable_candidate",
+                        },
+                    },
+                ],
+            },
+            "runtime-summary.log",
+        )
+
+        metrics = accumulator.summarize()
+        self.assertEqual(metrics["construction_activity_acceptance"]["value"], 1.0)
+        self.assertEqual(metrics["construction_activity_acceptance"]["sampleCount"], 3)
+
 
 if __name__ == "__main__":
     unittest.main()

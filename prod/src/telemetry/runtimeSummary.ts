@@ -8,7 +8,9 @@ import {
   buildRuntimeConstructionPriorityReport,
   constructionPriorityStrategyParametersFromEntry,
   selectConstructionPriorityStrategyRegistryEntry,
-  type ConstructionPriorityScore
+  type ConstructionPriorityPolicyAction,
+  type ConstructionPriorityScore,
+  type ConstructionPriorityUrgency
 } from '../construction/constructionPriority';
 import { countCreepsByRole, type RoleCounts } from '../creeps/roleCounts';
 import type { StrategyRegistryEntry } from '../strategy/strategyRegistry';
@@ -83,6 +85,7 @@ import {
   shouldShedNonessentialCpuWork,
   shouldThrottleRuntimeSummaryCadence,
   type RuntimeCpuAlert,
+  type RuntimeCpuBudget,
   type RuntimeCpuPressure,
   type RuntimeCpuPressureReason,
   type RuntimeCpuTelemetrySummary
@@ -120,6 +123,20 @@ type RuntimeBuildBlockedReason =
   | 'energy_buffer_blocked'
   | 'no_construction_sites'
   | 'worker_assignment_gap';
+type RuntimeConstructionActivityState =
+  | 'active'
+  | 'candidate_suppressed'
+  | 'no_viable_candidate';
+type RuntimeConstructionActivityReason =
+  | 'build_progress_observed'
+  | 'build_energy_carried'
+  | 'site_backlog_visible'
+  | 'cpu_shed'
+  | 'energy_buffer_blocked'
+  | 'spawn_reserving_energy'
+  | 'worker_assignment_gap'
+  | 'scored_candidate_available'
+  | 'no_viable_candidate';
 type RuntimeWorkerAssignmentBlockedDetail =
   | 'energy_buffer_below_threshold'
   | 'energy_buffer_spend_margin'
@@ -299,6 +316,7 @@ interface RuntimeRoomSummary {
   taskCounts: WorkerTaskCounts;
   constructionSiteCount: number;
   constructionDeadlockTicks: number;
+  constructionActivity: RuntimeConstructionActivitySummary;
   behavior?: RuntimeBehaviorSummary;
   structures?: RuntimeStructureSnapshotSummary;
   workerEfficiency?: RuntimeWorkerEfficiencySummary;
@@ -576,6 +594,7 @@ interface RuntimeProductiveEnergySummary {
   constructionSiteCount: number;
   constructionDeadlockTicks: number;
   pendingBuildProgress: number;
+  constructionActivity?: RuntimeConstructionActivitySummary;
   repairBacklogHits: number;
   buildBlockedReason?: RuntimeBuildBlockedReason;
   workerAssignmentBlockedDetail?: RuntimeWorkerAssignmentBlockedDetail;
@@ -590,6 +609,31 @@ interface RuntimeWorkerAssignmentEvidenceSummary {
   workerCount: number;
   assignedTaskCount: number;
   productiveAssignmentCount: number;
+}
+
+interface RuntimeConstructionActivitySummary {
+  source: 'runtime-summary';
+  state: RuntimeConstructionActivityState;
+  accepted: boolean;
+  reason: RuntimeConstructionActivityReason;
+  constructionSiteCount: number;
+  pendingBuildProgress: number;
+  buildCarriedEnergy: number;
+  buildProgress: number;
+  workerAssignmentEvidenceAvailable: boolean;
+  buildBlockedReason?: RuntimeBuildBlockedReason;
+  workerAssignmentBlockedDetail?: RuntimeWorkerAssignmentBlockedDetail;
+  candidate?: RuntimeConstructionActivityCandidateSummary;
+  cpuPressure?: RuntimeCpuPressure;
+  cpuReasons?: RuntimeCpuPressureReason[];
+}
+
+interface RuntimeConstructionActivityCandidateSummary {
+  buildItem: string;
+  room: string;
+  score: number;
+  urgency: ConstructionPriorityUrgency;
+  policyAction?: ConstructionPriorityPolicyAction;
 }
 
 interface RuntimeWorkerAssignmentBlockedWorkerDetail {
@@ -940,7 +984,8 @@ export function emitRuntimeSummary(
       shouldBuildStructureSnapshot(tick),
       options.strategyRegistry,
       options.onStrategyRegistryRuntimeUse,
-      includeOptionalSummary
+      includeOptionalSummary,
+      cpuBudget
     )
   );
   const summary: RuntimeSummary = {
@@ -1087,7 +1132,8 @@ function summarizeRoom(
   includeStructureSnapshot: boolean,
   strategyRegistry: StrategyRegistryEntry[] | undefined,
   onStrategyRegistryRuntimeUse: ((entry: StrategyRegistryEntry) => void) | undefined,
-  includeOptionalSummary: boolean
+  includeOptionalSummary: boolean,
+  cpuBudget: RuntimeCpuBudget
 ): RuntimeRoomSummary {
   const tick = getGameTime();
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === 'worker');
@@ -1099,14 +1145,14 @@ function summarizeRoom(
   if (persistOccupationRecommendations && includeOptionalSummary) {
     persistOccupationRecommendationFollowUpIntent(territoryRecommendation, tick);
   }
-  const resources = summarizeResources(colony, colonyWorkers, colonyCreeps, eventMetrics.resources);
+  const resourcesWithoutActivity = summarizeResources(colony, colonyWorkers, colonyCreeps, eventMetrics.resources);
   const taskCounts = countWorkerTasks(colonyWorkers);
   const assignedTaskCount = countAssignedWorkerTasks(colonyWorkers);
   const workerAssignmentEvidence = summarizeWorkerAssignmentEvidence(
     tick,
     colonyWorkers.length,
     assignedTaskCount,
-    resources.productiveEnergy.assignedWorkerCount
+    resourcesWithoutActivity.productiveEnergy.assignedWorkerCount
   );
   const constructionDeadlockTicks = getRoomConstructionDeadlockTicks(colony.room);
   const survival = summarizeSurvival(colony, roleCounts);
@@ -1116,6 +1162,27 @@ function summarizeRoom(
     territoryExpansion,
     tick
   );
+  const constructionPriority = includeOptionalSummary
+    ? summarizeConstructionPriority(
+        colony,
+        colonyWorkers,
+        strategyRegistry,
+        onStrategyRegistryRuntimeUse
+      )
+    : emptyConstructionPrioritySummary();
+  const constructionActivity = summarizeConstructionActivity(
+    resourcesWithoutActivity.productiveEnergy,
+    constructionPriority,
+    eventMetrics.resources,
+    cpuBudget
+  );
+  const resources: RuntimeResourceSummary = {
+    ...resourcesWithoutActivity,
+    productiveEnergy: {
+      ...resourcesWithoutActivity.productiveEnergy,
+      constructionActivity
+    }
+  };
 
   return {
     roomName: colony.room.name,
@@ -1131,6 +1198,7 @@ function summarizeRoom(
     taskCounts,
     constructionSiteCount: resources.productiveEnergy.constructionSiteCount,
     constructionDeadlockTicks,
+    constructionActivity,
     ...(includeOptionalSummary ? summarizeRuntimeBehavior(colonyWorkers, colonyCreeps, tick) : {}),
     ...(includeStructureSnapshot ? { structures: summarizeStructures(colony, colonyWorkers) } : {}),
     ...(includeOptionalSummary ? summarizeWorkerEfficiency(colonyWorkers, tick) : {}),
@@ -1139,14 +1207,7 @@ function summarizeRoom(
     ...buildControllerSummary(colony.room),
     resources,
     combat: summarizeCombat(colony.room, eventMetrics.combat),
-    constructionPriority: includeOptionalSummary
-      ? summarizeConstructionPriority(
-          colony,
-          colonyWorkers,
-          strategyRegistry,
-          onStrategyRegistryRuntimeUse
-        )
-      : emptyConstructionPrioritySummary(),
+    constructionPriority,
     survival,
     territoryRecommendation,
     territoryExpansionProgress,
@@ -1204,6 +1265,141 @@ function summarizeWorkerAssignmentBlockedRoomFields(
       ? { workerAssignmentBlockedWorkers: productiveEnergy.workerAssignmentBlockedWorkers }
       : {})
   };
+}
+
+function summarizeConstructionActivity(
+  productiveEnergy: RuntimeProductiveEnergySummary,
+  constructionPriority: RuntimeConstructionPrioritySummary,
+  events: RuntimeResourceEventSummary | undefined,
+  cpuBudget: RuntimeCpuBudget
+): RuntimeConstructionActivitySummary {
+  const buildProgress = Math.max(0, Math.ceil(events?.builtProgress ?? 0));
+  const candidate = selectViableConstructionActivityCandidate(constructionPriority);
+  const common = {
+    source: 'runtime-summary' as const,
+    constructionSiteCount: productiveEnergy.constructionSiteCount,
+    pendingBuildProgress: productiveEnergy.pendingBuildProgress,
+    buildCarriedEnergy: productiveEnergy.buildCarriedEnergy,
+    buildProgress,
+    workerAssignmentEvidenceAvailable: productiveEnergy.workerAssignmentEvidenceAvailable,
+    ...(productiveEnergy.buildBlockedReason
+      ? { buildBlockedReason: productiveEnergy.buildBlockedReason }
+      : {}),
+    ...(productiveEnergy.workerAssignmentBlockedDetail
+      ? { workerAssignmentBlockedDetail: productiveEnergy.workerAssignmentBlockedDetail }
+      : {}),
+    ...(candidate ? { candidate } : {}),
+    ...(cpuBudget.pressure !== 'normal' ? { cpuPressure: cpuBudget.pressure } : {}),
+    ...(cpuBudget.reasons.length > 0 ? { cpuReasons: cpuBudget.reasons } : {})
+  };
+
+  if (buildProgress > 0) {
+    return {
+      ...common,
+      state: 'active',
+      accepted: true,
+      reason: 'build_progress_observed'
+    };
+  }
+
+  if (productiveEnergy.buildCarriedEnergy > 0) {
+    return {
+      ...common,
+      state: 'active',
+      accepted: true,
+      reason: 'build_energy_carried'
+    };
+  }
+
+  if (isConstructionActivitySuppressed(productiveEnergy, cpuBudget)) {
+    return {
+      ...common,
+      state: 'candidate_suppressed',
+      accepted: true,
+      reason: selectConstructionActivitySuppressedReason(productiveEnergy, cpuBudget)
+    };
+  }
+
+  if (productiveEnergy.constructionSiteCount > 0 || productiveEnergy.pendingBuildProgress > 0) {
+    return {
+      ...common,
+      state: 'active',
+      accepted: true,
+      reason: 'site_backlog_visible'
+    };
+  }
+
+  if (candidate) {
+    return {
+      ...common,
+      state: 'candidate_suppressed',
+      accepted: true,
+      reason: 'scored_candidate_available'
+    };
+  }
+
+  return {
+    ...common,
+    state: 'no_viable_candidate',
+    accepted: false,
+    reason: 'no_viable_candidate'
+  };
+}
+
+function selectViableConstructionActivityCandidate(
+  constructionPriority: RuntimeConstructionPrioritySummary
+): RuntimeConstructionActivityCandidateSummary | undefined {
+  const candidate = constructionPriority.nextPrimary;
+  if (
+    !candidate ||
+    candidate.score <= 0 ||
+    candidate.urgency === 'blocked' ||
+    candidate.policyAction !== undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    buildItem: candidate.buildItem,
+    room: candidate.room,
+    score: candidate.score,
+    urgency: candidate.urgency
+  };
+}
+
+function isConstructionActivitySuppressed(
+  productiveEnergy: RuntimeProductiveEnergySummary,
+  cpuBudget: RuntimeCpuBudget
+): boolean {
+  if (productiveEnergy.constructionSiteCount <= 0 && productiveEnergy.pendingBuildProgress <= 0) {
+    return false;
+  }
+
+  return (
+    shouldShedNonessentialCpuWork(cpuBudget) ||
+    productiveEnergy.buildBlockedReason === 'energy_buffer_blocked' ||
+    productiveEnergy.buildBlockedReason === 'worker_assignment_gap' ||
+    productiveEnergy.workerAssignmentBlockedDetail === 'spawn_reserving_energy'
+  );
+}
+
+function selectConstructionActivitySuppressedReason(
+  productiveEnergy: RuntimeProductiveEnergySummary,
+  cpuBudget: RuntimeCpuBudget
+): RuntimeConstructionActivityReason {
+  if (shouldShedNonessentialCpuWork(cpuBudget)) {
+    return 'cpu_shed';
+  }
+
+  if (productiveEnergy.workerAssignmentBlockedDetail === 'spawn_reserving_energy') {
+    return 'spawn_reserving_energy';
+  }
+
+  if (productiveEnergy.buildBlockedReason === 'energy_buffer_blocked') {
+    return 'energy_buffer_blocked';
+  }
+
+  return 'worker_assignment_gap';
 }
 
 function buildPostClaimBootstrapSummary(

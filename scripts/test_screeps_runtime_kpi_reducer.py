@@ -186,6 +186,162 @@ class RuntimeKpiReducerTest(unittest.TestCase):
             "rclLevel": 0,
             "storedEnergy": 35,
         })
+        self.assertEqual(report["constructionActivity"]["status"], "observed")
+        self.assertEqual(report["constructionActivity"]["acceptedRoomCount"], 1)
+        self.assertEqual(report["constructionActivity"]["stateCounts"], {"active": 1})
+        self.assertEqual(report["constructionActivity"]["rooms"]["W1N1"]["latest"]["state"], "active")
+        self.assertEqual(
+            report["constructionActivity"]["rooms"]["W1N1"]["latest"]["reason"],
+            "build_energy_carried",
+        )
+
+    def test_reports_explicit_construction_activity_states(self) -> None:
+        report = reducer.reduce_runtime_kpis(
+            [
+                runtime_line(
+                    {
+                        "type": "runtime-summary",
+                        "tick": 220,
+                        "rooms": [
+                            {
+                                "roomName": "W1N1",
+                                "constructionActivity": {
+                                    "source": "runtime-summary",
+                                    "state": "active",
+                                    "accepted": True,
+                                    "reason": "build_progress_observed",
+                                    "constructionSiteCount": 1,
+                                    "pendingBuildProgress": 45,
+                                    "buildCarriedEnergy": 20,
+                                    "buildProgress": 5,
+                                    "workerAssignmentEvidenceAvailable": True,
+                                },
+                            },
+                            {
+                                "roomName": "W2N2",
+                                "resources": {
+                                    "productiveEnergy": {
+                                        "constructionActivity": {
+                                            "source": "runtime-summary",
+                                            "state": "candidate_suppressed",
+                                            "accepted": True,
+                                            "reason": "spawn_reserving_energy",
+                                            "constructionSiteCount": 1,
+                                            "pendingBuildProgress": 50,
+                                            "buildCarriedEnergy": 0,
+                                            "buildProgress": 0,
+                                            "workerAssignmentEvidenceAvailable": True,
+                                            "workerAssignmentBlockedDetail": "spawn_reserving_energy",
+                                        }
+                                    }
+                                },
+                            },
+                            {
+                                "roomName": "W3N3",
+                                "constructionActivity": {
+                                    "source": "runtime-summary",
+                                    "state": "no_viable_candidate",
+                                    "accepted": False,
+                                    "reason": "no_viable_candidate",
+                                    "constructionSiteCount": 0,
+                                    "pendingBuildProgress": 0,
+                                    "buildCarriedEnergy": 0,
+                                    "buildProgress": 0,
+                                    "workerAssignmentEvidenceAvailable": False,
+                                },
+                            },
+                        ],
+                    }
+                )
+            ]
+        )
+
+        construction_activity = report["constructionActivity"]
+        self.assertEqual(construction_activity["status"], "observed")
+        self.assertEqual(construction_activity["observedRoomCount"], 3)
+        self.assertEqual(construction_activity["acceptedRoomCount"], 2)
+        self.assertEqual(
+            construction_activity["stateCounts"],
+            {"active": 1, "candidate_suppressed": 1, "no_viable_candidate": 1},
+        )
+        self.assertEqual(
+            construction_activity["rooms"]["W2N2"]["latest"]["workerAssignmentBlockedDetail"],
+            "spawn_reserving_energy",
+        )
+
+    def test_fallback_construction_activity_preserves_suppression_fields(self) -> None:
+        report = reducer.reduce_runtime_kpis(
+            [
+                runtime_line(
+                    {
+                        "type": "runtime-summary",
+                        "tick": 230,
+                        "rooms": [
+                            {
+                                "roomName": "W1N1",
+                                "constructionSiteCount": 1,
+                                "pendingBuildProgress": 50,
+                                "buildCarriedEnergy": 0,
+                                "workerAssignmentBlockedDetail": "spawn_reserving_energy",
+                                "resources": {"productiveEnergy": {"constructionSiteCount": 1}},
+                            },
+                            {
+                                "roomName": "W2N2",
+                                "constructionSiteCount": 1,
+                                "pendingBuildProgress": 75,
+                                "buildCarriedEnergy": 0,
+                                "cpuBucket": 0,
+                                "resources": {"productiveEnergy": {"pendingBuildProgress": 75}},
+                            },
+                        ],
+                    }
+                )
+            ]
+        )
+
+        construction_activity = report["constructionActivity"]
+        self.assertEqual(construction_activity["status"], "observed")
+        self.assertEqual(construction_activity["acceptedRoomCount"], 2)
+        self.assertEqual(construction_activity["stateCounts"], {"candidate_suppressed": 2})
+        self.assertEqual(construction_activity["rooms"]["W1N1"]["latest"]["state"], "candidate_suppressed")
+        self.assertEqual(construction_activity["rooms"]["W1N1"]["latest"]["reason"], "spawn_reserving_energy")
+        self.assertEqual(
+            construction_activity["rooms"]["W1N1"]["latest"]["workerAssignmentBlockedDetail"],
+            "spawn_reserving_energy",
+        )
+        self.assertEqual(construction_activity["rooms"]["W2N2"]["latest"]["state"], "candidate_suppressed")
+        self.assertEqual(construction_activity["rooms"]["W2N2"]["latest"]["reason"], "cpu_shed")
+        self.assertEqual(construction_activity["rooms"]["W2N2"]["latest"]["cpuPressure"], "critical")
+        self.assertEqual(construction_activity["rooms"]["W2N2"]["latest"]["cpuReasons"], ["criticalBucket"])
+
+    def test_cpu_fallback_does_not_accept_no_build_rooms(self) -> None:
+        report = reducer.reduce_runtime_kpis(
+            [
+                runtime_line(
+                    {
+                        "type": "runtime-summary",
+                        "tick": 240,
+                        "rooms": [
+                            {
+                                "roomName": "W1N1",
+                                "constructionSiteCount": 0,
+                                "pendingBuildProgress": 0,
+                                "buildCarriedEnergy": 0,
+                                "buildBlockedReason": "no_construction_sites",
+                                "cpuBucket": 0,
+                            }
+                        ],
+                    }
+                )
+            ]
+        )
+
+        construction_activity = report["constructionActivity"]
+        self.assertEqual(construction_activity["status"], "observed")
+        self.assertEqual(construction_activity["acceptedRoomCount"], 0)
+        self.assertEqual(construction_activity["stateCounts"], {"no_viable_candidate": 1})
+        self.assertEqual(construction_activity["rooms"]["W1N1"]["latest"]["state"], "no_viable_candidate")
+        self.assertEqual(construction_activity["rooms"]["W1N1"]["latest"]["reason"], "no_viable_candidate")
 
     def test_rejects_runtime_summary_lines_with_trailing_garbage(self) -> None:
         report = reducer.reduce_runtime_kpis(['#runtime-summary {"type":"runtime-summary"} garbage\n'])

@@ -159,6 +159,13 @@ METRIC_SPECS: dict[str, MetricSpec] = {
         "productive_energy", "higher", "productive build/repair/upgrade energy", "energy", "sum"
     ),
     "build_progress": MetricSpec("build_progress", "higher", "build progress", "progress", "sum"),
+    "construction_activity_acceptance": MetricSpec(
+        "construction_activity_acceptance",
+        "higher",
+        "construction activity acceptance",
+        "0/1",
+        "max",
+    ),
     "defense_infrastructure": MetricSpec(
         "defense_infrastructure", "higher", "tower/rampart defense infrastructure", "count", "latest"
     ),
@@ -203,7 +210,7 @@ DIMENSION_SPECS: dict[str, DimensionSpec] = {
         "construction_infrastructure",
         "Construction/infrastructure",
         False,
-        ("build_progress", "defense_infrastructure", "stale_candidate"),
+        ("build_progress", "construction_activity_acceptance", "defense_infrastructure", "stale_candidate"),
     ),
     "creep_efficiency": DimensionSpec(
         "creep_efficiency",
@@ -1490,6 +1497,12 @@ def ingest_runtime_summary(accumulator: MetricAccumulator, payload: JsonObject, 
             source,
             f"{room_name(room)} productive energy",
         )
+        accumulator.add(
+            "construction_activity_acceptance",
+            construction_activity_acceptance_value(room, productive),
+            source,
+            f"{room_name(room)} construction activity acceptance",
+        )
         accumulator.add("build_progress", productive.get("builtProgress"), source, f"{room_name(room)} build progress")
         accumulator.add(
             "low_load_return_count",
@@ -1598,6 +1611,37 @@ def productive_energy_value(productive: JsonObject, task_counts: JsonObject) -> 
             total += value
             seen = True
     return total if seen else None
+
+
+def construction_activity_acceptance_value(room: JsonObject, productive: JsonObject) -> float | None:
+    activity = as_dict(room.get("constructionActivity")) or as_dict(productive.get("constructionActivity"))
+    if activity:
+        accepted = activity.get("accepted")
+        if isinstance(accepted, bool):
+            return 1.0 if accepted else 0.0
+        state = text_value(activity.get("state"))
+        if state in {"active", "candidate_suppressed"}:
+            return 1.0
+        if state == "no_viable_candidate":
+            return 0.0
+
+    build_carried_energy = number_value(productive.get("buildCarriedEnergy"))
+    pending_build_progress = number_value(productive.get("pendingBuildProgress"))
+    construction_site_count = number_value(productive.get("constructionSiteCount"))
+    built_progress = number_value(productive.get("builtProgress")) or number_value(productive.get("buildProgress"))
+    build_blocked_reason = text_value(productive.get("buildBlockedReason")) or text_value(room.get("buildBlockedReason"))
+    if (
+        (built_progress or 0.0) > 0
+        or (build_carried_energy or 0.0) > 0
+        or (pending_build_progress or 0.0) > 0
+        or (construction_site_count or 0.0) > 0
+    ):
+        return 1.0
+    if build_blocked_reason in {"energy_buffer_blocked", "worker_assignment_gap"}:
+        return 1.0
+    if build_blocked_reason == "no_construction_sites":
+        return 0.0
+    return None
 
 
 def metric_value(bundle: JsonObject, key: str) -> float | None:
