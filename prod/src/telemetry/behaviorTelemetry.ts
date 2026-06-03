@@ -162,7 +162,7 @@ export function recordCreepBehaviorMoveToResult(
   result: unknown,
   context: RuntimeMoveToContext
 ): void {
-  if (isRuntimeCpuBucketCritical() || !isFiniteNumber(result)) {
+  if (shouldSuppressBehaviorTelemetryForCpuRecovery() || !isFiniteNumber(result)) {
     return;
   }
 

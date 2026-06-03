@@ -2364,8 +2364,8 @@ describe('runWorker', () => {
         getFreeCapacity: jest.fn().mockReturnValue(50)
       },
       room: { name: 'W1N1', find: jest.fn().mockReturnValue([source]) },
-      harvest: jest.fn().mockReturnValue(0),
-      moveTo: jest.fn()
+      harvest: jest.fn().mockReturnValue(ERR_NOT_IN_RANGE),
+      moveTo: jest.fn().mockReturnValue(ERR_NO_PATH)
     } as unknown as Creep;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 10,
@@ -2381,6 +2381,7 @@ describe('runWorker', () => {
     runWorker(creep);
 
     expect(creep.harvest).toHaveBeenCalledWith(source);
+    expect(creep.moveTo).toHaveBeenCalledWith(source, { range: 1 });
     expect(creep.memory.behaviorTelemetry).toBeUndefined();
   });
 

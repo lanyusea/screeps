@@ -21938,7 +21938,7 @@ function recordCreepBehaviorMove(creep, tick = getGameTime24()) {
 }
 function recordCreepBehaviorMoveToResult(creep, result, context) {
   var _a, _b, _c;
-  if (isRuntimeCpuBucketCritical() || !isFiniteNumber11(result)) {
+  if (shouldSuppressBehaviorTelemetryForCpuRecovery() || !isFiniteNumber11(result)) {
     return;
   }
   const telemetry = ensureCreepBehaviorTelemetry(creep);
@@ -38728,7 +38728,7 @@ function getCachedExpansionSelectionSummary(colony) {
   if (!isRecord30(rawSelection) || !isRoomExpansionSelectionStatus(rawSelection.status)) {
     return null;
   }
-  const refreshedAt = isFiniteNumber11(memory == null ? void 0 : memory.lastExpansionScoreTime) ? memory.lastExpansionScoreTime : void 0;
+  const refreshedAt = isFiniteNumber12(memory == null ? void 0 : memory.lastExpansionScoreTime) ? memory.lastExpansionScoreTime : void 0;
   return {
     status: rawSelection.status,
     ...refreshedAt !== void 0 ? { refreshedAt } : {},
@@ -38736,7 +38736,7 @@ function getCachedExpansionSelectionSummary(colony) {
     ...isNonEmptyString30(rawSelection.targetRoom) ? { targetRoom: rawSelection.targetRoom } : {},
     ...isRoomExpansionSelectionReason(rawSelection.reason) ? { reason: rawSelection.reason } : {},
     ...isRoomExpansionSelectionReasonDetail(rawSelection.reasonDetail) ? { reasonDetail: rawSelection.reasonDetail } : {},
-    ...isFiniteNumber11(rawSelection.score) ? { score: rawSelection.score } : {}
+    ...isFiniteNumber12(rawSelection.score) ? { score: rawSelection.score } : {}
   };
 }
 function getTerritoryExpansionControlCounts(colonyName) {
@@ -38805,17 +38805,17 @@ function toExpansionProgressCandidate(candidate) {
   return {
     roomName: candidate.roomName,
     ...isExpansionCandidateEvidenceStatus2(candidate.evidenceStatus) ? { evidenceStatus: candidate.evidenceStatus } : {},
-    ...isFiniteNumber11(candidate.score) ? { score: candidate.score } : {},
+    ...isFiniteNumber12(candidate.score) ? { score: candidate.score } : {},
     ...isExpansionCandidateRecommendedAction2(candidate.recommendedAction) ? { recommendedAction: candidate.recommendedAction } : {},
     ...isExpansionCandidateBlockReason2(candidate.blockReason) ? { blockReason: candidate.blockReason } : {},
     ...blocker ? { blocker } : {},
-    ...isFiniteNumber11(candidate.updatedAt) ? { updatedAt: candidate.updatedAt } : {},
-    ...isFiniteNumber11(candidate.routeDistance) ? { routeDistance: candidate.routeDistance } : {},
+    ...isFiniteNumber12(candidate.updatedAt) ? { updatedAt: candidate.updatedAt } : {},
+    ...isFiniteNumber12(candidate.routeDistance) ? { routeDistance: candidate.routeDistance } : {},
     ...isNonEmptyString30(candidate.nearestOwnedRoom) ? { nearestOwnedRoom: candidate.nearestOwnedRoom } : {},
-    ...isFiniteNumber11(candidate.nearestOwnedRoomDistance) ? { nearestOwnedRoomDistance: candidate.nearestOwnedRoomDistance } : {},
-    ...isFiniteNumber11(candidate.sourceCount) ? { sourceCount: candidate.sourceCount } : {},
-    ...isFiniteNumber11(candidate.hostileCreepCount) ? { hostileCreepCount: candidate.hostileCreepCount } : {},
-    ...isFiniteNumber11(candidate.hostileStructureCount) ? { hostileStructureCount: candidate.hostileStructureCount } : {},
+    ...isFiniteNumber12(candidate.nearestOwnedRoomDistance) ? { nearestOwnedRoomDistance: candidate.nearestOwnedRoomDistance } : {},
+    ...isFiniteNumber12(candidate.sourceCount) ? { sourceCount: candidate.sourceCount } : {},
+    ...isFiniteNumber12(candidate.hostileCreepCount) ? { hostileCreepCount: candidate.hostileCreepCount } : {},
+    ...isFiniteNumber12(candidate.hostileStructureCount) ? { hostileStructureCount: candidate.hostileStructureCount } : {},
     ...candidate.requiresControllerPressure === true ? { requiresControllerPressure: true } : {}
   };
 }
@@ -38832,8 +38832,8 @@ function getPersistedTopExpansionCandidate(colonyName) {
 }
 function comparePersistedExpansionCandidates(left, right) {
   var _a, _b;
-  const leftRank = isFiniteNumber11(left.rank) ? left.rank : Number.MAX_SAFE_INTEGER;
-  const rightRank = isFiniteNumber11(right.rank) ? right.rank : Number.MAX_SAFE_INTEGER;
+  const leftRank = isFiniteNumber12(left.rank) ? left.rank : Number.MAX_SAFE_INTEGER;
+  const rightRank = isFiniteNumber12(right.rank) ? right.rank : Number.MAX_SAFE_INTEGER;
   if (leftRank !== rightRank) {
     return leftRank - rightRank;
   }
@@ -38961,12 +38961,12 @@ function getTerritoryMemoryRecord9() {
 function getCpuBucket2() {
   var _a, _b;
   const bucket = (_b = (_a = globalThis.Game) == null ? void 0 : _a.cpu) == null ? void 0 : _b.bucket;
-  return isFiniteNumber11(bucket) ? bucket : void 0;
+  return isFiniteNumber12(bucket) ? bucket : void 0;
 }
 function maxFiniteNumber(values) {
   let max;
   for (const value of values) {
-    if (!isFiniteNumber11(value)) {
+    if (!isFiniteNumber12(value)) {
       continue;
     }
     max = max === void 0 ? value : Math.max(max, value);
