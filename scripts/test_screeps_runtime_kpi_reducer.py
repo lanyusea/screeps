@@ -269,6 +269,51 @@ class RuntimeKpiReducerTest(unittest.TestCase):
             "spawn_reserving_energy",
         )
 
+    def test_fallback_construction_activity_preserves_suppression_fields(self) -> None:
+        report = reducer.reduce_runtime_kpis(
+            [
+                runtime_line(
+                    {
+                        "type": "runtime-summary",
+                        "tick": 230,
+                        "rooms": [
+                            {
+                                "roomName": "W1N1",
+                                "constructionSiteCount": 1,
+                                "pendingBuildProgress": 50,
+                                "buildCarriedEnergy": 0,
+                                "workerAssignmentBlockedDetail": "spawn_reserving_energy",
+                                "resources": {"productiveEnergy": {"constructionSiteCount": 1}},
+                            },
+                            {
+                                "roomName": "W2N2",
+                                "constructionSiteCount": 1,
+                                "pendingBuildProgress": 75,
+                                "buildCarriedEnergy": 0,
+                                "cpuBucket": 0,
+                                "resources": {"productiveEnergy": {"pendingBuildProgress": 75}},
+                            },
+                        ],
+                    }
+                )
+            ]
+        )
+
+        construction_activity = report["constructionActivity"]
+        self.assertEqual(construction_activity["status"], "observed")
+        self.assertEqual(construction_activity["acceptedRoomCount"], 2)
+        self.assertEqual(construction_activity["stateCounts"], {"candidate_suppressed": 2})
+        self.assertEqual(construction_activity["rooms"]["W1N1"]["latest"]["state"], "candidate_suppressed")
+        self.assertEqual(construction_activity["rooms"]["W1N1"]["latest"]["reason"], "spawn_reserving_energy")
+        self.assertEqual(
+            construction_activity["rooms"]["W1N1"]["latest"]["workerAssignmentBlockedDetail"],
+            "spawn_reserving_energy",
+        )
+        self.assertEqual(construction_activity["rooms"]["W2N2"]["latest"]["state"], "candidate_suppressed")
+        self.assertEqual(construction_activity["rooms"]["W2N2"]["latest"]["reason"], "cpu_shed")
+        self.assertEqual(construction_activity["rooms"]["W2N2"]["latest"]["cpuPressure"], "critical")
+        self.assertEqual(construction_activity["rooms"]["W2N2"]["latest"]["cpuReasons"], ["criticalBucket"])
+
     def test_rejects_runtime_summary_lines_with_trailing_garbage(self) -> None:
         report = reducer.reduce_runtime_kpis(['#runtime-summary {"type":"runtime-summary"} garbage\n'])
 

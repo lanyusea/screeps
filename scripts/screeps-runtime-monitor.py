@@ -5377,8 +5377,9 @@ def construction_activity_suppressed_reason(
     metrics: RoomSummaryMetrics,
     assignment_blocked_fields: dict[str, Any],
     cpu_reasons: list[str],
+    candidate: dict[str, Any] | None,
 ) -> str | None:
-    if len(metrics.construction_sites) <= 0 and metrics.pending_build_progress <= 0:
+    if len(metrics.construction_sites) <= 0 and metrics.pending_build_progress <= 0 and candidate is None:
         return None
     if any(reason in {"lowBucket", "criticalBucket"} for reason in cpu_reasons):
         return "cpu_shed"
@@ -5387,6 +5388,8 @@ def construction_activity_suppressed_reason(
     if metrics.build_blocked_reason == "energy_buffer_blocked":
         return "energy_buffer_blocked"
     if metrics.build_blocked_reason == WORKER_ASSIGNMENT_GAP_BLOCKED_REASON:
+        return WORKER_ASSIGNMENT_GAP_BLOCKED_REASON
+    if assignment_blocked_fields.get("workerAssignmentBlockedDetail") is not None:
         return WORKER_ASSIGNMENT_GAP_BLOCKED_REASON
     return None
 
@@ -5435,7 +5438,7 @@ def construction_activity_summary(
             "reason": "build_energy_carried",
         }
 
-    suppressed_reason = construction_activity_suppressed_reason(metrics, assignment_blocked_fields, cpu_reasons)
+    suppressed_reason = construction_activity_suppressed_reason(metrics, assignment_blocked_fields, cpu_reasons, candidate)
     if suppressed_reason is not None:
         return {
             **common,

@@ -19,6 +19,8 @@ SCHEMA_VERSION = 1
 OBSERVED = "observed"
 NOT_INSTRUMENTED = "not instrumented"
 NOT_OBSERVED = "not observed"
+CPU_BUCKET_LOW_THRESHOLD = 1_000
+CPU_BUCKET_CRITICAL_THRESHOLD = 100
 
 CONTROLLER_FIELDS = ("level", "progress", "progressTotal", "ticksToDowngrade")
 RESOURCE_FIELDS = ("storedEnergy", "workerCarriedEnergy", "harvestedThisTick", "droppedEnergy", "sourceCount")
@@ -131,6 +133,7 @@ def clean_room_level_metrics(room: dict[str, Any]) -> dict[str, int | float | No
 def clean_construction_activity(room: dict[str, Any]) -> JsonObject | None:
     resources = room.get("resources") if isinstance(room.get("resources"), dict) else {}
     productive = resources.get("productiveEnergy") if isinstance(resources.get("productiveEnergy"), dict) else {}
+    cpu = room.get("cpu") if isinstance(room.get("cpu"), dict) else {}
     explicit = room.get("constructionActivity")
     if not isinstance(explicit, dict):
         explicit = productive.get("constructionActivity")
@@ -145,10 +148,35 @@ def clean_construction_activity(room: dict[str, Any]) -> JsonObject | None:
     build_carried_energy = first_number(room, resources, productive, key="buildCarriedEnergy")
     build_progress = first_number(room, productive, resources.get("events", {}) if isinstance(resources.get("events"), dict) else {}, key="builtProgress")
     build_blocked_reason = text_value(room.get("buildBlockedReason")) or text_value(productive.get("buildBlockedReason"))
+    worker_assignment_blocked_detail = text_value(room.get("workerAssignmentBlockedDetail")) or text_value(
+        productive.get("workerAssignmentBlockedDetail")
+    )
+    cpu_pressure = (
+        text_value(room.get("cpuPressure"))
+        or text_value(productive.get("cpuPressure"))
+        or text_value(cpu.get("pressure"))
+        or text_value(room.get("pressure"))
+    )
+    cpu_reasons = first_text_list(room, productive, cpu, key="cpuReasons") or first_text_list(
+        cpu, room, productive, key="reasons"
+    )
+    cpu_bucket = first_number(room, cpu, key="cpuBucket")
+    if cpu_bucket is None:
+        cpu_bucket = first_number(cpu, room, key="bucket")
+    if cpu_bucket is not None and cpu_bucket < CPU_BUCKET_LOW_THRESHOLD:
+        cpu_pressure = cpu_pressure or ("critical" if cpu_bucket <= CPU_BUCKET_CRITICAL_THRESHOLD else "degraded")
+        if not cpu_reasons:
+            cpu_reasons = ["criticalBucket" if cpu_bucket <= CPU_BUCKET_CRITICAL_THRESHOLD else "lowBucket"]
+    suppressed_reason = fallback_construction_suppressed_reason(
+        build_blocked_reason,
+        worker_assignment_blocked_detail,
+        cpu_pressure,
+        cpu_reasons,
+    )
     if all(
         value is None
         for value in (construction_site_count, pending_build_progress, build_carried_energy, build_progress)
-    ) and build_blocked_reason is None:
+    ) and build_blocked_reason is None and suppressed_reason is None:
         return None
 
     if (build_progress or 0) > 0:
@@ -157,9 +185,9 @@ def clean_construction_activity(room: dict[str, Any]) -> JsonObject | None:
     elif (build_carried_energy or 0) > 0:
         state = "active"
         reason = "build_energy_carried"
-    elif build_blocked_reason in {"energy_buffer_blocked", "worker_assignment_gap"}:
+    elif suppressed_reason is not None:
         state = "candidate_suppressed"
-        reason = build_blocked_reason
+        reason = suppressed_reason
     elif (construction_site_count or 0) > 0 or (pending_build_progress or 0) > 0:
         state = "active"
         reason = "site_backlog_visible"
@@ -176,6 +204,13 @@ def clean_construction_activity(room: dict[str, Any]) -> JsonObject | None:
             "reason": reason,
             "buildProgress": build_progress,
             **({"buildBlockedReason": build_blocked_reason} if build_blocked_reason is not None else {}),
+            **(
+                {"workerAssignmentBlockedDetail": worker_assignment_blocked_detail}
+                if worker_assignment_blocked_detail is not None
+                else {}
+            ),
+            **({"cpuPressure": cpu_pressure} if cpu_pressure is not None else {}),
+            **({"cpuReasons": cpu_reasons} if cpu_reasons else {}),
         },
         room,
         productive,
@@ -210,6 +245,11 @@ def normalize_construction_activity(
         value = activity.get(key)
         if isinstance(value, (str, bool)) and value != "":
             normalized[key] = value
+    cpu_reasons = activity.get("cpuReasons")
+    if isinstance(cpu_reasons, list):
+        normalized_cpu_reasons = [item for item in (text_value(value) for value in cpu_reasons) if item is not None]
+        if normalized_cpu_reasons:
+            normalized["cpuReasons"] = normalized_cpu_reasons
     if isinstance(candidate, dict):
         normalized_candidate = {
             key: candidate[key]
@@ -223,6 +263,36 @@ def normalize_construction_activity(
 
 def text_value(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def first_text_list(*sections: dict[str, Any], key: str) -> list[str]:
+    for section in sections:
+        value = section.get(key)
+        if not isinstance(value, list):
+            continue
+        result = [item for item in (text_value(item) for item in value) if item is not None]
+        if result:
+            return result
+    return []
+
+
+def fallback_construction_suppressed_reason(
+    build_blocked_reason: str | None,
+    worker_assignment_blocked_detail: str | None,
+    cpu_pressure: str | None,
+    cpu_reasons: list[str],
+) -> str | None:
+    if any(reason in {"lowBucket", "criticalBucket"} for reason in cpu_reasons):
+        return "cpu_shed"
+    if cpu_pressure is not None and cpu_pressure != "normal":
+        return "cpu_shed"
+    if worker_assignment_blocked_detail == "spawn_reserving_energy":
+        return "spawn_reserving_energy"
+    if build_blocked_reason in {"energy_buffer_blocked", "worker_assignment_gap"}:
+        return build_blocked_reason
+    if worker_assignment_blocked_detail is not None:
+        return "worker_assignment_gap"
+    return None
 
 
 def first_number(*sections: dict[str, Any], key: str) -> int | float | None:

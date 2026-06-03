@@ -2786,6 +2786,68 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
             payload["rooms"][0]["constructionActivity"],
         )
 
+    def test_runtime_summary_payload_preserves_candidate_suppression_without_site_backlog(self) -> None:
+        cases = {
+            "spawn reservation": (
+                {
+                    "resources": {
+                        "productiveEnergy": {
+                            "workerAssignmentBlockedDetail": "spawn_reserving_energy",
+                        }
+                    }
+                },
+                "spawn_reserving_energy",
+            ),
+            "cpu shed": ({"cpu": {"bucket": 0}}, "cpu_shed"),
+        }
+
+        for name, (extra_info, expected_reason) in cases.items():
+            with self.subTest(name=name):
+                snapshot = monitor.RoomSnapshot(
+                    ref=monitor.RoomRef(shard="shardX", room="E26S49"),
+                    terrain="0" * monitor.TERRAIN_CELLS,
+                    objects=monitor.normalize_objects({}),
+                    tick=265634,
+                    owner="lanyusea",
+                    info={
+                        "constructionPriority": {
+                            "nextPrimary": {
+                                "buildItem": "extension",
+                                "room": "E26S49",
+                                "score": 4.5,
+                                "urgency": "normal",
+                                "policyAction": "build",
+                            }
+                        },
+                        **extra_info,
+                    },
+                )
+
+                payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+                activity = payload["rooms"][0]["constructionActivity"]
+
+                self.assertEqual(activity["state"], "candidate_suppressed")
+                self.assertTrue(activity["accepted"])
+                self.assertEqual(activity["reason"], expected_reason)
+                self.assertEqual(activity["constructionSiteCount"], 0)
+                self.assertEqual(activity["pendingBuildProgress"], 0)
+                self.assertEqual(activity["buildBlockedReason"], "no_construction_sites")
+                self.assertEqual(
+                    activity["candidate"],
+                    {
+                        "buildItem": "extension",
+                        "room": "E26S49",
+                        "score": 4.5,
+                        "urgency": "normal",
+                        "policyAction": "build",
+                    },
+                )
+                if expected_reason == "spawn_reserving_energy":
+                    self.assertEqual(activity["workerAssignmentBlockedDetail"], "spawn_reserving_energy")
+                else:
+                    self.assertEqual(activity["cpuPressure"], "critical")
+                    self.assertEqual(activity["cpuReasons"], ["criticalBucket"])
+
     def test_runtime_summary_payload_keeps_zero_owned_creeps_assignment_evidence_free(self) -> None:
         snapshot = monitor.RoomSnapshot(
             ref=monitor.RoomRef(shard="shardX", room="E29N55"),
