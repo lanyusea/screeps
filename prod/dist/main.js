@@ -38755,8 +38755,8 @@ function summarizeWorkerAssignmentBlockedRoomFields(productiveEnergy) {
   };
 }
 function summarizeConstructionActivity(productiveEnergy, constructionPriority, events, cpuBudget) {
-  var _a;
-  const buildProgress = Math.max(0, Math.ceil((_a = events == null ? void 0 : events.builtProgress) != null ? _a : 0));
+  var _a2;
+  const buildProgress = Math.max(0, Math.ceil((_a2 = events == null ? void 0 : events.builtProgress) != null ? _a2 : 0));
   const candidate = selectViableConstructionActivityCandidate(constructionPriority);
   const common = {
     source: "runtime-summary",
