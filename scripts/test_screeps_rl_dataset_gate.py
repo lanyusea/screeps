@@ -379,6 +379,31 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
         self.assertEqual(diagnostics["sourceMaxAgeHours"], dataset_export.CONSOLE_CAPTURE_MAX_AGE_HOURS)
         self.assertEqual(diagnostics["skippedFileReasons"], {"older_than_max_age": 12})
         self.assertIn("Refresh runtime-summary-console captures", diagnostics["recommendedAction"])
+        self.assertIn("configured 24h max age", diagnostics["recommendedAction"])
+
+    def test_stale_only_source_window_uses_fallback_when_max_age_missing(self) -> None:
+        diagnostics = gate.dataset_source_diagnostics(
+            {
+                "sampleCount": 0,
+                "sourceArtifactCount": 0,
+                "runtimeSummaryArtifactCount": 0,
+                "skippedFileReasons": {"older_than_max_age": 3},
+            },
+            {
+                "source": {
+                    "inputPaths": ["runtime-artifacts/runtime-summary-console"],
+                    "skippedFileReasons": {"older_than_max_age": 3},
+                },
+            },
+            sample_count=0,
+            min_samples=1,
+        )
+
+        self.assertEqual(diagnostics["status"], "blocked")
+        self.assertEqual(diagnostics["classification"], "no_recent_source_artifacts_within_max_age")
+        self.assertIsNone(diagnostics["sourceMaxAgeHours"])
+        self.assertIn("configured max-age window", diagnostics["recommendedAction"])
+        self.assertNotIn("Noneh", diagnostics["recommendedAction"])
 
     def test_run_rejects_dead_room_dataset_samples(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

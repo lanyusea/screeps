@@ -741,6 +741,16 @@ def official_mmo_control_forbidden(value: Any) -> bool:
     return value is False or (isinstance(value, str) and value.startswith("forbidden"))
 
 
+def source_max_age_window_text(source_max_age_hours: Any) -> str:
+    if (
+        isinstance(source_max_age_hours, (int, float))
+        and not isinstance(source_max_age_hours, bool)
+        and math.isfinite(float(source_max_age_hours))
+    ):
+        return f"configured {source_max_age_hours:g}h max age"
+    return "configured max-age window"
+
+
 def dataset_source_diagnostics(
     dataset_summary: JsonObject,
     run_manifest: JsonObject,
@@ -774,7 +784,7 @@ def dataset_source_diagnostics(
         classification = "no_recent_source_artifacts_within_max_age"
         recommended_action = (
             "Refresh runtime-summary-console captures or increase the console-capture source window; "
-            f"all scanned source files were older than the configured {source_max_age_hours}h max age."
+            f"all scanned source files were older than the {source_max_age_window_text(source_max_age_hours)}."
         )
     elif source_artifact_count == 0:
         classification = "no_source_artifacts_scanned"
