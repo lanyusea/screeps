@@ -23,6 +23,19 @@ import screeps_rl_metrics_ingestor as ingestor
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+REQUIRED_CHECK_ACT_METRICS = (
+    "creep.stuck_ticks",
+    "creep.low_load_return_count",
+    "cpu.used",
+    "cpu.bucket",
+    "reliability.loop_exception_count",
+    "reliability.telemetry_silence_ticks",
+    "territory.controller_progress",
+    "upgrade.carried_energy",
+    "economy.import_demand",
+    "economy.blocked_import_energy",
+    "economy.multi_room_deficit_energy",
+)
 
 
 @contextmanager
@@ -42,11 +55,132 @@ def isolated_metrics_db(repo_root: Path):
     db_path = grafana.default_db_path(repo_root)
     db_path.parent.mkdir(parents=True)
     conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
     try:
         conn.executescript(ingestor.SCHEMA_SQL)
         yield conn, db_path
     finally:
         conn.close()
+
+
+def dashboard_payload(repo_root: Path) -> grafana.JsonObject:
+    return json.loads(grafana.dashboard_file(repo_root).read_text(encoding="utf-8"))
+
+
+def panel_by_title(repo_root: Path, title: str) -> grafana.JsonObject:
+    dashboard = dashboard_payload(repo_root)
+    for panel in dashboard["panels"]:
+        if panel.get("title") == title:
+            return panel
+    raise AssertionError(f"missing dashboard panel {title!r}")
+
+
+def panel_rows(conn: sqlite3.Connection, repo_root: Path, title: str) -> list[sqlite3.Row]:
+    panel = panel_by_title(repo_root, title)
+    query = panel["targets"][0]["queryText"].strip().rstrip(";")
+    return conn.execute(query).fetchall()
+
+
+def insert_fresh_rollout_inputs(
+    conn: sqlite3.Connection,
+    *,
+    include_training: bool = True,
+    include_ledger: bool = True,
+    policy_metric_name: str = "rl.policy.advantage_territory",
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO runtime_room_metrics (tick, room_name, source_artifact, dedupe_key)
+        VALUES (?, ?, ?, ?)
+        """,
+        (10, "W1N1", "runtime-summary.log", "runtime-proof"),
+    )
+    conn.execute(
+        """
+        INSERT INTO metric_observations (metric_name, tick, value, source_artifact, dedupe_key)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        ("source.rl_metrics_refresh.completed", 10, 1, "rl-metrics-refresh.log", "refresh-proof"),
+    )
+    for metric_name, value, dedupe_key in (
+        ("rl.dataset_gate.status", 1, "dataset-status"),
+        ("rl.dataset_gate.sample_count", 250, "dataset-samples"),
+        ("rl.dataset_gate.quality_samples_accepted", 250, "dataset-accepted"),
+        ("rl.dataset_gate.quality_samples_rejected", 0, "dataset-rejected"),
+    ):
+        conn.execute(
+            """
+            INSERT INTO rl_dataset_gate_metrics (
+              gate_id, status, metric_name, value, source_artifact, dedupe_key
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("gate-a", "pass", metric_name, value, "runtime-artifacts/rl-dataset-gates/gate-a.json", dedupe_key),
+        )
+    if include_training:
+        conn.execute(
+            """
+            INSERT INTO rl_training_execution_metrics (
+              report_id, variant_id, metric_name, value, source_artifact, dedupe_key
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "report-a",
+                "candidate-a",
+                "rl.training.execution_sample_count",
+                250,
+                "runtime-artifacts/rl-training/report-a.json",
+                "training-proof",
+            ),
+        )
+    conn.execute(
+        """
+        INSERT INTO rl_policy_advantage_metrics (
+          report_id, candidate_id, incumbent_id, metric_name, value, directionality,
+          source_artifact, dedupe_key
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "report-a",
+            "candidate-a",
+            "baseline-a",
+            policy_metric_name,
+            5,
+            "higher is better",
+            "runtime-artifacts/rl-training/report-a.json",
+            f"policy-{policy_metric_name}",
+        ),
+    )
+    if include_ledger:
+        conn.execute(
+            """
+            INSERT INTO metric_iteration_decisions (
+              decision_key, status, source_artifact, rationale
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                "rollout-canary",
+                "ready-with-rollback",
+                "runtime-artifacts/rl-control-loop/decision-a.json",
+                "Fresh proof with rollback criteria.",
+            ),
+        )
+    conn.commit()
+
+
+def insert_required_instrumentation_proof(conn: sqlite3.Connection) -> None:
+    for metric_name in REQUIRED_CHECK_ACT_METRICS:
+        conn.execute(
+            """
+            INSERT INTO metric_observations (metric_name, tick, value, source_artifact, dedupe_key)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (metric_name, 10, 1, "runtime-summary.log", f"coverage-proof-{metric_name}"),
+        )
+    conn.commit()
 
 
 def grafana_docker_command(db_path: Path | None = None) -> list[str]:
@@ -132,7 +266,7 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
         self.assertEqual(report["status"], "PASS")
         self.assertEqual(report["datasourceUid"], grafana.DATASOURCE_UID)
         self.assertEqual(report["datasourceType"], grafana.DATASOURCE_TYPE)
-        self.assertGreaterEqual(report["panelCount"], 13)
+        self.assertEqual(report["panelCount"], len(grafana.REQUIRED_V2_PANEL_TITLES))
         self.assertEqual(report["metricsDb"]["status"], "MISSING")
         coverage_checks = {
             check["name"]: check["status"]
@@ -141,10 +275,15 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
         }
         for coverage_name in grafana.REQUIRED_QUERY_COVERAGE:
             self.assertEqual(coverage_checks[f"dashboard query coverage: {coverage_name}"], "PASS")
+        self.assertNotIn("#1627", grafana.REQUIRED_CHECK_ACT_QUERY_FRAGMENTS.values())
         target_contract_check = next(
             check for check in report["checks"] if check["name"] == "dashboard frser SQLite target contract"
         )
         self.assertEqual(target_contract_check["status"], "PASS")
+        v2_section_check = next(
+            check for check in report["checks"] if check["name"] == "dashboard Check/Act v2 panel sections"
+        )
+        self.assertEqual(v2_section_check["status"], "PASS")
 
     def test_static_repository_contract_passes_with_local_metrics_db_present(self) -> None:
         with isolated_static_repo(with_metrics_db=True) as repo_root:
@@ -154,7 +293,82 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
         self.assertEqual(report["metricsDb"]["status"], "PRESENT")
         self.assertEqual(report["metricsDb"]["path"], str(grafana.default_db_path(repo_root.resolve())))
 
-    def test_content_audit_classifies_missing_metric_streams_as_not_instrumented(self) -> None:
+    def test_dashboard_v2_panels_return_explicit_rows_on_empty_metrics_db(self) -> None:
+        with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (_conn, db_path):
+            report = grafana.audit_content(repo_root, db_path)
+
+        self.assertEqual(report["status"], "PASS")
+        self.assertEqual(report["contentState"], grafana.CONTENT_READY)
+        self.assertEqual(report["panelCount"], len(grafana.REQUIRED_V2_PANEL_TITLES))
+        self.assertEqual(report["emptyPanelCount"], 0)
+        self.assertTrue(all(panel["rowCount"] > 0 for panel in report["panels"]))
+
+    def test_top_decision_strip_blocks_rollout_without_training_or_ledger_proof(self) -> None:
+        with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (conn, _db_path):
+            insert_fresh_rollout_inputs(conn, include_training=False, include_ledger=False)
+
+            rows = panel_rows(conn, repo_root, "Top Decision Strip")
+
+        state_row = next(row for row in rows if row["item"] == "flywheel_state")
+        self.assertEqual(state_row["status"], "STALE_DATA")
+        self.assertNotEqual(state_row["status"], "ROLL_OUT_ALLOWED")
+        self.assertIn("trainingReports=0", state_row["evidence"])
+        self.assertIn("ledgerDecisions=0", state_row["evidence"])
+
+    def test_rl_pipeline_gate_ignores_unrelated_policy_metric_for_readiness(self) -> None:
+        with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (conn, _db_path):
+            insert_fresh_rollout_inputs(
+                conn,
+                policy_metric_name="rl.policy.unrelated_positive_metric",
+            )
+
+            rows = panel_rows(conn, repo_root, "RL Pipeline Gate")
+
+        readiness_row = next(row for row in rows if row["gate_row"] == "rollout_canary_readiness")
+        scorecard_row = next(row for row in rows if row["gate_row"] == "scorecard_freshness")
+        self.assertEqual(readiness_row["status"], "NOT_READY")
+        self.assertIn("utilityDelta=0", scorecard_row["evidence"])
+
+    def test_rl_pipeline_gate_blocks_canary_readiness_without_ledger_proof(self) -> None:
+        with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (conn, _db_path):
+            insert_fresh_rollout_inputs(conn, include_ledger=False)
+
+            rows = panel_rows(conn, repo_root, "RL Pipeline Gate")
+
+        readiness_row = next(row for row in rows if row["gate_row"] == "rollout_canary_readiness")
+        ledger_row = next(row for row in rows if row["gate_row"] == "decision_ledger_freshness")
+        self.assertEqual(readiness_row["status"], "NOT_READY")
+        self.assertEqual(ledger_row["status"], "BLOCKER_NO_LEDGER")
+        self.assertIn("decisions=0", ledger_row["evidence"])
+
+    def test_rl_pipeline_gate_blocks_canary_readiness_without_instrumentation_proof(self) -> None:
+        with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (conn, _db_path):
+            insert_fresh_rollout_inputs(conn)
+
+            rows = panel_rows(conn, repo_root, "RL Pipeline Gate")
+
+        readiness_row = next(row for row in rows if row["gate_row"] == "rollout_canary_readiness")
+        instrumentation_row = next(row for row in rows if row["gate_row"] == "instrumentation_proof")
+        self.assertEqual(readiness_row["status"], "NOT_READY")
+        self.assertEqual(instrumentation_row["status"], "BLOCKED")
+        self.assertIn(f"missingMetrics={len(REQUIRED_CHECK_ACT_METRICS)}", instrumentation_row["evidence"])
+        self.assertIn(f"instrumentationBlockers={len(REQUIRED_CHECK_ACT_METRICS)}", readiness_row["evidence"])
+
+    def test_rl_pipeline_gate_allows_canary_readiness_with_instrumentation_proof(self) -> None:
+        with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (conn, _db_path):
+            insert_fresh_rollout_inputs(conn)
+            insert_required_instrumentation_proof(conn)
+
+            rows = panel_rows(conn, repo_root, "RL Pipeline Gate")
+
+        readiness_row = next(row for row in rows if row["gate_row"] == "rollout_canary_readiness")
+        instrumentation_row = next(row for row in rows if row["gate_row"] == "instrumentation_proof")
+        self.assertEqual(readiness_row["status"], "READY")
+        self.assertEqual(instrumentation_row["status"], "COVERED")
+        self.assertIn("blockers=0", instrumentation_row["evidence"])
+        self.assertIn("instrumentationBlockers=0", readiness_row["evidence"])
+
+    def test_content_audit_returns_explicit_blocker_rows_for_missing_metric_streams(self) -> None:
         with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (conn, db_path):
             conn.execute(
                 """
@@ -183,16 +397,17 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
             conn.commit()
 
             report = grafana.audit_content(repo_root, db_path)
+            rows = panel_rows(conn, repo_root, "Instrumentation Coverage Blockers")
 
-        panel = next(panel for panel in report["panels"] if panel["id"] == 4)
-        target = next(target for target in panel["targets"] if target["refId"] == "A")
+        panel = next(panel for panel in report["panels"] if panel["title"] == "Instrumentation Coverage Blockers")
+        stuck_row = next(row for row in rows if row["metric_name"] == "creep.stuck_ticks")
         self.assertEqual(report["status"], "PASS")
-        self.assertEqual(panel["state"], grafana.CONTENT_NOT_INSTRUMENTED)
-        self.assertEqual(target["state"], grafana.CONTENT_NOT_INSTRUMENTED)
-        self.assertIn("no metric_observations rows", target["details"])
-        self.assertEqual(target["evidence"]["metricCoverageGapCounts"]["creep.stuck_ticks"], 1)
+        self.assertEqual(panel["state"], grafana.CONTENT_READY)
+        self.assertEqual(stuck_row["status"], "BLOCKER_MISSING_METRIC")
+        self.assertEqual(stuck_row["gap_count"], 1)
+        self.assertIn("stuck", stuck_row["why_it_matters"].lower())
 
-    def test_content_audit_classifies_empty_runtime_columns_as_not_instrumented(self) -> None:
+    def test_content_audit_returns_explicit_runtime_bottleneck_rows_when_columns_empty(self) -> None:
         with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (conn, db_path):
             conn.execute(
                 """
@@ -204,17 +419,17 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
             conn.commit()
 
             report = grafana.audit_content(repo_root, db_path)
+            rows = panel_rows(conn, repo_root, "Live Gameplay Bottlenecks")
 
-        panel = next(panel for panel in report["panels"] if panel["id"] == 11)
-        target = panel["targets"][0]
+        panel = next(panel for panel in report["panels"] if panel["title"] == "Live Gameplay Bottlenecks")
+        room_row = next(row for row in rows if row["room"] == "W1N1")
         self.assertEqual(report["status"], "PASS")
-        self.assertEqual(panel["state"], grafana.CONTENT_NOT_INSTRUMENTED)
-        self.assertEqual(target["state"], grafana.CONTENT_NOT_INSTRUMENTED)
-        self.assertEqual(target["evidence"]["runtimeRoomRowCount"], 1)
-        self.assertEqual(target["evidence"]["runtimeRoomNonNullRows"], 0)
-        self.assertIn("path_finding_failures", target["details"])
+        self.assertEqual(panel["state"], grafana.CONTENT_READY)
+        self.assertEqual(room_row["status"], "FIX_INSTRUMENTATION")
+        self.assertEqual(room_row["creep_efficiency_state"], "NOT_INSTRUMENTED")
+        self.assertEqual(room_row["cpu_reliability_state"], "NOT_INSTRUMENTED")
 
-    def test_content_audit_classifies_missing_gameplay_category_as_not_instrumented(self) -> None:
+    def test_content_audit_keeps_gameplay_findings_as_action_rows(self) -> None:
         with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (conn, db_path):
             ingestor.record_finding(
                 conn,
@@ -230,25 +445,29 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
             conn.commit()
 
             report = grafana.audit_content(repo_root, db_path)
+            rows = panel_rows(conn, repo_root, "Gameplay Behavior Findings")
 
-        panel = next(panel for panel in report["panels"] if panel["id"] == 3)
-        target = next(target for target in panel["targets"] if target["refId"] == "B")
+        panel = next(panel for panel in report["panels"] if panel["title"] == "Gameplay Behavior Findings")
+        finding_row = next(row for row in rows if row["finding_key"] == "runtime-loop-exception")
         self.assertEqual(report["status"], "PASS")
-        self.assertEqual(target["state"], grafana.CONTENT_NOT_INSTRUMENTED)
-        self.assertEqual(target["evidence"]["gameplayBehaviorFindingCount"], 1)
-        self.assertIn("no gameplay behavior findings match for categories stalled-construction", target["details"])
+        self.assertEqual(panel["state"], grafana.CONTENT_READY)
+        self.assertEqual(finding_row["category"], "runtime-reliability")
+        self.assertIn("tick-loop exceptions", finding_row["action"])
 
     def test_content_audit_reports_query_errors_as_misconfigured(self) -> None:
         with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (_conn, db_path):
             dashboard_path = grafana.dashboard_file(repo_root)
             dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
-            dashboard["panels"][0]["targets"][0]["queryText"] = "SELECT * FROM metric_observations_broken;"
-            dashboard["panels"][0]["targets"][0]["rawQueryText"] = "SELECT * FROM metric_observations_broken;"
+            panel = next(panel for panel in dashboard["panels"] if panel.get("title") == "Live Gameplay Bottlenecks")
+            query = panel["targets"][0]["queryText"]
+            broken_query = query.replace("latest_rooms.room_name AS room", "missing_column AS room", 1)
+            panel["targets"][0]["queryText"] = broken_query
+            panel["targets"][0]["rawQueryText"] = broken_query
             dashboard_path.write_text(json.dumps(dashboard, indent=2), encoding="utf-8")
 
             report = grafana.audit_content(repo_root, db_path)
 
-        panel = next(panel for panel in report["panels"] if panel["id"] == 1)
+        panel = next(panel for panel in report["panels"] if panel["title"] == "Live Gameplay Bottlenecks")
         self.assertEqual(report["status"], "FAIL")
         self.assertEqual(report["contentState"], grafana.CONTENT_MISCONFIGURED)
         self.assertEqual(panel["state"], grafana.CONTENT_MISCONFIGURED)
@@ -258,9 +477,16 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
         dashboard_path = grafana.dashboard_file(REPO_ROOT)
         dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
         broken_dashboard = copy.deepcopy(dashboard)
-        broken_dashboard["panels"] = [
-            panel for panel in broken_dashboard["panels"] if panel.get("id") != 13
-        ]
+        for panel in broken_dashboard["panels"]:
+            for target in panel.get("targets", []):
+                if not isinstance(target, dict):
+                    continue
+                query = target.get("queryText")
+                if not isinstance(query, str):
+                    continue
+                broken_query = query.replace("FROM metric_iteration_decisions", "FROM iteration_decisions_broken")
+                target["queryText"] = broken_query
+                target["rawQueryText"] = broken_query
 
         report = grafana.validate_dashboard_payload(broken_dashboard, dashboard_path)
 
@@ -276,10 +502,9 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
         dashboard_path = grafana.dashboard_file(REPO_ROOT)
         dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
         broken_dashboard = copy.deepcopy(dashboard)
-        target = broken_dashboard["panels"][1]["targets"][0]
+        target = broken_dashboard["panels"][0]["targets"][0]
         target.pop("rawQueryText", None)
         target.pop("queryType", None)
-        target.pop("timeColumns", None)
 
         report = grafana.validate_dashboard_payload(broken_dashboard, dashboard_path)
 
@@ -287,7 +512,6 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
         errors = "\n".join(error for error in report["errors"])
         self.assertIn("rawQueryText", errors)
         self.assertIn("queryType", errors)
-        self.assertIn("timeColumns", errors)
 
     def test_live_validator_reports_not_running_instead_of_pass(self) -> None:
         report = grafana.validate_live("http://127.0.0.1:9", timeout=0.1)

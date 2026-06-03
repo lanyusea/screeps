@@ -50,13 +50,51 @@ RUNTIME_ROOM_COLUMN_METRICS = {
     "build_blocked_reason": "construction.build_blocked_reason",
     "construction_site_count": "construction.site_count",
     "construction_deadlock_ticks": "construction.deadlock_ticks",
+    "cpu_bucket": "cpu.bucket",
+    "cpu_used": "cpu.used",
     "destination_blocked": "creep.destination_blocked",
     "extension_capacity_contribution": "economy.extension_capacity_contribution",
     "extension_count": "economy.extension_count",
     "path_finding_failures": "creep.path_finding_failures",
     "pending_build_progress": "construction.pending_build_progress",
+    "rcl_level": "territory.rcl_level",
+    "stored_energy": "economy.stored_energy",
     "worker_load_trip_energy_mean": "creep.worker_load_trip_energy_mean",
     "worker_load_trip_energy_min": "creep.worker_load_trip_energy_min",
+}
+
+REQUIRED_V2_PANEL_TITLES = (
+    "Top Decision Strip",
+    "Owner Scorecard",
+    "Live Gameplay Bottlenecks",
+    "Gameplay Behavior Findings",
+    "Economy / Territory Trajectory",
+    "RL Pipeline Gate",
+    "Instrumentation Coverage Blockers",
+    "Decision Ledger",
+)
+
+REQUIRED_FLYWHEEL_STATES = (
+    "ROLL_OUT_ALLOWED",
+    "TRAIN_MORE",
+    "FIX_GAMEPLAY",
+    "FIX_INSTRUMENTATION",
+    "STALE_DATA",
+    "STOP",
+)
+
+REQUIRED_CHECK_ACT_QUERY_FRAGMENTS = {
+    "next action": "next_action",
+    "linked issue field": "linked_issue",
+    "evidence link field": "evidence_link",
+    "rollback criteria": "rollback",
+    "instrumentation why-it-matters": "why_it_matters",
+    "semantic inconsistency detection": "SEMANTIC_INCONSISTENCY",
+    "rollout readiness default": "NOT_READY",
+    "pipeline ledger freshness": "decision_ledger_freshness",
+    "pipeline readiness ledger proof": "ledger.decision_count > 0",
+    "pipeline instrumentation proof": "instrumentation_proof",
+    "pipeline readiness instrumentation proof": "instrumentation_proof.blocker_count = 0",
 }
 
 REQUIRED_QUERY_COVERAGE = {
@@ -622,6 +660,16 @@ def validate_dashboard_payload(dashboard: JsonObject, path: Path) -> JsonObject:
         "every panel must have a unique integer id",
     )
 
+    panel_titles = {str(panel.get("title")) for panel in panels if isinstance(panel.get("title"), str)}
+    missing_v2_panels = [title for title in REQUIRED_V2_PANEL_TITLES if title not in panel_titles]
+    append_check(
+        report,
+        "dashboard Check/Act v2 panel sections",
+        not missing_v2_panels,
+        "dashboard must include owner-facing v2 sections: "
+        + (", ".join(missing_v2_panels) if missing_v2_panels else ", ".join(REQUIRED_V2_PANEL_TITLES)),
+    )
+
     datasource_errors = []
     for panel in panels:
         datasource = panel.get("datasource")
@@ -652,6 +700,23 @@ def validate_dashboard_payload(dashboard: JsonObject, path: Path) -> JsonObject:
         append_check(
             report,
             f"dashboard query coverage: {name}",
+            required_fragment in queries,
+            f"dashboard queries must include {required_fragment}",
+        )
+
+    missing_states = [state for state in REQUIRED_FLYWHEEL_STATES if state not in queries]
+    append_check(
+        report,
+        "dashboard flywheel state enum",
+        not missing_states,
+        "dashboard queries must expose flywheel states: "
+        + (", ".join(missing_states) if missing_states else ", ".join(REQUIRED_FLYWHEEL_STATES)),
+    )
+
+    for name, required_fragment in REQUIRED_CHECK_ACT_QUERY_FRAGMENTS.items():
+        append_check(
+            report,
+            f"dashboard Check/Act query contract: {name}",
             required_fragment in queries,
             f"dashboard queries must include {required_fragment}",
         )
