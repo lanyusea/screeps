@@ -6,13 +6,24 @@ This directory is the durable local Grafana contract for the RL flywheel metrics
 
 | Path | Purpose |
 | --- | --- |
-| `screeps-rl-gameplay-metrics.json` | Starter Grafana dashboard for the SQLite RL metrics store. |
+| `screeps-rl-gameplay-metrics.json` | Check/Act Grafana dashboard for deciding whether the RL flywheel can safely improve gameplay, what blocks the next iteration, and what action is next. |
 | `provisioning/datasources/screeps-rl-sqlite.yaml` | Grafana datasource provisioning for `runtime-artifacts/rl-metrics/rl_metrics.sqlite` through the `frser-sqlite-datasource` plugin. |
 | `provisioning/dashboards/screeps-rl-dashboards.yaml` | Grafana dashboard provisioning for the tracked dashboard JSON. |
 
 The datasource UID is `screeps-rl-metrics-sqlite`; the dashboard UID is `screeps-rl-gameplay-metrics`.
 
-Dashboard targets must keep the frser SQLite fields `rawQueryText`, `queryType`, and, for time-series panels, `timeColumns: ["time"]`; the validator fails when those tracked fields drift.
+Dashboard targets must keep the frser SQLite fields `rawQueryText`, `queryType`, and, for time-series panels, `timeColumns: ["time"]`; the validator fails when those tracked fields drift. The tracked dashboard must keep these owner-facing v2 sections:
+
+- Top Decision Strip
+- Owner Scorecard
+- Live Gameplay Bottlenecks
+- Gameplay Behavior Findings
+- Economy / Territory Trajectory
+- RL Pipeline Gate
+- Instrumentation Coverage Blockers
+- Decision Ledger
+
+Every section query is expected to return either real measurements/decisions or explicit status and blocker rows. Missing scorecard or instrumentation proof should surface as `BLOCKER_*`, `STALE_DATA`, or `NOT_READY`, not as an ambiguous empty panel.
 
 ## Local Run
 

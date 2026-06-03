@@ -12,6 +12,12 @@
       "title": "Metric taxonomy",
       "type": "link",
       "url": "docs/ops/rl-gameplay-metrics-taxonomy.md"
+    },
+    {
+      "targetBlank": true,
+      "title": "Grafana contract",
+      "type": "link",
+      "url": "docs/ops/grafana/README.md"
     }
   ],
   "panels": [
@@ -25,8 +31,8 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 7,
+        "w": 24,
         "x": 0,
         "y": 0
       },
@@ -37,60 +43,15 @@
       "targets": [
         {
           "format": "table",
-          "queryText": "SELECT observed_at, tick, room_name, metric_name, value, source_artifact FROM metric_observations WHERE metric_name IN ('survival.owned_rooms','survival.owned_spawns','survival.claimed_room_without_spawn_age_ticks') ORDER BY observed_at DESC LIMIT 200;",
+          "queryText": "WITH runtime AS (\n  SELECT MAX(observed_at) AS latest_at, MAX(tick) AS latest_tick, COUNT(*) AS sample_count\n  FROM runtime_room_metrics\n), refresh AS (\n  SELECT MAX(observed_at) AS latest_at, COUNT(*) AS sample_count\n  FROM metric_observations\n  WHERE metric_name = 'source.rl_metrics_refresh.completed'\n), dataset_time AS (\n  SELECT MAX(observed_at) AS latest_at FROM rl_dataset_gate_metrics\n), dataset AS (\n  SELECT MAX(observed_at) AS observed_at,\n         MAX(gate_id) AS gate_id,\n         MAX(status) AS status,\n         MAX(source_artifact) AS source_artifact,\n         MAX(CASE WHEN metric_name = 'rl.dataset_gate.sample_count' THEN value END) AS sample_count,\n         MAX(CASE WHEN metric_name = 'rl.dataset_gate.quality_samples_accepted' THEN value END) AS accepted_samples,\n         MAX(CASE WHEN metric_name = 'rl.dataset_gate.quality_samples_rejected' THEN value END) AS rejected_samples\n  FROM rl_dataset_gate_metrics\n  WHERE observed_at = (SELECT latest_at FROM dataset_time)\n), training AS (\n  SELECT MAX(observed_at) AS latest_at, COUNT(DISTINCT report_id) AS report_count\n  FROM rl_training_execution_metrics\n), scorecard AS (\n  SELECT MAX(observed_at) AS latest_at,\n         COUNT(DISTINCT report_id) AS report_count,\n         COALESCE(SUM(CASE WHEN metric_name IN ('rl.policy.advantage_territory','rl.policy.advantage_resources','rl.policy.advantage_kills') THEN value ELSE 0 END), 0) AS utility_delta\n  FROM rl_policy_advantage_metrics\n  WHERE report_id = (SELECT report_id FROM rl_policy_advantage_metrics ORDER BY observed_at DESC LIMIT 1)\n), ledger AS (\n  SELECT MAX(created_at) AS latest_at, COUNT(*) AS decision_count\n  FROM metric_iteration_decisions\n), instrumentation AS (\n  SELECT COUNT(*) AS blocker_count,\n         MAX(observed_at) AS latest_at\n  FROM metric_coverage_gaps\n  WHERE metric_name IN (\n    'creep.stuck_ticks','creep.low_load_return_count','cpu.used','cpu.bucket',\n    'reliability.loop_exception_count','reliability.telemetry_silence_ticks',\n    'territory.controller_progress','upgrade.carried_energy','economy.import_demand',\n    'economy.blocked_import_energy','economy.multi_room_deficit_energy'\n  )\n), gameplay AS (\n  SELECT COUNT(*) AS blocker_count, MAX(first_seen_at) AS latest_at\n  FROM gameplay_behavior_findings\n  WHERE category IN ('stalled-construction','runtime-reliability','missing-late-defense-construction')\n), state AS (\n  SELECT CASE\n    WHEN runtime.latest_at IS NULL OR refresh.latest_at IS NULL THEN 'STALE_DATA'\n    WHEN (strftime('%s','now') - strftime('%s', runtime.latest_at)) > 21600 THEN 'STALE_DATA'\n    WHEN (strftime('%s','now') - strftime('%s', refresh.latest_at)) > 21600 THEN 'STALE_DATA'\n    WHEN instrumentation.blocker_count > 0 THEN 'FIX_INSTRUMENTATION'\n    WHEN gameplay.blocker_count > 0 THEN 'FIX_GAMEPLAY'\n    WHEN dataset.status IS NULL OR lower(dataset.status) != 'pass' THEN 'TRAIN_MORE'\n    WHEN scorecard.utility_delta > 0 THEN 'ROLL_OUT_ALLOWED'\n    ELSE 'TRAIN_MORE'\n  END AS flywheel_state\n  FROM runtime, refresh, dataset, training, scorecard, ledger, instrumentation, gameplay\n)\nSELECT 1 AS sort, 'flywheel_state' AS item, state.flywheel_state AS status,\n       'ROLL_OUT_ALLOWED|TRAIN_MORE|FIX_GAMEPLAY|FIX_INSTRUMENTATION|STALE_DATA|STOP' AS allowed_states,\n       NULL AS latest_utc, NULL AS age_hours,\n       '#1627' AS issue, 'docs/ops/grafana/screeps-rl-gameplay-metrics.json' AS link,\n       'runtimeTick=' || COALESCE(CAST(runtime.latest_tick AS TEXT), 'none') || '; datasetGate=' || COALESCE(dataset.status, 'missing') || '; utilityDelta=' || COALESCE(CAST(scorecard.utility_delta AS TEXT), 'missing') AS evidence,\n       CASE state.flywheel_state\n         WHEN 'ROLL_OUT_ALLOWED' THEN 'Prepare a canary only after controller confirms fresh proof and rollback criteria.'\n         WHEN 'TRAIN_MORE' THEN 'Collect or train more scaled evidence before rollout.'\n         WHEN 'FIX_GAMEPLAY' THEN 'Open the top room bottleneck gameplay fix before the next RL iteration.'\n         WHEN 'FIX_INSTRUMENTATION' THEN 'Instrument missing scorecard/runtime metrics before trusting RL improvement.'\n         WHEN 'STALE_DATA' THEN 'Refresh runtime, dataset, training, scorecard, and ledger evidence before acting.'\n         ELSE 'Stop rollout and require owner review.'\n       END AS next_action\nFROM state, runtime, refresh, dataset, scorecard\nUNION ALL\nSELECT 2, 'freshness:runtime',\n       CASE WHEN runtime.latest_at IS NULL THEN 'STALE_DATA' WHEN (strftime('%s','now') - strftime('%s', runtime.latest_at)) <= 21600 THEN 'FRESH' ELSE 'STALE_DATA' END,\n       '', runtime.latest_at, ROUND((strftime('%s','now') - strftime('%s', runtime.latest_at)) / 3600.0, 1), '#1627', 'runtime-artifacts/runtime-summary-console/',\n       'samples=' || runtime.sample_count, 'Refresh runtime summary artifacts if stale.'\nFROM runtime\nUNION ALL\nSELECT 3, 'freshness:dataset_gate',\n       CASE WHEN dataset.observed_at IS NULL THEN 'STALE_DATA' WHEN (strftime('%s','now') - strftime('%s', dataset.observed_at)) <= 86400 THEN 'FRESH' ELSE 'STALE_DATA' END,\n       '', dataset.observed_at, ROUND((strftime('%s','now') - strftime('%s', dataset.observed_at)) / 3600.0, 1), '#1627', COALESCE(dataset.source_artifact, 'runtime-artifacts/rl-control-loop/'),\n       'gate=' || COALESCE(dataset.gate_id, 'missing') || '; status=' || COALESCE(dataset.status, 'missing') || '; samples=' || COALESCE(CAST(dataset.sample_count AS TEXT), 'missing'),\n       'Refresh dataset gate or collect accepted samples if stale/failing.'\nFROM dataset\nUNION ALL\nSELECT 4, 'freshness:training_scorecard',\n       CASE WHEN training.latest_at IS NULL OR scorecard.latest_at IS NULL THEN 'STALE_DATA' WHEN (strftime('%s','now') - strftime('%s', training.latest_at)) <= 86400 AND (strftime('%s','now') - strftime('%s', scorecard.latest_at)) <= 86400 THEN 'FRESH' ELSE 'STALE_DATA' END,\n       '', COALESCE(scorecard.latest_at, training.latest_at), ROUND((strftime('%s','now') - strftime('%s', COALESCE(scorecard.latest_at, training.latest_at))) / 3600.0, 1), '#1627', 'runtime-artifacts/rl-training/',\n       'trainingReports=' || training.report_count || '; scorecards=' || scorecard.report_count || '; utilityDelta=' || scorecard.utility_delta,\n       'Run scorecard/training refresh before a rollout decision.'\nFROM training, scorecard\nUNION ALL\nSELECT 5, 'freshness:decision_ledger',\n       CASE WHEN ledger.latest_at IS NULL THEN 'STALE_DATA' WHEN (strftime('%s','now') - strftime('%s', ledger.latest_at)) <= 86400 THEN 'FRESH' ELSE 'STALE_DATA' END,\n       '', ledger.latest_at, ROUND((strftime('%s','now') - strftime('%s', ledger.latest_at)) / 3600.0, 1), '#1627', 'runtime-artifacts/rl-control-loop/',\n       'decisions=' || ledger.decision_count, 'Record the next action in the decision ledger.'\nFROM ledger\nORDER BY sort;",
           "rawQuery": true,
           "refId": "A",
-          "rawQueryText": "SELECT observed_at, tick, room_name, metric_name, value, source_artifact FROM metric_observations WHERE metric_name IN ('survival.owned_rooms','survival.owned_spawns','survival.claimed_room_without_spawn_age_ticks') ORDER BY observed_at DESC LIMIT 200;",
+          "rawQueryText": "WITH runtime AS (\n  SELECT MAX(observed_at) AS latest_at, MAX(tick) AS latest_tick, COUNT(*) AS sample_count\n  FROM runtime_room_metrics\n), refresh AS (\n  SELECT MAX(observed_at) AS latest_at, COUNT(*) AS sample_count\n  FROM metric_observations\n  WHERE metric_name = 'source.rl_metrics_refresh.completed'\n), dataset_time AS (\n  SELECT MAX(observed_at) AS latest_at FROM rl_dataset_gate_metrics\n), dataset AS (\n  SELECT MAX(observed_at) AS observed_at,\n         MAX(gate_id) AS gate_id,\n         MAX(status) AS status,\n         MAX(source_artifact) AS source_artifact,\n         MAX(CASE WHEN metric_name = 'rl.dataset_gate.sample_count' THEN value END) AS sample_count,\n         MAX(CASE WHEN metric_name = 'rl.dataset_gate.quality_samples_accepted' THEN value END) AS accepted_samples,\n         MAX(CASE WHEN metric_name = 'rl.dataset_gate.quality_samples_rejected' THEN value END) AS rejected_samples\n  FROM rl_dataset_gate_metrics\n  WHERE observed_at = (SELECT latest_at FROM dataset_time)\n), training AS (\n  SELECT MAX(observed_at) AS latest_at, COUNT(DISTINCT report_id) AS report_count\n  FROM rl_training_execution_metrics\n), scorecard AS (\n  SELECT MAX(observed_at) AS latest_at,\n         COUNT(DISTINCT report_id) AS report_count,\n         COALESCE(SUM(CASE WHEN metric_name IN ('rl.policy.advantage_territory','rl.policy.advantage_resources','rl.policy.advantage_kills') THEN value ELSE 0 END), 0) AS utility_delta\n  FROM rl_policy_advantage_metrics\n  WHERE report_id = (SELECT report_id FROM rl_policy_advantage_metrics ORDER BY observed_at DESC LIMIT 1)\n), ledger AS (\n  SELECT MAX(created_at) AS latest_at, COUNT(*) AS decision_count\n  FROM metric_iteration_decisions\n), instrumentation AS (\n  SELECT COUNT(*) AS blocker_count,\n         MAX(observed_at) AS latest_at\n  FROM metric_coverage_gaps\n  WHERE metric_name IN (\n    'creep.stuck_ticks','creep.low_load_return_count','cpu.used','cpu.bucket',\n    'reliability.loop_exception_count','reliability.telemetry_silence_ticks',\n    'territory.controller_progress','upgrade.carried_energy','economy.import_demand',\n    'economy.blocked_import_energy','economy.multi_room_deficit_energy'\n  )\n), gameplay AS (\n  SELECT COUNT(*) AS blocker_count, MAX(first_seen_at) AS latest_at\n  FROM gameplay_behavior_findings\n  WHERE category IN ('stalled-construction','runtime-reliability','missing-late-defense-construction')\n), state AS (\n  SELECT CASE\n    WHEN runtime.latest_at IS NULL OR refresh.latest_at IS NULL THEN 'STALE_DATA'\n    WHEN (strftime('%s','now') - strftime('%s', runtime.latest_at)) > 21600 THEN 'STALE_DATA'\n    WHEN (strftime('%s','now') - strftime('%s', refresh.latest_at)) > 21600 THEN 'STALE_DATA'\n    WHEN instrumentation.blocker_count > 0 THEN 'FIX_INSTRUMENTATION'\n    WHEN gameplay.blocker_count > 0 THEN 'FIX_GAMEPLAY'\n    WHEN dataset.status IS NULL OR lower(dataset.status) != 'pass' THEN 'TRAIN_MORE'\n    WHEN scorecard.utility_delta > 0 THEN 'ROLL_OUT_ALLOWED'\n    ELSE 'TRAIN_MORE'\n  END AS flywheel_state\n  FROM runtime, refresh, dataset, training, scorecard, ledger, instrumentation, gameplay\n)\nSELECT 1 AS sort, 'flywheel_state' AS item, state.flywheel_state AS status,\n       'ROLL_OUT_ALLOWED|TRAIN_MORE|FIX_GAMEPLAY|FIX_INSTRUMENTATION|STALE_DATA|STOP' AS allowed_states,\n       NULL AS latest_utc, NULL AS age_hours,\n       '#1627' AS issue, 'docs/ops/grafana/screeps-rl-gameplay-metrics.json' AS link,\n       'runtimeTick=' || COALESCE(CAST(runtime.latest_tick AS TEXT), 'none') || '; datasetGate=' || COALESCE(dataset.status, 'missing') || '; utilityDelta=' || COALESCE(CAST(scorecard.utility_delta AS TEXT), 'missing') AS evidence,\n       CASE state.flywheel_state\n         WHEN 'ROLL_OUT_ALLOWED' THEN 'Prepare a canary only after controller confirms fresh proof and rollback criteria.'\n         WHEN 'TRAIN_MORE' THEN 'Collect or train more scaled evidence before rollout.'\n         WHEN 'FIX_GAMEPLAY' THEN 'Open the top room bottleneck gameplay fix before the next RL iteration.'\n         WHEN 'FIX_INSTRUMENTATION' THEN 'Instrument missing scorecard/runtime metrics before trusting RL improvement.'\n         WHEN 'STALE_DATA' THEN 'Refresh runtime, dataset, training, scorecard, and ledger evidence before acting.'\n         ELSE 'Stop rollout and require owner review.'\n       END AS next_action\nFROM state, runtime, refresh, dataset, scorecard\nUNION ALL\nSELECT 2, 'freshness:runtime',\n       CASE WHEN runtime.latest_at IS NULL THEN 'STALE_DATA' WHEN (strftime('%s','now') - strftime('%s', runtime.latest_at)) <= 21600 THEN 'FRESH' ELSE 'STALE_DATA' END,\n       '', runtime.latest_at, ROUND((strftime('%s','now') - strftime('%s', runtime.latest_at)) / 3600.0, 1), '#1627', 'runtime-artifacts/runtime-summary-console/',\n       'samples=' || runtime.sample_count, 'Refresh runtime summary artifacts if stale.'\nFROM runtime\nUNION ALL\nSELECT 3, 'freshness:dataset_gate',\n       CASE WHEN dataset.observed_at IS NULL THEN 'STALE_DATA' WHEN (strftime('%s','now') - strftime('%s', dataset.observed_at)) <= 86400 THEN 'FRESH' ELSE 'STALE_DATA' END,\n       '', dataset.observed_at, ROUND((strftime('%s','now') - strftime('%s', dataset.observed_at)) / 3600.0, 1), '#1627', COALESCE(dataset.source_artifact, 'runtime-artifacts/rl-control-loop/'),\n       'gate=' || COALESCE(dataset.gate_id, 'missing') || '; status=' || COALESCE(dataset.status, 'missing') || '; samples=' || COALESCE(CAST(dataset.sample_count AS TEXT), 'missing'),\n       'Refresh dataset gate or collect accepted samples if stale/failing.'\nFROM dataset\nUNION ALL\nSELECT 4, 'freshness:training_scorecard',\n       CASE WHEN training.latest_at IS NULL OR scorecard.latest_at IS NULL THEN 'STALE_DATA' WHEN (strftime('%s','now') - strftime('%s', training.latest_at)) <= 86400 AND (strftime('%s','now') - strftime('%s', scorecard.latest_at)) <= 86400 THEN 'FRESH' ELSE 'STALE_DATA' END,\n       '', COALESCE(scorecard.latest_at, training.latest_at), ROUND((strftime('%s','now') - strftime('%s', COALESCE(scorecard.latest_at, training.latest_at))) / 3600.0, 1), '#1627', 'runtime-artifacts/rl-training/',\n       'trainingReports=' || training.report_count || '; scorecards=' || scorecard.report_count || '; utilityDelta=' || scorecard.utility_delta,\n       'Run scorecard/training refresh before a rollout decision.'\nFROM training, scorecard\nUNION ALL\nSELECT 5, 'freshness:decision_ledger',\n       CASE WHEN ledger.latest_at IS NULL THEN 'STALE_DATA' WHEN (strftime('%s','now') - strftime('%s', ledger.latest_at)) <= 86400 THEN 'FRESH' ELSE 'STALE_DATA' END,\n       '', ledger.latest_at, ROUND((strftime('%s','now') - strftime('%s', ledger.latest_at)) / 3600.0, 1), '#1627', 'runtime-artifacts/rl-control-loop/',\n       'decisions=' || ledger.decision_count, 'Record the next action in the decision ledger.'\nFROM ledger\nORDER BY sort;",
           "queryType": "table"
         }
       ],
-      "title": "Survival And Ownership",
+      "title": "Top Decision Strip",
       "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "frser-sqlite-datasource",
-        "uid": "screeps-rl-metrics-sqlite"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 0
-      },
-      "id": 2,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "format": "time_series",
-          "queryText": "SELECT observed_at AS time, room_name || ':' || metric_name AS metric, value FROM metric_observations WHERE metric_name IN ('economy.energy_available','economy.stored_energy','economy.worker_carried_energy') ORDER BY observed_at;",
-          "rawQuery": true,
-          "refId": "A",
-          "rawQueryText": "SELECT observed_at AS time, room_name || ':' || metric_name AS metric, value FROM metric_observations WHERE metric_name IN ('economy.energy_available','economy.stored_energy','economy.worker_carried_energy') ORDER BY observed_at;",
-          "queryType": "time series",
-          "timeColumns": [
-            "time"
-          ]
-        }
-      ],
-      "title": "Resource Economy",
-      "type": "timeseries"
     },
     {
       "datasource": {
@@ -102,10 +63,42 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 9,
+        "w": 24,
         "x": 0,
-        "y": 8
+        "y": 7
+      },
+      "id": 2,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "queryText": "WITH latest_report AS (\n  SELECT report_id, MAX(observed_at) AS latest_at\n  FROM rl_policy_advantage_metrics\n  GROUP BY report_id\n  ORDER BY latest_at DESC\n  LIMIT 1\n), policy AS (\n  SELECT *\n  FROM rl_policy_advantage_metrics\n  WHERE report_id = (SELECT report_id FROM latest_report)\n), utility AS (\n  SELECT COUNT(*) AS metric_count,\n         MAX(observed_at) AS latest_at,\n         COALESCE(SUM(CASE WHEN metric_name IN ('rl.policy.advantage_territory','rl.policy.advantage_resources','rl.policy.advantage_kills') THEN value ELSE 0 END), 0) AS utility_delta,\n         MAX(candidate_id) AS candidate_id,\n         MAX(incumbent_id) AS baseline_id,\n         MAX(source_artifact) AS source_artifact\n  FROM policy\n), category_specs(sort, category, metric_name, why_it_matters, next_action) AS (\n  VALUES\n    (10, 'safety/reliability', NULL, 'Rollout must not trade survival, exceptions, or telemetry integrity for reward.', 'Add fresh safety/reliability scorecard fields before rollout.'),\n    (20, 'territory', 'rl.policy.advantage_territory', 'Territory is the highest strategic objective after survival.', 'Compare candidate vs baseline owned-room/controller movement.'),\n    (30, 'resources', 'rl.policy.advantage_resources', 'Resource advantage decides whether expansion is sustainable.', 'Compare candidate vs baseline stored/harvested energy.'),\n    (40, 'construction/infrastructure', NULL, 'Construction stalls block RCL and extension capacity gains.', 'Add construction/infrastructure category delta to the scorecard.'),\n    (50, 'creep efficiency', NULL, 'Low-load or stuck creep behavior can fake progress while wasting CPU/ticks.', 'Instrument creep efficiency delta before trusting the policy.'),\n    (60, 'defense/combat', 'rl.policy.advantage_kills', 'Combat and defense regressions can make expansion unsafe.', 'Keep combat delta non-negative and verify defense findings.'),\n    (70, 'CPU/reliability', NULL, 'CPU bucket/exception regressions can crash the tick loop.', 'Add CPU/reliability category delta to the scorecard.'),\n    (80, 'RL process quality', NULL, 'Fresh scaled gates and ledger entries are required for a safe RL iteration.', 'Refresh dataset/training/decision ledger proof before acting.')\n), latest_decision AS (\n  SELECT created_at, decision_key, status, rationale, source_artifact\n  FROM metric_iteration_decisions\n  ORDER BY created_at DESC\n  LIMIT 1\n)\nSELECT 1 AS sort, 'candidate_vs_baseline_utility_delta' AS scorecard_row,\n       COALESCE(utility.candidate_id, 'NO_CANDIDATE') AS candidate,\n       COALESCE(utility.baseline_id, 'NO_BASELINE') AS baseline,\n       utility.utility_delta AS delta,\n       CASE\n         WHEN utility.metric_count = 0 THEN 'BLOCKER_NO_FRESH_SCORECARD'\n         WHEN (strftime('%s','now') - strftime('%s', utility.latest_at)) > 86400 THEN 'BLOCKER_STALE_SCORECARD'\n         WHEN utility.utility_delta > 0 THEN 'IMPROVED'\n         WHEN utility.utility_delta = 0 THEN 'NEUTRAL'\n         ELSE 'REGRESSED'\n       END AS status,\n       utility.latest_at AS evidence_utc,\n       'territory/resources/combat utility delta from rl_policy_advantage_metrics' AS evidence,\n       'ROLLBACK if safety/reliability regresses or candidate utility is non-positive after fresh scaled proof.' AS rollback_criterion,\n       '#1627' AS linked_issue,\n       COALESCE(utility.source_artifact, 'runtime-artifacts/rl-training/') AS source_artifact\nFROM utility\nUNION ALL\nSELECT category_specs.sort, category_specs.category,\n       COALESCE(utility.candidate_id, 'NO_CANDIDATE'), COALESCE(utility.baseline_id, 'NO_BASELINE'), policy.value,\n       CASE\n         WHEN utility.metric_count = 0 THEN 'BLOCKER_NO_FRESH_SCORECARD'\n         WHEN category_specs.metric_name IS NULL THEN 'BLOCKER_MISSING_CATEGORY_DELTA'\n         WHEN policy.value IS NULL THEN 'BLOCKER_MISSING_CATEGORY_DELTA'\n         WHEN policy.value > 0 THEN 'WIN'\n         WHEN policy.value = 0 THEN 'NEUTRAL'\n         ELSE 'LOSS'\n       END,\n       COALESCE(policy.observed_at, utility.latest_at),\n       category_specs.why_it_matters,\n       'ROLLBACK if this category regresses in a fresh scorecard.',\n       '#1627',\n       category_specs.next_action\nFROM category_specs\nCROSS JOIN utility\nLEFT JOIN policy ON policy.metric_name = category_specs.metric_name\nUNION ALL\nSELECT 90, 'reward_decision_linkage', COALESCE(utility.candidate_id, 'NO_CANDIDATE'), COALESCE(utility.baseline_id, 'NO_BASELINE'), NULL,\n       COALESCE(latest_decision.status, 'BLOCKER_NO_DECISION_LEDGER'), latest_decision.created_at,\n       COALESCE(latest_decision.rationale, 'No decision ledger row links reward/model/gameplay changes to this scorecard.'),\n       'Decision ledger must state rollback criteria before canary.', '#1627', COALESCE(latest_decision.source_artifact, 'runtime-artifacts/rl-control-loop/')\nFROM utility LEFT JOIN latest_decision ON 1 = 1\nUNION ALL\nSELECT 100, 'rollback_criterion', COALESCE(utility.candidate_id, 'NO_CANDIDATE'), COALESCE(utility.baseline_id, 'NO_BASELINE'), NULL,\n       'DEFINED', utility.latest_at,\n       'Rollback on safety/reliability loss, negative utility delta, stale proof, or untriaged gameplay/instrumentation blocker.',\n       'STOP/rollback candidate and file the linked issue before the next rollout.', '#1627', COALESCE(utility.source_artifact, 'runtime-artifacts/rl-training/')\nFROM utility\nORDER BY sort;",
+          "rawQuery": true,
+          "refId": "A",
+          "rawQueryText": "WITH latest_report AS (\n  SELECT report_id, MAX(observed_at) AS latest_at\n  FROM rl_policy_advantage_metrics\n  GROUP BY report_id\n  ORDER BY latest_at DESC\n  LIMIT 1\n), policy AS (\n  SELECT *\n  FROM rl_policy_advantage_metrics\n  WHERE report_id = (SELECT report_id FROM latest_report)\n), utility AS (\n  SELECT COUNT(*) AS metric_count,\n         MAX(observed_at) AS latest_at,\n         COALESCE(SUM(CASE WHEN metric_name IN ('rl.policy.advantage_territory','rl.policy.advantage_resources','rl.policy.advantage_kills') THEN value ELSE 0 END), 0) AS utility_delta,\n         MAX(candidate_id) AS candidate_id,\n         MAX(incumbent_id) AS baseline_id,\n         MAX(source_artifact) AS source_artifact\n  FROM policy\n), category_specs(sort, category, metric_name, why_it_matters, next_action) AS (\n  VALUES\n    (10, 'safety/reliability', NULL, 'Rollout must not trade survival, exceptions, or telemetry integrity for reward.', 'Add fresh safety/reliability scorecard fields before rollout.'),\n    (20, 'territory', 'rl.policy.advantage_territory', 'Territory is the highest strategic objective after survival.', 'Compare candidate vs baseline owned-room/controller movement.'),\n    (30, 'resources', 'rl.policy.advantage_resources', 'Resource advantage decides whether expansion is sustainable.', 'Compare candidate vs baseline stored/harvested energy.'),\n    (40, 'construction/infrastructure', NULL, 'Construction stalls block RCL and extension capacity gains.', 'Add construction/infrastructure category delta to the scorecard.'),\n    (50, 'creep efficiency', NULL, 'Low-load or stuck creep behavior can fake progress while wasting CPU/ticks.', 'Instrument creep efficiency delta before trusting the policy.'),\n    (60, 'defense/combat', 'rl.policy.advantage_kills', 'Combat and defense regressions can make expansion unsafe.', 'Keep combat delta non-negative and verify defense findings.'),\n    (70, 'CPU/reliability', NULL, 'CPU bucket/exception regressions can crash the tick loop.', 'Add CPU/reliability category delta to the scorecard.'),\n    (80, 'RL process quality', NULL, 'Fresh scaled gates and ledger entries are required for a safe RL iteration.', 'Refresh dataset/training/decision ledger proof before acting.')\n), latest_decision AS (\n  SELECT created_at, decision_key, status, rationale, source_artifact\n  FROM metric_iteration_decisions\n  ORDER BY created_at DESC\n  LIMIT 1\n)\nSELECT 1 AS sort, 'candidate_vs_baseline_utility_delta' AS scorecard_row,\n       COALESCE(utility.candidate_id, 'NO_CANDIDATE') AS candidate,\n       COALESCE(utility.baseline_id, 'NO_BASELINE') AS baseline,\n       utility.utility_delta AS delta,\n       CASE\n         WHEN utility.metric_count = 0 THEN 'BLOCKER_NO_FRESH_SCORECARD'\n         WHEN (strftime('%s','now') - strftime('%s', utility.latest_at)) > 86400 THEN 'BLOCKER_STALE_SCORECARD'\n         WHEN utility.utility_delta > 0 THEN 'IMPROVED'\n         WHEN utility.utility_delta = 0 THEN 'NEUTRAL'\n         ELSE 'REGRESSED'\n       END AS status,\n       utility.latest_at AS evidence_utc,\n       'territory/resources/combat utility delta from rl_policy_advantage_metrics' AS evidence,\n       'ROLLBACK if safety/reliability regresses or candidate utility is non-positive after fresh scaled proof.' AS rollback_criterion,\n       '#1627' AS linked_issue,\n       COALESCE(utility.source_artifact, 'runtime-artifacts/rl-training/') AS source_artifact\nFROM utility\nUNION ALL\nSELECT category_specs.sort, category_specs.category,\n       COALESCE(utility.candidate_id, 'NO_CANDIDATE'), COALESCE(utility.baseline_id, 'NO_BASELINE'), policy.value,\n       CASE\n         WHEN utility.metric_count = 0 THEN 'BLOCKER_NO_FRESH_SCORECARD'\n         WHEN category_specs.metric_name IS NULL THEN 'BLOCKER_MISSING_CATEGORY_DELTA'\n         WHEN policy.value IS NULL THEN 'BLOCKER_MISSING_CATEGORY_DELTA'\n         WHEN policy.value > 0 THEN 'WIN'\n         WHEN policy.value = 0 THEN 'NEUTRAL'\n         ELSE 'LOSS'\n       END,\n       COALESCE(policy.observed_at, utility.latest_at),\n       category_specs.why_it_matters,\n       'ROLLBACK if this category regresses in a fresh scorecard.',\n       '#1627',\n       category_specs.next_action\nFROM category_specs\nCROSS JOIN utility\nLEFT JOIN policy ON policy.metric_name = category_specs.metric_name\nUNION ALL\nSELECT 90, 'reward_decision_linkage', COALESCE(utility.candidate_id, 'NO_CANDIDATE'), COALESCE(utility.baseline_id, 'NO_BASELINE'), NULL,\n       COALESCE(latest_decision.status, 'BLOCKER_NO_DECISION_LEDGER'), latest_decision.created_at,\n       COALESCE(latest_decision.rationale, 'No decision ledger row links reward/model/gameplay changes to this scorecard.'),\n       'Decision ledger must state rollback criteria before canary.', '#1627', COALESCE(latest_decision.source_artifact, 'runtime-artifacts/rl-control-loop/')\nFROM utility LEFT JOIN latest_decision ON 1 = 1\nUNION ALL\nSELECT 100, 'rollback_criterion', COALESCE(utility.candidate_id, 'NO_CANDIDATE'), COALESCE(utility.baseline_id, 'NO_BASELINE'), NULL,\n       'DEFINED', utility.latest_at,\n       'Rollback on safety/reliability loss, negative utility delta, stale proof, or untriaged gameplay/instrumentation blocker.',\n       'STOP/rollback candidate and file the linked issue before the next rollout.', '#1627', COALESCE(utility.source_artifact, 'runtime-artifacts/rl-training/')\nFROM utility\nORDER BY sort;",
+          "queryType": "table"
+        }
+      ],
+      "title": "Owner Scorecard",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "screeps-rl-metrics-sqlite"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 16
       },
       "id": 3,
       "options": {
@@ -114,22 +107,14 @@
       "targets": [
         {
           "format": "table",
-          "queryText": "SELECT observed_at, tick, room_name, metric_name, value, source_artifact FROM metric_observations WHERE metric_name IN ('construction.backlog_progress','construction.build_task_count','construction.built_progress','construction.build_carried_energy') ORDER BY observed_at DESC LIMIT 200;",
+          "queryText": "WITH latest_tick AS (\n  SELECT MAX(tick) AS tick FROM runtime_room_metrics\n), latest_rooms AS (\n  SELECT room_name, tick, rcl_level, stored_energy, extension_count, extension_capacity_contribution,\n         pending_build_progress, build_carried_energy, build_blocked_reason, construction_site_count,\n         construction_deadlock_ticks, path_finding_failures, destination_blocked,\n         worker_load_trip_energy_mean, worker_load_trip_energy_min, cpu_used, cpu_bucket,\n         observed_at, source_artifact\n  FROM runtime_room_metrics\n  WHERE tick = (SELECT tick FROM latest_tick)\n), findings_by_room AS (\n  SELECT room_name, COUNT(*) AS finding_count, group_concat(DISTINCT category) AS categories,\n         MAX(first_seen_at) AS latest_finding_at\n  FROM gameplay_behavior_findings\n  WHERE room_name IS NOT NULL\n  GROUP BY room_name\n), ranked AS (\n  SELECT\n    CASE\n      WHEN pending_build_progress > 0 AND COALESCE(build_carried_energy, 0) = 0 THEN 1\n      WHEN construction_site_count > 0 AND build_blocked_reason IS NOT NULL THEN 2\n      WHEN rcl_level IS NULL OR stored_energy IS NULL THEN 3\n      WHEN cpu_used IS NULL AND cpu_bucket IS NULL THEN 4\n      ELSE 9\n    END AS priority,\n    latest_rooms.room_name AS room,\n    rcl_level AS rcl,\n    stored_energy,\n    extension_capacity_contribution AS extension_capacity,\n    pending_build_progress AS construction_backlog,\n    CASE\n      WHEN pending_build_progress > 0 AND COALESCE(build_carried_energy, 0) = 0 THEN 'STALLED_NO_BUILD_ENERGY'\n      WHEN pending_build_progress > 0 THEN 'BUILDING_OR_BACKLOG_PRESENT'\n      WHEN construction_site_count = 0 THEN 'NO_ACTIVE_SITES'\n      ELSE 'WATCH'\n    END AS build_activity,\n    CASE WHEN COALESCE(findings_by_room.categories, '') LIKE '%defense%' THEN 'DEFENSE_FINDING' ELSE 'NO_CURRENT_FINDING' END AS defense_state,\n    CASE\n      WHEN path_finding_failures IS NULL AND destination_blocked IS NULL AND worker_load_trip_energy_mean IS NULL THEN 'NOT_INSTRUMENTED'\n      WHEN COALESCE(path_finding_failures, 0) > 0 OR COALESCE(destination_blocked, 0) > 0 THEN 'BLOCKED_PATHING'\n      ELSE 'MEASURED'\n    END AS creep_efficiency_state,\n    CASE\n      WHEN cpu_used IS NULL AND cpu_bucket IS NULL THEN 'NOT_INSTRUMENTED'\n      WHEN cpu_bucket < 500 THEN 'CPU_BUCKET_RISK'\n      ELSE 'MEASURED'\n    END AS cpu_reliability_state,\n    CASE\n      WHEN pending_build_progress > 0 AND COALESCE(build_carried_energy, 0) = 0 THEN 'FIX_GAMEPLAY'\n      WHEN rcl_level IS NULL OR stored_energy IS NULL OR (cpu_used IS NULL AND cpu_bucket IS NULL) THEN 'FIX_INSTRUMENTATION'\n      ELSE 'WATCH'\n    END AS status,\n    CASE\n      WHEN pending_build_progress > 0 AND COALESCE(build_carried_energy, 0) = 0 THEN 'Prioritize builder energy/construction stall fix for this room.'\n      WHEN rcl_level IS NULL OR stored_energy IS NULL THEN 'Repair runtime room RCL/storage instrumentation.'\n      WHEN cpu_used IS NULL AND cpu_bucket IS NULL THEN 'Instrument CPU/bucket telemetry for room health ranking.'\n      ELSE 'Keep monitoring; no immediate gameplay blocker from latest room row.'\n    END AS action,\n    latest_rooms.observed_at AS evidence_utc,\n    latest_rooms.source_artifact AS evidence\n  FROM latest_rooms\n  LEFT JOIN findings_by_room ON findings_by_room.room_name = latest_rooms.room_name\n)\nSELECT priority, room, rcl, stored_energy, extension_capacity, construction_backlog, build_activity,\n       defense_state, creep_efficiency_state, cpu_reliability_state, status, action, evidence_utc, evidence\nFROM ranked\nUNION ALL\nSELECT 999, 'NO_RUNTIME_ROOM_ROWS', NULL, NULL, NULL, NULL, 'NO_DATA', 'NO_DATA', 'NO_DATA', 'NO_DATA',\n       'STALE_DATA', 'Refresh runtime_room_metrics before ranking gameplay bottlenecks.', NULL,\n       'runtime-artifacts/runtime-summary-console/'\nWHERE NOT EXISTS (SELECT 1 FROM latest_rooms)\nORDER BY priority, room;",
           "rawQuery": true,
           "refId": "A",
-          "rawQueryText": "SELECT observed_at, tick, room_name, metric_name, value, source_artifact FROM metric_observations WHERE metric_name IN ('construction.backlog_progress','construction.build_task_count','construction.built_progress','construction.build_carried_energy') ORDER BY observed_at DESC LIMIT 200;",
-          "queryType": "table"
-        },
-        {
-          "format": "table",
-          "queryText": "SELECT first_seen_at, severity, room_name, finding_key, evidence_json, recommendation FROM gameplay_behavior_findings WHERE category = 'stalled-construction' ORDER BY first_seen_at DESC LIMIT 50;",
-          "rawQuery": true,
-          "refId": "B",
-          "rawQueryText": "SELECT first_seen_at, severity, room_name, finding_key, evidence_json, recommendation FROM gameplay_behavior_findings WHERE category = 'stalled-construction' ORDER BY first_seen_at DESC LIMIT 50;",
+          "rawQueryText": "WITH latest_tick AS (\n  SELECT MAX(tick) AS tick FROM runtime_room_metrics\n), latest_rooms AS (\n  SELECT room_name, tick, rcl_level, stored_energy, extension_count, extension_capacity_contribution,\n         pending_build_progress, build_carried_energy, build_blocked_reason, construction_site_count,\n         construction_deadlock_ticks, path_finding_failures, destination_blocked,\n         worker_load_trip_energy_mean, worker_load_trip_energy_min, cpu_used, cpu_bucket,\n         observed_at, source_artifact\n  FROM runtime_room_metrics\n  WHERE tick = (SELECT tick FROM latest_tick)\n), findings_by_room AS (\n  SELECT room_name, COUNT(*) AS finding_count, group_concat(DISTINCT category) AS categories,\n         MAX(first_seen_at) AS latest_finding_at\n  FROM gameplay_behavior_findings\n  WHERE room_name IS NOT NULL\n  GROUP BY room_name\n), ranked AS (\n  SELECT\n    CASE\n      WHEN pending_build_progress > 0 AND COALESCE(build_carried_energy, 0) = 0 THEN 1\n      WHEN construction_site_count > 0 AND build_blocked_reason IS NOT NULL THEN 2\n      WHEN rcl_level IS NULL OR stored_energy IS NULL THEN 3\n      WHEN cpu_used IS NULL AND cpu_bucket IS NULL THEN 4\n      ELSE 9\n    END AS priority,\n    latest_rooms.room_name AS room,\n    rcl_level AS rcl,\n    stored_energy,\n    extension_capacity_contribution AS extension_capacity,\n    pending_build_progress AS construction_backlog,\n    CASE\n      WHEN pending_build_progress > 0 AND COALESCE(build_carried_energy, 0) = 0 THEN 'STALLED_NO_BUILD_ENERGY'\n      WHEN pending_build_progress > 0 THEN 'BUILDING_OR_BACKLOG_PRESENT'\n      WHEN construction_site_count = 0 THEN 'NO_ACTIVE_SITES'\n      ELSE 'WATCH'\n    END AS build_activity,\n    CASE WHEN COALESCE(findings_by_room.categories, '') LIKE '%defense%' THEN 'DEFENSE_FINDING' ELSE 'NO_CURRENT_FINDING' END AS defense_state,\n    CASE\n      WHEN path_finding_failures IS NULL AND destination_blocked IS NULL AND worker_load_trip_energy_mean IS NULL THEN 'NOT_INSTRUMENTED'\n      WHEN COALESCE(path_finding_failures, 0) > 0 OR COALESCE(destination_blocked, 0) > 0 THEN 'BLOCKED_PATHING'\n      ELSE 'MEASURED'\n    END AS creep_efficiency_state,\n    CASE\n      WHEN cpu_used IS NULL AND cpu_bucket IS NULL THEN 'NOT_INSTRUMENTED'\n      WHEN cpu_bucket < 500 THEN 'CPU_BUCKET_RISK'\n      ELSE 'MEASURED'\n    END AS cpu_reliability_state,\n    CASE\n      WHEN pending_build_progress > 0 AND COALESCE(build_carried_energy, 0) = 0 THEN 'FIX_GAMEPLAY'\n      WHEN rcl_level IS NULL OR stored_energy IS NULL OR (cpu_used IS NULL AND cpu_bucket IS NULL) THEN 'FIX_INSTRUMENTATION'\n      ELSE 'WATCH'\n    END AS status,\n    CASE\n      WHEN pending_build_progress > 0 AND COALESCE(build_carried_energy, 0) = 0 THEN 'Prioritize builder energy/construction stall fix for this room.'\n      WHEN rcl_level IS NULL OR stored_energy IS NULL THEN 'Repair runtime room RCL/storage instrumentation.'\n      WHEN cpu_used IS NULL AND cpu_bucket IS NULL THEN 'Instrument CPU/bucket telemetry for room health ranking.'\n      ELSE 'Keep monitoring; no immediate gameplay blocker from latest room row.'\n    END AS action,\n    latest_rooms.observed_at AS evidence_utc,\n    latest_rooms.source_artifact AS evidence\n  FROM latest_rooms\n  LEFT JOIN findings_by_room ON findings_by_room.room_name = latest_rooms.room_name\n)\nSELECT priority, room, rcl, stored_energy, extension_capacity, construction_backlog, build_activity,\n       defense_state, creep_efficiency_state, cpu_reliability_state, status, action, evidence_utc, evidence\nFROM ranked\nUNION ALL\nSELECT 999, 'NO_RUNTIME_ROOM_ROWS', NULL, NULL, NULL, NULL, 'NO_DATA', 'NO_DATA', 'NO_DATA', 'NO_DATA',\n       'STALE_DATA', 'Refresh runtime_room_metrics before ranking gameplay bottlenecks.', NULL,\n       'runtime-artifacts/runtime-summary-console/'\nWHERE NOT EXISTS (SELECT 1 FROM latest_rooms)\nORDER BY priority, room;",
           "queryType": "table"
         }
       ],
-      "title": "Construction And Infrastructure",
+      "title": "Live Gameplay Bottlenecks",
       "type": "table"
     },
     {
@@ -142,10 +127,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 8
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 25
       },
       "id": 4,
       "options": {
@@ -154,22 +139,14 @@
       "targets": [
         {
           "format": "table",
-          "queryText": "SELECT observed_at, tick, room_name, metric_name, value, evidence_json FROM metric_observations WHERE metric_name IN ('creep.worker_count','creep.low_load_return_count','creep.return_load_factor','creep.idle_count','creep.stuck_ticks','behavior.upgrade_dominance_ratio') ORDER BY observed_at DESC LIMIT 250;",
+          "queryText": "WITH ranked_findings AS (\n  SELECT\n    CASE WHEN category = 'stalled-construction' THEN 'construction_stall_details' ELSE 'top_gameplay_behavior_findings' END AS section,\n    first_seen_at AS observed_at,\n    severity,\n    category,\n    room_name,\n    finding_key,\n    metric_name,\n    evidence_json,\n    recommendation,\n    source_artifact\n  FROM gameplay_behavior_findings\n  ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'error' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END,\n           first_seen_at DESC\n  LIMIT 100\n)\nSELECT section, observed_at, severity, category, room_name, finding_key, metric_name,\n       recommendation AS action, evidence_json AS evidence, source_artifact\nFROM ranked_findings\nUNION ALL\nSELECT 'top_gameplay_behavior_findings', NULL, 'info', 'none', NULL, 'NO_GAMEPLAY_FINDINGS', NULL,\n       'No gameplay_behavior_findings rows exist; refresh ingestion before concluding gameplay is healthy.',\n       'explicit fallback row', 'runtime-artifacts/rl-metrics/rl_metrics.sqlite'\nWHERE NOT EXISTS (SELECT 1 FROM ranked_findings)\nORDER BY observed_at DESC;",
           "rawQuery": true,
           "refId": "A",
-          "rawQueryText": "SELECT observed_at, tick, room_name, metric_name, value, evidence_json FROM metric_observations WHERE metric_name IN ('creep.worker_count','creep.low_load_return_count','creep.return_load_factor','creep.idle_count','creep.stuck_ticks','behavior.upgrade_dominance_ratio') ORDER BY observed_at DESC LIMIT 250;",
-          "queryType": "table"
-        },
-        {
-          "format": "table",
-          "queryText": "SELECT first_seen_at, severity, category, room_name, evidence_json, recommendation FROM gameplay_behavior_findings WHERE category IN ('low-load-return','stuck-actionless','upgrade-dominant-backlog') ORDER BY first_seen_at DESC LIMIT 100;",
-          "rawQuery": true,
-          "refId": "B",
-          "rawQueryText": "SELECT first_seen_at, severity, category, room_name, evidence_json, recommendation FROM gameplay_behavior_findings WHERE category IN ('low-load-return','stuck-actionless','upgrade-dominant-backlog') ORDER BY first_seen_at DESC LIMIT 100;",
+          "rawQueryText": "WITH ranked_findings AS (\n  SELECT\n    CASE WHEN category = 'stalled-construction' THEN 'construction_stall_details' ELSE 'top_gameplay_behavior_findings' END AS section,\n    first_seen_at AS observed_at,\n    severity,\n    category,\n    room_name,\n    finding_key,\n    metric_name,\n    evidence_json,\n    recommendation,\n    source_artifact\n  FROM gameplay_behavior_findings\n  ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'error' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END,\n           first_seen_at DESC\n  LIMIT 100\n)\nSELECT section, observed_at, severity, category, room_name, finding_key, metric_name,\n       recommendation AS action, evidence_json AS evidence, source_artifact\nFROM ranked_findings\nUNION ALL\nSELECT 'top_gameplay_behavior_findings', NULL, 'info', 'none', NULL, 'NO_GAMEPLAY_FINDINGS', NULL,\n       'No gameplay_behavior_findings rows exist; refresh ingestion before concluding gameplay is healthy.',\n       'explicit fallback row', 'runtime-artifacts/rl-metrics/rl_metrics.sqlite'\nWHERE NOT EXISTS (SELECT 1 FROM ranked_findings)\nORDER BY observed_at DESC;",
           "queryType": "table"
         }
       ],
-      "title": "Creep Efficiency, Stuck, And Load Factor",
+      "title": "Gameplay Behavior Findings",
       "type": "table"
     },
     {
@@ -182,10 +159,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 9,
+        "w": 24,
         "x": 0,
-        "y": 16
+        "y": 34
       },
       "id": 5,
       "options": {
@@ -194,22 +171,14 @@
       "targets": [
         {
           "format": "table",
-          "queryText": "SELECT observed_at, tick, room_name, metric_name, value, source_artifact FROM metric_observations WHERE metric_name IN ('defense.hostile_creep_count','defense.tower_count','defense.rampart_count','construction.defense_backlog') ORDER BY observed_at DESC LIMIT 200;",
+          "queryText": "WITH latest_tick AS (\n  SELECT MAX(tick) AS tick FROM runtime_room_metrics\n), previous_tick AS (\n  SELECT MAX(tick) AS tick FROM runtime_room_metrics WHERE tick < (SELECT tick FROM latest_tick)\n), latest_rooms AS (\n  SELECT room_name, tick, rcl_level, stored_energy, extension_count, extension_capacity_contribution,\n         pending_build_progress, construction_site_count, observed_at, source_artifact\n  FROM runtime_room_metrics\n  WHERE tick = (SELECT tick FROM latest_tick)\n), previous_rooms AS (\n  SELECT room_name, rcl_level, stored_energy, extension_capacity_contribution\n  FROM runtime_room_metrics\n  WHERE tick = (SELECT tick FROM previous_tick)\n), owned_metric AS (\n  SELECT observed_at, value AS owned_rooms, source_artifact\n  FROM metric_observations\n  WHERE metric_name = 'survival.owned_rooms'\n  ORDER BY observed_at DESC\n  LIMIT 1\n), runtime_owned AS (\n  SELECT COUNT(DISTINCT room_name) AS room_count FROM latest_rooms\n), room_rows AS (\n  SELECT 'room_trajectory' AS section, latest_rooms.room_name AS room, latest_rooms.rcl_level AS rcl,\n         latest_rooms.rcl_level - previous_rooms.rcl_level AS rcl_delta,\n         latest_rooms.stored_energy,\n         latest_rooms.stored_energy - previous_rooms.stored_energy AS stored_energy_delta,\n         latest_rooms.extension_capacity_contribution AS extension_capacity,\n         latest_rooms.extension_capacity_contribution - previous_rooms.extension_capacity_contribution AS extension_capacity_delta,\n         CASE\n           WHEN latest_rooms.rcl_level >= 4 AND latest_rooms.stored_energy >= 10000 THEN 'EXPANSION_CANDIDATE_SOON'\n           WHEN latest_rooms.rcl_level IS NULL OR latest_rooms.stored_energy IS NULL THEN 'FIX_INSTRUMENTATION'\n           ELSE 'NOT_READY'\n         END AS expansion_readiness,\n         CASE\n           WHEN latest_rooms.pending_build_progress > 0 AND latest_rooms.construction_site_count = 0 THEN 'SEMANTIC_INCONSISTENCY'\n           ELSE 'MEASURED'\n         END AS semantic_status,\n         CASE\n           WHEN latest_rooms.pending_build_progress > 0 AND latest_rooms.construction_site_count = 0 THEN 'Investigate backlog-without-sites inconsistency before plotting zero progress.'\n           WHEN latest_rooms.rcl_level >= 4 AND latest_rooms.stored_energy >= 10000 THEN 'Review expansion/canary prerequisites, not automatic rollout.'\n           ELSE 'Keep collecting trajectory evidence.'\n         END AS action,\n         latest_rooms.observed_at AS evidence_utc,\n         latest_rooms.source_artifact AS evidence\n  FROM latest_rooms\n  LEFT JOIN previous_rooms ON previous_rooms.room_name = latest_rooms.room_name\n), consistency AS (\n  SELECT 'owned_room_consistency' AS section, NULL AS room, NULL AS rcl, NULL AS rcl_delta,\n         owned_metric.owned_rooms AS stored_energy, NULL AS stored_energy_delta,\n         runtime_owned.room_count AS extension_capacity, NULL AS extension_capacity_delta,\n         CASE WHEN owned_metric.owned_rooms IS NULL THEN 'STALE_DATA' ELSE 'CHECKED' END AS expansion_readiness,\n         CASE\n           WHEN owned_metric.owned_rooms IS NULL THEN 'STALE_DATA'\n           WHEN CAST(owned_metric.owned_rooms AS INTEGER) != runtime_owned.room_count THEN 'SEMANTIC_INCONSISTENCY'\n           ELSE 'MEASURED'\n         END AS semantic_status,\n         CASE\n           WHEN owned_metric.owned_rooms IS NULL THEN 'Refresh survival.owned_rooms observations.'\n           WHEN CAST(owned_metric.owned_rooms AS INTEGER) != runtime_owned.room_count THEN 'Align owned-room metric and runtime_room_metrics room coverage before expansion decisions.'\n           ELSE 'Owned-room metric agrees with runtime room rows.'\n         END AS action,\n         owned_metric.observed_at AS evidence_utc,\n         COALESCE(owned_metric.source_artifact, 'metric_observations') AS evidence\n  FROM runtime_owned\n  LEFT JOIN owned_metric ON 1 = 1\n)\nSELECT section, room, rcl, rcl_delta, stored_energy, stored_energy_delta, extension_capacity,\n       extension_capacity_delta, expansion_readiness, semantic_status, action, evidence_utc, evidence\nFROM room_rows\nUNION ALL\nSELECT section, room, rcl, rcl_delta, stored_energy, stored_energy_delta, extension_capacity,\n       extension_capacity_delta, expansion_readiness, semantic_status, action, evidence_utc, evidence\nFROM consistency\nUNION ALL\nSELECT 'room_trajectory', 'NO_RUNTIME_ROOM_ROWS', NULL, NULL, NULL, NULL, NULL, NULL, 'STALE_DATA', 'NO_DATA',\n       'Refresh runtime_room_metrics before interpreting economy or territory trajectory.', NULL,\n       'runtime-artifacts/runtime-summary-console/'\nWHERE NOT EXISTS (SELECT 1 FROM latest_rooms)\nORDER BY section, room;",
           "rawQuery": true,
           "refId": "A",
-          "rawQueryText": "SELECT observed_at, tick, room_name, metric_name, value, source_artifact FROM metric_observations WHERE metric_name IN ('defense.hostile_creep_count','defense.tower_count','defense.rampart_count','construction.defense_backlog') ORDER BY observed_at DESC LIMIT 200;",
-          "queryType": "table"
-        },
-        {
-          "format": "table",
-          "queryText": "SELECT first_seen_at, severity, room_name, evidence_json, recommendation FROM gameplay_behavior_findings WHERE category = 'missing-late-defense-construction' ORDER BY first_seen_at DESC LIMIT 50;",
-          "rawQuery": true,
-          "refId": "B",
-          "rawQueryText": "SELECT first_seen_at, severity, room_name, evidence_json, recommendation FROM gameplay_behavior_findings WHERE category = 'missing-late-defense-construction' ORDER BY first_seen_at DESC LIMIT 50;",
+          "rawQueryText": "WITH latest_tick AS (\n  SELECT MAX(tick) AS tick FROM runtime_room_metrics\n), previous_tick AS (\n  SELECT MAX(tick) AS tick FROM runtime_room_metrics WHERE tick < (SELECT tick FROM latest_tick)\n), latest_rooms AS (\n  SELECT room_name, tick, rcl_level, stored_energy, extension_count, extension_capacity_contribution,\n         pending_build_progress, construction_site_count, observed_at, source_artifact\n  FROM runtime_room_metrics\n  WHERE tick = (SELECT tick FROM latest_tick)\n), previous_rooms AS (\n  SELECT room_name, rcl_level, stored_energy, extension_capacity_contribution\n  FROM runtime_room_metrics\n  WHERE tick = (SELECT tick FROM previous_tick)\n), owned_metric AS (\n  SELECT observed_at, value AS owned_rooms, source_artifact\n  FROM metric_observations\n  WHERE metric_name = 'survival.owned_rooms'\n  ORDER BY observed_at DESC\n  LIMIT 1\n), runtime_owned AS (\n  SELECT COUNT(DISTINCT room_name) AS room_count FROM latest_rooms\n), room_rows AS (\n  SELECT 'room_trajectory' AS section, latest_rooms.room_name AS room, latest_rooms.rcl_level AS rcl,\n         latest_rooms.rcl_level - previous_rooms.rcl_level AS rcl_delta,\n         latest_rooms.stored_energy,\n         latest_rooms.stored_energy - previous_rooms.stored_energy AS stored_energy_delta,\n         latest_rooms.extension_capacity_contribution AS extension_capacity,\n         latest_rooms.extension_capacity_contribution - previous_rooms.extension_capacity_contribution AS extension_capacity_delta,\n         CASE\n           WHEN latest_rooms.rcl_level >= 4 AND latest_rooms.stored_energy >= 10000 THEN 'EXPANSION_CANDIDATE_SOON'\n           WHEN latest_rooms.rcl_level IS NULL OR latest_rooms.stored_energy IS NULL THEN 'FIX_INSTRUMENTATION'\n           ELSE 'NOT_READY'\n         END AS expansion_readiness,\n         CASE\n           WHEN latest_rooms.pending_build_progress > 0 AND latest_rooms.construction_site_count = 0 THEN 'SEMANTIC_INCONSISTENCY'\n           ELSE 'MEASURED'\n         END AS semantic_status,\n         CASE\n           WHEN latest_rooms.pending_build_progress > 0 AND latest_rooms.construction_site_count = 0 THEN 'Investigate backlog-without-sites inconsistency before plotting zero progress.'\n           WHEN latest_rooms.rcl_level >= 4 AND latest_rooms.stored_energy >= 10000 THEN 'Review expansion/canary prerequisites, not automatic rollout.'\n           ELSE 'Keep collecting trajectory evidence.'\n         END AS action,\n         latest_rooms.observed_at AS evidence_utc,\n         latest_rooms.source_artifact AS evidence\n  FROM latest_rooms\n  LEFT JOIN previous_rooms ON previous_rooms.room_name = latest_rooms.room_name\n), consistency AS (\n  SELECT 'owned_room_consistency' AS section, NULL AS room, NULL AS rcl, NULL AS rcl_delta,\n         owned_metric.owned_rooms AS stored_energy, NULL AS stored_energy_delta,\n         runtime_owned.room_count AS extension_capacity, NULL AS extension_capacity_delta,\n         CASE WHEN owned_metric.owned_rooms IS NULL THEN 'STALE_DATA' ELSE 'CHECKED' END AS expansion_readiness,\n         CASE\n           WHEN owned_metric.owned_rooms IS NULL THEN 'STALE_DATA'\n           WHEN CAST(owned_metric.owned_rooms AS INTEGER) != runtime_owned.room_count THEN 'SEMANTIC_INCONSISTENCY'\n           ELSE 'MEASURED'\n         END AS semantic_status,\n         CASE\n           WHEN owned_metric.owned_rooms IS NULL THEN 'Refresh survival.owned_rooms observations.'\n           WHEN CAST(owned_metric.owned_rooms AS INTEGER) != runtime_owned.room_count THEN 'Align owned-room metric and runtime_room_metrics room coverage before expansion decisions.'\n           ELSE 'Owned-room metric agrees with runtime room rows.'\n         END AS action,\n         owned_metric.observed_at AS evidence_utc,\n         COALESCE(owned_metric.source_artifact, 'metric_observations') AS evidence\n  FROM runtime_owned\n  LEFT JOIN owned_metric ON 1 = 1\n)\nSELECT section, room, rcl, rcl_delta, stored_energy, stored_energy_delta, extension_capacity,\n       extension_capacity_delta, expansion_readiness, semantic_status, action, evidence_utc, evidence\nFROM room_rows\nUNION ALL\nSELECT section, room, rcl, rcl_delta, stored_energy, stored_energy_delta, extension_capacity,\n       extension_capacity_delta, expansion_readiness, semantic_status, action, evidence_utc, evidence\nFROM consistency\nUNION ALL\nSELECT 'room_trajectory', 'NO_RUNTIME_ROOM_ROWS', NULL, NULL, NULL, NULL, NULL, NULL, 'STALE_DATA', 'NO_DATA',\n       'Refresh runtime_room_metrics before interpreting economy or territory trajectory.', NULL,\n       'runtime-artifacts/runtime-summary-console/'\nWHERE NOT EXISTS (SELECT 1 FROM latest_rooms)\nORDER BY section, room;",
           "queryType": "table"
         }
       ],
-      "title": "Defense Readiness",
+      "title": "Economy / Territory Trajectory",
       "type": "table"
     },
     {
@@ -223,9 +192,9 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 16
+        "w": 24,
+        "x": 0,
+        "y": 43
       },
       "id": 6,
       "options": {
@@ -234,22 +203,14 @@
       "targets": [
         {
           "format": "table",
-          "queryText": "SELECT observed_at, tick, metric_name, value, source_artifact FROM metric_observations WHERE metric_name IN ('cpu.bucket','cpu.used','reliability.loop_exception_count','reliability.telemetry_silence_ticks') ORDER BY observed_at DESC LIMIT 200;",
+          "queryText": "WITH latest_gate_time AS (\n  SELECT MAX(observed_at) AS observed_at FROM rl_dataset_gate_metrics\n), latest_gate AS (\n  SELECT MAX(observed_at) AS observed_at,\n         MAX(gate_id) AS gate_id,\n         MAX(status) AS status,\n         MAX(source_artifact) AS source_artifact,\n         MAX(CASE WHEN metric_name = 'rl.dataset_gate.sample_count' THEN value END) AS sample_count,\n         MAX(CASE WHEN metric_name = 'rl.dataset_gate.quality_samples_accepted' THEN value END) AS accepted_samples,\n         MAX(CASE WHEN metric_name = 'rl.dataset_gate.quality_samples_rejected' THEN value END) AS rejected_samples\n  FROM rl_dataset_gate_metrics\n  WHERE observed_at = (SELECT observed_at FROM latest_gate_time)\n), training AS (\n  SELECT MAX(observed_at) AS observed_at, COUNT(DISTINCT report_id) AS report_count,\n         MAX(source_artifact) AS source_artifact\n  FROM rl_training_execution_metrics\n), scorecard AS (\n  SELECT MAX(observed_at) AS observed_at, COUNT(DISTINCT report_id) AS report_count,\n         COALESCE(SUM(value), 0) AS utility_delta,\n         MAX(source_artifact) AS source_artifact\n  FROM rl_policy_advantage_metrics\n  WHERE report_id = (SELECT report_id FROM rl_policy_advantage_metrics ORDER BY observed_at DESC LIMIT 1)\n), rejection AS (\n  SELECT first_seen_at, finding_key, severity, evidence_json, recommendation, source_artifact\n  FROM gameplay_behavior_findings\n  WHERE category = 'rl-gate-rejection'\n  ORDER BY first_seen_at DESC\n  LIMIT 5\n), readiness AS (\n  SELECT CASE\n    WHEN latest_gate.status IS NOT NULL\n      AND lower(latest_gate.status) = 'pass'\n      AND COALESCE(latest_gate.sample_count, 0) >= 200\n      AND training.observed_at IS NOT NULL\n      AND scorecard.observed_at IS NOT NULL\n      AND (strftime('%s','now') - strftime('%s', latest_gate.observed_at)) <= 86400\n      AND (strftime('%s','now') - strftime('%s', training.observed_at)) <= 86400\n      AND (strftime('%s','now') - strftime('%s', scorecard.observed_at)) <= 86400\n      AND scorecard.utility_delta > 0\n    THEN 'READY'\n    ELSE 'NOT_READY'\n  END AS rollout_readiness\n  FROM latest_gate, training, scorecard\n)\nSELECT 'latest_dataset_gate' AS gate_row, COALESCE(latest_gate.status, 'MISSING') AS status,\n       latest_gate.observed_at AS evidence_utc,\n       'samples=' || COALESCE(CAST(latest_gate.sample_count AS TEXT), 'missing') || '; accepted=' || COALESCE(CAST(latest_gate.accepted_samples AS TEXT), 'missing') || '; rejected=' || COALESCE(CAST(latest_gate.rejected_samples AS TEXT), 'missing') AS evidence,\n       COALESCE(latest_gate.source_artifact, 'runtime-artifacts/rl-control-loop/') AS source_artifact,\n       CASE WHEN latest_gate.status IS NULL THEN 'Run dataset gate before training.' WHEN lower(latest_gate.status) != 'pass' THEN 'Inspect rejection reasons and collect better samples.' ELSE 'Gate passed; still require fresh training/scorecard proof.' END AS next_action\nFROM latest_gate\nUNION ALL\nSELECT 'training_freshness', CASE WHEN training.observed_at IS NULL THEN 'STALE_DATA' WHEN (strftime('%s','now') - strftime('%s', training.observed_at)) <= 86400 THEN 'FRESH' ELSE 'STALE_DATA' END,\n       training.observed_at, 'reports=' || training.report_count, COALESCE(training.source_artifact, 'runtime-artifacts/rl-training/'),\n       'Refresh training if stale before any rollout/canary.'\nFROM training\nUNION ALL\nSELECT 'scorecard_freshness', CASE WHEN scorecard.observed_at IS NULL THEN 'BLOCKER_NO_SCORECARD' WHEN (strftime('%s','now') - strftime('%s', scorecard.observed_at)) <= 86400 THEN 'FRESH' ELSE 'STALE_DATA' END,\n       scorecard.observed_at, 'utilityDelta=' || scorecard.utility_delta || '; reports=' || scorecard.report_count, COALESCE(scorecard.source_artifact, 'runtime-artifacts/rl-training/'),\n       'Generate fresh scorecard and category deltas before rollout.'\nFROM scorecard\nUNION ALL\nSELECT 'gate_rejection_reason', severity, first_seen_at, evidence_json, source_artifact, recommendation\nFROM rejection\nUNION ALL\nSELECT 'gate_rejection_reason', 'NO_CURRENT_REJECTION', NULL, 'No rl-gate-rejection findings in gameplay_behavior_findings.', 'gameplay_behavior_findings', 'Continue to require fresh/scaled proof.'\nWHERE NOT EXISTS (SELECT 1 FROM rejection)\nUNION ALL\nSELECT 'rollout_canary_readiness', readiness.rollout_readiness, NULL,\n       'Defaults to NOT_READY unless dataset gate, training, scorecard, scale, and utility proof are all fresh.',\n       'dashboard readiness rule',\n       CASE WHEN readiness.rollout_readiness = 'READY' THEN 'Controller may prepare canary with rollback criteria.' ELSE 'Do not roll out; fix stale/missing proof first.' END\nFROM readiness;",
           "rawQuery": true,
           "refId": "A",
-          "rawQueryText": "SELECT observed_at, tick, metric_name, value, source_artifact FROM metric_observations WHERE metric_name IN ('cpu.bucket','cpu.used','reliability.loop_exception_count','reliability.telemetry_silence_ticks') ORDER BY observed_at DESC LIMIT 200;",
-          "queryType": "table"
-        },
-        {
-          "format": "table",
-          "queryText": "SELECT first_seen_at, severity, finding_key, evidence_json, recommendation FROM gameplay_behavior_findings WHERE category = 'runtime-reliability' ORDER BY first_seen_at DESC LIMIT 50;",
-          "rawQuery": true,
-          "refId": "B",
-          "rawQueryText": "SELECT first_seen_at, severity, finding_key, evidence_json, recommendation FROM gameplay_behavior_findings WHERE category = 'runtime-reliability' ORDER BY first_seen_at DESC LIMIT 50;",
+          "rawQueryText": "WITH latest_gate_time AS (\n  SELECT MAX(observed_at) AS observed_at FROM rl_dataset_gate_metrics\n), latest_gate AS (\n  SELECT MAX(observed_at) AS observed_at,\n         MAX(gate_id) AS gate_id,\n         MAX(status) AS status,\n         MAX(source_artifact) AS source_artifact,\n         MAX(CASE WHEN metric_name = 'rl.dataset_gate.sample_count' THEN value END) AS sample_count,\n         MAX(CASE WHEN metric_name = 'rl.dataset_gate.quality_samples_accepted' THEN value END) AS accepted_samples,\n         MAX(CASE WHEN metric_name = 'rl.dataset_gate.quality_samples_rejected' THEN value END) AS rejected_samples\n  FROM rl_dataset_gate_metrics\n  WHERE observed_at = (SELECT observed_at FROM latest_gate_time)\n), training AS (\n  SELECT MAX(observed_at) AS observed_at, COUNT(DISTINCT report_id) AS report_count,\n         MAX(source_artifact) AS source_artifact\n  FROM rl_training_execution_metrics\n), scorecard AS (\n  SELECT MAX(observed_at) AS observed_at, COUNT(DISTINCT report_id) AS report_count,\n         COALESCE(SUM(value), 0) AS utility_delta,\n         MAX(source_artifact) AS source_artifact\n  FROM rl_policy_advantage_metrics\n  WHERE report_id = (SELECT report_id FROM rl_policy_advantage_metrics ORDER BY observed_at DESC LIMIT 1)\n), rejection AS (\n  SELECT first_seen_at, finding_key, severity, evidence_json, recommendation, source_artifact\n  FROM gameplay_behavior_findings\n  WHERE category = 'rl-gate-rejection'\n  ORDER BY first_seen_at DESC\n  LIMIT 5\n), readiness AS (\n  SELECT CASE\n    WHEN latest_gate.status IS NOT NULL\n      AND lower(latest_gate.status) = 'pass'\n      AND COALESCE(latest_gate.sample_count, 0) >= 200\n      AND training.observed_at IS NOT NULL\n      AND scorecard.observed_at IS NOT NULL\n      AND (strftime('%s','now') - strftime('%s', latest_gate.observed_at)) <= 86400\n      AND (strftime('%s','now') - strftime('%s', training.observed_at)) <= 86400\n      AND (strftime('%s','now') - strftime('%s', scorecard.observed_at)) <= 86400\n      AND scorecard.utility_delta > 0\n    THEN 'READY'\n    ELSE 'NOT_READY'\n  END AS rollout_readiness\n  FROM latest_gate, training, scorecard\n)\nSELECT 'latest_dataset_gate' AS gate_row, COALESCE(latest_gate.status, 'MISSING') AS status,\n       latest_gate.observed_at AS evidence_utc,\n       'samples=' || COALESCE(CAST(latest_gate.sample_count AS TEXT), 'missing') || '; accepted=' || COALESCE(CAST(latest_gate.accepted_samples AS TEXT), 'missing') || '; rejected=' || COALESCE(CAST(latest_gate.rejected_samples AS TEXT), 'missing') AS evidence,\n       COALESCE(latest_gate.source_artifact, 'runtime-artifacts/rl-control-loop/') AS source_artifact,\n       CASE WHEN latest_gate.status IS NULL THEN 'Run dataset gate before training.' WHEN lower(latest_gate.status) != 'pass' THEN 'Inspect rejection reasons and collect better samples.' ELSE 'Gate passed; still require fresh training/scorecard proof.' END AS next_action\nFROM latest_gate\nUNION ALL\nSELECT 'training_freshness', CASE WHEN training.observed_at IS NULL THEN 'STALE_DATA' WHEN (strftime('%s','now') - strftime('%s', training.observed_at)) <= 86400 THEN 'FRESH' ELSE 'STALE_DATA' END,\n       training.observed_at, 'reports=' || training.report_count, COALESCE(training.source_artifact, 'runtime-artifacts/rl-training/'),\n       'Refresh training if stale before any rollout/canary.'\nFROM training\nUNION ALL\nSELECT 'scorecard_freshness', CASE WHEN scorecard.observed_at IS NULL THEN 'BLOCKER_NO_SCORECARD' WHEN (strftime('%s','now') - strftime('%s', scorecard.observed_at)) <= 86400 THEN 'FRESH' ELSE 'STALE_DATA' END,\n       scorecard.observed_at, 'utilityDelta=' || scorecard.utility_delta || '; reports=' || scorecard.report_count, COALESCE(scorecard.source_artifact, 'runtime-artifacts/rl-training/'),\n       'Generate fresh scorecard and category deltas before rollout.'\nFROM scorecard\nUNION ALL\nSELECT 'gate_rejection_reason', severity, first_seen_at, evidence_json, source_artifact, recommendation\nFROM rejection\nUNION ALL\nSELECT 'gate_rejection_reason', 'NO_CURRENT_REJECTION', NULL, 'No rl-gate-rejection findings in gameplay_behavior_findings.', 'gameplay_behavior_findings', 'Continue to require fresh/scaled proof.'\nWHERE NOT EXISTS (SELECT 1 FROM rejection)\nUNION ALL\nSELECT 'rollout_canary_readiness', readiness.rollout_readiness, NULL,\n       'Defaults to NOT_READY unless dataset gate, training, scorecard, scale, and utility proof are all fresh.',\n       'dashboard readiness rule',\n       CASE WHEN readiness.rollout_readiness = 'READY' THEN 'Controller may prepare canary with rollback criteria.' ELSE 'Do not roll out; fix stale/missing proof first.' END\nFROM readiness;",
           "queryType": "table"
         }
       ],
-      "title": "CPU And Reliability",
+      "title": "RL Pipeline Gate",
       "type": "table"
     },
     {
@@ -262,10 +223,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 9,
+        "w": 24,
         "x": 0,
-        "y": 24
+        "y": 51
       },
       "id": 7,
       "options": {
@@ -274,30 +235,14 @@
       "targets": [
         {
           "format": "table",
-          "queryText": "SELECT observed_at, gate_id, status, metric_name, value, source_artifact FROM rl_dataset_gate_metrics ORDER BY observed_at DESC LIMIT 100;",
+          "queryText": "WITH expected_metrics(metric_name, why_it_matters, next_action) AS (\n  VALUES\n    ('creep.stuck_ticks', 'Stuck/actionless creeps make policy improvements look better than they are.', 'Instrument creep stuck/actionless ticks.'),\n    ('creep.low_load_return_count', 'Low-load returns waste worker trips and hide economy regressions.', 'Record low-load return counts and load factor.'),\n    ('cpu.used', 'CPU spikes can cause tick-loop failures during rollout.', 'Record CPU used in runtime room metrics or metric observations.'),\n    ('cpu.bucket', 'Low CPU bucket blocks safe sustained automation.', 'Record CPU bucket freshness.'),\n    ('reliability.loop_exception_count', 'Loop exceptions are a hard stop for rollout.', 'Record loop exception counts from runtime summaries.'),\n    ('reliability.telemetry_silence_ticks', 'Telemetry silence makes Grafana decisions unsafe.', 'Record telemetry silence windows.'),\n    ('territory.controller_progress', 'Controller progress proves territory/RCL trajectory instead of plotting zeros.', 'Add controller progress/RCL delta to runtime metrics.'),\n    ('upgrade.carried_energy', 'Upgrade energy separates real controller work from idle hauling.', 'Record upgrader carried/spent energy.'),\n    ('economy.import_demand', 'Import demand shows whether multi-room logistics are blocking growth.', 'Record import demand per room.'),\n    ('economy.blocked_import_energy', 'Blocked imports identify logistics bottlenecks before rollout.', 'Record blocked import energy.'),\n    ('economy.multi_room_deficit_energy', 'Deficit energy decides whether expansion is safe.', 'Record multi-room deficit energy.')\n), observations AS (\n  SELECT metric_name, COUNT(*) AS observation_count, MAX(observed_at) AS latest_observed_at\n  FROM metric_observations\n  GROUP BY metric_name\n), gaps AS (\n  SELECT metric_name, COUNT(*) AS gap_count, MAX(observed_at) AS latest_gap_at,\n         group_concat(DISTINCT gap_type) AS gap_types,\n         MAX(message) AS latest_message\n  FROM metric_coverage_gaps\n  GROUP BY metric_name\n), blockers AS (\n  SELECT expected_metrics.metric_name,\n         CASE\n           WHEN COALESCE(observations.observation_count, 0) = 0 THEN 'BLOCKER_MISSING_METRIC'\n           WHEN COALESCE(gaps.gap_count, 0) > 0 THEN 'BLOCKER_COVERAGE_GAP'\n           ELSE 'COVERED'\n         END AS status,\n         COALESCE(observations.observation_count, 0) AS observation_count,\n         COALESCE(gaps.gap_count, 0) AS gap_count,\n         observations.latest_observed_at,\n         gaps.latest_gap_at,\n         COALESCE(gaps.gap_types, 'none') AS gap_types,\n         COALESCE(gaps.latest_message, 'No gap row; metric is expected by Check/Act v2 but absent from observations.') AS evidence,\n         expected_metrics.why_it_matters,\n         expected_metrics.next_action\n  FROM expected_metrics\n  LEFT JOIN observations ON observations.metric_name = expected_metrics.metric_name\n  LEFT JOIN gaps ON gaps.metric_name = expected_metrics.metric_name\n  WHERE COALESCE(observations.observation_count, 0) = 0 OR COALESCE(gaps.gap_count, 0) > 0\n)\nSELECT metric_name, status, observation_count, gap_count, latest_observed_at, latest_gap_at,\n       gap_types, why_it_matters, next_action, evidence\nFROM blockers\nUNION ALL\nSELECT 'coverage_ok', 'COVERED', NULL, NULL, NULL, NULL, 'none',\n       'All required Check/Act v2 metrics have observations and no coverage gaps.',\n       'Keep monitoring coverage drift.', 'explicit fallback row'\nWHERE NOT EXISTS (SELECT 1 FROM blockers)\nORDER BY status DESC, gap_count DESC, metric_name;",
           "rawQuery": true,
           "refId": "A",
-          "rawQueryText": "SELECT observed_at, gate_id, status, metric_name, value, source_artifact FROM rl_dataset_gate_metrics ORDER BY observed_at DESC LIMIT 100;",
-          "queryType": "table"
-        },
-        {
-          "format": "table",
-          "queryText": "SELECT observed_at, report_id, variant_id, metric_name, value, source_artifact FROM rl_training_execution_metrics ORDER BY observed_at DESC LIMIT 150;",
-          "rawQuery": true,
-          "refId": "B",
-          "rawQueryText": "SELECT observed_at, report_id, variant_id, metric_name, value, source_artifact FROM rl_training_execution_metrics ORDER BY observed_at DESC LIMIT 150;",
-          "queryType": "table"
-        },
-        {
-          "format": "table",
-          "queryText": "SELECT observed_at, report_id, candidate_id, incumbent_id, metric_name, value, directionality FROM rl_policy_advantage_metrics ORDER BY observed_at DESC LIMIT 150;",
-          "rawQuery": true,
-          "refId": "C",
-          "rawQueryText": "SELECT observed_at, report_id, candidate_id, incumbent_id, metric_name, value, directionality FROM rl_policy_advantage_metrics ORDER BY observed_at DESC LIMIT 150;",
+          "rawQueryText": "WITH expected_metrics(metric_name, why_it_matters, next_action) AS (\n  VALUES\n    ('creep.stuck_ticks', 'Stuck/actionless creeps make policy improvements look better than they are.', 'Instrument creep stuck/actionless ticks.'),\n    ('creep.low_load_return_count', 'Low-load returns waste worker trips and hide economy regressions.', 'Record low-load return counts and load factor.'),\n    ('cpu.used', 'CPU spikes can cause tick-loop failures during rollout.', 'Record CPU used in runtime room metrics or metric observations.'),\n    ('cpu.bucket', 'Low CPU bucket blocks safe sustained automation.', 'Record CPU bucket freshness.'),\n    ('reliability.loop_exception_count', 'Loop exceptions are a hard stop for rollout.', 'Record loop exception counts from runtime summaries.'),\n    ('reliability.telemetry_silence_ticks', 'Telemetry silence makes Grafana decisions unsafe.', 'Record telemetry silence windows.'),\n    ('territory.controller_progress', 'Controller progress proves territory/RCL trajectory instead of plotting zeros.', 'Add controller progress/RCL delta to runtime metrics.'),\n    ('upgrade.carried_energy', 'Upgrade energy separates real controller work from idle hauling.', 'Record upgrader carried/spent energy.'),\n    ('economy.import_demand', 'Import demand shows whether multi-room logistics are blocking growth.', 'Record import demand per room.'),\n    ('economy.blocked_import_energy', 'Blocked imports identify logistics bottlenecks before rollout.', 'Record blocked import energy.'),\n    ('economy.multi_room_deficit_energy', 'Deficit energy decides whether expansion is safe.', 'Record multi-room deficit energy.')\n), observations AS (\n  SELECT metric_name, COUNT(*) AS observation_count, MAX(observed_at) AS latest_observed_at\n  FROM metric_observations\n  GROUP BY metric_name\n), gaps AS (\n  SELECT metric_name, COUNT(*) AS gap_count, MAX(observed_at) AS latest_gap_at,\n         group_concat(DISTINCT gap_type) AS gap_types,\n         MAX(message) AS latest_message\n  FROM metric_coverage_gaps\n  GROUP BY metric_name\n), blockers AS (\n  SELECT expected_metrics.metric_name,\n         CASE\n           WHEN COALESCE(observations.observation_count, 0) = 0 THEN 'BLOCKER_MISSING_METRIC'\n           WHEN COALESCE(gaps.gap_count, 0) > 0 THEN 'BLOCKER_COVERAGE_GAP'\n           ELSE 'COVERED'\n         END AS status,\n         COALESCE(observations.observation_count, 0) AS observation_count,\n         COALESCE(gaps.gap_count, 0) AS gap_count,\n         observations.latest_observed_at,\n         gaps.latest_gap_at,\n         COALESCE(gaps.gap_types, 'none') AS gap_types,\n         COALESCE(gaps.latest_message, 'No gap row; metric is expected by Check/Act v2 but absent from observations.') AS evidence,\n         expected_metrics.why_it_matters,\n         expected_metrics.next_action\n  FROM expected_metrics\n  LEFT JOIN observations ON observations.metric_name = expected_metrics.metric_name\n  LEFT JOIN gaps ON gaps.metric_name = expected_metrics.metric_name\n  WHERE COALESCE(observations.observation_count, 0) = 0 OR COALESCE(gaps.gap_count, 0) > 0\n)\nSELECT metric_name, status, observation_count, gap_count, latest_observed_at, latest_gap_at,\n       gap_types, why_it_matters, next_action, evidence\nFROM blockers\nUNION ALL\nSELECT 'coverage_ok', 'COVERED', NULL, NULL, NULL, NULL, 'none',\n       'All required Check/Act v2 metrics have observations and no coverage gaps.',\n       'Keep monitoring coverage drift.', 'explicit fallback row'\nWHERE NOT EXISTS (SELECT 1 FROM blockers)\nORDER BY status DESC, gap_count DESC, metric_name;",
           "queryType": "table"
         }
       ],
-      "title": "RL Dataset, Training, And Policy Metrics",
+      "title": "Instrumentation Coverage Blockers",
       "type": "table"
     },
     {
@@ -310,10 +255,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 24
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 60
       },
       "id": 8,
       "options": {
@@ -322,248 +267,14 @@
       "targets": [
         {
           "format": "table",
-          "queryText": "SELECT observed_at, severity, metric_name, category, room_name, tick, gap_type, message, source_artifact FROM metric_coverage_gaps ORDER BY observed_at DESC LIMIT 250;",
+          "queryText": "WITH latest AS (\n  SELECT created_at, decision_key, status, source_artifact, rationale, evidence_json\n  FROM metric_iteration_decisions\n  ORDER BY created_at DESC\n  LIMIT 100\n)\nSELECT created_at,\n       CASE\n         WHEN lower(COALESCE(decision_key, '') || ' ' || COALESCE(source_artifact, '')) LIKE '%reward%' THEN 'reward_change'\n         WHEN lower(COALESCE(decision_key, '') || ' ' || COALESCE(source_artifact, '')) LIKE '%policy%' THEN 'model_policy_change'\n         WHEN lower(COALESCE(decision_key, '') || ' ' || COALESCE(source_artifact, '')) LIKE '%runtime%' OR lower(COALESCE(decision_key, '') || ' ' || COALESCE(source_artifact, '')) LIKE '%gameplay%' THEN 'gameplay_change'\n         ELSE 'decision_observation'\n       END AS change_type,\n       status,\n       decision_key,\n       rationale AS hypothesis,\n       'Expected movement is recorded in evidence_json/source artifact; dashboard blocks rollout if this is missing or stale.' AS expected_metric_movement,\n       'Rollback on stale proof, safety/reliability regression, or non-positive utility delta.' AS rollback_criteria,\n       '#1627' AS linked_issue,\n       source_artifact AS linked_scorecard_or_artifact,\n       evidence_json\nFROM latest\nUNION ALL\nSELECT NULL, 'decision_ledger', 'BLOCKER_NO_LEDGER', 'NO_DECISION_LEDGER',\n       'No metric_iteration_decisions rows exist; reward/model/gameplay changes are not auditable.',\n       'Create a decision ledger entry with expected metric movement.',\n       'Do not roll out without rollback criteria.', '#1627', 'runtime-artifacts/rl-control-loop/', '{}'\nWHERE NOT EXISTS (SELECT 1 FROM latest)\nORDER BY created_at DESC;",
           "rawQuery": true,
           "refId": "A",
-          "rawQueryText": "SELECT observed_at, severity, metric_name, category, room_name, tick, gap_type, message, source_artifact FROM metric_coverage_gaps ORDER BY observed_at DESC LIMIT 250;",
-          "queryType": "table"
-        },
-        {
-          "format": "table",
-          "queryText": "SELECT metric_name, severity, COUNT(*) AS gap_count FROM metric_coverage_gaps GROUP BY metric_name, severity ORDER BY gap_count DESC, metric_name LIMIT 100;",
-          "rawQuery": true,
-          "refId": "B",
-          "rawQueryText": "SELECT metric_name, severity, COUNT(*) AS gap_count FROM metric_coverage_gaps GROUP BY metric_name, severity ORDER BY gap_count DESC, metric_name LIMIT 100;",
+          "rawQueryText": "WITH latest AS (\n  SELECT created_at, decision_key, status, source_artifact, rationale, evidence_json\n  FROM metric_iteration_decisions\n  ORDER BY created_at DESC\n  LIMIT 100\n)\nSELECT created_at,\n       CASE\n         WHEN lower(COALESCE(decision_key, '') || ' ' || COALESCE(source_artifact, '')) LIKE '%reward%' THEN 'reward_change'\n         WHEN lower(COALESCE(decision_key, '') || ' ' || COALESCE(source_artifact, '')) LIKE '%policy%' THEN 'model_policy_change'\n         WHEN lower(COALESCE(decision_key, '') || ' ' || COALESCE(source_artifact, '')) LIKE '%runtime%' OR lower(COALESCE(decision_key, '') || ' ' || COALESCE(source_artifact, '')) LIKE '%gameplay%' THEN 'gameplay_change'\n         ELSE 'decision_observation'\n       END AS change_type,\n       status,\n       decision_key,\n       rationale AS hypothesis,\n       'Expected movement is recorded in evidence_json/source artifact; dashboard blocks rollout if this is missing or stale.' AS expected_metric_movement,\n       'Rollback on stale proof, safety/reliability regression, or non-positive utility delta.' AS rollback_criteria,\n       '#1627' AS linked_issue,\n       source_artifact AS linked_scorecard_or_artifact,\n       evidence_json\nFROM latest\nUNION ALL\nSELECT NULL, 'decision_ledger', 'BLOCKER_NO_LEDGER', 'NO_DECISION_LEDGER',\n       'No metric_iteration_decisions rows exist; reward/model/gameplay changes are not auditable.',\n       'Create a decision ledger entry with expected metric movement.',\n       'Do not roll out without rollback criteria.', '#1627', 'runtime-artifacts/rl-control-loop/', '{}'\nWHERE NOT EXISTS (SELECT 1 FROM latest)\nORDER BY created_at DESC;",
           "queryType": "table"
         }
       ],
-      "title": "Metric Coverage Gaps",
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "frser-sqlite-datasource",
-        "uid": "screeps-rl-metrics-sqlite"
-      },
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 0,
-        "y": 32
-      },
-      "id": 9,
-      "options": {
-        "showHeader": true
-      },
-      "targets": [
-        {
-          "format": "table",
-          "queryText": "SELECT COALESCE(build_blocked_reason, 'missing') AS buildBlockedReason, COUNT(*) AS sample_count FROM runtime_room_metrics GROUP BY COALESCE(build_blocked_reason, 'missing') ORDER BY sample_count DESC;",
-          "rawQuery": true,
-          "refId": "A",
-          "rawQueryText": "SELECT COALESCE(build_blocked_reason, 'missing') AS buildBlockedReason, COUNT(*) AS sample_count FROM runtime_room_metrics GROUP BY COALESCE(build_blocked_reason, 'missing') ORDER BY sample_count DESC;",
-          "queryType": "table"
-        }
-      ],
-      "title": "Build Blocked Reason Distribution",
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "frser-sqlite-datasource",
-        "uid": "screeps-rl-metrics-sqlite"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 6,
-        "y": 32
-      },
-      "id": 10,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "format": "time_series",
-          "queryText": "SELECT observed_at AS time, room_name || ':extensions' AS metric, extension_count AS value FROM runtime_room_metrics WHERE extension_count IS NOT NULL UNION ALL SELECT observed_at AS time, room_name || ':extensionCapacity' AS metric, extension_capacity_contribution AS value FROM runtime_room_metrics WHERE extension_capacity_contribution IS NOT NULL ORDER BY time;",
-          "rawQuery": true,
-          "refId": "A",
-          "rawQueryText": "SELECT observed_at AS time, room_name || ':extensions' AS metric, extension_count AS value FROM runtime_room_metrics WHERE extension_count IS NOT NULL UNION ALL SELECT observed_at AS time, room_name || ':extensionCapacity' AS metric, extension_capacity_contribution AS value FROM runtime_room_metrics WHERE extension_capacity_contribution IS NOT NULL ORDER BY time;",
-          "queryType": "time series",
-          "timeColumns": [
-            "time"
-          ]
-        }
-      ],
-      "title": "Extension Count Trend",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "frser-sqlite-datasource",
-        "uid": "screeps-rl-metrics-sqlite"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 12,
-        "y": 32
-      },
-      "id": 11,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "format": "time_series",
-          "queryText": "SELECT observed_at AS time, room_name || ':pathFindingFailures' AS metric, path_finding_failures AS value FROM runtime_room_metrics WHERE path_finding_failures IS NOT NULL UNION ALL SELECT observed_at AS time, room_name || ':destinationBlocked' AS metric, destination_blocked AS value FROM runtime_room_metrics WHERE destination_blocked IS NOT NULL ORDER BY time;",
-          "rawQuery": true,
-          "refId": "A",
-          "rawQueryText": "SELECT observed_at AS time, room_name || ':pathFindingFailures' AS metric, path_finding_failures AS value FROM runtime_room_metrics WHERE path_finding_failures IS NOT NULL UNION ALL SELECT observed_at AS time, room_name || ':destinationBlocked' AS metric, destination_blocked AS value FROM runtime_room_metrics WHERE destination_blocked IS NOT NULL ORDER BY time;",
-          "queryType": "time series",
-          "timeColumns": [
-            "time"
-          ]
-        }
-      ],
-      "title": "Path Finding Failures Rate",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "frser-sqlite-datasource",
-        "uid": "screeps-rl-metrics-sqlite"
-      },
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 18,
-        "y": 32
-      },
-      "id": 12,
-      "options": {
-        "showHeader": true
-      },
-      "targets": [
-        {
-          "format": "table",
-          "queryText": "SELECT observed_at, tick, room_name, worker_load_trip_energy_mean AS tripEnergyMean, worker_load_trip_energy_min AS tripEnergyMin, source_artifact FROM runtime_room_metrics WHERE worker_load_trip_energy_mean IS NOT NULL OR worker_load_trip_energy_min IS NOT NULL ORDER BY observed_at DESC LIMIT 250;",
-          "rawQuery": true,
-          "refId": "A",
-          "rawQueryText": "SELECT observed_at, tick, room_name, worker_load_trip_energy_mean AS tripEnergyMean, worker_load_trip_energy_min AS tripEnergyMin, source_artifact FROM runtime_room_metrics WHERE worker_load_trip_energy_mean IS NOT NULL OR worker_load_trip_energy_min IS NOT NULL ORDER BY observed_at DESC LIMIT 250;",
-          "queryType": "table"
-        }
-      ],
-      "title": "Worker Load Efficiency Distribution",
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "frser-sqlite-datasource",
-        "uid": "screeps-rl-metrics-sqlite"
-      },
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 40
-      },
-      "id": 14,
-      "options": {
-        "showHeader": true
-      },
-      "targets": [
-        {
-          "format": "table",
-          "queryText": "SELECT observed_at, tick, room_name, controller_progress_ratio AS controllerProgressRatio, upgrade_carried_energy AS upgradeCarriedEnergy, import_demand AS importDemand, blocked_import_energy AS blockedImportEnergy, multi_room_deficit_energy AS multiRoomDeficitEnergy, source_artifact FROM runtime_room_metrics WHERE controller_progress_ratio IS NOT NULL OR upgrade_carried_energy IS NOT NULL OR import_demand IS NOT NULL OR blocked_import_energy IS NOT NULL OR multi_room_deficit_energy IS NOT NULL ORDER BY observed_at DESC LIMIT 250;",
-          "rawQuery": true,
-          "refId": "A",
-          "rawQueryText": "SELECT observed_at, tick, room_name, controller_progress_ratio AS controllerProgressRatio, upgrade_carried_energy AS upgradeCarriedEnergy, import_demand AS importDemand, blocked_import_energy AS blockedImportEnergy, multi_room_deficit_energy AS multiRoomDeficitEnergy, source_artifact FROM runtime_room_metrics WHERE controller_progress_ratio IS NOT NULL OR upgrade_carried_energy IS NOT NULL OR import_demand IS NOT NULL OR blocked_import_energy IS NOT NULL OR multi_room_deficit_energy IS NOT NULL ORDER BY observed_at DESC LIMIT 250;",
-          "queryType": "table"
-        }
-      ],
-      "title": "Controller And Import Coverage",
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "frser-sqlite-datasource",
-        "uid": "screeps-rl-metrics-sqlite"
-      },
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 48
-      },
-      "id": 13,
-      "options": {
-        "showHeader": true
-      },
-      "targets": [
-        {
-          "format": "table",
-          "queryText": "SELECT created_at, decision_key, status, rationale, source_artifact FROM metric_iteration_decisions ORDER BY created_at DESC LIMIT 100;",
-          "rawQuery": true,
-          "refId": "A",
-          "rawQueryText": "SELECT created_at, decision_key, status, rationale, source_artifact FROM metric_iteration_decisions ORDER BY created_at DESC LIMIT 100;",
-          "queryType": "table"
-        },
-        {
-          "format": "table",
-          "queryText": "SELECT observed_at, metric_name, value, source_artifact FROM metric_observations WHERE metric_name = 'source.rl_metrics_refresh.completed' ORDER BY observed_at DESC LIMIT 20;",
-          "rawQuery": true,
-          "refId": "B",
-          "rawQueryText": "SELECT observed_at, metric_name, value, source_artifact FROM metric_observations WHERE metric_name = 'source.rl_metrics_refresh.completed' ORDER BY observed_at DESC LIMIT 20;",
-          "queryType": "table"
-        }
-      ],
-      "title": "RL Decision And Refresh Evidence",
+      "title": "Decision Ledger",
       "type": "table"
     }
   ],
@@ -572,8 +283,9 @@
   "tags": [
     "screeps",
     "rl",
+    "check-act",
     "gameplay-metrics",
-    "pdca-check"
+    "issue-1627"
   ],
   "templating": {
     "list": []
@@ -586,6 +298,6 @@
   "timezone": "browser",
   "title": "Screeps RL Gameplay Metrics",
   "uid": "screeps-rl-gameplay-metrics",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }
