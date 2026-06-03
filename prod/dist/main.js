@@ -4454,7 +4454,8 @@ function validateTerritoryScoutIntelForClaim({
   colony,
   targetRoom,
   colonyOwnerUsername,
-  gameTime
+  gameTime,
+  allowForeignReservationPressure = false
 }) {
   const attempt = getTerritoryScoutAttempt(colony, targetRoom);
   const intel = getTerritoryScoutIntel(colony, targetRoom);
@@ -4474,7 +4475,7 @@ function validateTerritoryScoutIntelForClaim({
   if (isNonEmptyString6(controller.ownerUsername)) {
     return { status: "blocked", reason: "controllerOwned", intel };
   }
-  if (isNonEmptyString6(controller.reservationUsername) && controller.reservationUsername !== colonyOwnerUsername) {
+  if (isNonEmptyString6(controller.reservationUsername) && controller.reservationUsername !== colonyOwnerUsername && allowForeignReservationPressure !== true) {
     return { status: "blocked", reason: "controllerReserved", intel };
   }
   if (intel.hostileCreepCount > 0 || intel.hostileStructureCount > 0 || intel.hostileSpawnCount > 0) {

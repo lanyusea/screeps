@@ -388,7 +388,8 @@ function validateNextExpansionScoutIntel(
     colony: colonyName,
     targetRoom: candidate.roomName,
     colonyOwnerUsername: getControllerOwnerUsername(colony.room.controller),
-    gameTime
+    gameTime,
+    allowForeignReservationPressure: candidate.requiresControllerPressure === true
   });
   recordTerritoryScoutValidation(
     colonyName,

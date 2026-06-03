@@ -133,12 +133,14 @@ export function validateTerritoryScoutIntelForClaim({
   colony,
   targetRoom,
   colonyOwnerUsername,
-  gameTime
+  gameTime,
+  allowForeignReservationPressure = false
 }: {
   colony: string;
   targetRoom: string;
   colonyOwnerUsername?: string;
   gameTime: number;
+  allowForeignReservationPressure?: boolean;
 }): TerritoryScoutValidationResult {
   const attempt = getTerritoryScoutAttempt(colony, targetRoom);
   const intel = getTerritoryScoutIntel(colony, targetRoom);
@@ -168,7 +170,8 @@ export function validateTerritoryScoutIntelForClaim({
 
   if (
     isNonEmptyString(controller.reservationUsername) &&
-    controller.reservationUsername !== colonyOwnerUsername
+    controller.reservationUsername !== colonyOwnerUsername &&
+    allowForeignReservationPressure !== true
   ) {
     return { status: 'blocked', reason: 'controllerReserved', intel };
   }
