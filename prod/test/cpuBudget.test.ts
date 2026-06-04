@@ -165,14 +165,14 @@ describe('runtime CPU budget policy', () => {
       tick: 1760015,
       used: 12,
       limit: 70,
-      bucket: 1_076,
+      bucket: 1_142,
       tickLimit: 500
     });
     const recoveredBudget = buildRuntimeCpuBudget({
       tick: 1760016,
       used: 12,
       limit: 70,
-      bucket: 1_140,
+      bucket: 1_210,
       tickLimit: 500
     });
 
