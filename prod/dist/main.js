@@ -38671,6 +38671,7 @@ var OBSERVED_RAMPART_REPAIR_HITS_CEILING = 15e4;
 var TERRITORY_EXPANSION_PROGRESS_CPU_BUCKET_FLOOR = 500;
 var WORKER_TASK_TYPES = ["harvest", "transfer", "build", "repair", "upgrade"];
 var PRODUCTIVE_WORKER_TASK_TYPES = ["build", "repair", "upgrade"];
+var PRODUCTIVE_WORKER_ASSIGNMENT_TASK_TYPES = ["harvest", "pickup", "withdraw", "transfer", "build", "repair", "upgrade"];
 var DEFAULT_EXTENSION_ENERGY_CAPACITY = 50;
 var runtimeCpuSummaryEmissionState = {};
 var cachedRefillTargetIdsByRoom = /* @__PURE__ */ new Map();
@@ -38838,11 +38839,12 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
   const resourcesWithoutActivity = summarizeResources(colony, colonyWorkers, colonyCreeps, eventMetrics.resources);
   const taskCounts = countWorkerTasks(colonyWorkers);
   const assignedTaskCount = countAssignedWorkerTasks(colonyWorkers);
+  const productiveAssignmentCount = countProductiveWorkerAssignments(colonyWorkers);
   const workerAssignmentEvidence = summarizeWorkerAssignmentEvidence(
     tick,
     colonyWorkers,
     assignedTaskCount,
-    resourcesWithoutActivity.productiveEnergy.assignedWorkerCount,
+    productiveAssignmentCount,
     cpuBudget
   );
   const constructionDeadlockTicks = getRoomConstructionDeadlockTicks(colony.room);
@@ -38998,6 +39000,15 @@ function emptyTerritoryRecommendationReport() {
 }
 function countAssignedWorkerTasks(workers) {
   return workers.reduce((assignedCount, worker) => assignedCount + (getWorkerTaskType(worker) ? 1 : 0), 0);
+}
+function countProductiveWorkerAssignments(workers) {
+  return workers.reduce(
+    (assignedCount, worker) => assignedCount + (isProductiveWorkerAssignmentTaskType(getWorkerTaskType(worker)) ? 1 : 0),
+    0
+  );
+}
+function isProductiveWorkerAssignmentTaskType(taskType) {
+  return PRODUCTIVE_WORKER_ASSIGNMENT_TASK_TYPES.includes(taskType);
 }
 function summarizeWorkerAssignmentBlockedRoomFields(productiveEnergy) {
   return {
