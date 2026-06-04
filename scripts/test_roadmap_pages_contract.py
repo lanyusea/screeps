@@ -209,7 +209,105 @@ class RoadmapPagesContractTests(unittest.TestCase):
         self.assertIn("Agent tokens with withheld local cache evidence must not expose counted provenance ids", joined)
         self.assertIn("Agent tokens with withheld local cache evidence must use the current generatedAt provenance window", joined)
 
-    def test_project_handoff_evidence_rejects_blank_active_in_review_and_recent_done_items(self) -> None:
+    def test_committed_project_handoff_summary_accepts_enforced_live_project_snapshot(self) -> None:
+        data = {
+            "github": {
+                "fetched": True,
+                "sourceMode": "live",
+                "projectItemsSource": "live",
+                "projectHandoffEvidenceValidation": {
+                    "mode": "enforced",
+                    "severity": "gate",
+                    "reason": "project-evidence-field-hydrated",
+                },
+                "projectItems": [
+                    {
+                        "number": 1673,
+                        "type": "PullRequest",
+                        "status": "In review",
+                        "title": "sanitized active handoff",
+                        "evidence": "",
+                    }
+                ],
+            }
+        }
+        failures: list[str] = []
+
+        kpi_checker.validate_project_handoff_evidence_summary(data, failures)
+
+        self.assertEqual(failures, [])
+
+    def test_committed_project_handoff_summary_accepts_unhydrated_warning(self) -> None:
+        data = {
+            "github": {
+                "fetched": True,
+                "sourceMode": "live",
+                "projectItemsSource": "live",
+                "projectHandoffEvidenceValidation": {
+                    "mode": "skipped",
+                    "severity": "warning",
+                    "reason": "project-evidence-field-unhydrated",
+                },
+                "projectItems": [
+                    {
+                        "number": 1673,
+                        "type": "PullRequest",
+                        "status": "In review",
+                        "title": "Project Evidence was not hydrated by gh",
+                        "evidence": "",
+                    }
+                ],
+            }
+        }
+        failures: list[str] = []
+
+        kpi_checker.validate_project_handoff_evidence_summary(data, failures)
+
+        self.assertEqual(failures, [])
+
+    def test_committed_project_handoff_summary_rejects_missing_live_summary(self) -> None:
+        data = {
+            "github": {
+                "fetched": True,
+                "sourceMode": "live",
+                "projectItemsSource": "live",
+                "projectItems": [
+                    {
+                        "number": 1032,
+                        "type": "Issue",
+                        "status": "In progress",
+                        "title": "sanitized active handoff",
+                        "evidence": "",
+                    }
+                ],
+            }
+        }
+        failures: list[str] = []
+
+        kpi_checker.validate_project_handoff_evidence_summary(data, failures)
+
+        self.assertIn("github.projectHandoffEvidenceValidation must be present", "\n".join(failures))
+
+    def test_committed_project_handoff_summary_rejects_unknown_live_summary(self) -> None:
+        data = {
+            "github": {
+                "fetched": True,
+                "sourceMode": "live",
+                "projectItemsSource": "live",
+                "projectHandoffEvidenceValidation": {
+                    "mode": "skipped",
+                    "severity": "info",
+                    "reason": "project-data-not-live",
+                },
+            }
+        }
+        failures: list[str] = []
+
+        kpi_checker.validate_project_handoff_evidence_summary(data, failures)
+
+        self.assertIn("must be enforced or explicitly warn", "\n".join(failures))
+
+    def test_project_handoff_evidence_rejects_blank_active_items_without_requiring_done_items(self) -> None:
         generator = kpi_checker.load_generator(REPO_ROOT)
         data = {
             "github": {
@@ -265,6 +363,14 @@ class RoadmapPagesContractTests(unittest.TestCase):
                         "title": "review-stage handoff",
                         "evidence": "",
                     },
+                    {
+                        "number": 1487,
+                        "type": "PullRequest",
+                        "status": "Done",
+                        "priority": "P0",
+                        "title": "historical Done roadmap card",
+                        "evidence": "",
+                    },
                 ],
                 "kanban": {
                     "cards": [
@@ -274,6 +380,14 @@ class RoadmapPagesContractTests(unittest.TestCase):
                             "status": "In review",
                             "priority": "P0",
                             "title": "review-stage flat kanban handoff",
+                            "evidence": "",
+                        },
+                        {
+                            "number": 1488,
+                            "type": "PullRequest",
+                            "status": "Done",
+                            "priority": "P0",
+                            "title": "historical Done kanban card",
                             "evidence": "",
                         }
                     ],
@@ -306,12 +420,49 @@ class RoadmapPagesContractTests(unittest.TestCase):
 
         self.assertIn("github.projectItems[0] #1479 In progress", joined)
         self.assertIn("github.projectItems[1] #1484 In review", joined)
-        self.assertIn("github.projectItems[2] #1483 Done", joined)
         self.assertIn("github.roadmapCards[0] #1479 In progress", joined)
         self.assertIn("github.roadmapCards[1] #1484 In review", joined)
         self.assertIn("github.kanban.cards[0] #1485 In review", joined)
         self.assertIn("github.kanban.columns[0].statuses[0].cards[0] #1486 In review", joined)
+        self.assertNotIn("#1483", joined)
+        self.assertNotIn("#1487", joined)
+        self.assertNotIn("#1488", joined)
         self.assertNotIn("#1200", joined)
+
+    def test_project_handoff_evidence_warns_when_project_evidence_field_is_not_hydrated(self) -> None:
+        generator = kpi_checker.load_generator(REPO_ROOT)
+        data = {
+            "github": {
+                "projectItemsSource": "live",
+                "projectTextFieldHydration": {
+                    "source": "gh project item-list",
+                    "itemsInspected": 2,
+                    "fields": {
+                        "evidence": {"hydrated": False, "observedKeys": []},
+                        "nextAction": {"hydrated": True, "observedKeys": ["Next action"]},
+                        "blockedBy": {"hydrated": True, "observedKeys": ["Blocked by"]},
+                    },
+                },
+                "projectItems": [
+                    {
+                        "number": 1656,
+                        "type": "Issue",
+                        "status": "In review",
+                        "priority": "P0",
+                        "title": "review-stage handoff with omitted text fields",
+                        "evidence": "",
+                    }
+                ],
+            }
+        }
+
+        failures = generator.validate_project_handoff_evidence(data)
+        summary = generator.project_handoff_evidence_validation_summary(data["github"])
+
+        self.assertEqual(failures, [])
+        self.assertEqual(summary["mode"], "skipped")
+        self.assertEqual(summary["severity"], "warning")
+        self.assertEqual(summary["reason"], "project-evidence-field-unhydrated")
 
 
 if __name__ == "__main__":
