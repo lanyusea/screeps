@@ -164,7 +164,11 @@ describe('runtime CPU budget policy', () => {
     const budgets = [
       { tick: 1774071, used: 10.419663700000456, bucket: 1_149 },
       { tick: 1774072, used: 10.012628700000278, bucket: 1_212 },
-      { tick: 1774073, used: 11.4234292000001, bucket: 1_155 }
+      { tick: 1774073, used: 11.4234292000001, bucket: 1_155 },
+      { tick: 1778500, used: 11.56589829999939, bucket: 1_322 },
+      { tick: 1778505, used: 14.938247999998566, bucket: 1_299 },
+      { tick: 1778516, used: 12.664124599999923, bucket: 1_305 },
+      { tick: 1778516, used: 58.535224199997174, bucket: 1_356 }
     ].map((sample) =>
       buildRuntimeCpuBudget({
         ...sample,
@@ -192,14 +196,14 @@ describe('runtime CPU budget policy', () => {
       tick: 1760016,
       used: 12,
       limit: 70,
-      bucket: 1_350,
+      bucket: 1_700,
       tickLimit: 500
     });
     const recoveredBudget = buildRuntimeCpuBudget({
       tick: 1760017,
       used: 12,
       limit: 70,
-      bucket: 1_351,
+      bucket: 1_701,
       tickLimit: 500
     });
 
