@@ -114,7 +114,7 @@ describe('runtime telemetry summaries', () => {
             tick: RUNTIME_SUMMARY_INTERVAL,
             workerCount: 2,
             assignedTaskCount: 1,
-            productiveAssignmentCount: 0,
+            productiveAssignmentCount: 1,
             unassignedWorkerCount: 1,
             idleReasonCounts: {
               cpu_shed_assignment_skipped: 0,
@@ -2183,7 +2183,7 @@ describe('runtime telemetry summaries', () => {
     });
   });
 
-  it('counts non-display worker task assignments as assigned runtime evidence', () => {
+  it('counts non-display energy acquisition assignments as productive runtime evidence', () => {
     const colony = makeColony({
       time: RUNTIME_SUMMARY_INTERVAL,
       includeEventLog: false
@@ -2229,7 +2229,7 @@ describe('runtime telemetry summaries', () => {
     expect(room.workerAssignmentEvidence).toMatchObject({
       workerCount: 3,
       assignedTaskCount: 3,
-      productiveAssignmentCount: 0
+      productiveAssignmentCount: 2
     });
   });
 
@@ -2324,6 +2324,85 @@ describe('runtime telemetry summaries', () => {
     expect(room.constructionActivity).toEqual(
       (room.resources as Record<string, Record<string, unknown>>).productiveEnergy.constructionActivity
     );
+  });
+
+  it('counts recovery assignments as productive while preserving the spawn reservation construction blocker', () => {
+    const spawn = {
+      id: 'spawn1',
+      name: 'Spawn1',
+      structureType: TEST_GLOBALS.STRUCTURE_SPAWN,
+      store: makeEnergyStore(300, 300)
+    };
+    const makeCapableWorker = (memory: CreepMemory, energy: number, name: string): Creep =>
+      ({
+        name,
+        memory,
+        store: makeEnergyStore(energy, 50),
+        getActiveBodyparts: jest.fn().mockReturnValue(1)
+      }) as unknown as Creep;
+    const workers = [
+      makeCapableWorker(
+        { role: 'worker', colony: 'W1N1', task: { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> } },
+        50,
+        'Refiller'
+      ),
+      makeCapableWorker(
+        { role: 'worker', colony: 'W1N1', task: { type: 'withdraw', targetId: 'container1' as Id<AnyStoreStructure> } },
+        0,
+        'Withdrawer'
+      ),
+      makeCapableWorker(
+        { role: 'worker', colony: 'W1N1', task: { type: 'pickup', targetId: 'drop1' as Id<Resource<ResourceConstant>> } },
+        0,
+        'Picker'
+      ),
+      makeCapableWorker(
+        { role: 'worker', colony: 'W1N1', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+        0,
+        'Harvester'
+      )
+    ];
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      structures: [spawn],
+      creeps: workers,
+      constructionSites: [
+        { id: 'extension-site', structureType: TEST_GLOBALS.STRUCTURE_EXTENSION, progress: 0, progressTotal: 50 }
+      ]
+    });
+    (colony.room as Room & { energyAvailable: number; energyCapacityAvailable: number }).energyAvailable = 300;
+    colony.energyAvailable = 300;
+
+    emitRuntimeSummary([colony], workers);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.taskCounts).toMatchObject({
+      build: 0,
+      harvest: 1,
+      none: 2,
+      repair: 0,
+      transfer: 1,
+      upgrade: 0
+    });
+    expect(room.workerAssignmentEvidence).toMatchObject({
+      workerCount: 4,
+      assignedTaskCount: 4,
+      productiveAssignmentCount: 4,
+      unassignedWorkerCount: 0
+    });
+    expect((room.resources as Record<string, Record<string, unknown>>).productiveEnergy).toMatchObject({
+      assignedWorkerCount: 0,
+      assignedCarriedEnergy: 0,
+      buildBlockedReason: 'worker_assignment_gap',
+      workerAssignmentBlockedDetail: 'spawn_reserving_energy',
+      constructionActivity: {
+        state: 'candidate_suppressed',
+        accepted: true,
+        reason: 'spawn_reserving_energy'
+      }
+    });
   });
 
   it('reports per-worker build and repair rejection reasons for construction assignment gaps', () => {
@@ -2467,7 +2546,7 @@ describe('runtime telemetry summaries', () => {
     expect(room.workerAssignmentEvidence).toMatchObject({
       workerCount: 1,
       assignedTaskCount: 1,
-      productiveAssignmentCount: 0
+      productiveAssignmentCount: 1
     });
     expect((room.resources as Record<string, Record<string, unknown>>).productiveEnergy.buildBlockedReason).toBeUndefined();
   });

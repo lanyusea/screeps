@@ -118,10 +118,12 @@ const TERRITORY_EXPANSION_PROGRESS_CPU_BUCKET_FLOOR = 500;
 
 const WORKER_TASK_TYPES = ['harvest', 'transfer', 'build', 'repair', 'upgrade'] as const;
 const PRODUCTIVE_WORKER_TASK_TYPES = ['build', 'repair', 'upgrade'] as const;
+const PRODUCTIVE_WORKER_ASSIGNMENT_TASK_TYPES = ['harvest', 'pickup', 'withdraw', 'transfer', 'build', 'repair', 'upgrade'] as const;
 const DEFAULT_EXTENSION_ENERGY_CAPACITY = 50;
 
 type WorkerTaskType = (typeof WORKER_TASK_TYPES)[number];
 type ProductiveWorkerTaskType = (typeof PRODUCTIVE_WORKER_TASK_TYPES)[number];
+type ProductiveWorkerAssignmentTaskType = (typeof PRODUCTIVE_WORKER_ASSIGNMENT_TASK_TYPES)[number];
 type RuntimeBuildBlockedReason =
   | 'construction_site_progress_unavailable'
   | 'energy_buffer_blocked'
@@ -1214,11 +1216,12 @@ function summarizeRoom(
   const resourcesWithoutActivity = summarizeResources(colony, colonyWorkers, colonyCreeps, eventMetrics.resources);
   const taskCounts = countWorkerTasks(colonyWorkers);
   const assignedTaskCount = countAssignedWorkerTasks(colonyWorkers);
+  const productiveAssignmentCount = countProductiveWorkerAssignments(colonyWorkers);
   const workerAssignmentEvidence = summarizeWorkerAssignmentEvidence(
     tick,
     colonyWorkers,
     assignedTaskCount,
-    resourcesWithoutActivity.productiveEnergy.assignedWorkerCount,
+    productiveAssignmentCount,
     cpuBudget
   );
   const constructionDeadlockTicks = getRoomConstructionDeadlockTicks(colony.room);
@@ -1454,6 +1457,20 @@ function emptyTerritoryRecommendationReport(): OccupationRecommendationReport {
 
 function countAssignedWorkerTasks(workers: Creep[]): number {
   return workers.reduce((assignedCount, worker) => assignedCount + (getWorkerTaskType(worker) ? 1 : 0), 0);
+}
+
+function countProductiveWorkerAssignments(workers: Creep[]): number {
+  return workers.reduce(
+    (assignedCount, worker) =>
+      assignedCount + (isProductiveWorkerAssignmentTaskType(getWorkerTaskType(worker)) ? 1 : 0),
+    0
+  );
+}
+
+function isProductiveWorkerAssignmentTaskType(
+  taskType: string | undefined
+): taskType is ProductiveWorkerAssignmentTaskType {
+  return PRODUCTIVE_WORKER_ASSIGNMENT_TASK_TYPES.includes(taskType as ProductiveWorkerAssignmentTaskType);
 }
 
 function summarizeWorkerAssignmentBlockedRoomFields(
