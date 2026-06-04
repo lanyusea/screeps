@@ -8,8 +8,10 @@ import {
   buildRuntimeConstructionPriorityReport,
   constructionPriorityStrategyParametersFromEntry,
   selectConstructionPriorityStrategyRegistryEntry,
+  type ConstructionPriorityCandidateSuppressionReason,
   type ConstructionPriorityPolicyAction,
   type ConstructionPriorityScore,
+  type ConstructionPriorityScoringSummary,
   type ConstructionPriorityUrgency
 } from '../construction/constructionPriority';
 import { countCreepsByRole, type RoleCounts } from '../creeps/roleCounts';
@@ -327,6 +329,7 @@ interface RuntimeRoomSummary {
   constructionSiteCount: number;
   constructionDeadlockTicks: number;
   constructionActivity: RuntimeConstructionActivitySummary;
+  constructionScoring: RuntimeConstructionScoringSummary;
   behavior?: RuntimeBehaviorSummary;
   structures?: RuntimeStructureSnapshotSummary;
   workerEfficiency?: RuntimeWorkerEfficiencySummary;
@@ -650,6 +653,24 @@ interface RuntimeConstructionActivityCandidateSummary {
   policyAction?: ConstructionPriorityPolicyAction;
 }
 
+type RuntimeConstructionScoringSkipReason =
+  | RuntimeCpuPressureReason
+  | 'optionalSummarySuppressed';
+
+interface RuntimeConstructionScoringSummary {
+  source: 'runtime-summary';
+  loopRan: boolean;
+  skipped: boolean;
+  rawCandidateCount: number;
+  viableCandidateCount: number;
+  suppressedCandidateCount: number;
+  acceptedCandidateCount: number;
+  sitePlacementAttempted: boolean;
+  skipReason?: RuntimeConstructionScoringSkipReason;
+  dominantSuppressionReason?: ConstructionPriorityCandidateSuppressionReason;
+  sitePlacementFailureReason?: string;
+}
+
 interface RuntimeWorkerIdleWorkerDetail {
   name?: string;
   reason: RuntimeWorkerIdleReason;
@@ -871,6 +892,11 @@ interface RuntimeCombatSummary {
   hostileCreepCount: number;
   hostileStructureCount: number;
   events?: RuntimeCombatEventSummary;
+}
+
+interface RuntimeConstructionPriorityEvaluation {
+  constructionPriority: RuntimeConstructionPrioritySummary;
+  constructionScoring: RuntimeConstructionScoringSummary;
 }
 
 interface RuntimeConstructionPrioritySummary {
@@ -1203,14 +1229,15 @@ function summarizeRoom(
     territoryExpansion,
     tick
   );
-  const constructionPriority = includeOptionalSummary
+  const constructionPriorityEvaluation = includeOptionalSummary
     ? summarizeConstructionPriority(
         colony,
         colonyWorkers,
         strategyRegistry,
         onStrategyRegistryRuntimeUse
       )
-    : emptyConstructionPrioritySummary();
+    : emptyConstructionPriorityEvaluation(cpuBudget);
+  const { constructionPriority, constructionScoring } = constructionPriorityEvaluation;
   const constructionActivity = summarizeConstructionActivity(
     resourcesWithoutActivity.productiveEnergy,
     constructionPriority,
@@ -1240,6 +1267,7 @@ function summarizeRoom(
     constructionSiteCount: resources.productiveEnergy.constructionSiteCount,
     constructionDeadlockTicks,
     constructionActivity,
+    constructionScoring,
     ...(includeOptionalSummary ? summarizeRuntimeBehavior(colonyWorkers, colonyCreeps, tick) : {}),
     ...(includeStructureSnapshot ? { structures: summarizeStructures(colony, colonyWorkers) } : {}),
     ...(includeOptionalSummary ? summarizeWorkerEfficiency(colonyWorkers, tick) : {}),
@@ -1381,6 +1409,39 @@ function emptyConstructionPrioritySummary(): RuntimeConstructionPrioritySummary 
     candidates: [],
     nextPrimary: null
   };
+}
+
+function emptyConstructionPriorityEvaluation(cpuBudget: RuntimeCpuBudget): RuntimeConstructionPriorityEvaluation {
+  return {
+    constructionPriority: emptyConstructionPrioritySummary(),
+    constructionScoring: {
+      source: 'runtime-summary',
+      loopRan: false,
+      skipped: true,
+      skipReason: selectConstructionScoringSkipReason(cpuBudget),
+      rawCandidateCount: 0,
+      viableCandidateCount: 0,
+      suppressedCandidateCount: 0,
+      acceptedCandidateCount: 0,
+      sitePlacementAttempted: false
+    }
+  };
+}
+
+function selectConstructionScoringSkipReason(cpuBudget: RuntimeCpuBudget): RuntimeConstructionScoringSkipReason {
+  for (const reason of [
+    'lowCpuLimit',
+    'criticalBucket',
+    'lowBucket',
+    'lowBucketRecovery',
+    'usedOverLimit'
+  ] as const) {
+    if (cpuBudget.reasons.includes(reason)) {
+      return reason;
+    }
+  }
+
+  return 'optionalSummarySuppressed';
 }
 
 function emptyTerritoryRecommendationReport(): OccupationRecommendationReport {
@@ -4069,7 +4130,7 @@ function summarizeConstructionPriority(
   colonyWorkers: Creep[],
   strategyRegistry: StrategyRegistryEntry[] | undefined,
   onStrategyRegistryRuntimeUse: ((entry: StrategyRegistryEntry) => void) | undefined
-): RuntimeConstructionPrioritySummary {
+): RuntimeConstructionPriorityEvaluation {
   const strategyEntry = selectConstructionPriorityStrategyRegistryEntry(strategyRegistry);
   const strategyParameters = constructionPriorityStrategyParametersFromEntry(strategyEntry);
   const report = buildRuntimeConstructionPriorityReport(colony, colonyWorkers, {
@@ -4080,8 +4141,29 @@ function summarizeConstructionPriority(
   }
 
   return {
-    candidates: report.candidates.map(toRuntimeConstructionPriorityCandidateSummary),
-    nextPrimary: report.nextPrimary ? toRuntimeConstructionPriorityCandidateSummary(report.nextPrimary) : null
+    constructionPriority: {
+      candidates: report.candidates.map(toRuntimeConstructionPriorityCandidateSummary),
+      nextPrimary: report.nextPrimary ? toRuntimeConstructionPriorityCandidateSummary(report.nextPrimary) : null
+    },
+    constructionScoring: toRuntimeConstructionScoringSummary(report.scoring)
+  };
+}
+
+function toRuntimeConstructionScoringSummary(
+  scoring: ConstructionPriorityScoringSummary
+): RuntimeConstructionScoringSummary {
+  return {
+    source: 'runtime-summary',
+    loopRan: scoring.loopRan,
+    skipped: scoring.skipped,
+    rawCandidateCount: scoring.rawCandidateCount,
+    viableCandidateCount: scoring.viableCandidateCount,
+    suppressedCandidateCount: scoring.suppressedCandidateCount,
+    acceptedCandidateCount: scoring.acceptedCandidateCount,
+    sitePlacementAttempted: scoring.sitePlacementAttempted,
+    ...(scoring.dominantSuppressionReason
+      ? { dominantSuppressionReason: scoring.dominantSuppressionReason }
+      : {})
   };
 }
 

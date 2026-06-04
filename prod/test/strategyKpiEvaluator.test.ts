@@ -81,6 +81,45 @@ describe('strategy KPI evaluator', () => {
     expect(kpi.kills.score).toBeGreaterThan(0);
   });
 
+  it('preserves construction scoring telemetry while normalizing runtime summaries', () => {
+    const [artifact] = parseStrategyEvaluationArtifacts({
+      type: 'runtime-summary',
+      tick: 10,
+      rooms: [
+        {
+          roomName: 'E17S59',
+          constructionScoring: {
+            source: 'runtime-summary',
+            loopRan: false,
+            skipped: true,
+            skipReason: 'lowBucketRecovery',
+            rawCandidateCount: 0,
+            viableCandidateCount: 0,
+            suppressedCandidateCount: 0,
+            acceptedCandidateCount: 0,
+            sitePlacementAttempted: false
+          }
+        }
+      ]
+    });
+
+    expect(artifact?.artifactType).toBe('runtime-summary');
+    if (artifact?.artifactType !== 'runtime-summary') {
+      throw new Error('expected runtime summary artifact');
+    }
+    expect(artifact.rooms[0]?.constructionScoring).toEqual({
+      source: 'runtime-summary',
+      loopRan: false,
+      skipped: true,
+      skipReason: 'lowBucketRecovery',
+      rawCandidateCount: 0,
+      viableCandidateCount: 0,
+      suppressedCandidateCount: 0,
+      acceptedCandidateCount: 0,
+      sitePlacementAttempted: false
+    });
+  });
+
   it('can reduce a room snapshot artifact without runtime APIs', () => {
     const artifacts = parseStrategyEvaluationArtifacts({
       artifactType: 'room-snapshot',

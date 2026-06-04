@@ -21,6 +21,7 @@ export interface StrategyRuntimeSummaryRoom {
   resources?: StrategyRuntimeResourceSummary;
   combat?: StrategyRuntimeCombatSummary;
   constructionPriority?: StrategyRuntimeConstructionPrioritySummary;
+  constructionScoring?: StrategyRuntimeConstructionScoringSummary;
   territoryRecommendation?: StrategyRuntimeTerritoryRecommendationSummary;
 }
 
@@ -74,6 +75,20 @@ export interface StrategyRuntimeCombatEventSummary {
 export interface StrategyRuntimeConstructionPrioritySummary {
   candidates?: StrategyRuntimeConstructionPriorityCandidate[];
   nextPrimary?: StrategyRuntimeConstructionPriorityCandidate | null;
+}
+
+export interface StrategyRuntimeConstructionScoringSummary {
+  source?: string;
+  loopRan?: boolean;
+  skipped?: boolean;
+  skipReason?: string;
+  rawCandidateCount?: number;
+  viableCandidateCount?: number;
+  suppressedCandidateCount?: number;
+  dominantSuppressionReason?: string;
+  acceptedCandidateCount?: number;
+  sitePlacementAttempted?: boolean;
+  sitePlacementFailureReason?: string;
 }
 
 export interface StrategyRuntimeConstructionPriorityCandidate {
@@ -415,6 +430,9 @@ function normalizeRuntimeSummaryRoom(rawRoom: unknown): StrategyRuntimeSummaryRo
     ...(isRecord(rawRoom.constructionPriority)
       ? { constructionPriority: normalizeConstructionPrioritySummary(rawRoom.constructionPriority) }
       : {}),
+    ...(isRecord(rawRoom.constructionScoring)
+      ? { constructionScoring: normalizeConstructionScoringSummary(rawRoom.constructionScoring) }
+      : {}),
     ...(isRecord(rawRoom.territoryRecommendation)
       ? { territoryRecommendation: normalizeTerritoryRecommendationSummary(rawRoom.territoryRecommendation) }
       : {})
@@ -538,6 +556,34 @@ function normalizeConstructionPrioritySummary(
       : isRecord(rawSummary.nextPrimary)
         ? { nextPrimary: normalizeConstructionCandidate(rawSummary.nextPrimary)[0] ?? null }
         : {})
+  };
+}
+
+function normalizeConstructionScoringSummary(
+  rawSummary: Record<string, unknown>
+): StrategyRuntimeConstructionScoringSummary {
+  return {
+    ...(isNonEmptyString(rawSummary.source) ? { source: rawSummary.source } : {}),
+    ...(typeof rawSummary.loopRan === 'boolean' ? { loopRan: rawSummary.loopRan } : {}),
+    ...(typeof rawSummary.skipped === 'boolean' ? { skipped: rawSummary.skipped } : {}),
+    ...(isNonEmptyString(rawSummary.skipReason) ? { skipReason: rawSummary.skipReason } : {}),
+    ...(isFiniteNumber(rawSummary.rawCandidateCount) ? { rawCandidateCount: rawSummary.rawCandidateCount } : {}),
+    ...(isFiniteNumber(rawSummary.viableCandidateCount) ? { viableCandidateCount: rawSummary.viableCandidateCount } : {}),
+    ...(isFiniteNumber(rawSummary.suppressedCandidateCount)
+      ? { suppressedCandidateCount: rawSummary.suppressedCandidateCount }
+      : {}),
+    ...(isNonEmptyString(rawSummary.dominantSuppressionReason)
+      ? { dominantSuppressionReason: rawSummary.dominantSuppressionReason }
+      : {}),
+    ...(isFiniteNumber(rawSummary.acceptedCandidateCount)
+      ? { acceptedCandidateCount: rawSummary.acceptedCandidateCount }
+      : {}),
+    ...(typeof rawSummary.sitePlacementAttempted === 'boolean'
+      ? { sitePlacementAttempted: rawSummary.sitePlacementAttempted }
+      : {}),
+    ...(isNonEmptyString(rawSummary.sitePlacementFailureReason)
+      ? { sitePlacementFailureReason: rawSummary.sitePlacementFailureReason }
+      : {})
   };
 }
 
