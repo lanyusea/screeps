@@ -160,7 +160,7 @@ describe('runtime CPU budget policy', () => {
     expect(shouldShedNonessentialCpuWork(budget)).toBe(true);
   });
 
-  it('keeps optional work paused through the observed post-alert recovery band', () => {
+  it('keeps optional work paused through the observed post-alert recovery boundary', () => {
     const recoveryBudget = buildRuntimeCpuBudget({
       tick: 1760015,
       used: 12,
@@ -168,11 +168,18 @@ describe('runtime CPU budget policy', () => {
       bucket: 1_142,
       tickLimit: 500
     });
-    const recoveredBudget = buildRuntimeCpuBudget({
+    const boundaryBudget = buildRuntimeCpuBudget({
       tick: 1760016,
       used: 12,
       limit: 70,
       bucket: 1_210,
+      tickLimit: 500
+    });
+    const recoveredBudget = buildRuntimeCpuBudget({
+      tick: 1760017,
+      used: 12,
+      limit: 70,
+      bucket: 1_211,
       tickLimit: 500
     });
 
@@ -186,6 +193,16 @@ describe('runtime CPU budget policy', () => {
     expect(shouldRunOptionalCpuWork(recoveryBudget, 'economy-global-optional')).toBe(false);
     expect(shouldRunOptionalCpuRoomWork(recoveryBudget, 'E29N55')).toBe(false);
     expect(shouldShedNonessentialCpuWork(recoveryBudget)).toBe(true);
+    expect(boundaryBudget).toMatchObject({
+      pressure: 'degraded',
+      degraded: true,
+      critical: false,
+      lowCpuLimit: false,
+      reasons: ['lowBucketRecovery']
+    });
+    expect(shouldRunOptionalCpuWork(boundaryBudget, 'economy-global-optional')).toBe(false);
+    expect(shouldRunOptionalCpuRoomWork(boundaryBudget, 'E29N55')).toBe(false);
+    expect(shouldShedNonessentialCpuWork(boundaryBudget)).toBe(true);
     expect(recoveredBudget).toMatchObject({
       pressure: 'normal',
       degraded: false,

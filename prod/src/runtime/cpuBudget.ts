@@ -234,7 +234,7 @@ function hasLowBucketRecoveryPressure(sample: RuntimeCpuSample): boolean {
     return false;
   }
 
-  return sample.bucket < LOW_CPU_BUCKET_THRESHOLD + getCpuBucketRecoveryHeadroom(sample.limit);
+  return sample.bucket <= LOW_CPU_BUCKET_THRESHOLD + getCpuBucketRecoveryHeadroom(sample.limit);
 }
 
 function getCpuBucketRecoveryHeadroom(limit: number | undefined): number {
