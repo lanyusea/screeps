@@ -1062,7 +1062,7 @@ function hasLowBucketRecoveryPressure(sample) {
   if (sample.bucket === void 0 || sample.bucket < LOW_CPU_BUCKET_THRESHOLD) {
     return false;
   }
-  return sample.bucket < LOW_CPU_BUCKET_THRESHOLD + getCpuBucketRecoveryHeadroom(sample.limit);
+  return sample.bucket <= LOW_CPU_BUCKET_THRESHOLD + getCpuBucketRecoveryHeadroom(sample.limit);
 }
 function getCpuBucketRecoveryHeadroom(limit) {
   if (limit !== void 0 && limit > 0) {
