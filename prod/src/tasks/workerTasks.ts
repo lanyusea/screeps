@@ -653,6 +653,25 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
         }
       }
 
+      const controller = creep.room.controller;
+      if (
+        controller &&
+        shouldGuardControllerDowngradeForWorkerLoad(creep, controller, { allowConstructionBacklogYield: false }) &&
+        canUpgradeController(controller)
+      ) {
+        const controllerGuardEnergyTask = selectWorkerEnergyCriticalAcquisitionTask(creep);
+        if (controllerGuardEnergyTask) {
+          return controllerGuardEnergyTask;
+        }
+      }
+    }
+
+    const seasonScoreCollectionTask = selectSeasonScoreCollectionTask(creep);
+    if (seasonScoreCollectionTask) {
+      return seasonScoreCollectionTask;
+    }
+
+    if (getFreeEnergyCapacity(creep) > 0) {
       if (shouldStandbySurplusWorkerInsteadOfAcquiring(creep, creep.room.controller)) {
         return null;
       }
@@ -742,11 +761,6 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       if (linkEnergyAcquisitionTask) {
         return linkEnergyAcquisitionTask;
       }
-    }
-
-    const seasonScoreCollectionTask = selectSeasonScoreCollectionTask(creep);
-    if (seasonScoreCollectionTask) {
-      return seasonScoreCollectionTask;
     }
 
     const source = selectHarvestSource(creep);
@@ -1029,6 +1043,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     });
   }
 
+  const seasonScoreCollectionTask = selectSeasonScoreCollectionTask(creep);
+  if (seasonScoreCollectionTask) {
+    return seasonScoreCollectionTask;
+  }
+
   const activeRampartRepairTarget =
     constructionSites.length === 0 ? selectActiveOwnedRampartRepairTarget(creep) : null;
   if (activeRampartRepairTarget) {
@@ -1173,11 +1192,6 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
   const interRoomEnergyHaulTask = selectInterRoomEnergyHaulingTask(creep, carriedEnergy);
   if (interRoomEnergyHaulTask) {
     return interRoomEnergyHaulTask;
-  }
-
-  const seasonScoreCollectionTask = selectSeasonScoreCollectionTask(creep);
-  if (seasonScoreCollectionTask) {
-    return seasonScoreCollectionTask;
   }
 
   if (controller?.my && canUpgradeController(controller)) {

@@ -606,12 +606,18 @@ describe('selectWorkerTask', () => {
         getFreeCapacity: jest.fn().mockReturnValue(50)
       },
       pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'score1' ? 2 : 99)) },
+      moveTo: jest.fn(),
       room
     } as unknown as Creep;
     setGameCreeps({ ScoreWorker: creep });
     setRuntimeShard('shardSeason');
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'collectScore', targetId: 'score1' });
+    expect(creep.memory.seasonScoreCollection).toMatchObject({
+      state: 'assigned',
+      visibleCount: 1,
+      targetId: 'score1'
+    });
   });
 
   it('ignores visible score globals on persistent worlds and continues normal work', () => {
@@ -633,6 +639,99 @@ describe('selectWorkerTask', () => {
     setRuntimeShard('shard3');
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
+  it('prioritizes visible season score collection before routine repair', () => {
+    (globalThis as unknown as { FIND_SCORE: number }).FIND_SCORE = 42;
+    const score = makeScoreItem('score1', 12, 10);
+    const road = makeStructure('road1', 'road' as StructureConstant, 4_000, 5_000);
+    const room = withVisibleScoreItems(
+      makeWorkerTaskRoom({
+        controller: { id: 'controller1', my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController,
+        energyAvailable: 550,
+        energyCapacityAvailable: 550,
+        structures: [road]
+      }),
+      [score]
+    );
+    const creep = {
+      name: 'RepairWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'score1' ? 3 : 1)) },
+      moveTo: jest.fn(),
+      room
+    } as unknown as Creep;
+    setGameCreeps({ RepairWorker: creep });
+    setRuntimeShard('shardSeason');
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'collectScore', targetId: 'score1' });
+  });
+
+  it('keeps critical infrastructure repair ahead of visible season score collection', () => {
+    (globalThis as unknown as { FIND_SCORE: number }).FIND_SCORE = 42;
+    const score = makeScoreItem('score1', 12, 10);
+    const container = makeStructure('container1', 'container' as StructureConstant, 1_000, 5_000);
+    const room = withVisibleScoreItems(
+      makeWorkerTaskRoom({
+        controller: { id: 'controller1', my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController,
+        energyAvailable: 550,
+        energyCapacityAvailable: 550,
+        structures: [container]
+      }),
+      [score]
+    );
+    const creep = {
+      name: 'CriticalRepairWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'score1' ? 3 : 1)) },
+      moveTo: jest.fn(),
+      room
+    } as unknown as Creep;
+    setGameCreeps({ CriticalRepairWorker: creep });
+    setRuntimeShard('shardSeason');
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'container1' });
+  });
+
+  it('prioritizes visible season score collection before normal controller upgrade', () => {
+    (globalThis as unknown as { FIND_SCORE: number }).FIND_SCORE = 42;
+    const score = makeScoreItem('score1', 12, 10);
+    const room = withVisibleScoreItems(
+      makeWorkerTaskRoom({
+        controller: {
+          id: 'controller1',
+          my: true,
+          level: 3,
+          ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 2_000
+        } as StructureController,
+        energyAvailable: 550,
+        energyCapacityAvailable: 550
+      }),
+      [score]
+    );
+    const creep = {
+      name: 'UpgradeWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'score1' ? 3 : 1)) },
+      moveTo: jest.fn(),
+      room
+    } as unknown as Creep;
+    setGameCreeps({ UpgradeWorker: creep });
+    setRuntimeShard('shardSeason');
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'collectScore', targetId: 'score1' });
   });
 
   it('keeps emergency spawn refill ahead of visible season score collection', () => {
@@ -667,6 +766,74 @@ describe('selectWorkerTask', () => {
     setRuntimeShard('shardSeason');
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
+  it('does not duplicate score collection when a viable collector is already assigned', () => {
+    (globalThis as unknown as { FIND_SCORE: number }).FIND_SCORE = 42;
+    const score = makeScoreItem('score1', 12, 10);
+    const source = makeSource('source1', 8, 8);
+    const room = withVisibleScoreItems(makeWorkerTaskRoom({ sources: [source] }), [score]);
+    const assignedCollector = {
+      name: 'AssignedScoreWorker',
+      memory: { role: 'worker', task: { type: 'collectScore', targetId: 'score1' } as CreepTaskMemory },
+      ticksToLive: 100,
+      pos: { getRangeTo: jest.fn().mockReturnValue(1) },
+      moveTo: jest.fn(),
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'SecondWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      ticksToLive: 100,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'score1' ? 2 : 5)) },
+      moveTo: jest.fn(),
+      room
+    } as unknown as Creep;
+    setGameCreeps({ AssignedScoreWorker: assignedCollector, SecondWorker: creep });
+    setRuntimeShard('shardSeason');
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(creep.memory.seasonScoreCollection).toMatchObject({
+      state: 'blocked',
+      visibleCount: 1,
+      targetId: 'score1',
+      blockedReason: 'collector_already_assigned',
+      assignedCreepName: 'AssignedScoreWorker'
+    });
+  });
+
+  it('replaces an impossible score collector assignment when another worker can arrive', () => {
+    (globalThis as unknown as { FIND_SCORE: number }).FIND_SCORE = 42;
+    const score = makeScoreItem('score1', 12, 10);
+    const room = withVisibleScoreItems(makeWorkerTaskRoom(), [score]);
+    const staleCollector = {
+      name: 'StaleScoreWorker',
+      memory: { role: 'worker', task: { type: 'collectScore', targetId: 'score1' } as CreepTaskMemory },
+      ticksToLive: 1,
+      pos: { getRangeTo: jest.fn().mockReturnValue(1) },
+      moveTo: jest.fn(),
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'ReplacementWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      ticksToLive: 100,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'score1' ? 2 : 99)) },
+      moveTo: jest.fn(),
+      room
+    } as unknown as Creep;
+    setGameCreeps({ StaleScoreWorker: staleCollector, ReplacementWorker: creep });
+    setRuntimeShard('shardSeason');
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'collectScore', targetId: 'score1' });
   });
 
   it('prefers a source that can fill the worker over a closer low-energy source', () => {

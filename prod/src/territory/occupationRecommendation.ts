@@ -1,5 +1,5 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
-import { isConfiguredExpansionScoutOnlyTarget } from './expansionConfig';
+import { isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl } from './expansionConfig';
 import type { ExpansionCandidateReport, ExpansionCandidateScore } from './expansionScoring';
 import { normalizeTerritoryFollowUp, normalizeTerritoryIntents } from './territoryMemoryUtils';
 
@@ -481,7 +481,7 @@ function buildRuntimeOccupationCandidates(
   );
 
   for (const roomName of getAdjacentRoomNames(colonyName)) {
-    if (isConfiguredExpansionScoutOnlyTarget(colonyName, roomName)) {
+    if (isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(colonyName, roomName)) {
       continue;
     }
 

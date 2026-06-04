@@ -1,6 +1,6 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
 import { recordClaimedRoomBootstrapStage } from '../colony/colonyStage';
-import { isConfiguredExpansionScoutOnlyTarget } from './expansionConfig';
+import { isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl } from './expansionConfig';
 import {
   TERRITORY_CONTROLLER_BODY_COST,
   TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS
@@ -446,7 +446,8 @@ function evaluateAutonomousExpansionClaim(
     buildAutonomousExpansionScoringInput(colony, report, context, gameTime)
   );
   const adjacentCandidates = getRankedAdjacentExpansionCandidates(expansionReport).filter(
-    (scoredCandidate) => !isConfiguredExpansionScoutOnlyTarget(colonyName, scoredCandidate.roomName)
+    (scoredCandidate) =>
+      !isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(colonyName, scoredCandidate.roomName)
   );
   const candidate =
     adjacentCandidates.find(
