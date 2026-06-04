@@ -182,6 +182,63 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
         self.assertEqual(payload["type"], ledgers.TRAINING_LEDGER_TYPE)
         self.assertEqual(payload["status"], "RUN_VALIDATED")
 
+    def test_training_ledger_does_not_reuse_generated_ledger_as_compute_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-dataset-gates" / "e1-lite" / "gate_report.json",
+                {
+                    "type": "screeps-rl-dataset-evaluation-gate",
+                    "createdAt": "2026-06-04T19:45:46Z",
+                    "ok": True,
+                    "gateId": "e1-lite",
+                    "dataset": {"runId": "rl-e1-lite", "sampleCount": 20},
+                    "datasetGate": {"status": "pass", "sampleCount": 20},
+                    "quality_checks": {"status": "pass", "samples_accepted": 20, "samples_rejected": 0},
+                    "blockingReasons": [],
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "20260604T194547Z-training-ledger.json",
+                {
+                    "type": ledgers.TRAINING_LEDGER_TYPE,
+                    "createdAt": "2026-06-04T19:45:47Z",
+                    "status": "RUN_VALIDATED",
+                    "trainingDidRun": True,
+                    "environmentExecution": {"completed": 2, "failed": 0},
+                    "iterationExecution": {"simulatorTicksRun": 200, "episodesRun": 2, "policyUpdateIterations": 1},
+                    "boundedProducer": {"maxFilesPerRoot": 4},
+                },
+            )
+            output = root / "out" / "training-ledger.json"
+
+            exit_code = ledgers.main(
+                [
+                    "training-ledger",
+                    "--repo-root",
+                    str(root),
+                    "--artifact-root",
+                    str(artifact_root),
+                    "--output",
+                    str(output),
+                    "--created-at",
+                    "2026-06-05T00:00:00Z",
+                    "--max-files-per-root",
+                    "4",
+                ],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+            payload = read_json(output)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["status"], "NOT_RUN")
+        self.assertFalse(payload["trainingDidRun"])
+        self.assertEqual(payload["environmentExecution"]["completed"], 0)
+        self.assertEqual(payload["trainingArtifacts"]["latestTrainingLedger"], None)
+        self.assertIn("TRAINING_LEDGER_MISSING", {item["code"] for item in payload["anomalies"]})
+
     def test_policy_advantage_output_is_bounded_and_artifact_first(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -219,6 +276,79 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
         self.assertEqual(payload["onlineUtilityStatus"], "UNPROVEN")
         self.assertEqual(payload["candidatePolicyId"], "candidate-a")
         self.assertEqual(json.loads(emitted)["artifact"], "out/policy-advantage.json")
+
+    def test_policy_advantage_derives_evidence_fields_from_current_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-control-loop" / "20260604T194548Z-policy-advantage.json",
+                {
+                    "type": ledgers.POLICY_ADVANTAGE_TYPE,
+                    "createdAt": "2026-06-04T19:45:48Z",
+                    "candidatePolicyId": "candidate-current",
+                    "baselinePolicyId": "incumbent",
+                    "onlineUtilityStatus": "PROVEN",
+                    "deployabilityStatus": "READY_FOR_GATED_LIVE",
+                    "metrics": {
+                        "territory": {
+                            "advantage": "advantage",
+                            "candidateValue": 2,
+                            "baselineValue": 1,
+                            "delta": 1,
+                        }
+                    },
+                    "regressions": [],
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "20260604T194549Z-policy-advantage.json",
+                {
+                    "type": ledgers.POLICY_ADVANTAGE_TYPE,
+                    "createdAt": "2026-06-04T19:45:49Z",
+                    "candidatePolicyId": "candidate-generated",
+                    "baselinePolicyId": "incumbent",
+                    "onlineUtilityStatus": "PROVEN",
+                    "deployabilityStatus": "READY_FOR_GATED_LIVE",
+                    "metrics": {
+                        "territory": {
+                            "advantage": "advantage",
+                            "candidateValue": 3,
+                            "baselineValue": 1,
+                            "delta": 2,
+                        }
+                    },
+                    "regressions": [],
+                    "boundedProducer": {"maxFilesPerRoot": 4},
+                },
+            )
+            output = root / "out" / "policy-advantage.json"
+
+            exit_code = ledgers.main(
+                [
+                    "policy-advantage",
+                    "--repo-root",
+                    str(root),
+                    "--artifact-root",
+                    str(artifact_root),
+                    "--output",
+                    str(output),
+                    "--created-at",
+                    "2026-06-05T00:00:01Z",
+                    "--max-files-per-root",
+                    "4",
+                ],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+            payload = read_json(output)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["candidatePolicyId"], "candidate-current")
+        self.assertEqual(payload["onlineUtilityStatus"], "BLOCKED")
+        self.assertEqual(payload["deployabilityStatus"], "BLOCKED")
+        self.assertEqual(payload["metrics"]["territory"]["advantage"], "BLOCKED_NO_COMPUTE")
+        self.assertEqual(payload["regressions"][0]["metric"], "territory")
 
     def test_steward_digest_uses_bounded_scan_without_github_side_effects(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

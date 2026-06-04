@@ -250,6 +250,20 @@ def bounded_simulator_health(latest_training: static_dashboard.LoadedArtifact | 
     }
 
 
+def is_bounded_producer_artifact(artifact: static_dashboard.LoadedArtifact) -> bool:
+    return isinstance(artifact.payload.get("boundedProducer"), dict)
+
+
+def latest_external_dashboard_artifact(
+    artifacts: Sequence[static_dashboard.LoadedArtifact],
+    artifact_kind: str,
+) -> static_dashboard.LoadedArtifact | None:
+    return live_dashboard.latest_bounded_dashboard_artifact(
+        [artifact for artifact in artifacts if not is_bounded_producer_artifact(artifact)],
+        artifact_kind,
+    )
+
+
 def dashboard_summary(repo_root: Path, artifact_root: Path, created_at: str, max_files_per_root: int) -> JsonObject:
     warnings: list[str] = []
     control_root = artifact_root / "rl-control-loop"
@@ -264,8 +278,8 @@ def dashboard_summary(repo_root: Path, artifact_root: Path, created_at: str, max
         warnings,
         repo_root,
     )
-    latest_training = live_dashboard.latest_bounded_dashboard_artifact(bounded_artifacts, "training_ledger")
-    latest_policy = live_dashboard.latest_bounded_dashboard_artifact(bounded_artifacts, "policy_advantage")
+    latest_training = latest_external_dashboard_artifact(bounded_artifacts, "training_ledger")
+    latest_policy = latest_external_dashboard_artifact(bounded_artifacts, "policy_advantage")
     latest_metrics = live_dashboard.latest_bounded_dashboard_artifact(bounded_artifacts, "metrics_observations")
     gate_infos, gate_scan = bounded_gate_infos(
         artifact_root,
@@ -558,8 +572,8 @@ def build_policy_advantage(
     status = text_value(policy.get("status")) or "UNPROVEN"
     if status in {"N/A", "UNKNOWN"}:
         status = "UNPROVEN"
-    metrics = as_dict((previous or {}).get("metrics")) or default_policy_metrics(policy)
-    regressions = as_list((previous or {}).get("regressions")) or policy_regressions(metrics)
+    metrics = default_policy_metrics(policy)
+    regressions = policy_regressions(metrics)
     deployability = "READY_FOR_GATED_LIVE" if status in {"POSITIVE", "PROVEN", "VALIDATED"} and not regressions else "BLOCKED"
 
     return {
@@ -573,8 +587,8 @@ def build_policy_advantage(
         "candidatePolicyId": field_from(previous, "candidatePolicyId", policy.get("candidate") or "NO_STABLE_CANDIDATE"),
         "baselinePolicyId": field_from(previous, "baselinePolicyId", policy.get("baseline") or "incumbent"),
         "mode": field_from(previous, "mode", "offline"),
-        "onlineUtilityStatus": field_from(previous, "onlineUtilityStatus", status),
-        "deployabilityStatus": field_from(previous, "deployabilityStatus", deployability),
+        "onlineUtilityStatus": status,
+        "deployabilityStatus": deployability,
         "onlineKpiDeltaSummary": field_from(previous, "onlineKpiDeltaSummary", "No bounded online KPI delta evidence was found."),
         "baselineWindow": field_from(previous, "baselineWindow", None),
         "validationWindow": field_from(previous, "validationWindow", None),
