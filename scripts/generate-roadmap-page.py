@@ -75,7 +75,6 @@ NOT_OBSERVED = "not observed"
 NOT_INSTRUMENTED = "not instrumented"
 INSUFFICIENT_EVIDENCE = "insufficient evidence"
 ACTIVE_HANDOFF_EVIDENCE_STATUSES = frozenset({"In progress", "In review", "Ready"})
-RECENT_DONE_HANDOFF_EVIDENCE_MIN_NUMBER = 1479
 
 
 JsonObject = dict[str, Any]
@@ -2534,11 +2533,16 @@ def validate_project_handoff_evidence(data: JsonObject) -> list[str]:
     if not project_handoff_evidence_field_is_hydrated(github):
         return []
 
+    raw_project_evidence_by_number = project_handoff_evidence_by_number(github.get("projectItems"))
     failures: list[str] = []
     for path, item in iter_project_handoff_items(github):
         if not project_item_requires_handoff_evidence(item):
             continue
-        if str(item.get("evidence") or "").strip():
+        if project_item_has_handoff_evidence(item):
+            continue
+        if not path.startswith("github.projectItems") and project_item_has_raw_handoff_evidence(
+            item, raw_project_evidence_by_number
+        ):
             continue
         number = project_item_number(item)
         item_ref = f"#{number}" if number is not None else str(item.get("title") or "unknown item")
@@ -2569,7 +2573,7 @@ def project_handoff_evidence_validation_summary(github: JsonObject) -> JsonObjec
         "mode": "enforced",
         "severity": "gate",
         "reason": "project-evidence-field-hydrated",
-        "message": "Project Evidence validation is enforced for active and recent Done items.",
+        "message": "Project Evidence validation is enforced for active handoff items.",
     }
 
 
@@ -2625,10 +2629,38 @@ def iter_project_handoff_collection(path: str, value: Any) -> Iterable[tuple[str
 
 def project_item_requires_handoff_evidence(item: Mapping[str, Any]) -> bool:
     status = normalize_status(item.get("status"))
-    if status in ACTIVE_HANDOFF_EVIDENCE_STATUSES:
-        return True
+    return status in ACTIVE_HANDOFF_EVIDENCE_STATUSES
+
+
+def project_item_has_handoff_evidence(item: Mapping[str, Any]) -> bool:
+    return bool(project_item_handoff_evidence_text(item))
+
+
+def project_item_handoff_evidence_text(item: Mapping[str, Any]) -> str:
+    return str(item.get("evidence") or item.get("Evidence") or "").strip()
+
+
+def project_handoff_evidence_by_number(value: Any) -> dict[int, str]:
+    evidence_by_number: dict[int, str] = {}
+    if not isinstance(value, list):
+        return evidence_by_number
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        number = project_item_number(item)
+        if number is None or number in evidence_by_number:
+            continue
+        evidence = project_item_handoff_evidence_text(item)
+        if evidence:
+            evidence_by_number[number] = evidence
+    return evidence_by_number
+
+
+def project_item_has_raw_handoff_evidence(
+    item: Mapping[str, Any], raw_project_evidence_by_number: Mapping[int, str]
+) -> bool:
     number = project_item_number(item)
-    return status == "Done" and number is not None and number >= RECENT_DONE_HANDOFF_EVIDENCE_MIN_NUMBER
+    return number is not None and bool(raw_project_evidence_by_number.get(number))
 
 
 def project_item_number(item: Mapping[str, Any]) -> int | None:

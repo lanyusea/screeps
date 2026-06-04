@@ -1865,6 +1865,26 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                         "evidence": "controller-side verification captured current Project Evidence.",
                     }
                 ],
+                "roadmapCards": [
+                    {
+                        "number": 1662,
+                        "type": "PullRequest",
+                        "status": "In review",
+                        "title": "sanitized public roadmap card",
+                        "evidence": "",
+                    }
+                ],
+                "kanban": {
+                    "cards": [
+                        {
+                            "number": 1662,
+                            "type": "PullRequest",
+                            "status": "In review",
+                            "title": "sanitized public kanban card",
+                            "evidence": "",
+                        }
+                    ]
+                },
             }
         }
 
