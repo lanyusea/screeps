@@ -1,5 +1,5 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
-import { isConfiguredExpansionScoutOnlyTarget } from './expansionConfig';
+import { isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl } from './expansionConfig';
 import { getTerritoryAutoClaimRequiredEnergy } from './autoClaim';
 import { maxRoomsForRcl } from './expansionScoring';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
@@ -1674,7 +1674,7 @@ function isRuntimeExpansionPlannerControlRoomSkipped(
   return (
     roomName === colonyName ||
     ownedRoomNames.has(roomName) ||
-    isConfiguredExpansionScoutOnlyTarget(colonyName, roomName)
+    isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(colonyName, roomName)
   );
 }
 

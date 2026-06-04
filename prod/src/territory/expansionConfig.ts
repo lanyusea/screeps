@@ -1,8 +1,10 @@
 import { getRuntimeCurrentRoomName } from '../config/runtimeRooms';
+import { isSeasonalRuntimeWorld } from '../runtime/seasonalPolicy';
 import {
   ACTIVE_OFFICIAL_PASSIVE_SCOUT_TARGET_SELECTION,
   TERRITORY_EXPANSION_ROOM_SELECTION
 } from '../config/roomSelection';
+import { isAutonomousTerritoryControlAllowedForColonyName } from './controlGate';
 
 export interface TerritoryExpansionScoutTargetConfig {
   colony: string;
@@ -65,9 +67,48 @@ export function getCurrentRoomScoutOnlyAdjacentRoomNames(roomName: string): stri
 }
 
 export function isConfiguredExpansionScoutOnlyTarget(colony: string, roomName: string): boolean {
-  return getTerritoryExpansionScoutTargets(colony).some(
-    (target) => target.colony === colony && target.roomName === roomName && target.scoutOnly === true
+  return getTerritoryExpansionScoutTargets(colony).some((target) =>
+    isScoutOnlyTargetForColonyRoom(target, colony, roomName)
   );
+}
+
+export function isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(
+  colony: string,
+  roomName: string
+): boolean {
+  return (
+    isConfiguredExpansionScoutOnlyTarget(colony, roomName) &&
+    !isSeasonalRuntimeCurrentRoomAdjacentScoutOnlyTargetTerritoryControlEligible(colony, roomName)
+  );
+}
+
+export function isSeasonalRuntimeCurrentRoomAdjacentScoutOnlyTargetTerritoryControlEligible(
+  colony: string,
+  roomName: string
+): boolean {
+  const currentRoomName = getRuntimeCurrentRoomName();
+  return (
+    isSeasonalRuntimeWorld() &&
+    currentRoomName === colony &&
+    isRuntimeCurrentRoomScoutTargetsEnabled(colony) &&
+    !isExplicitConfiguredExpansionScoutOnlyTarget(colony, roomName) &&
+    getCurrentRoomScoutOnlyAdjacentRoomNames(currentRoomName).includes(roomName) &&
+    isAutonomousTerritoryControlAllowedForColonyName(colony)
+  );
+}
+
+function isExplicitConfiguredExpansionScoutOnlyTarget(colony: string, roomName: string): boolean {
+  return [...getMemoryConfiguredExpansionScoutTargets(colony), ...getStaticExpansionScoutTargets(colony)].some(
+    (target) => isScoutOnlyTargetForColonyRoom(target, colony, roomName)
+  );
+}
+
+function isScoutOnlyTargetForColonyRoom(
+  target: TerritoryExpansionScoutTargetConfig,
+  colony: string,
+  roomName: string
+): boolean {
+  return target.colony === colony && target.roomName === roomName && target.scoutOnly === true;
 }
 
 function getMemoryConfiguredExpansionScoutTargets(
