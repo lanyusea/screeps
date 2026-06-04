@@ -160,39 +160,49 @@ describe('runtime CPU budget policy', () => {
     expect(shouldShedNonessentialCpuWork(budget)).toBe(true);
   });
 
-  it('keeps optional work paused through the observed post-alert recovery boundary', () => {
-    const recoveryBudget = buildRuntimeCpuBudget({
-      tick: 1760015,
-      used: 12,
-      limit: 70,
-      bucket: 1_142,
-      tickLimit: 500
-    });
+  it('keeps optional work paused through the observed postdeploy recovery buckets', () => {
+    const budgets = [
+      { tick: 1774071, used: 10.419663700000456, bucket: 1_149 },
+      { tick: 1774072, used: 10.012628700000278, bucket: 1_212 },
+      { tick: 1774073, used: 11.4234292000001, bucket: 1_155 }
+    ].map((sample) =>
+      buildRuntimeCpuBudget({
+        ...sample,
+        limit: 70,
+        tickLimit: 500
+      })
+    );
+
+    for (const budget of budgets) {
+      expect(budget).toMatchObject({
+        pressure: 'degraded',
+        degraded: true,
+        critical: false,
+        lowCpuLimit: false,
+        reasons: ['lowBucketRecovery']
+      });
+      expect(shouldRunOptionalCpuWork(budget, 'economy-global-optional')).toBe(false);
+      expect(shouldRunOptionalCpuRoomWork(budget, 'E29N55')).toBe(false);
+      expect(shouldShedNonessentialCpuWork(budget)).toBe(true);
+    }
+  });
+
+  it('resumes optional work only after the widened low-bucket recovery boundary', () => {
     const boundaryBudget = buildRuntimeCpuBudget({
       tick: 1760016,
       used: 12,
       limit: 70,
-      bucket: 1_210,
+      bucket: 1_350,
       tickLimit: 500
     });
     const recoveredBudget = buildRuntimeCpuBudget({
       tick: 1760017,
       used: 12,
       limit: 70,
-      bucket: 1_211,
+      bucket: 1_351,
       tickLimit: 500
     });
 
-    expect(recoveryBudget).toMatchObject({
-      pressure: 'degraded',
-      degraded: true,
-      critical: false,
-      lowCpuLimit: false,
-      reasons: ['lowBucketRecovery']
-    });
-    expect(shouldRunOptionalCpuWork(recoveryBudget, 'economy-global-optional')).toBe(false);
-    expect(shouldRunOptionalCpuRoomWork(recoveryBudget, 'E29N55')).toBe(false);
-    expect(shouldShedNonessentialCpuWork(recoveryBudget)).toBe(true);
     expect(boundaryBudget).toMatchObject({
       pressure: 'degraded',
       degraded: true,
