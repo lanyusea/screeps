@@ -168,7 +168,9 @@ describe('runtime CPU budget policy', () => {
       { tick: 1778500, used: 11.56589829999939, bucket: 1_322 },
       { tick: 1778505, used: 14.938247999998566, bucket: 1_299 },
       { tick: 1778516, used: 12.664124599999923, bucket: 1_305 },
-      { tick: 1778516, used: 58.535224199997174, bucket: 1_356 }
+      { tick: 1778516, used: 58.535224199997174, bucket: 1_356 },
+      { tick: 1781934, used: 15.34289709999939, bucket: 1_646 },
+      { tick: 1781938, used: 48.868957800001226, bucket: 1_710 }
     ].map((sample) =>
       buildRuntimeCpuBudget({
         ...sample,
@@ -191,19 +193,51 @@ describe('runtime CPU budget policy', () => {
     }
   });
 
+  it('treats post-1663 over-limit recovery buckets as low-bucket recovery pressure', () => {
+    const budgets = [
+      buildRuntimeCpuBudget({
+        tick: 1781934,
+        used: 74.24123780000082,
+        limit: 70,
+        bucket: 1_702,
+        tickLimit: 500
+      }),
+      buildRuntimeCpuBudget({
+        tick: 1781936,
+        used: 77.13447970000198,
+        limit: 70,
+        bucket: 1_707,
+        tickLimit: 500
+      })
+    ];
+
+    for (const budget of budgets) {
+      expect(budget).toMatchObject({
+        pressure: 'degraded',
+        degraded: true,
+        critical: false,
+        lowCpuLimit: false,
+        reasons: ['lowBucketRecovery', 'usedOverLimit']
+      });
+      expect(shouldRunOptionalCpuWork(budget, 'economy-global-optional')).toBe(false);
+      expect(shouldRunOptionalCpuRoomWork(budget, 'E29N55')).toBe(false);
+      expect(shouldShedNonessentialCpuWork(budget)).toBe(true);
+    }
+  });
+
   it('resumes optional work only after the widened low-bucket recovery boundary', () => {
     const boundaryBudget = buildRuntimeCpuBudget({
       tick: 1760016,
       used: 12,
       limit: 70,
-      bucket: 1_700,
+      bucket: 1_770,
       tickLimit: 500
     });
     const recoveredBudget = buildRuntimeCpuBudget({
       tick: 1760017,
       used: 12,
       limit: 70,
-      bucket: 1_701,
+      bucket: 1_771,
       tickLimit: 500
     });
 
