@@ -14,6 +14,7 @@ import asyncio
 import errno
 import html
 import json
+import math
 import os
 import re
 import shutil
@@ -50,17 +51,19 @@ ALERT_COLLECTION_FALLBACK_REQUEST_COUNT_PER_ATTEMPT = 2
 def alert_collection_timeout_budget_seconds(
     collection_attempts: int = DEFAULT_COLLECTION_ATTEMPTS,
     collection_retry_delay_seconds: float = DEFAULT_COLLECTION_RETRY_DELAY_SECONDS,
+    room_count: int = 1,
 ) -> float:
     attempts = max(1, int(collection_attempts))
+    rooms = max(1, int(room_count))
     retry_delay_seconds = max(0.0, float(collection_retry_delay_seconds))
-    request_count = (
-        ALERT_COLLECTION_DISCOVERY_REQUEST_COUNT
-        + ALERT_COLLECTION_INITIAL_ROOM_REQUEST_COUNT
-        + (attempts * ALERT_COLLECTION_FALLBACK_REQUEST_COUNT_PER_ATTEMPT)
+    per_room_request_count = (
+        ALERT_COLLECTION_INITIAL_ROOM_REQUEST_COUNT
+        + attempts * ALERT_COLLECTION_FALLBACK_REQUEST_COUNT_PER_ATTEMPT
     )
+    request_count = ALERT_COLLECTION_DISCOVERY_REQUEST_COUNT + rooms * per_room_request_count
     return (
         request_count * ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS
-        + max(0, attempts - 1) * retry_delay_seconds
+        + rooms * max(0, attempts - 1) * retry_delay_seconds
     )
 
 
@@ -814,7 +817,7 @@ def positive_float_arg(value: str) -> float:
         parsed = float(value)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"expected a positive number, got {value!r}") from exc
-    if parsed <= 0:
+    if not math.isfinite(parsed) or parsed <= 0:
         raise argparse.ArgumentTypeError(f"expected a positive number, got {value!r}")
     return parsed
 
@@ -952,6 +955,17 @@ def discover_owned_rooms(ctx: RuntimeContext, forced_room: RoomRef | None) -> tu
     return [fallback], overview, warnings, [fallback]
 
 
+def alert_collection_room_count(ctx: RuntimeContext, room_arg: str | None) -> int:
+    forced_room = parse_room_arg(room_arg, ctx.default_shard)
+    if forced_room:
+        return 1
+    try:
+        overview = get_json(ctx.base_http, ctx.token, "/api/user/overview")
+    except Exception:  # noqa: BLE001 - default timeout must still exist when discovery is unavailable
+        return 1
+    return max(1, len(overview_room_refs(overview)))
+
+
 def terrain_cache_path(cache_dir: Path, ref: RoomRef) -> Path:
     return cache_dir / f"{ref.file_fragment}.json"
 
@@ -1033,11 +1047,19 @@ async def fetch_room_event(ctx: RuntimeContext, ref: RoomRef) -> dict[str, Any]:
         raise RuntimeError("Python package 'websockets' is required") from exc
 
     uri = ctx.base_ws + "/socket/websocket"
+    deadline = time.monotonic() + ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS
+
+    def remaining_websocket_timeout() -> float:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(f"room snapshot websocket timed out for {ref.key}")
+        return remaining
+
     async with websockets.connect(uri, open_timeout=ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS) as websocket:
         await websocket.send("auth " + ctx.token)
         authenticated = False
         for _ in range(30):
-            message = await asyncio.wait_for(websocket.recv(), timeout=ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS)
+            message = await asyncio.wait_for(websocket.recv(), timeout=remaining_websocket_timeout())
             if isinstance(message, bytes):
                 message = message.decode()
             if isinstance(message, str) and message.startswith("auth "):
@@ -1049,7 +1071,7 @@ async def fetch_room_event(ctx: RuntimeContext, ref: RoomRef) -> dict[str, Any]:
         channel = f"room:{ref.shard}/{ref.room}"
         await websocket.send(f"subscribe {channel}")
         for _ in range(60):
-            message = await asyncio.wait_for(websocket.recv(), timeout=ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS)
+            message = await asyncio.wait_for(websocket.recv(), timeout=remaining_websocket_timeout())
             if isinstance(message, bytes):
                 message = message.decode()
             if not isinstance(message, str) or not message.startswith("["):
@@ -6110,11 +6132,25 @@ def run_alert_with_process_timeout(args: argparse.Namespace, timeout_seconds: fl
             pass
 
 
+def alert_timeout_seconds_from_args(args: argparse.Namespace) -> float:
+    configured_timeout = getattr(args, "alert_timeout_seconds", None)
+    if configured_timeout is not None:
+        return float(configured_timeout)
+
+    ctx = context_from_env(getattr(args, "world_profile", None))
+    room_count = alert_collection_room_count(ctx, getattr(args, "room", None))
+    return alert_collection_timeout_budget_seconds(
+        collection_attempts=ctx.collection_attempts,
+        collection_retry_delay_seconds=ctx.collection_retry_delay_seconds,
+        room_count=room_count,
+    )
+
+
 def run_parsed_command(args: argparse.Namespace) -> int:
     if getattr(args, "command", None) != "alert":
         return int(args.func(args))
 
-    timeout_seconds = float(getattr(args, "alert_timeout_seconds", DEFAULT_ALERT_TIMEOUT_SECONDS))
+    timeout_seconds = alert_timeout_seconds_from_args(args)
     return run_alert_with_process_timeout(args, timeout_seconds)
 
 
@@ -6492,8 +6528,12 @@ def apply_world_profile_defaults(args: argparse.Namespace) -> argparse.Namespace
         args.runtime_summary_out_dir = str(profile.runtime_summary_out_dir)
     if hasattr(args, "runtime_summary_dir") and getattr(args, "runtime_summary_dir") is None:
         args.runtime_summary_dir = env_default("SCREEPS_RUNTIME_SUMMARY_DIR", str(profile.runtime_summary_out_dir))
-    if hasattr(args, "alert_timeout_seconds") and getattr(args, "alert_timeout_seconds") is None:
-        raw_timeout = env_default("SCREEPS_ALERT_TIMEOUT_SECONDS", str(DEFAULT_ALERT_TIMEOUT_SECONDS))
+    if (
+        hasattr(args, "alert_timeout_seconds")
+        and getattr(args, "alert_timeout_seconds") is None
+        and "SCREEPS_ALERT_TIMEOUT_SECONDS" in os.environ
+    ):
+        raw_timeout = os.environ["SCREEPS_ALERT_TIMEOUT_SECONDS"]
         try:
             args.alert_timeout_seconds = positive_float_arg(raw_timeout)
         except argparse.ArgumentTypeError as exc:
@@ -6547,7 +6587,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Wall-clock timeout for the alert command before emitting diagnostic JSON "
-            f"(default: {DEFAULT_ALERT_TIMEOUT_SECONDS:g}s or SCREEPS_ALERT_TIMEOUT_SECONDS)."
+            "(default: auto budget from monitored rooms and collection retry settings, "
+            "or SCREEPS_ALERT_TIMEOUT_SECONDS)."
         ),
     )
     alert.add_argument(

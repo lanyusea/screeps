@@ -8,6 +8,7 @@ import io
 import json
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -349,7 +350,7 @@ class WorldProfileDefaultsTest(unittest.TestCase):
         self.assertEqual(Path(alert_args.runtime_summary_dir), monitor.DEFAULT_RUNTIME_SUMMARY_OUT_DIR)
         self.assertEqual(monitor.alert_collection_timeout_budget_seconds(), expected_alert_timeout)
         self.assertEqual(monitor.DEFAULT_ALERT_TIMEOUT_SECONDS, expected_alert_timeout)
-        self.assertEqual(alert_args.alert_timeout_seconds, expected_alert_timeout)
+        self.assertIsNone(alert_args.alert_timeout_seconds)
         self.assertLess(monitor.DEFAULT_ALERT_TIMEOUT_SECONDS, 15 * 60)
         self.assertEqual(ctx.base_http, monitor.DEFAULT_API_URL)
         self.assertEqual(ctx.default_shard, monitor.DEFAULT_SHARD)
@@ -366,6 +367,59 @@ class WorldProfileDefaultsTest(unittest.TestCase):
             alert_args = monitor.build_parser().parse_args(["alert"])
 
         self.assertEqual(alert_args.alert_timeout_seconds, 12.5)
+
+    def test_alert_timeout_budget_scales_across_rooms_and_retry_delay(self) -> None:
+        self.assertAlmostEqual(
+            monitor.alert_collection_timeout_budget_seconds(
+                collection_attempts=4,
+                collection_retry_delay_seconds=7.5,
+                room_count=3,
+            ),
+            (
+                (
+                    monitor.ALERT_COLLECTION_DISCOVERY_REQUEST_COUNT
+                    + 3
+                    * (
+                        monitor.ALERT_COLLECTION_INITIAL_ROOM_REQUEST_COUNT
+                        + 4 * monitor.ALERT_COLLECTION_FALLBACK_REQUEST_COUNT_PER_ATTEMPT
+                    )
+                )
+                * monitor.ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS
+                + 3 * (4 - 1) * 7.5
+            ),
+        )
+
+    def test_alert_timeout_default_uses_collection_env_and_room_count(self) -> None:
+        overview = {"shards": {"shardX": {"rooms": ["E1N1", "E2N2"]}}}
+        with mock.patch.dict(
+            monitor.os.environ,
+            {
+                "SCREEPS_AUTH_TOKEN": "token",
+                "SCREEPS_MONITOR_COLLECTION_ATTEMPTS": "4",
+                "SCREEPS_MONITOR_COLLECTION_RETRY_DELAY_SECONDS": "7.5",
+            },
+            clear=True,
+        ):
+            alert_args = monitor.build_parser().parse_args(["alert"])
+            with mock.patch.object(monitor, "get_json", return_value=overview):
+                with mock.patch.object(monitor, "run_alert_with_process_timeout", return_value=0) as run_alert:
+                    rc = monitor.run_parsed_command(alert_args)
+
+        self.assertEqual(rc, 0)
+        self.assertAlmostEqual(
+            run_alert.call_args.args[1],
+            monitor.alert_collection_timeout_budget_seconds(
+                collection_attempts=4,
+                collection_retry_delay_seconds=7.5,
+                room_count=2,
+            ),
+        )
+
+    def test_positive_float_arg_rejects_non_finite_values(self) -> None:
+        for value in ("nan", "inf", "-inf", "1e309"):
+            with self.subTest(value=value):
+                with self.assertRaises(monitor.argparse.ArgumentTypeError):
+                    monitor.positive_float_arg(value)
 
     def test_seasonal_profile_isolates_monitor_defaults(self) -> None:
         with mock.patch.dict(monitor.os.environ, {"SCREEPS_AUTH_TOKEN": "token"}, clear=True):
@@ -474,6 +528,74 @@ class WorldProfileDefaultsTest(unittest.TestCase):
         )
 
 
+class OsWithoutFork:
+    def __init__(self, wrapped: object) -> None:
+        self._wrapped = wrapped
+
+    def __getattr__(self, name: str) -> object:
+        if name == "fork":
+            raise AttributeError(name)
+        return getattr(self._wrapped, name)
+
+
+class AlertCollectionTimeoutTest(unittest.TestCase):
+    def test_fetch_room_event_uses_one_websocket_deadline_across_recv_loops(self) -> None:
+        messages = [
+            "auth ok",
+            ['room:shardX/E1N1', {"objects": [], "gameTime": 123}],
+        ]
+        wait_for_timeouts: list[float] = []
+
+        class FakeWebSocket:
+            async def send(self, _message: str) -> None:
+                return None
+
+            async def recv(self) -> object:
+                return json.dumps(messages.pop(0)) if isinstance(messages[0], list) else messages.pop(0)
+
+        class FakeConnection:
+            async def __aenter__(self) -> FakeWebSocket:
+                return FakeWebSocket()
+
+            async def __aexit__(self, _exc_type: object, _exc: object, _traceback: object) -> None:
+                return None
+
+        async def fake_wait_for(awaitable: object, timeout: float) -> object:
+            wait_for_timeouts.append(timeout)
+            return await awaitable
+
+        real_monotonic = monitor.time.monotonic
+        script_times = iter([100.0, 100.0, 110.0])
+
+        def fake_monotonic() -> float:
+            if Path(sys._getframe(1).f_code.co_filename) == MODULE_PATH:
+                return next(script_times)
+            return real_monotonic()
+
+        fake_websockets = types.SimpleNamespace(connect=lambda _uri, open_timeout: FakeConnection())
+        ctx = monitor.RuntimeContext(
+            base_http="https://screeps.com",
+            token="token",
+            default_shard="shardX",
+            default_room="E1N1",
+            owner=None,
+            owner_id=None,
+            state_file=Path("/tmp/state.json"),
+            cache_dir=Path("/tmp/cache"),
+            debounce_seconds=300,
+            collection_attempts=1,
+            collection_retry_delay_seconds=0,
+        )
+
+        with mock.patch.dict(sys.modules, {"websockets": fake_websockets}):
+            with mock.patch.object(monitor.time, "monotonic", new=fake_monotonic):
+                with mock.patch.object(monitor.asyncio, "wait_for", new=fake_wait_for):
+                    event = monitor.asyncio.run(monitor.fetch_room_event(ctx, monitor.RoomRef("shardX", "E1N1")))
+
+        self.assertEqual(event["objects"], [])
+        self.assertEqual(wait_for_timeouts, [monitor.ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS, 15.0])
+
+
 class AlertCommandFailurePayloadTest(unittest.TestCase):
     def test_signal_child_tree_falls_back_to_process_signal_when_process_group_missing(self) -> None:
         if not hasattr(monitor.os, "killpg"):
@@ -525,6 +647,30 @@ class AlertCommandFailurePayloadTest(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["mode"], "alert")
         self.assertFalse(payload["alert"])
+        self.assertEqual(payload["diagnostic"]["kind"], "command_timeout")
+        self.assertEqual(payload["diagnostic"]["command"], "alert")
+        self.assertNotIn("abcdef123456", stdout.getvalue())
+
+    def test_alert_signal_timeout_returns_json_when_child_blocks_in_subprocess(self) -> None:
+        def stalled_alert(_args: object) -> int:
+            monitor.subprocess.run(
+                [sys.executable, "-c", "import time; time.sleep(5)"],
+                check=True,
+            )
+            return 0
+
+        with mock.patch.object(monitor, "os", new=OsWithoutFork(monitor.os)):
+            with mock.patch.dict(monitor.os.environ, {"SCREEPS_AUTH_TOKEN": "abcdef123456"}, clear=True):
+                with mock.patch.object(monitor, "command_alert", new=stalled_alert):
+                    with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                        rc = monitor.main(["alert", "--alert-timeout-seconds", "0.01"])
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(rc, 1)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["mode"], "alert")
+        self.assertFalse(payload["alert"])
+        self.assertEqual(payload["rooms"], [])
         self.assertEqual(payload["diagnostic"]["kind"], "command_timeout")
         self.assertEqual(payload["diagnostic"]["command"], "alert")
         self.assertNotIn("abcdef123456", stdout.getvalue())
@@ -624,6 +770,7 @@ class AlertCommandFailurePayloadTest(unittest.TestCase):
         self.assertEqual(payload["mode"], "alert")
         self.assertFalse(payload["alert"])
         self.assertEqual(payload["reasons"], [])
+        self.assertEqual(payload["rooms"], [])
         self.assertEqual(payload["room_summaries"], [])
         self.assertEqual(payload["diagnostic"], {"kind": "command_failed"})
         self.assertIn("capture failed", payload["error"])
