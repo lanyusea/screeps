@@ -224,6 +224,35 @@ describe('territory expansion config', () => {
     expect(isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl('E9S27', 'E9S28')).toBe(false);
   });
 
+  it('keeps explicit adjacent memory scout-only targets excluded from Seasonal RCL3 territory control', () => {
+    (globalThis as { Game: Partial<Game> }).Game = {
+      shard: { name: 'shardSeason', type: 'normal' } as Game['shard'],
+      rooms: {
+        E9S27: makeOwnedRoom('E9S27', 3)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      runtime: {
+        currentRoomName: 'E9S27'
+      },
+      territory: {
+        expansionScoutTargets: [
+          {
+            colony: 'E9S27',
+            roomName: 'E9S28',
+            nearestOwnedRoom: 'E9S27',
+            nearestOwnedRoomDistance: 1,
+            routeDistance: 1,
+            adjacentToOwnedRoom: true,
+            scoutOnly: true
+          }
+        ]
+      }
+    };
+
+    expect(isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl('E9S27', 'E9S28')).toBe(true);
+  });
+
   it('keeps persistent runtime scout-only targets excluded from territory control before the Seasonal RCL3 gate', () => {
     (globalThis as { Game: Partial<Game> }).Game = {
       shard: { name: 'shardSeason', type: 'normal' } as Game['shard'],

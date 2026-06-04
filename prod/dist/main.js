@@ -4114,7 +4114,7 @@ function getCurrentRoomScoutOnlyAdjacentRoomNames(roomName) {
 }
 function isConfiguredExpansionScoutOnlyTarget(colony, roomName) {
   return getTerritoryExpansionScoutTargets(colony).some(
-    (target) => target.colony === colony && target.roomName === roomName && target.scoutOnly === true
+    (target) => isScoutOnlyTargetForColonyRoom(target, colony, roomName)
   );
 }
 function isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(colony, roomName) {
@@ -4122,7 +4122,15 @@ function isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(colony
 }
 function isSeasonalRuntimeCurrentRoomAdjacentScoutOnlyTargetTerritoryControlEligible(colony, roomName) {
   const currentRoomName = getRuntimeCurrentRoomName();
-  return isSeasonalRuntimeWorld() && currentRoomName === colony && isRuntimeCurrentRoomScoutTargetsEnabled(colony) && getCurrentRoomScoutOnlyAdjacentRoomNames(currentRoomName).includes(roomName) && isAutonomousTerritoryControlAllowedForColonyName(colony);
+  return isSeasonalRuntimeWorld() && currentRoomName === colony && isRuntimeCurrentRoomScoutTargetsEnabled(colony) && !isExplicitConfiguredExpansionScoutOnlyTarget(colony, roomName) && getCurrentRoomScoutOnlyAdjacentRoomNames(currentRoomName).includes(roomName) && isAutonomousTerritoryControlAllowedForColonyName(colony);
+}
+function isExplicitConfiguredExpansionScoutOnlyTarget(colony, roomName) {
+  return [...getMemoryConfiguredExpansionScoutTargets(colony), ...getStaticExpansionScoutTargets(colony)].some(
+    (target) => isScoutOnlyTargetForColonyRoom(target, colony, roomName)
+  );
+}
+function isScoutOnlyTargetForColonyRoom(target, colony, roomName) {
+  return target.colony === colony && target.roomName === roomName && target.scoutOnly === true;
 }
 function getMemoryConfiguredExpansionScoutTargets(colonyName) {
   var _a2, _b;
