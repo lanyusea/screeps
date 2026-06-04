@@ -21,6 +21,11 @@ import screeps_rl_experiment_card as card_helper
 JsonObject = dict[str, Any]
 
 
+class BrokenWriter(io.StringIO):
+    def write(self, _text: str) -> int:
+        raise BrokenPipeError("simulated closed stdout")
+
+
 def write_json(path: Path, payload: JsonObject) -> None:
     path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
 
@@ -1529,6 +1534,19 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertNotIn(secret, stdout.getvalue())
         self.assertNotIn(secret, stderr.getvalue())
         self.assertIn("[REDACTED]", stderr.getvalue())
+
+    def test_main_treats_closed_stdout_as_success_after_report_generation(self) -> None:
+        stderr = io.StringIO()
+
+        with mock.patch.object(runner, "run_training_experiment", return_value={"ok": True, "reportId": "report-ok"}):
+            exit_code = runner.main(
+                ["--experiment-card", "card.json", "--print-report"],
+                stdout=BrokenWriter(),
+                stderr=stderr,
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stderr.getvalue(), "")
 
     def test_lexicographic_reward_makes_territory_win_beat_resource_win(self) -> None:
         start = tick(1, [room("W1N1", energy=100)])

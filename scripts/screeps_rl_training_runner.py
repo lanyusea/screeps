@@ -30,6 +30,7 @@ import screeps_rl_simulator_harness as simulator_harness
 import screeps_rl_scale_gates as scale_gates
 import screeps_rl_scorecard as scorecard_helper
 import screeps_rl_role_policy_lanes as role_policy_lanes
+import screeps_cli_io
 
 
 SCHEMA_VERSION = 1
@@ -1219,7 +1220,7 @@ def run_training_experiment(
         raise
     report["reportPath"] = dataset_export.display_path(report_path)
     if stdout is not None:
-        stdout.write(canonical_json(build_generation_summary(report)))
+        screeps_cli_io.write_json(stdout, build_generation_summary(report))
     return report
 
 
@@ -8232,10 +8233,10 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: Tex
             registry_path=args.registry_path,
             steam_key_env_file=args.steam_key_env_file,
         )
-        stdout.write(canonical_json(report if args.print_report else build_generation_summary(report)))
+        screeps_cli_io.write_json(stdout, report if args.print_report else build_generation_summary(report))
         return 0
     except (RuntimeError, TrainingCardError, OSError) as error:
-        stderr.write(f"error: {dataset_export.redact_text(str(error))}\n")
+        screeps_cli_io.write_text(stderr, f"error: {dataset_export.redact_text(str(error))}\n")
         return 2
 
 
