@@ -59,6 +59,7 @@ declare global {
     workerTaskPolicyShadow?: WorkerTaskPolicyShadowMemory;
     workerEnergyCriticalPolicy?: WorkerEnergyCriticalPolicyMemory;
     workerDispatchDiagnostic?: WorkerDispatchDiagnosticMemory;
+    seasonScoreCollection?: SeasonScoreCollectionDiagnosticMemory;
     energyDropoffOptimization?: WorkerEnergyDropoffOptimizationMemory;
     behaviorTelemetry?: CreepBehaviorTelemetryMemory;
     blockedBuildTarget?: WorkerBlockedBuildTargetMemory;
@@ -1211,6 +1212,7 @@ declare global {
     | 'preempted_for_new_task'
     | 'preempted_for_nearby_energy'
     | 'preempted_for_productive_backlog'
+    | 'preempted_for_season_score'
     | 'preempted_for_spawn_recovery'
     | 'preempted_for_spawn_reservation_refill'
     | 'preempted_for_territory'
@@ -1235,6 +1237,24 @@ declare global {
     spawnReservationTargetId?: string;
     assignedTask?: CreepTaskMemory['type'];
     assignedTargetId?: string;
+  }
+
+  type SeasonScoreCollectionDiagnosticState = 'assigned' | 'blocked';
+  type SeasonScoreCollectionBlockReason =
+    | 'collector_already_assigned'
+    | 'collector_ttl_insufficient'
+    | 'move_unavailable'
+    | 'no_visible_score'
+    | 'score_decay_impossible';
+
+  interface SeasonScoreCollectionDiagnosticMemory {
+    tick: number;
+    state: SeasonScoreCollectionDiagnosticState;
+    visibleCount: number;
+    targetId?: string;
+    blockedReason?: SeasonScoreCollectionBlockReason;
+    assignedCreepName?: string;
+    assignedCollectorRange?: number;
   }
 
   type WorkerTaskBehaviorActionType = 'harvest' | 'transfer' | 'build' | 'repair' | 'upgrade';

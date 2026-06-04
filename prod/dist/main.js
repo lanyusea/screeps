@@ -25815,21 +25815,84 @@ var SCORE_FALLBACK_ROOM_KEYS = [
   "seasonScore",
   "seasonScoreItems"
 ];
+var SCORE_COLLECTION_TRAVEL_BUFFER_TICKS = 1;
 function selectSeasonScoreCollectionTask(creep) {
-  var _a2;
-  if (!getRuntimeFeatureGates().isSeasonal || ((_a2 = creep.memory) == null ? void 0 : _a2.role) !== "worker") {
+  if (!getRuntimeFeatureGates().isSeasonal || !isEligibleSeasonScoreCollector(creep)) {
+    clearSeasonScoreCollectionDiagnostic(creep);
     return null;
   }
   const scoreItem = selectBestVisibleScoreItem(creep);
   return scoreItem ? { type: "collectScore", targetId: scoreItem.id } : null;
 }
 function selectBestVisibleScoreItem(creep) {
-  var _a2;
   const room = creep.room;
   if (!room) {
+    recordSeasonScoreCollectionDiagnostic(creep, {
+      tick: getGameTime30(),
+      state: "blocked",
+      visibleCount: 0,
+      blockedReason: "no_visible_score"
+    });
     return null;
   }
-  return (_a2 = findVisibleScoreItems(room).sort((left, right) => compareScoreItems(creep, left, right))[0]) != null ? _a2 : null;
+  const visibleItems = findVisibleScoreItems(room);
+  if (visibleItems.length === 0) {
+    recordSeasonScoreCollectionDiagnostic(creep, {
+      tick: getGameTime30(),
+      state: "blocked",
+      visibleCount: 0,
+      blockedReason: "no_visible_score"
+    });
+    return null;
+  }
+  const candidates = visibleItems.map((item) => {
+    var _a2;
+    return {
+      item,
+      blocker: (_a2 = findViableAssignedScoreCollector(creep, item)) != null ? _a2 : void 0
+    };
+  }).sort((left, right) => compareScoreCollectionCandidates(creep, left, right));
+  let blockedAssignment = null;
+  let blockedCollection = null;
+  for (const candidate of candidates) {
+    const collectorBlockReason = getCreepScoreCollectionBlockReason(creep, candidate.item);
+    if (collectorBlockReason) {
+      blockedCollection != null ? blockedCollection : blockedCollection = { candidate, reason: collectorBlockReason };
+      continue;
+    }
+    if (candidate.blocker) {
+      blockedAssignment != null ? blockedAssignment : blockedAssignment = candidate;
+      continue;
+    }
+    recordSeasonScoreCollectionDiagnostic(creep, {
+      tick: getGameTime30(),
+      state: "assigned",
+      visibleCount: visibleItems.length,
+      targetId: String(candidate.item.id)
+    });
+    return candidate.item;
+  }
+  if (blockedCollection) {
+    recordSeasonScoreCollectionDiagnostic(creep, {
+      tick: getGameTime30(),
+      state: "blocked",
+      visibleCount: visibleItems.length,
+      targetId: String(blockedCollection.candidate.item.id),
+      blockedReason: blockedCollection.reason
+    });
+    return null;
+  }
+  const assignedCollector = blockedAssignment == null ? void 0 : blockedAssignment.blocker;
+  recordSeasonScoreCollectionDiagnostic(creep, {
+    tick: getGameTime30(),
+    state: "blocked",
+    visibleCount: visibleItems.length,
+    ...blockedAssignment ? { targetId: String(blockedAssignment.item.id) } : {},
+    blockedReason: "collector_already_assigned",
+    ...(assignedCollector == null ? void 0 : assignedCollector.creepName) ? { assignedCreepName: assignedCollector.creepName } : {},
+    ...assignedCollector ? { assignedCollectorRange: assignedCollector.range } : {}
+  });
+  return null;
 }
 function findVisibleScoreItems(room) {
   const candidates = [
@@ -25898,10 +25961,83 @@ function hasKnownNonScoreRoomObjectMarker(candidate) {
 function compareScoreItems(creep, left, right) {
   return getRangeTo(creep, left) - getRangeTo(creep, right) || String(left.id).localeCompare(String(right.id));
 }
+function compareScoreCollectionCandidates(creep, left, right) {
+  return Number(left.blocker !== void 0) - Number(right.blocker !== void 0) || compareScoreItems(creep, left.item, right.item);
+}
+function isEligibleSeasonScoreCollector(creep) {
+  var _a2, _b;
+  return ((_a2 = creep.memory) == null ? void 0 : _a2.role) === "worker" || ((_b = creep.memory) == null ? void 0 : _b.role) === "hauler";
+}
+function findViableAssignedScoreCollector(requestingCreep, target) {
+  var _a2;
+  for (const assignedCreep of getGameCreeps()) {
+    if (isSameCreep(assignedCreep, requestingCreep)) {
+      continue;
+    }
+    const task = (_a2 = assignedCreep.memory) == null ? void 0 : _a2.task;
+    if ((task == null ? void 0 : task.type) !== "collectScore" || String(task.targetId) !== String(target.id)) {
+      continue;
+    }
+    if (getCreepScoreCollectionBlockReason(assignedCreep, target)) {
+      continue;
+    }
+    return {
+      ...optionalCreepName(assignedCreep),
+      range: getRangeTo(assignedCreep, target)
+    };
+  }
+  return null;
+}
+function getCreepScoreCollectionBlockReason(creep, target) {
+  if (typeof creep.moveTo !== "function") {
+    return "move_unavailable";
+  }
+  const travelTicks = getRangeTo(creep, target);
+  if (!Number.isFinite(travelTicks) || travelTicks === Number.MAX_SAFE_INTEGER) {
+    return "move_unavailable";
+  }
+  const ticksToLive = creep.ticksToLive;
+  if (typeof ticksToLive === "number" && Number.isFinite(ticksToLive) && ticksToLive <= travelTicks + SCORE_COLLECTION_TRAVEL_BUFFER_TICKS) {
+    return "collector_ttl_insufficient";
+  }
+  const decayTime = target.decayTime;
+  const gameTime = getGameTime30();
+  if (typeof decayTime === "number" && Number.isFinite(decayTime) && decayTime <= gameTime + travelTicks + SCORE_COLLECTION_TRAVEL_BUFFER_TICKS) {
+    return "score_decay_impossible";
+  }
+  return null;
+}
 function getRangeTo(creep, target) {
   var _a2, _b;
   const range = (_b = (_a2 = creep.pos) == null ? void 0 : _a2.getRangeTo) == null ? void 0 : _b.call(_a2, target);
   return typeof range === "number" && Number.isFinite(range) ? range : Number.MAX_SAFE_INTEGER;
+}
+function getGameCreeps() {
+  var _a2;
+  const creeps = (_a2 = globalThis.Game) == null ? void 0 : _a2.creeps;
+  return creeps ? Object.values(creeps) : [];
+}
+function getGameTime30() {
+  var _a2;
+  const time = (_a2 = globalThis.Game) == null ? void 0 : _a2.time;
+  return typeof time === "number" && Number.isFinite(time) ? Math.max(0, Math.floor(time)) : 0;
+}
+function isSameCreep(left, right) {
+  return left === right || left.name !== void 0 && left.name === right.name;
+}
+function optionalCreepName(creep) {
+  return typeof creep.name === "string" && creep.name.length > 0 ? { creepName: creep.name } : {};
+}
+function recordSeasonScoreCollectionDiagnostic(creep, diagnostic) {
+  if (!creep.memory) {
+    return;
+  }
+  creep.memory.seasonScoreCollection = diagnostic;
+}
+function clearSeasonScoreCollectionDiagnostic(creep) {
+  if (creep.memory) {
+    delete creep.memory.seasonScoreCollection;
+  }
 }
 
 // src/tasks/workerTasks.ts
@@ -26241,6 +26377,19 @@ function selectHeuristicWorkerTask(creep) {
           return { type: "harvest", targetId: spawnRecoveryHarvestCandidate.source.id };
         }
       }
+      const controller2 = creep.room.controller;
+      if (controller2 && shouldGuardControllerDowngradeForWorkerLoad(creep, controller2, { allowConstructionBacklogYield: false }) && canUpgradeController(controller2)) {
+        const controllerGuardEnergyTask = selectWorkerEnergyCriticalAcquisitionTask(creep);
+        if (controllerGuardEnergyTask) {
+          return controllerGuardEnergyTask;
+        }
+      }
+    }
+    const seasonScoreCollectionTask2 = selectSeasonScoreCollectionTask(creep);
+    if (seasonScoreCollectionTask2) {
+      return seasonScoreCollectionTask2;
+    }
+    if (getFreeEnergyCapacity8(creep) > 0) {
       if (shouldStandbySurplusWorkerInsteadOfAcquiring(creep, creep.room.controller)) {
         return null;
       }
@@ -26313,10 +26462,6 @@ function selectHeuristicWorkerTask(creep) {
       if (linkEnergyAcquisitionTask) {
         return linkEnergyAcquisitionTask;
       }
-    }
-    const seasonScoreCollectionTask2 = selectSeasonScoreCollectionTask(creep);
-    if (seasonScoreCollectionTask2) {
-      return seasonScoreCollectionTask2;
     }
     const source = selectHarvestSource(creep);
     if (source) {
@@ -26549,6 +26694,10 @@ function selectHeuristicWorkerTask(creep) {
       targetId: threatenedBarrierRepairTarget.id
     });
   }
+  const seasonScoreCollectionTask = selectSeasonScoreCollectionTask(creep);
+  if (seasonScoreCollectionTask) {
+    return seasonScoreCollectionTask;
+  }
   const activeRampartRepairTarget = constructionSites.length === 0 ? selectActiveOwnedRampartRepairTarget(creep) : null;
   if (activeRampartRepairTarget) {
     return applyMinimumUsefulLoadPolicy(creep, {
@@ -26661,10 +26810,6 @@ function selectHeuristicWorkerTask(creep) {
   if (interRoomEnergyHaulTask) {
     return interRoomEnergyHaulTask;
   }
-  const seasonScoreCollectionTask = selectSeasonScoreCollectionTask(creep);
-  if (seasonScoreCollectionTask) {
-    return seasonScoreCollectionTask;
-  }
   if ((controller == null ? void 0 : controller.my) && canUpgradeController(controller)) {
     return applyMinimumUsefulLoadPolicy(creep, { type: "upgrade", targetId: controller.id });
   }
@@ -26755,8 +26900,8 @@ function shouldForceGenericHarvestForThroughputRecovery(creep) {
   return hasLowWorkerThroughputRecoveryPressure(creep) && !getSameRoomCreepsIncludingCurrent(creep).filter(isWorkerCreep).some(isAssignedHarvestCreep);
 }
 function getSameRoomCreepsIncludingCurrent(creep) {
-  const roomCreeps = getGameCreeps().filter((candidate) => isInRoom(candidate, creep.room));
-  if (!roomCreeps.some((candidate) => isSameCreep(candidate, creep))) {
+  const roomCreeps = getGameCreeps2().filter((candidate) => isInRoom(candidate, creep.room));
+  if (!roomCreeps.some((candidate) => isSameCreep2(candidate, creep))) {
     roomCreeps.push(creep);
   }
   return roomCreeps;
@@ -27033,10 +27178,10 @@ function isCriticalRoadLogisticsConstructionSite(site, priorityContext) {
   return isRoadConstructionSite2(site) && priorityContext.criticalRoadContext !== void 0 && isCriticalRoadLogisticsWork(site, priorityContext.criticalRoadContext);
 }
 function hasOtherSameRoomLoadedBuildWorker(creep) {
-  return getGameCreeps().some(
+  return getGameCreeps2().some(
     (worker) => {
       var _a2, _b;
-      return !isSameCreep(worker, creep) && isSameRoomWorker(worker, creep.room) && ((_b = (_a2 = worker.memory) == null ? void 0 : _a2.task) == null ? void 0 : _b.type) === "build" && getUsedEnergy2(worker) > 0;
+      return !isSameCreep2(worker, creep) && isSameRoomWorker(worker, creep.room) && ((_b = (_a2 = worker.memory) == null ? void 0 : _a2.task) == null ? void 0 : _b.type) === "build" && getUsedEnergy2(worker) > 0;
     }
   );
 }
@@ -27149,7 +27294,7 @@ function getOtherNearTermSpawnExtensionRefillCoverageEnergy(creep, spawnExtensio
   const spawnExtensionEnergyStructureIds = new Set(
     spawnExtensionEnergyStructures.map((structure) => String(structure.id))
   );
-  return getSameRoomLoadedWorkersForRefillReservations(creep).filter((worker) => !isSameCreep(worker, creep)).filter(
+  return getSameRoomLoadedWorkersForRefillReservations(creep).filter((worker) => !isSameCreep2(worker, creep)).filter(
     (worker) => isWorkerRefillBoundOrReservableForSpawnExtensionDelivery(worker, spawnExtensionEnergyStructureIds)
   ).reduce((total, worker) => total + getUsedEnergy2(worker), 0);
 }
@@ -27182,7 +27327,7 @@ function shouldYieldControllerDowngradeGuardToConstructionBacklog(creep, control
 }
 function hasOtherLoadedWorkerUpgradingController(creep, controller) {
   return getSameRoomLoadedWorkers(creep).some(
-    (worker) => !isSameCreep(worker, creep) && getActiveWorkParts2(worker) > 0 && isUpgradingController(worker, controller)
+    (worker) => !isSameCreep2(worker, creep) && getActiveWorkParts2(worker) > 0 && isUpgradingController(worker, controller)
   );
 }
 function hasSpendableConstructionBacklog(creep) {
@@ -27653,7 +27798,7 @@ function getInterRoomHaulReservationCache() {
     reservedEnergyByTransferKey: /* @__PURE__ */ new Map(),
     tick: gameTick
   };
-  for (const creep of getGameCreeps()) {
+  for (const creep of getGameCreeps2()) {
     setCachedInterRoomHaulReservation(
       interRoomHaulReservationCache,
       creep,
@@ -27941,7 +28086,7 @@ function isCloserThanReservedEnergyDelivery(creep, energySink, loadedWorkers) {
   let closestReservedDeliveryRange = null;
   let hasReservedDelivery = false;
   for (const worker of loadedWorkers) {
-    if (isSameCreep(worker, creep) || !isWorkerAssignedToEnergySink(worker, energySink)) {
+    if (isSameCreep2(worker, creep) || !isWorkerAssignedToEnergySink(worker, energySink)) {
       continue;
     }
     hasReservedDelivery = true;
@@ -27965,7 +28110,7 @@ function getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers) {
   var _a2, _b;
   const reservedEnergyDeliveries = /* @__PURE__ */ new Map();
   for (const worker of loadedWorkers) {
-    if (isSameCreep(worker, creep)) {
+    if (isSameCreep2(worker, creep)) {
       continue;
     }
     const task = (_a2 = worker.memory) == null ? void 0 : _a2.task;
@@ -28252,7 +28397,7 @@ function getRoomOwnedCreeps(room) {
       return roomCreeps;
     }
   }
-  return getGameCreeps().filter((worker) => isSameRoomWorker(worker, room));
+  return getGameCreeps2().filter((worker) => isSameRoomWorker(worker, room));
 }
 function isWorkerAssignedToConstructionSite(worker, site) {
   var _a2;
@@ -28553,7 +28698,7 @@ function hasControllerProgressDemand(creep, controller) {
 function hasLoadedWorkerAvailableForUncoveredProductiveBacklog(creep, controller) {
   return getSameRoomLoadedWorkers(creep).some((worker) => {
     var _a2, _b;
-    if (isSameCreep(worker, creep) || isUpgradingController(worker, controller) || getActiveWorkParts2(worker) <= 0) {
+    if (isSameCreep2(worker, creep) || isUpgradingController(worker, controller) || getActiveWorkParts2(worker) <= 0) {
       return false;
     }
     const taskType = (_b = (_a2 = worker.memory) == null ? void 0 : _a2.task) == null ? void 0 : _b.type;
@@ -28561,10 +28706,10 @@ function hasLoadedWorkerAvailableForUncoveredProductiveBacklog(creep, controller
   });
 }
 function hasSameRoomWorkerAssignedToTask(room, currentCreep, taskType) {
-  return getGameCreeps().some(
+  return getGameCreeps2().some(
     (worker) => {
       var _a2, _b;
-      return !isSameCreep(worker, currentCreep) && isSameRoomWorker(worker, room) && ((_b = (_a2 = worker.memory) == null ? void 0 : _a2.task) == null ? void 0 : _b.type) === taskType;
+      return !isSameCreep2(worker, currentCreep) && isSameRoomWorker(worker, room) && ((_b = (_a2 = worker.memory) == null ? void 0 : _a2.task) == null ? void 0 : _b.type) === taskType;
     }
   );
 }
@@ -28833,7 +28978,7 @@ function hasOtherSameRoomBuildCoverageWorker(creep) {
   return getSameRoomLoadedWorkers(creep).some(
     (worker) => {
       var _a2, _b;
-      return !isSameCreep(worker, creep) && ((_b = (_a2 = worker.memory) == null ? void 0 : _a2.task) == null ? void 0 : _b.type) === "build" && getActiveWorkParts2(worker) > 0;
+      return !isSameCreep2(worker, creep) && ((_b = (_a2 = worker.memory) == null ? void 0 : _a2.task) == null ? void 0 : _b.type) === "build" && getActiveWorkParts2(worker) > 0;
     }
   );
 }
@@ -29955,8 +30100,8 @@ function getReservedWorkerEnergyAcquisitions(creep) {
   var _a2, _b;
   const reservedEnergyBySourceId = /* @__PURE__ */ new Map();
   let constructionEnergyWithdrawn = 0;
-  for (const worker of getGameCreeps()) {
-    if (isSameCreep(worker, creep) || !isSameRoomWorker(worker, creep.room)) {
+  for (const worker of getGameCreeps2()) {
+    if (isSameCreep2(worker, creep) || !isSameRoomWorker(worker, creep.room)) {
       continue;
     }
     const task = (_a2 = worker.memory) == null ? void 0 : _a2.task;
@@ -30330,7 +30475,7 @@ function hasSameRoomLoadedRepairCoverage(creep) {
   return getSameRoomLoadedWorkers(creep).some(
     (worker) => {
       var _a2, _b;
-      return !isSameCreep(worker, creep) && worker.spawning !== true && ((_b = (_a2 = worker.memory) == null ? void 0 : _a2.task) == null ? void 0 : _b.type) === "repair" && getActiveWorkParts2(worker) > 0;
+      return !isSameCreep2(worker, creep) && worker.spawning !== true && ((_b = (_a2 = worker.memory) == null ? void 0 : _a2.task) == null ? void 0 : _b.type) === "repair" && getActiveWorkParts2(worker) > 0;
     }
   );
 }
@@ -30462,7 +30607,7 @@ function hasOtherWorkerAssignedToRepairTarget(creep, structure) {
   return getRoomOwnedCreeps(creep.room).some(
     (worker) => {
       var _a2;
-      return !isSameCreep(worker, creep) && ((_a2 = worker.memory) == null ? void 0 : _a2.role) === "worker" && isWorkerAssignedToRepairTarget(worker, structure);
+      return !isSameCreep2(worker, creep) && ((_a2 = worker.memory) == null ? void 0 : _a2.role) === "worker" && isWorkerAssignedToRepairTarget(worker, structure);
     }
   );
 }
@@ -30470,7 +30615,7 @@ function hasOtherLoadedWorkerAssignedToRepairTarget(creep, structure) {
   return getRoomOwnedCreeps(creep.room).some(
     (worker) => {
       var _a2;
-      return !isSameCreep(worker, creep) && ((_a2 = worker.memory) == null ? void 0 : _a2.role) === "worker" && getUsedEnergy2(worker) > 0 && getActiveWorkParts2(worker) > 0 && isWorkerAssignedToRepairTarget(worker, structure);
+      return !isSameCreep2(worker, creep) && ((_a2 = worker.memory) == null ? void 0 : _a2.role) === "worker" && getUsedEnergy2(worker) > 0 && getActiveWorkParts2(worker) > 0 && isWorkerAssignedToRepairTarget(worker, structure);
     }
   );
 }
@@ -30611,7 +30756,7 @@ function createNearTermSpawnExtensionRefillReserveContext(room) {
     room,
     spawnExtensionEnergyStructures
   );
-  const sortedLoadedWorkers = refillReserve > 0 ? dedupeCreepsByStableKey(getGameCreeps().filter((candidate) => isSameRoomWorkerWithEnergy(candidate, room))).sort(
+  const sortedLoadedWorkers = refillReserve > 0 ? dedupeCreepsByStableKey(getGameCreeps2().filter((candidate) => isSameRoomWorkerWithEnergy(candidate, room))).sort(
     (left, right) => compareNearTermRefillReserveWorkers(left, right, spawnExtensionEnergyStructures)
   ) : [];
   return {
@@ -30636,7 +30781,7 @@ function isWorkerEnergyNeededForNearTermSpawnExtensionRefillReserve(creep, reser
   const loadedWorkers = getNearTermRefillReserveLoadedWorkers(creep, reserveContext);
   let reservedEnergy = 0;
   for (const worker of loadedWorkers) {
-    if (isSameCreep(worker, creep)) {
+    if (isSameCreep2(worker, creep)) {
       return reservedEnergy < reserveContext.refillReserve;
     }
     reservedEnergy += getUsedEnergy2(worker);
@@ -30644,7 +30789,7 @@ function isWorkerEnergyNeededForNearTermSpawnExtensionRefillReserve(creep, reser
   return true;
 }
 function getNearTermRefillReserveLoadedWorkers(creep, reserveContext) {
-  if (reserveContext.sortedLoadedWorkers.some((worker) => isSameCreep(worker, creep))) {
+  if (reserveContext.sortedLoadedWorkers.some((worker) => isSameCreep2(worker, creep))) {
     return reserveContext.sortedLoadedWorkers;
   }
   return dedupeCreepsByStableKey([...reserveContext.sortedLoadedWorkers, creep]).sort(
@@ -30688,7 +30833,7 @@ function getClosestNearTermRefillRange(creep, spawnExtensionEnergyStructures) {
   }
   return closestRange;
 }
-function isSameCreep(left, right) {
+function isSameCreep2(left, right) {
   if (left === right) {
     return true;
   }
@@ -30719,7 +30864,7 @@ function shouldApplyControllerPressureLane(creep, controller) {
     hasTerritoryExpansionPressure
   );
   const otherControllerUpgraders = loadedWorkers.filter(
-    (worker) => !isSameCreep(worker, creep) && isUpgradingController(worker, controller)
+    (worker) => !isSameCreep2(worker, creep) && isUpgradingController(worker, controller)
   ).length;
   return otherControllerUpgraders < controllerProgressWorkers;
 }
@@ -30786,7 +30931,7 @@ function isControllerUpgradeSaturated(creep, controller, options = {}) {
   }
   const loadedWorkers = getSameRoomLoadedWorkers(creep);
   const otherControllerUpgraders = loadedWorkers.filter(
-    (worker) => !isSameCreep(worker, creep) && isUpgradingController(worker, controller)
+    (worker) => !isSameCreep2(worker, creep) && isUpgradingController(worker, controller)
   ).length;
   if (otherControllerUpgraders === 0) {
     return false;
@@ -30871,8 +31016,8 @@ function isSourceDepleted2(source) {
   return typeof source.energy === "number" && source.energy <= 0;
 }
 function hasOtherSource2ControllerLaneWorker(creep, topology) {
-  return getGameCreeps().some(
-    (candidate) => !isSameCreep(candidate, creep) && isSameRoomWorker(candidate, creep.room) && isSource2ControllerLaneTask(candidate, topology)
+  return getGameCreeps2().some(
+    (candidate) => !isSameCreep2(candidate, creep) && isSameRoomWorker(candidate, creep.room) && isSource2ControllerLaneTask(candidate, topology)
   );
 }
 function isSameRoomWorker(creep, room) {
@@ -31038,7 +31183,7 @@ function isActiveTerritoryPressureIntent(intent, colonyName) {
   return intent.colony === colonyName && intent.targetRoom !== colonyName && (intent.status === "planned" || intent.status === "active") && (intent.action === "claim" || intent.action === "reserve" || intent.action === "scout");
 }
 function getSameRoomLoadedWorkers(creep) {
-  return getSameRoomLoadedWorkersFromCandidates(creep, getGameCreeps());
+  return getSameRoomLoadedWorkersFromCandidates(creep, getGameCreeps2());
 }
 function getSameRoomLoadedWorkersForRefillReservations(creep) {
   return getSameRoomLoadedWorkersFromCandidates(creep, getRoomOwnedCreeps(creep.room));
@@ -31759,7 +31904,7 @@ function getWorkerHarvestLoads(sources) {
     assignmentLoads.set(source.id, createEmptyHarvestSourceAssignmentLoad());
   }
   const sourceIds = new Set(sources.map((source) => source.id));
-  for (const assignedCreep of getGameCreeps()) {
+  for (const assignedCreep of getGameCreeps2()) {
     const task = (_a2 = assignedCreep.memory) == null ? void 0 : _a2.task;
     const targetId = typeof (task == null ? void 0 : task.targetId) === "string" ? task.targetId : void 0;
     const sourceHarvesterTargetId = ((_b = assignedCreep.memory) == null ? void 0 : _b.role) === SOURCE_HARVESTER_ROLE && typeof ((_c = assignedCreep.memory.sourceHarvester) == null ? void 0 : _c.sourceId) === "string" ? assignedCreep.memory.sourceHarvester.sourceId : void 0;
@@ -31780,7 +31925,7 @@ function getWorkerHarvestLoads(sources) {
 function isSourceContainerHarvestAssignment(task) {
   return (task == null ? void 0 : task.type) === "harvest" && task.sourceContainerAssigned === true;
 }
-function getGameCreeps() {
+function getGameCreeps2() {
   const game = getGameReference();
   const creeps = game == null ? void 0 : game.creeps;
   const gameTick = getGameTick3();
@@ -31901,7 +32046,7 @@ function updateEnergyCriticalPolicyMemory(creep, assessment, previousMemory) {
     delete creep.memory.workerEnergyCriticalPolicy;
     return;
   }
-  const gameTime = getGameTime30();
+  const gameTime = getGameTime31();
   creep.memory.workerEnergyCriticalPolicy = {
     type: "workerEnergyCriticalPolicy",
     schemaVersion: 1,
@@ -32024,7 +32169,7 @@ function getGameObjectById3(id) {
   const object = (_a2 = game == null ? void 0 : game.getObjectById) == null ? void 0 : _a2.call(game, id);
   return object ? object : null;
 }
-function getGameTime30() {
+function getGameTime31() {
   var _a2;
   const time = (_a2 = globalThis.Game) == null ? void 0 : _a2.time;
   return typeof time === "number" && Number.isFinite(time) ? time : 0;
@@ -32304,6 +32449,8 @@ function runWorker(creep) {
     criticalCpuTaskRetention.repairPreemptionTask
   )) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPreemptRepairTaskForSeasonScore(creep, currentTask, selectedTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptRepairTaskForConstructionBacklog(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPauseOptionalTaskForCriticalCpu(creep, currentTask, selectedTask)) {
@@ -32395,6 +32542,9 @@ function selectWorkerDispatchDiagnosticReason(creep, context, assignedTask) {
     }
     if (isTerritoryControlTask2(selectedTask)) {
       return "preempted_for_territory";
+    }
+    if ((selectedTask == null ? void 0 : selectedTask.type) === "collectScore") {
+      return "preempted_for_season_score";
     }
     if ((selectedTask == null ? void 0 : selectedTask.type) === "signController") {
       return "preempted_for_controller_signing";
@@ -32540,6 +32690,12 @@ function shouldRetainCriticalCpuRepairTask(creep) {
 }
 function shouldPreemptRepairTaskForCriticalCpuRepairPreemption(task, repairPreemptionTask) {
   return task.type === "repair" && repairPreemptionTask !== void 0 && !isSameTask2(task, repairPreemptionTask);
+}
+function shouldPreemptRepairTaskForSeasonScore(creep, task, selectedTask) {
+  if (task.type !== "repair" || (selectedTask == null ? void 0 : selectedTask.type) !== "collectScore" || isSameTask2(task, selectedTask)) {
+    return false;
+  }
+  return !isProtectedRepairTargetForConstructionBacklog(creep, getTaskTarget(task));
 }
 function shouldPreemptRepairTaskForConstructionBacklog(creep, task, selectedTask) {
   if (task.type !== "repair" || (selectedTask == null ? void 0 : selectedTask.type) !== "build" || isSameTask2(task, selectedTask)) {
@@ -32704,7 +32860,7 @@ function hasSafeStoredEnergyForBoundedConstruction(creep, selectedTask) {
 function hasOtherSameRoomBuildAssignment(creep) {
   return getRoomOwnedCreeps2(creep.room).some((worker) => {
     var _a2, _b;
-    if (isSameCreep2(worker, creep) || !isProductiveSameRoomWorker2(worker, creep.room)) {
+    if (isSameCreep3(worker, creep) || !isProductiveSameRoomWorker2(worker, creep.room)) {
       return false;
     }
     return ((_b = (_a2 = worker.memory) == null ? void 0 : _a2.task) == null ? void 0 : _b.type) === "build";
@@ -33405,7 +33561,7 @@ function isCurrentTransferTargetCoveredByOtherLoadedWorkers(creep, task, target)
   }
   let reservedEnergy = 0;
   for (const worker of creep.room.find(FIND_MY_CREEPS)) {
-    if (isSameCreep2(worker, creep) || !isProductiveSameRoomWorkerWithEnergy(worker, creep.room)) {
+    if (isSameCreep3(worker, creep) || !isProductiveSameRoomWorkerWithEnergy(worker, creep.room)) {
       continue;
     }
     const workerTask = (_a2 = worker.memory) == null ? void 0 : _a2.task;
@@ -33497,7 +33653,7 @@ function isInRoom2(creep, room) {
   }
   return creep.room === room;
 }
-function isSameCreep2(left, right) {
+function isSameCreep3(left, right) {
   if (left === right) {
     return true;
   }
@@ -33691,7 +33847,7 @@ function createConstructionWithdrawReservationContext(creep) {
     reservedEnergyBySourceId: /* @__PURE__ */ new Map()
   };
   for (const worker of getRoomOwnedCreeps2(creep.room)) {
-    if (isSameCreep2(worker, creep) || !isInRoom2(worker, creep.room)) {
+    if (isSameCreep3(worker, creep) || !isInRoom2(worker, creep.room)) {
       continue;
     }
     const task = (_a2 = worker.memory) == null ? void 0 : _a2.task;
@@ -34799,7 +34955,22 @@ var REMOTE_HAULER_DISPATCH_ENERGY_THRESHOLD = 500;
 var MAX_REMOTE_HAULERS_PER_CONTAINER = 1;
 var HAULER_MOVE_OPTS = { reusePath: 20, ignoreRoads: false };
 var OK_CODE13 = 0;
+var ERR_NOT_ENOUGH_RESOURCES_CODE4 = -6;
+var ERR_INVALID_TARGET_CODE4 = -7;
+var ERR_FULL_CODE7 = -8;
 var ERR_NOT_IN_RANGE_CODE8 = -9;
+var SCORE_COLLECTOR_FIND_CONSTANT_GLOBALS = [
+  "FIND_SCORE_COLLECTOR",
+  "FIND_SCORE_COLLECTORS",
+  "FIND_SEASON_SCORE_COLLECTOR",
+  "FIND_SEASON_SCORE_COLLECTORS"
+];
+var SCORE_COLLECTOR_FALLBACK_ROOM_KEYS = [
+  "scoreCollector",
+  "scoreCollectors",
+  "seasonScoreCollector",
+  "seasonScoreCollectors"
+];
 function selectRemoteHaulerAssignment(homeRoom) {
   var _a2;
   if (!hasRemoteHaulerDeliveryDemand(homeRoom)) {
@@ -34818,6 +34989,9 @@ function runHauler(creep) {
   var _a2, _b, _c, _d;
   const assignment = normalizeRemoteHaulerMemory((_a2 = creep.memory) == null ? void 0 : _a2.remoteHauler);
   if (!assignment && ((_b = creep.memory) == null ? void 0 : _b.remoteHauler) !== void 0) {
+    return;
+  }
+  if (!assignment && runLocalHaulerSeasonScoreCollection(creep)) {
     return;
   }
   if (!assignment) {
@@ -34845,6 +35019,151 @@ function runLocalEnergyHauler(creep) {
     return;
   }
   collectLocalEnergy(creep);
+}
+function runLocalHaulerSeasonScoreCollection(creep) {
+  if (getCarriedScore(creep) > 0) {
+    return deliverLocalHaulerSeasonScore(creep);
+  }
+  if (getCarriedEnergy6(creep) > 0 || hasPriorityEnergyHaulingDeliveryDemand(creep.room)) {
+    return false;
+  }
+  const task = selectSeasonScoreCollectionTask(creep);
+  if (!task) {
+    return false;
+  }
+  const target = getObjectById4(String(task.targetId));
+  if (!target) {
+    delete creep.memory.task;
+    return false;
+  }
+  creep.memory.task = task;
+  const result = collectSeasonScoreFromTarget(creep, target);
+  if (result === null) {
+    delete creep.memory.task;
+    return false;
+  }
+  if (result === OK_CODE13) {
+    delete creep.memory.task;
+    return true;
+  }
+  if (result === getErrNotInRangeCode4()) {
+    moveToScoreTarget(creep, target, getScoreCollectionMoveRange(target));
+  } else if (isUnavailableSeasonScoreActionResult(result)) {
+    delete creep.memory.task;
+  }
+  return true;
+}
+function deliverLocalHaulerSeasonScore(creep) {
+  const target = selectSeasonScoreDeliveryTarget(creep);
+  if (!target || typeof creep.transfer !== "function") {
+    delete creep.memory.task;
+    return false;
+  }
+  const task = {
+    type: "collectScore",
+    targetId: target.id
+  };
+  creep.memory.task = task;
+  const result = creep.transfer(target, getScoreResource());
+  if (result === OK_CODE13) {
+    delete creep.memory.task;
+    return true;
+  }
+  if (result === getErrNotInRangeCode4()) {
+    moveToScoreTarget(creep, target, 1);
+  } else if (isUnavailableSeasonScoreActionResult(result)) {
+    delete creep.memory.task;
+  }
+  return true;
+}
+function collectSeasonScoreFromTarget(creep, target) {
+  const scoreTarget = target;
+  if (isDroppedScoreResource(scoreTarget) && typeof creep.pickup === "function") {
+    return creep.pickup(scoreTarget);
+  }
+  if (getStoredScore(scoreTarget) > 0 && typeof creep.withdraw === "function") {
+    return creep.withdraw(scoreTarget, getScoreResource());
+  }
+  return null;
+}
+function isDroppedScoreResource(target) {
+  return typeof target.amount === "number" && target.amount > 0 && typeof target.resourceType === "string" && target.resourceType === getScoreResource();
+}
+function getScoreCollectionMoveRange(target) {
+  return isDroppedScoreResource(target) ? 0 : 1;
+}
+function selectSeasonScoreDeliveryTarget(creep) {
+  var _a2;
+  const room = creep.room;
+  if (!room) {
+    return null;
+  }
+  return (_a2 = findVisibleSeasonScoreCollectors(room).filter(hasFreeScoreCapacity).sort((left, right) => getRangeToRoomObject6(creep, left) - getRangeToRoomObject6(creep, right) || String(left.id).localeCompare(String(right.id)))[0]) != null ? _a2 : null;
+}
+function findVisibleSeasonScoreCollectors(room) {
+  const candidates = [
+    ...findSeasonScoreCollectorsByFindConstants(room),
+    ...findSeasonScoreCollectorsByFallbackRoomKeys(room)
+  ];
+  const unique = /* @__PURE__ */ new Map();
+  for (const candidate of candidates) {
+    unique.set(String(candidate.id), candidate);
+  }
+  return [...unique.values()];
+}
+function findSeasonScoreCollectorsByFindConstants(room) {
+  const roomFind = room.find;
+  if (typeof roomFind !== "function") {
+    return [];
+  }
+  return getSeasonScoreCollectorFindConstants().flatMap((findConstant) => safeRoomFind2(room, roomFind, findConstant)).filter(isVisibleSeasonScoreCollector);
+}
+function getSeasonScoreCollectorFindConstants() {
+  const globals = globalThis;
+  const constants = SCORE_COLLECTOR_FIND_CONSTANT_GLOBALS.map((name) => globals[name]).filter((value) => typeof value === "number" && Number.isFinite(value));
+  return [...new Set(constants)];
+}
+function safeRoomFind2(room, roomFind, findConstant) {
+  try {
+    const result = roomFind.call(room, findConstant);
+    return Array.isArray(result) ? result : [];
+  } catch {
+    return [];
+  }
+}
+function findSeasonScoreCollectorsByFallbackRoomKeys(room) {
+  const roomRecord = room;
+  return SCORE_COLLECTOR_FALLBACK_ROOM_KEYS.flatMap((key) => toRoomObjectCandidates(roomRecord[key])).filter(isVisibleSeasonScoreCollector);
+}
+function toRoomObjectCandidates(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.values(value);
+  }
+  return [];
+}
+function isVisibleSeasonScoreCollector(value) {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const candidate = value;
+  return typeof candidate.id === "string" && candidate.id.length > 0 && isRoomPositionLike2(candidate.pos) && candidate.store !== void 0;
+}
+function isRoomPositionLike2(value) {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const position = value;
+  return typeof position.x === "number" && typeof position.y === "number" && typeof position.roomName === "string";
+}
+function hasFreeScoreCapacity(target) {
+  const freeCapacity = getFreeStoredResourceCapacity(target, getScoreResource());
+  return freeCapacity === null || freeCapacity > 0;
+}
+function isUnavailableSeasonScoreActionResult(result) {
+  return result === ERR_NOT_ENOUGH_RESOURCES_CODE4 || result === ERR_INVALID_TARGET_CODE4 || result === ERR_FULL_CODE7;
 }
 function collectLocalEnergy(creep) {
   var _a2;
@@ -35044,22 +35363,49 @@ function moveTo4(creep, target) {
   var _a2;
   (_a2 = creep.moveTo) == null ? void 0 : _a2.call(creep, target, HAULER_MOVE_OPTS);
 }
+function moveToScoreTarget(creep, target, range) {
+  var _a2;
+  (_a2 = creep.moveTo) == null ? void 0 : _a2.call(creep, target, { ...HAULER_MOVE_OPTS, range });
+}
 function getCarriedEnergy6(creep) {
   return getStoredEnergy20(creep);
 }
+function getCarriedScore(creep) {
+  return getStoredScore(creep);
+}
 function getStoredEnergy20(target) {
+  return getStoredResource(target, getEnergyResource20());
+}
+function getStoredScore(target) {
+  return getStoredResource(target, getScoreResource());
+}
+function getStoredResource(target, resource) {
   var _a2;
   const store = target == null ? void 0 : target.store;
-  const usedCapacity = (_a2 = store == null ? void 0 : store.getUsedCapacity) == null ? void 0 : _a2.call(store, getEnergyResource20());
+  const usedCapacity = (_a2 = store == null ? void 0 : store.getUsedCapacity) == null ? void 0 : _a2.call(store, resource);
   if (typeof usedCapacity === "number" && Number.isFinite(usedCapacity)) {
     return Math.max(0, usedCapacity);
   }
-  const storedEnergy = store == null ? void 0 : store[getEnergyResource20()];
-  return typeof storedEnergy === "number" && Number.isFinite(storedEnergy) ? Math.max(0, storedEnergy) : 0;
+  const storedResource = store == null ? void 0 : store[resource];
+  return typeof storedResource === "number" && Number.isFinite(storedResource) ? Math.max(0, storedResource) : 0;
+}
+function getFreeStoredResourceCapacity(target, resource) {
+  var _a2, _b;
+  const store = target == null ? void 0 : target.store;
+  const resourceCapacity = (_a2 = store == null ? void 0 : store.getFreeCapacity) == null ? void 0 : _a2.call(store, resource);
+  if (typeof resourceCapacity === "number" && Number.isFinite(resourceCapacity)) {
+    return Math.max(0, resourceCapacity);
+  }
+  const totalCapacity = (_b = store == null ? void 0 : store.getFreeCapacity) == null ? void 0 : _b.call(store);
+  return typeof totalCapacity === "number" && Number.isFinite(totalCapacity) ? Math.max(0, totalCapacity) : null;
 }
 function getEnergyResource20() {
   var _a2;
   return (_a2 = globalThis.RESOURCE_ENERGY) != null ? _a2 : "energy";
+}
+function getScoreResource() {
+  var _a2;
+  return (_a2 = globalThis.RESOURCE_SCORE) != null ? _a2 : "score";
 }
 function getObjectById4(id) {
   var _a2;
@@ -36310,7 +36656,7 @@ function combineNestedCountMaps(countsByHomeRoom) {
 function getActiveMultiRoomUpgraderCountCache() {
   var _a2;
   const creeps = (_a2 = globalThis.Game) == null ? void 0 : _a2.creeps;
-  const gameTime = getGameTime31();
+  const gameTime = getGameTime32();
   if ((activeMultiRoomUpgraderCountCache == null ? void 0 : activeMultiRoomUpgraderCountCache.gameTime) !== gameTime || activeMultiRoomUpgraderCountCache.creeps !== creeps) {
     activeMultiRoomUpgraderCountCache = {
       gameTime,
@@ -36361,7 +36707,7 @@ function getRouteDistance2(fromRoom, targetRoom) {
   if (fromRoom === targetRoom) {
     return 0;
   }
-  const gameTime = getGameTime31();
+  const gameTime = getGameTime32();
   const cache = getTerritoryRouteDistanceCache3(gameTime);
   const cacheKey = getTerritoryRouteDistanceCacheKey3(fromRoom, targetRoom);
   const cachedRouteDistance = (_a2 = cache == null ? void 0 : cache.distances) == null ? void 0 : _a2[cacheKey];
@@ -36455,7 +36801,7 @@ function getNoPathResultCode7() {
   const noPathCode = globalThis.ERR_NO_PATH;
   return typeof noPathCode === "number" ? noPathCode : ERR_NO_PATH_CODE8;
 }
-function getGameTime31() {
+function getGameTime32() {
   var _a2;
   const gameTime = (_a2 = globalThis.Game) == null ? void 0 : _a2.time;
   return typeof gameTime === "number" ? gameTime : 0;
@@ -38293,9 +38639,9 @@ function getGlobalNumber17(name) {
 var ROOM_EDGE_MIN9 = 1;
 var ROOM_EDGE_MAX9 = 48;
 var DEFAULT_TERRAIN_WALL_MASK14 = 1;
-var ERR_INVALID_TARGET_CODE4 = -7;
+var ERR_INVALID_TARGET_CODE5 = -7;
 var REMOTE_HARVESTER_ROLE2 = "remoteHarvester";
-function ensureRemoteSourceContainersForAssignedHarvesters(creeps = getGameCreeps2()) {
+function ensureRemoteSourceContainersForAssignedHarvesters(creeps = getGameCreeps3()) {
   const roomResults = getRemoteSourceContainerScans(creeps).map(planSourceContainersForRoom);
   return buildSourceContainerPlannerResult(roomResults);
 }
@@ -38558,7 +38904,7 @@ function getVisibleSpawns() {
   const spawns = (_a2 = globalThis.Game) == null ? void 0 : _a2.spawns;
   return spawns ? Object.values(spawns).filter((spawn) => spawn !== void 0) : [];
 }
-function getGameCreeps2() {
+function getGameCreeps3() {
   var _a2;
   const creeps = (_a2 = globalThis.Game) == null ? void 0 : _a2.creeps;
   return creeps ? Object.values(creeps).filter((creep) => creep !== void 0) : [];
@@ -38599,7 +38945,7 @@ function getOkCode7() {
 }
 function getErrInvalidTargetCode() {
   var _a2;
-  return (_a2 = globalThis.ERR_INVALID_TARGET) != null ? _a2 : ERR_INVALID_TARGET_CODE4;
+  return (_a2 = globalThis.ERR_INVALID_TARGET) != null ? _a2 : ERR_INVALID_TARGET_CODE5;
 }
 function getTerrainWallMask10() {
   const terrainWallMask = globalThis.TERRAIN_MASK_WALL;
@@ -38707,7 +39053,7 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
   if (colonies.length === 0 && events.length === 0) {
     return void 0;
   }
-  const tick = getGameTime32();
+  const tick = getGameTime33();
   resetCachedRefillTelemetryIfTickRewound(tick);
   const cpuBudget = getRuntimeCpuBudget();
   const emitsSummary = shouldEmitRuntimeSummary(tick, events, cpuBudget);
@@ -38854,7 +39200,7 @@ function buildRoomEventMetricsByRoom(colonies, refillTargetIdsByRoom) {
   return eventMetricsByRoom;
 }
 function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, eventMetrics, includeStructureSnapshot, strategyRegistry, onStrategyRegistryRuntimeUse, includeOptionalSummary, cpuBudget) {
-  const tick = getGameTime32();
+  const tick = getGameTime33();
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === "worker");
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
   const territoryExpansion = includeOptionalSummary ? buildRuntimeExpansionCandidateReport(colony) : void 0;
@@ -39150,7 +39496,7 @@ function buildPostClaimBootstrapSummary(roomName) {
 }
 function buildTerritoryIntentSummary(colonyName, roleCounts) {
   const territoryIntents = getTerritoryIntentProgressSummaries(colonyName, roleCounts);
-  const suspendedTerritoryIntentCounts = getSuspendedTerritoryIntentCountsByRoom(colonyName, getGameTime32());
+  const suspendedTerritoryIntentCounts = getSuspendedTerritoryIntentCountsByRoom(colonyName, getGameTime33());
   const hasSuspendedTerritoryIntents = Object.keys(suspendedTerritoryIntentCounts).length > 0;
   if (territoryIntents.length === 0 && !hasSuspendedTerritoryIntents) {
     return {};
@@ -39564,7 +39910,7 @@ function buildTerritoryScoutSummary(colony, roleCounts) {
   const colonyName = colony.room.name;
   const summary = getTerritoryScoutSummary(colonyName);
   const scoutOnlyTargets = buildScoutOnlyTargetSummaries(colony, summary);
-  const concurrency = buildTerritoryScoutConcurrencySummary(summary, roleCounts, getGameTime32());
+  const concurrency = buildTerritoryScoutConcurrencySummary(summary, roleCounts, getGameTime33());
   if (!summary && scoutOnlyTargets.length === 0 && !concurrency) {
     return {};
   }
@@ -40635,7 +40981,7 @@ function getCurrentWorkerDispatchDiagnostic(worker) {
   if (!diagnostic || typeof diagnostic.tick !== "number" || !Number.isFinite(diagnostic.tick)) {
     return null;
   }
-  return diagnostic.tick === getGameTime32() ? diagnostic : null;
+  return diagnostic.tick === getGameTime33() ? diagnostic : null;
 }
 function formatWorkerDispatchDiagnostic(diagnostic) {
   if (!diagnostic) {
@@ -41323,7 +41669,7 @@ function applyCpuSummaryToRooms(rooms, cpu) {
     ...cpu.bucket !== void 0 ? { cpuBucket: cpu.bucket } : {}
   }));
 }
-function getGameTime32() {
+function getGameTime33() {
   var _a2, _b;
   return (_b = (_a2 = globalThis.Game) == null ? void 0 : _a2.time) != null ? _b : 0;
 }
@@ -41353,7 +41699,7 @@ function recordSourceWorkloads(room, creeps, tick) {
     )
   };
 }
-function buildSourceWorkloadRecords(room, sources = findSources4(room), creeps = getGameCreeps3()) {
+function buildSourceWorkloadRecords(room, sources = findSources4(room), creeps = getGameCreeps4()) {
   const roomName = getRoomName8(room);
   const assignmentLoads = getSourceAssignmentLoads(roomName, sources, creeps);
   return sources.filter((source) => hasSourcePositionInRoom(source, room)).sort((left, right) => String(left.id).localeCompare(String(right.id))).map((source) => {
@@ -41492,7 +41838,7 @@ function getBodyPartConstant5(globalName, fallback) {
   const constants = globalThis;
   return (_a2 = constants[globalName]) != null ? _a2 : fallback;
 }
-function getGameCreeps3() {
+function getGameCreeps4() {
   var _a2;
   const creeps = (_a2 = globalThis.Game) == null ? void 0 : _a2.creeps;
   return creeps ? Object.values(creeps) : [];
@@ -41839,7 +42185,7 @@ var OK_CODE14 = 0;
 function manageTerminalEnergy() {
   const plans = selectTerminalEnergyTransfers();
   const results = [];
-  const gameTime = getGameTime33();
+  const gameTime = getGameTime34();
   for (const plan of plans) {
     const result = plan.sourceTerminal.send(
       getEnergyResource26(),
@@ -42141,7 +42487,7 @@ function getMemory3() {
   }
   return global.Memory;
 }
-function getGameTime33() {
+function getGameTime34() {
   var _a2;
   const gameTime = (_a2 = globalThis.Game) == null ? void 0 : _a2.time;
   return typeof gameTime === "number" && Number.isFinite(gameTime) ? gameTime : 0;
@@ -42265,7 +42611,7 @@ function planReactionChain(targetResource, inventory, desiredAmount = DEFAULT_LA
 function selectBoostPlans(room, labs, creeps, inventory) {
   return buildBoostRequests(room, creeps, inventory).map((request) => buildBoostPlan(request, labs)).sort(compareBoostPlans);
 }
-function shouldYieldCreepToLabManager(creep, gameTime = getGameTime34()) {
+function shouldYieldCreepToLabManager(creep, gameTime = getGameTime35()) {
   const labMemory = creep.memory.lab;
   return (labMemory == null ? void 0 : labMemory.boostState) === "moving" && labMemory.updatedAt === gameTime;
 }
@@ -42594,7 +42940,7 @@ function dedupeMissingResources(resources) {
 function recordLabManagementState(room, result, previousRoomMemory, options) {
   var _a2, _b, _c, _d, _e, _f, _g;
   const memory = getEconomyMemory4();
-  const gameTime = getGameTime34();
+  const gameTime = getGameTime35();
   const rooms = (_b = (_a2 = memory.labManagement) == null ? void 0 : _a2.rooms) != null ? _b : {};
   const reactionMemory = buildReactionMemory(result.reaction, previousRoomMemory == null ? void 0 : previousRoomMemory.reaction, result.inventory, gameTime);
   const roomMemory = {
@@ -42683,7 +43029,7 @@ function markCreepBoostState(creep, boostState, plan) {
   creep.memory.lab = {
     ...creep.memory.lab,
     boostState,
-    updatedAt: getGameTime34(),
+    updatedAt: getGameTime35(),
     ...plan ? {
       activeBoost: {
         labId: plan.lab ? getObjectId16(plan.lab) : void 0,
@@ -42901,7 +43247,7 @@ function getMemory4() {
   }
   return global.Memory;
 }
-function getGameTime34() {
+function getGameTime35() {
   var _a2;
   const gameTime = (_a2 = globalThis.Game) == null ? void 0 : _a2.time;
   return normalizeNonNegativeInteger18(gameTime);
@@ -42937,12 +43283,12 @@ var DEFAULT_RESOURCE_EXCESS = 2e4;
 var ENERGY_RESOURCE_TARGET = 75e3;
 var ENERGY_RESOURCE_EXCESS = 15e4;
 var MAX_ORDERS_PER_RESOURCE_SIDE = 5;
-function shouldRunMarketTrading(gameTime = getGameTime35(), interval = MARKET_TRADING_INTERVAL) {
+function shouldRunMarketTrading(gameTime = getGameTime36(), interval = MARKET_TRADING_INTERVAL) {
   const normalizedInterval = normalizePositiveInteger2(interval);
   return gameTime > 0 && gameTime % normalizedInterval === 0;
 }
 function runMarketTrading() {
-  const gameTime = getGameTime35();
+  const gameTime = getGameTime36();
   const market = getMarket();
   if (!market) {
     recordMarketTradingState([], gameTime, { skippedReason: "missingMarket" });
@@ -43578,7 +43924,7 @@ function getMemory5() {
   }
   return global.Memory;
 }
-function getGameTime35() {
+function getGameTime36() {
   var _a2;
   const gameTime = (_a2 = globalThis.Game) == null ? void 0 : _a2.time;
   return normalizeNonNegativeInteger19(gameTime);
@@ -43984,7 +44330,7 @@ function refreshTerritoryExecutionTargets(action, options = {}) {
   if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
     return { action, targetCount: 0, intentCount: 0 };
   }
-  const gameTime = (_a2 = options.gameTime) != null ? _a2 : getGameTime36();
+  const gameTime = (_a2 = options.gameTime) != null ? _a2 : getGameTime37();
   const intents = normalizeTerritoryIntents(territoryMemory.intents);
   territoryMemory.intents = intents;
   let targetCount = 0;
@@ -44088,7 +44434,7 @@ function isNonEmptyString32(value) {
 function isRecord32(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-function getGameTime36() {
+function getGameTime37() {
   var _a2;
   const gameTime = (_a2 = globalThis.Game) == null ? void 0 : _a2.time;
   return typeof gameTime === "number" ? gameTime : 0;
@@ -44102,7 +44448,7 @@ var MIN_AUTONOMOUS_EXPANSION_CLAIM_RCL = 2;
 var EXIT_DIRECTION_ORDER6 = ["1", "3", "5", "7"];
 var OK_CODE17 = 0;
 var ERR_NOT_IN_RANGE_CODE10 = -9;
-var ERR_INVALID_TARGET_CODE5 = -7;
+var ERR_INVALID_TARGET_CODE6 = -7;
 var ERR_NO_BODYPART_CODE = -12;
 var ERR_GCL_NOT_ENOUGH_CODE = -15;
 var RECOMMENDED_EXPANSION_CLAIM_SOURCES = /* @__PURE__ */ new Set([
@@ -44144,7 +44490,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
   if (!isClaimExecutionAssignment(assignment)) {
     return false;
   }
-  const gameTime = getGameTime37();
+  const gameTime = getGameTime38();
   const recommendedClaim = getRecommendedExpansionClaimExecutionGate(creep.memory.colony, assignment);
   if (!recommendedClaim) {
     return false;
@@ -44170,7 +44516,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
   }
   if (((_a2 = creep.room) == null ? void 0 : _a2.name) !== assignment.targetRoom) {
     if (hasClaimExecutionTimedOut(execution, gameTime)) {
-      recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE5, "claimFailed", {
+      recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE6, "claimFailed", {
         suppressIntent: true,
         telemetryEvents
       });
@@ -44182,7 +44528,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
   }
   const controller = selectClaimTargetController(creep, assignment);
   if (!controller) {
-    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE5, "controllerMissing", {
+    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE6, "controllerMissing", {
       suppressIntent: true,
       telemetryEvents
     });
@@ -44194,7 +44540,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
     return true;
   }
   if (hasClaimExecutionTimedOut(execution, gameTime)) {
-    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE5, "claimFailed", {
+    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE6, "claimFailed", {
       controllerId: controller.id,
       suppressIntent: true,
       telemetryEvents
@@ -44203,7 +44549,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
     return true;
   }
   if (isForeignOwnedController(controller)) {
-    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE5, "controllerOwned", {
+    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE6, "controllerOwned", {
       controllerId: controller.id,
       suppressIntent: true,
       telemetryEvents
@@ -44247,7 +44593,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
     completeClaimAssignment(creep);
     return true;
   }
-  if (result === ERR_INVALID_TARGET_CODE5 && isForeignReservedController3(controller, creep.memory.colony)) {
+  if (result === ERR_INVALID_TARGET_CODE6 && isForeignReservedController3(controller, creep.memory.colony)) {
     const activeClaimParts = getKnownActiveClaimPartCount(creep);
     const needsPressureCreep = activeClaimParts !== null && activeClaimParts < TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS;
     recordRecommendedClaimRetry(creep, assignment, result, "controllerReserved", {
@@ -44260,7 +44606,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
     }
     return true;
   }
-  if (result === ERR_INVALID_TARGET_CODE5 || result === ERR_NO_BODYPART_CODE) {
+  if (result === ERR_INVALID_TARGET_CODE6 || result === ERR_NO_BODYPART_CODE) {
     recordRecommendedClaimRetry(creep, assignment, result, (_c = getClaimResultReason(result)) != null ? _c : "claimFailed", {
       controllerId: controller.id,
       releaseAssignment: result === ERR_NO_BODYPART_CODE
@@ -44839,7 +45185,7 @@ function getClaimResultReason(result) {
       return null;
     case ERR_NOT_IN_RANGE_CODE10:
       return "notInRange";
-    case ERR_INVALID_TARGET_CODE5:
+    case ERR_INVALID_TARGET_CODE6:
       return "invalidTarget";
     case ERR_NO_BODYPART_CODE:
       return "missingClaimPart";
@@ -44972,7 +45318,7 @@ function tryPressureForeignClaimBlocker(creep, assignment, controller, telemetry
   }
   const activeClaimParts = getKnownActiveClaimPartCount(creep);
   if (activeClaimParts !== null && activeClaimParts < TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS) {
-    recordRecommendedClaimRetry(creep, assignment, ERR_INVALID_TARGET_CODE5, "controllerReserved", {
+    recordRecommendedClaimRetry(creep, assignment, ERR_INVALID_TARGET_CODE6, "controllerReserved", {
       controllerId: controller.id,
       releaseAssignment: true,
       requiresControllerPressure: true,
@@ -44999,7 +45345,7 @@ function tryPressureForeignClaimBlocker(creep, assignment, controller, telemetry
     completeClaimAssignment(creep);
     return true;
   }
-  return result !== ERR_INVALID_TARGET_CODE5;
+  return result !== ERR_INVALID_TARGET_CODE6;
 }
 function recordRecommendedClaimSuccess(creep, assignment, controller, telemetryEvents) {
   const colony = getClaimColony(creep, controller);
@@ -45012,13 +45358,13 @@ function recordRecommendedClaimSuccess(creep, assignment, controller, telemetryE
     },
     telemetryEvents
   );
-  recordClaimedRoomBootstrapStage(targetRoom, getGameTime37());
+  recordClaimedRoomBootstrapStage(targetRoom, getGameTime38());
   recordExpansionPipelineClaimState({
     colony,
     targetRoom,
     claimState: "claimed",
     controllerId: controller.id,
-    gameTime: getGameTime37()
+    gameTime: getGameTime38()
   });
   completeRecommendedClaimIntent(colony, targetRoom, controller.id);
   recordColonyExpansionClaimVerification({
@@ -45027,7 +45373,7 @@ function recordRecommendedClaimSuccess(creep, assignment, controller, telemetryE
     status: "claimed",
     controllerId: controller.id,
     creepName: creep.name,
-    updatedAt: getGameTime37()
+    updatedAt: getGameTime38()
   });
 }
 function completeRecommendedClaimIfSigned(creep, assignment, controller, telemetryEvents) {
@@ -45051,7 +45397,7 @@ function recordRecommendedClaimTerminalFailure(creep, assignment, result, reason
     reason
   });
   if (options.suppressIntent) {
-    suppressRecommendedClaimIntent(colony, assignment, getGameTime37(), options.controllerId, reason);
+    suppressRecommendedClaimIntent(colony, assignment, getGameTime38(), options.controllerId, reason);
   }
   recordColonyExpansionClaimVerification({
     colony,
@@ -45061,7 +45407,7 @@ function recordRecommendedClaimTerminalFailure(creep, assignment, result, reason
     creepName: creep.name,
     result,
     reason,
-    updatedAt: getGameTime37()
+    updatedAt: getGameTime38()
   });
 }
 function recordRecommendedClaimRetry(creep, assignment, result, reason, options = {}) {
@@ -45076,7 +45422,7 @@ function recordRecommendedClaimRetry(creep, assignment, result, reason, options 
     result,
     reason
   });
-  updateRecommendedClaimIntentForRetry(colony, assignment, getGameTime37(), options);
+  updateRecommendedClaimIntentForRetry(colony, assignment, getGameTime38(), options);
 }
 function updateRecommendedClaimIntentForRetry(colony, assignment, gameTime, options) {
   var _a2, _b, _c, _d;
@@ -45286,7 +45632,7 @@ function getVisibleRoom15(roomName) {
   var _a2, _b;
   return (_b = (_a2 = globalThis.Game) == null ? void 0 : _a2.rooms) == null ? void 0 : _b[roomName];
 }
-function getGameTime37() {
+function getGameTime38() {
   var _a2;
   const gameTime = (_a2 = globalThis.Game) == null ? void 0 : _a2.time;
   return typeof gameTime === "number" ? gameTime : 0;
@@ -45614,11 +45960,11 @@ function refreshClaimedRoomBootstrapperOwnership(telemetryEvents = []) {
     if (detectedOwnedRoom) {
       detectedRoomNames.push(room.name);
     }
-    const claimedAt = detectedOwnedRoom ? (_a2 = previous == null ? void 0 : previous.claimedAt) != null ? _a2 : getGameTime38() : (_b = previous == null ? void 0 : previous.claimedAt) != null ? _b : activePostClaimRecord == null ? void 0 : activePostClaimRecord.claimedAt;
+    const claimedAt = detectedOwnedRoom ? (_a2 = previous == null ? void 0 : previous.claimedAt) != null ? _a2 : getGameTime39() : (_b = previous == null ? void 0 : previous.claimedAt) != null ? _b : activePostClaimRecord == null ? void 0 : activePostClaimRecord.claimedAt;
     memory.rooms[room.name] = {
       roomName: room.name,
       owned,
-      updatedAt: getGameTime38(),
+      updatedAt: getGameTime39(),
       ...claimedAt !== void 0 ? { claimedAt } : {},
       ...detectedOwnedRoom ? {} : (previous == null ? void 0 : previous.completedAt) !== void 0 ? { completedAt: previous.completedAt } : {}
     };
@@ -45821,7 +46167,7 @@ function getGlobalNumber21(name) {
   const value = globalThis[name];
   return typeof value === "number" ? value : null;
 }
-function getGameTime38() {
+function getGameTime39() {
   var _a2;
   const gameTime = (_a2 = globalThis.Game) == null ? void 0 : _a2.time;
   return typeof gameTime === "number" && Number.isFinite(gameTime) ? gameTime : 0;
@@ -45835,16 +46181,16 @@ function isNonEmptyString35(value) {
 
 // src/territory/territoryRunner.ts
 var ERR_NOT_IN_RANGE_CODE11 = -9;
-var ERR_INVALID_TARGET_CODE6 = -7;
+var ERR_INVALID_TARGET_CODE7 = -7;
 var ERR_NO_BODYPART_CODE2 = -12;
 var ERR_GCL_NOT_ENOUGH_CODE2 = -15;
 var OK_CODE18 = 0;
 var CLAIM_FATAL_RESULT_CODES = /* @__PURE__ */ new Set([
-  ERR_INVALID_TARGET_CODE6,
+  ERR_INVALID_TARGET_CODE7,
   ERR_NO_BODYPART_CODE2,
   ERR_GCL_NOT_ENOUGH_CODE2
 ]);
-var RESERVE_FATAL_RESULT_CODES = /* @__PURE__ */ new Set([ERR_INVALID_TARGET_CODE6, ERR_NO_BODYPART_CODE2]);
+var RESERVE_FATAL_RESULT_CODES = /* @__PURE__ */ new Set([ERR_INVALID_TARGET_CODE7, ERR_NO_BODYPART_CODE2]);
 var PRESSURE_FATAL_RESULT_CODES = /* @__PURE__ */ new Set([ERR_NO_BODYPART_CODE2]);
 function runTerritoryControllerCreep(creep, telemetryEvents = []) {
   var _a2;
@@ -45894,7 +46240,7 @@ function runTerritoryControllerCreep(creep, telemetryEvents = []) {
     return;
   }
   if (assignment.action === "scout") {
-    recordVisibleRoomScoutIntel(creep.memory.colony, creep.room, getGameTime39(), creep.name, telemetryEvents);
+    recordVisibleRoomScoutIntel(creep.memory.colony, creep.room, getGameTime40(), creep.name, telemetryEvents);
     if (assignNextScoutTarget(creep, assignment.targetRoom)) {
       moveTowardTargetRoom(creep, creep.memory.territory);
       return;
@@ -45934,7 +46280,7 @@ function runTerritoryControllerCreep(creep, telemetryEvents = []) {
       suppressTerritoryAssignment(creep, assignment);
       return;
     }
-    if (pressureResult !== ERR_INVALID_TARGET_CODE6) {
+    if (pressureResult !== ERR_INVALID_TARGET_CODE7) {
       return;
     }
   }
@@ -46003,7 +46349,7 @@ function selectNextScoutAssignment(colony, excludedTargetRoom, currentCreepName)
   if (!isNonEmptyString36(colony)) {
     return null;
   }
-  const gameTime = getGameTime39();
+  const gameTime = getGameTime40();
   return (_b = (_a2 = selectNextScoutIntentAssignment(colony, excludedTargetRoom, currentCreepName, gameTime)) != null ? _a2 : selectNextScoutAttemptAssignment(colony, excludedTargetRoom, currentCreepName, gameTime)) != null ? _b : selectNextConfiguredScoutAssignment(colony, excludedTargetRoom, currentCreepName, gameTime);
 }
 function selectNextScoutIntentAssignment(colony, excludedTargetRoom, currentCreepName, gameTime) {
@@ -46124,7 +46470,7 @@ function tryFallbackClaimAssignmentToReserve(creep, assignment, controller) {
   if (typeof creep.reserveController !== "function" || !canCreepReserveTerritoryController(creep, controller, creep.memory.colony)) {
     return false;
   }
-  const gameTime = getGameTime39();
+  const gameTime = getGameTime40();
   const reserveAssignment = {
     targetRoom: assignment.targetRoom,
     action: "reserve",
@@ -46144,7 +46490,7 @@ function tryFallbackClaimAssignmentToReserve(creep, assignment, controller) {
   return true;
 }
 function suppressTerritoryAssignment(creep, assignment, reason) {
-  suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime39(), reason);
+  suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime40(), reason);
   completeTerritoryAssignment(creep);
 }
 function completeTerritoryAssignment(creep) {
@@ -46228,7 +46574,7 @@ function isVisibleOwnedTerritoryAssignment(assignment) {
   var _a2;
   return ((_a2 = selectVisibleTargetRoomController(assignment)) == null ? void 0 : _a2.my) === true;
 }
-function getGameTime39() {
+function getGameTime40() {
   var _a2;
   const gameTime = (_a2 = globalThis.Game) == null ? void 0 : _a2.time;
   return typeof gameTime === "number" ? gameTime : 0;
@@ -46269,7 +46615,7 @@ var EXPANSION_EXECUTOR_REFRESH_INTERVAL = 50;
 var EXPANSION_EXECUTOR_DOWNGRADE_GUARD_TICKS = 5e3;
 var EXPANSION_EXECUTOR_THREAT_MEMORY_STALE_TICKS = 5;
 var EXPANSION_EXECUTOR_CACHE_CLAIM_PLAN_STATE_INDEX = 11;
-function refreshExpansionExecutorIntent(colony, gameTime = getGameTime40(), telemetryEvents = []) {
+function refreshExpansionExecutorIntent(colony, gameTime = getGameTime41(), telemetryEvents = []) {
   const colonyName = colony.room.name;
   const colonyMemory = getWritableColonyMemory2(colony);
   const cachedSelection = getCachedExpansionExecutorSelection(colonyMemory, colonyName);
@@ -46410,7 +46756,7 @@ function hasExpansionExecutorTarget(colony, targetRoom) {
     (target) => isRecord37(target) && target.colony === colony && target.roomName === targetRoom && target.enabled !== false && target.action === "claim" && target.createdBy === NEXT_EXPANSION_TARGET_CREATOR
   ) : false;
 }
-function getExpansionExecutorCacheStateKey(colony, gameTime = getGameTime40()) {
+function getExpansionExecutorCacheStateKey(colony, gameTime = getGameTime41()) {
   var _a2;
   const controller = colony.room.controller;
   const controllerLevel = isFiniteNumber13(controller == null ? void 0 : controller.level) ? controller.level : "unknown";
@@ -46566,7 +46912,7 @@ function getLatestTerritoryScoutIntelUpdatedAt(colony) {
   }
   return latestUpdatedAt;
 }
-function getGameTime40() {
+function getGameTime41() {
   var _a2;
   const gameTime = (_a2 = globalThis.Game) == null ? void 0 : _a2.time;
   return typeof gameTime === "number" ? gameTime : 0;
@@ -46671,7 +47017,7 @@ function reserveRoomForPlannedClaim(creep) {
     controllerId: controller.id,
     ...assignment.followUp ? { followUp: assignment.followUp } : {}
   };
-  creep.memory.territory = (_b = recordTerritoryReserveFallbackIntent(creep.memory.colony, reserveAssignment, getGameTime41())) != null ? _b : reserveAssignment;
+  creep.memory.territory = (_b = recordTerritoryReserveFallbackIntent(creep.memory.colony, reserveAssignment, getGameTime42())) != null ? _b : reserveAssignment;
   const result = creep.reserveController(controller);
   if (result === ERR_NOT_IN_RANGE_CODE12) {
     if (typeof creep.moveTo === "function") {
@@ -46787,7 +47133,7 @@ function getClaimBodyPartConstant() {
   var _a2;
   return (_a2 = globalThis.CLAIM) != null ? _a2 : "claim";
 }
-function getGameTime41() {
+function getGameTime42() {
   var _a2;
   const gameTime = (_a2 = globalThis.Game) == null ? void 0 : _a2.time;
   return typeof gameTime === "number" ? gameTime : 0;
@@ -46802,7 +47148,7 @@ var MIN_ADJACENT_ROOM_RESERVATION_SCORE = 500;
 var ADJACENT_ROOM_RESERVATION_RENEWAL_TICKS_PER_CLAIM_PART = 600;
 var MAX_ADJACENT_ROOM_RESERVATION_RENEWAL_TICKS = 1e3;
 var EXIT_DIRECTION_ORDER8 = ["1", "3", "5", "7"];
-function refreshAdjacentRoomReservationIntent(colony, gameTime = getGameTime42(), options = {}) {
+function refreshAdjacentRoomReservationIntent(colony, gameTime = getGameTime43(), options = {}) {
   const evaluation = selectAdjacentRoomReservationPlan(colony, options);
   if (evaluation.status === "planned" && evaluation.targetRoom) {
     persistAdjacentRoomReservationIntent(colony.room.name, evaluation, gameTime);
@@ -47289,7 +47635,7 @@ function getWritableTerritoryMemoryRecord8() {
   }
   return root.Memory.territory;
 }
-function getGameTime42() {
+function getGameTime43() {
   var _a2;
   const gameTime = (_a2 = globalThis.Game) == null ? void 0 : _a2.time;
   return typeof gameTime === "number" ? gameTime : 0;
@@ -47305,7 +47651,7 @@ function isRecord38(value) {
 var COLONY_EXPANSION_CLAIM_TARGET_CREATOR = "colonyExpansion";
 var MIN_COLONY_EXPANSION_CLAIM_SCORE = MIN_ADJACENT_ROOM_RESERVATION_SCORE;
 var EXIT_DIRECTION_ORDER9 = ["1", "3", "5", "7"];
-function refreshColonyExpansionIntent(colony, assessment, gameTime = getGameTime43()) {
+function refreshColonyExpansionIntent(colony, assessment, gameTime = getGameTime44()) {
   var _a2;
   const colonyName = colony.room.name;
   if (assessment.territoryReady !== true) {
@@ -47777,7 +48123,7 @@ function getWritableTerritoryMemoryRecord9() {
   }
   return memory.territory;
 }
-function getGameTime43() {
+function getGameTime44() {
   var _a2;
   const gameTime = (_a2 = globalThis.Game) == null ? void 0 : _a2.time;
   return typeof gameTime === "number" && Number.isFinite(gameTime) ? gameTime : 0;
@@ -47792,7 +48138,7 @@ function isNonEmptyString40(value) {
 // src/territory/reservationExecutor.ts
 var OK_CODE20 = 0;
 var ERR_NOT_IN_RANGE_CODE13 = -9;
-var ERR_INVALID_TARGET_CODE7 = -7;
+var ERR_INVALID_TARGET_CODE8 = -7;
 var ERR_NO_BODYPART_CODE3 = -12;
 var TERRITORY_ROUTE_DISTANCE_SEPARATOR5 = ">";
 function runReservationExecutor(creep) {
@@ -47820,7 +48166,7 @@ function runReservationExecutor(creep) {
 function runAssignedReservation(creep, assignment, gate) {
   var _a2;
   const colony = creep.memory.colony;
-  const gameTime = getGameTime44();
+  const gameTime = getGameTime45();
   if (!isNonEmptyString41(colony) || !isReservationExecutionGateRunnable(gate, gameTime)) {
     completeReservationAssignment(creep);
     return true;
@@ -47902,7 +48248,7 @@ function runAssignedReservation(creep, assignment, gate) {
     completeReservationAssignment(creep);
     return true;
   }
-  if (result === ERR_INVALID_TARGET_CODE7) {
+  if (result === ERR_INVALID_TARGET_CODE8) {
     suppressTerritoryIntent(colony, assignment, gameTime);
     completeReservationAssignment(creep);
   }
@@ -47937,7 +48283,7 @@ function selectReservationAssignment(creep) {
 }
 function buildReservationSelection(creep, territoryMemory, recommendation, order, activeReservationCounts) {
   var _a2, _b, _c;
-  const gameTime = getGameTime44();
+  const gameTime = getGameTime45();
   const intent = getMatchingReservationIntent(
     recommendation.colony,
     recommendation.targetRoom,
@@ -48387,7 +48733,7 @@ function getWritableTerritoryMemoryRecord10() {
   }
   return memory.territory;
 }
-function getGameTime44() {
+function getGameTime45() {
   var _a2;
   const gameTime = (_a2 = globalThis.Game) == null ? void 0 : _a2.time;
   return typeof gameTime === "number" ? gameTime : 0;
@@ -50022,7 +50368,7 @@ var Kernel = class {
     const forwardedEvents = selectForwardedDefenseEvents(
       defenseEvents,
       this.lastForwardedDefenseEventTick,
-      getGameTime45(),
+      getGameTime46(),
       cpuBudget
     );
     return hasKernelRunOptions(options) ? this.dependencies.runEconomy(forwardedEvents, options) : this.dependencies.runEconomy(forwardedEvents);
@@ -50111,7 +50457,7 @@ function getDefenseEventPriority(event) {
       return 3;
   }
 }
-function getGameTime45() {
+function getGameTime46() {
   return typeof Game !== "undefined" && typeof Game.time === "number" ? Game.time : 0;
 }
 
