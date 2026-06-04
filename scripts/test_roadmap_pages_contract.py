@@ -313,6 +313,41 @@ class RoadmapPagesContractTests(unittest.TestCase):
         self.assertIn("github.kanban.columns[0].statuses[0].cards[0] #1486 In review", joined)
         self.assertNotIn("#1200", joined)
 
+    def test_project_handoff_evidence_warns_when_project_evidence_field_is_not_hydrated(self) -> None:
+        generator = kpi_checker.load_generator(REPO_ROOT)
+        data = {
+            "github": {
+                "projectItemsSource": "live",
+                "projectTextFieldHydration": {
+                    "source": "gh project item-list",
+                    "itemsInspected": 2,
+                    "fields": {
+                        "evidence": {"hydrated": False, "observedKeys": []},
+                        "nextAction": {"hydrated": True, "observedKeys": ["Next action"]},
+                        "blockedBy": {"hydrated": True, "observedKeys": ["Blocked by"]},
+                    },
+                },
+                "projectItems": [
+                    {
+                        "number": 1656,
+                        "type": "Issue",
+                        "status": "In review",
+                        "priority": "P0",
+                        "title": "review-stage handoff with omitted text fields",
+                        "evidence": "",
+                    }
+                ],
+            }
+        }
+
+        failures = generator.validate_project_handoff_evidence(data)
+        summary = generator.project_handoff_evidence_validation_summary(data["github"])
+
+        self.assertEqual(failures, [])
+        self.assertEqual(summary["mode"], "skipped")
+        self.assertEqual(summary["severity"], "warning")
+        self.assertEqual(summary["reason"], "project-evidence-field-unhydrated")
+
 
 if __name__ == "__main__":
     unittest.main()

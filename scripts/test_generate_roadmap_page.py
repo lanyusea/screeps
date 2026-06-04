@@ -1798,6 +1798,36 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(runtime_card["doneItems"], 0)
         self.assertEqual([item["number"] for item in runtime_column["items"]], [1375])
         self.assertEqual([item["number"] for item in release_column["items"]], [1376])
+        self.assertEqual(snapshot["projectTextFieldHydration"]["itemsInspected"], 2)
+        self.assertFalse(snapshot["projectTextFieldHydration"]["fields"]["evidence"]["hydrated"])
+        self.assertEqual(snapshot["projectHandoffEvidenceValidation"]["mode"], "skipped")
+        self.assertEqual(snapshot["projectHandoffEvidenceValidation"]["severity"], "warning")
+
+    def test_project_handoff_evidence_validation_uses_raw_values_before_public_sanitization(self) -> None:
+        data = {
+            "github": {
+                "projectItemsSource": "live",
+                "projectTextFieldHydration": {
+                    "itemsInspected": 1,
+                    "fields": {"evidence": {"hydrated": True, "observedKeys": ["Evidence"]}},
+                },
+                "projectItems": [
+                    {
+                        "number": 1662,
+                        "type": "PullRequest",
+                        "status": "In review",
+                        "title": "review-stage handoff",
+                        "evidence": "controller-side verification captured current Project Evidence.",
+                    }
+                ],
+            }
+        }
+
+        failures = roadmap.validate_project_handoff_evidence(data)
+        sanitized = roadmap.sanitize_public_data(data)
+
+        self.assertEqual(failures, [])
+        self.assertEqual(sanitized["github"]["projectItems"][0]["evidence"], "")
 
     def test_merge_issue_context_preserves_explicit_empty_project_values(self) -> None:
         merged = roadmap.merge_issue_context(
