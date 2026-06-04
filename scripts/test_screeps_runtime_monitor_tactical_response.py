@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import copy
+import io
 import json
 import sys
 import tempfile
@@ -333,6 +334,7 @@ class WorldProfileDefaultsTest(unittest.TestCase):
         self.assertEqual(alert_args.world_profile, "persistent")
         self.assertEqual(Path(alert_args.out_dir), monitor.DEFAULT_OUT_DIR)
         self.assertEqual(Path(alert_args.runtime_summary_dir), monitor.DEFAULT_RUNTIME_SUMMARY_OUT_DIR)
+        self.assertEqual(alert_args.alert_timeout_seconds, monitor.DEFAULT_ALERT_TIMEOUT_SECONDS)
         self.assertEqual(ctx.base_http, monitor.DEFAULT_API_URL)
         self.assertEqual(ctx.default_shard, monitor.DEFAULT_SHARD)
         self.assertEqual(ctx.default_room, monitor.DEFAULT_ROOM)
@@ -444,6 +446,72 @@ class WorldProfileDefaultsTest(unittest.TestCase):
                 monitor.RoomRef(shard="shardX", room="E29N55"),
             ],
         )
+
+
+class AlertCommandFailurePayloadTest(unittest.TestCase):
+    def test_alert_timeout_returns_structured_diagnostic_json(self) -> None:
+        def stalled_alert(_args: object) -> int:
+            monitor.time.sleep(1)
+            return 0
+
+        with mock.patch.dict(monitor.os.environ, {"SCREEPS_AUTH_TOKEN": "abcdef123456"}, clear=True):
+            with mock.patch.object(monitor, "command_alert", new=stalled_alert):
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    rc = monitor.main(["alert", "--alert-timeout-seconds", "0.01"])
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(rc, 1)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["mode"], "alert")
+        self.assertFalse(payload["alert"])
+        self.assertEqual(payload["reasons"], [])
+        self.assertEqual(payload["rooms"], [])
+        self.assertEqual(payload["diagnostic"]["kind"], "command_timeout")
+        self.assertEqual(payload["diagnostic"]["command"], "alert")
+        self.assertAlmostEqual(payload["diagnostic"]["timeout_seconds"], 0.01)
+        self.assertNotIn("abcdef123456", stdout.getvalue())
+
+    def test_alert_timeout_returns_json_when_child_blocks_in_subprocess(self) -> None:
+        def stalled_alert(_args: object) -> int:
+            monitor.subprocess.run(
+                [sys.executable, "-c", "import time; time.sleep(5)"],
+                check=True,
+            )
+            return 0
+
+        with mock.patch.dict(monitor.os.environ, {"SCREEPS_AUTH_TOKEN": "abcdef123456"}, clear=True):
+            with mock.patch.object(monitor, "command_alert", new=stalled_alert):
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    rc = monitor.main(["alert", "--alert-timeout-seconds", "0.01"])
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(rc, 1)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["mode"], "alert")
+        self.assertFalse(payload["alert"])
+        self.assertEqual(payload["diagnostic"]["kind"], "command_timeout")
+        self.assertEqual(payload["diagnostic"]["command"], "alert")
+        self.assertNotIn("abcdef123456", stdout.getvalue())
+
+    def test_alert_exception_returns_alert_shaped_failure_json(self) -> None:
+        def failing_alert(_args: object) -> int:
+            raise RuntimeError("capture failed with token=abcdef123456")
+
+        with mock.patch.dict(monitor.os.environ, {"SCREEPS_AUTH_TOKEN": "abcdef123456"}, clear=True):
+            with mock.patch.object(monitor, "command_alert", new=failing_alert):
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    rc = monitor.main(["alert"])
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(rc, 1)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["mode"], "alert")
+        self.assertFalse(payload["alert"])
+        self.assertEqual(payload["reasons"], [])
+        self.assertEqual(payload["room_summaries"], [])
+        self.assertEqual(payload["diagnostic"], {"kind": "command_failed"})
+        self.assertIn("capture failed", payload["error"])
+        self.assertNotIn("abcdef123456", payload["error"])
 
 
 class TacticalResponseBridgeTest(unittest.TestCase):
