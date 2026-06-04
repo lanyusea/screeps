@@ -1103,6 +1103,105 @@ describe('runWorker', () => {
     expect(pickup).not.toHaveBeenCalled();
   });
 
+  it('preempts assigned routine repair for visible season score collection', () => {
+    (globalThis as unknown as { FIND_SCORE: number }).FIND_SCORE = 42;
+    const score = makeScoreTarget('score1');
+    const road = { id: 'road1', structureType: 'road', hits: 4_000, hitsMax: 5_000 } as StructureRoad;
+    const room = {
+      name: 'W1N1',
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD + 100,
+      controller: {
+        id: 'controller1',
+        my: true,
+        level: 3,
+        ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1_000
+      } as StructureController,
+      find: jest.fn((type: number) => {
+        const findScore = (globalThis as unknown as { FIND_SCORE?: number }).FIND_SCORE;
+        if (typeof findScore === 'number' && type === findScore) {
+          return [score];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [road];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const repair = jest.fn();
+    const moveTo = jest.fn();
+    const creep = {
+      name: 'RepairWorker',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'repair', targetId: 'road1' as Id<Structure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'score1' ? 4 : 1)) },
+      room,
+      repair,
+      moveTo
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { RepairWorker: creep },
+      shard: { name: 'shardSeason' } as Game['shard'],
+      getObjectById: jest.fn((id: string) =>
+        id === 'score1' ? score : id === 'road1' ? road : null
+      ) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'collectScore', targetId: 'score1' });
+    expect(moveTo).toHaveBeenCalledWith(score, { range: 0 });
+    expect(repair).not.toHaveBeenCalled();
+    expect(creep.memory.workerDispatchDiagnostic).toMatchObject({
+      reason: 'preempted_for_season_score',
+      selectedTask: 'collectScore',
+      assignedTask: 'collectScore'
+    });
+  });
+
+  it('reselects when an assigned score target vanished before collection', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const room = {
+      name: 'W1N1',
+      find: jest.fn((type: number) => (type === FIND_SOURCES ? [source] : []))
+    } as unknown as Room;
+    const harvest = jest.fn().mockReturnValue(0);
+    const creep = {
+      name: 'ScoreWorker',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'collectScore', targetId: 'score1' } as unknown as CreepTaskMemory
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo: jest.fn().mockReturnValue(1) },
+      room,
+      harvest,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { ScoreWorker: creep },
+      shard: { name: 'shardSeason' } as Game['shard'],
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : null)) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(harvest).toHaveBeenCalledWith(source);
+  });
+
   it('preempts assigned score collection for emergency spawn refill', () => {
     (globalThis as unknown as { FIND_SCORE: number }).FIND_SCORE = 42;
     const score = makeScoreTarget('score1');

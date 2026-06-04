@@ -8,6 +8,7 @@ import {
   selectEnergyHaulingDeliveryTarget,
   selectEnergyHaulingSource
 } from '../economy/energyHauling';
+import { selectSeasonScoreCollectionTask } from '../season/scoreCollection';
 import { recordCreepBehaviorEnergyAcquisition } from '../telemetry/behaviorTelemetry';
 import {
   getRemoteSourceAssignments,
@@ -64,6 +65,10 @@ export function runHauler(creep: Creep): void {
     return;
   }
 
+  if (!assignment && runLocalHaulerSeasonScoreCollection(creep)) {
+    return;
+  }
+
   if (!assignment) {
     runLocalEnergyHauler(creep);
     return;
@@ -94,6 +99,29 @@ function runLocalEnergyHauler(creep: Creep): void {
   }
 
   collectLocalEnergy(creep);
+}
+
+function runLocalHaulerSeasonScoreCollection(creep: Creep): boolean {
+  if (getCarriedEnergy(creep) > 0 || hasPriorityEnergyHaulingDeliveryDemand(creep.room)) {
+    return false;
+  }
+
+  const task = selectSeasonScoreCollectionTask(creep);
+  if (!task) {
+    return false;
+  }
+
+  const target = getObjectById<RoomObject>(String(task.targetId));
+  if (!target) {
+    delete creep.memory.task;
+    return false;
+  }
+
+  creep.memory.task = task;
+  if (getRangeToRoomObject(creep, target) > 0) {
+    creep.moveTo?.(target, { range: 0 });
+  }
+  return true;
 }
 
 function collectLocalEnergy(creep: Creep): void {

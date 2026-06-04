@@ -18,6 +18,7 @@ describe('runHauler', () => {
     (globalThis as unknown as { STRUCTURE_TERMINAL: StructureConstant }).STRUCTURE_TERMINAL = 'terminal';
     (globalThis as unknown as { STRUCTURE_TOWER: StructureConstant }).STRUCTURE_TOWER = 'tower';
     (globalThis as unknown as { ERR_NOT_IN_RANGE: ScreepsReturnCode }).ERR_NOT_IN_RANGE = ERR_NOT_IN_RANGE_CODE;
+    delete (globalThis as unknown as { FIND_SCORE?: number }).FIND_SCORE;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
   });
 
@@ -263,6 +264,49 @@ describe('runHauler', () => {
     expect(creep.withdraw).toHaveBeenCalledWith(storage, RESOURCE_ENERGY);
   });
 
+  it('uses an empty local hauler for visible season score when priority delivery is absent', () => {
+    (globalThis as unknown as { FIND_SCORE: number }).FIND_SCORE = 42;
+    const score = makeScoreItem('score1', 3, 3);
+    const room = withVisibleScoreItems(makeRoom('W1N1', true, [], []), [score]);
+    const creep = makeLocalHauler(room, 0);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { LocalHauler: creep },
+      shard: { name: 'shardSeason' } as Game['shard'],
+      getObjectById: jest.fn((id: string) => (id === 'score1' ? score : null)) as unknown as Game['getObjectById']
+    };
+
+    runHauler(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'collectScore', targetId: 'score1' });
+    expect(creep.moveTo).toHaveBeenCalledWith(score, { range: 0 });
+    expect(creep.withdraw).not.toHaveBeenCalled();
+  });
+
+  it('keeps empty local haulers on energy logistics when priority delivery exists', () => {
+    (globalThis as unknown as { FIND_SCORE: number }).FIND_SCORE = 42;
+    const score = makeScoreItem('score1', 3, 3);
+    const spawn = makeStoreStructure('spawn1', STRUCTURE_SPAWN, 0, 300, 300);
+    const storage = makeStoreStructure('storage1', STRUCTURE_STORAGE, 500, 500, 1_000);
+    const room = withVisibleScoreItems(
+      makeRoom('W1N1', true, [spawn], [], [storage as unknown as Structure]),
+      [score]
+    );
+    const creep = makeLocalHauler(room, 0);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { LocalHauler: creep },
+      shard: { name: 'shardSeason' } as Game['shard'],
+      getObjectById: jest.fn((id: string) =>
+        id === 'score1' ? score : id === 'storage1' ? storage : null
+      ) as unknown as Game['getObjectById']
+    };
+
+    runHauler(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'withdraw', targetId: 'storage1' });
+    expect(creep.withdraw).toHaveBeenCalledWith(storage, RESOURCE_ENERGY);
+    expect(creep.moveTo).not.toHaveBeenCalledWith(score, { range: 0 });
+  });
+
   it('delivers local energy by priority before distance', () => {
     const spawn = makeStoreStructure('spawn1', STRUCTURE_SPAWN, 100, 200, 300, 20, 20);
     const extension = makeStoreStructure('extension1', STRUCTURE_EXTENSION, 0, 50, 50, 3, 3);
@@ -343,6 +387,28 @@ function makeRoom(
       return [];
     })
   } as unknown as Room;
+}
+
+function makeScoreItem(id: string, x: number, y: number, roomName = 'W1N1'): RoomObject & { id: string; score: number; scoreType: string } {
+  return {
+    id,
+    pos: makeRoomPosition(x, y, roomName),
+    score: 100,
+    scoreType: 'score'
+  } as unknown as RoomObject & { id: string; score: number; scoreType: string };
+}
+
+function withVisibleScoreItems(room: Room, scoreItems: Array<RoomObject & { id: string }>): Room {
+  const baseFind = room.find as jest.Mock;
+  (room as unknown as { find: jest.Mock }).find = jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+    const findScore = (globalThis as unknown as { FIND_SCORE?: number }).FIND_SCORE;
+    if (typeof findScore === 'number' && type === findScore) {
+      return scoreItems;
+    }
+
+    return baseFind(type, options);
+  });
+  return room;
 }
 
 function makeStoreStructure(

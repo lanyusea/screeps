@@ -166,6 +166,8 @@ export function runWorker(creep: Creep): void {
     )
   ) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPreemptRepairTaskForSeasonScore(creep, currentTask, selectedTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptRepairTaskForConstructionBacklog(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPauseOptionalTaskForCriticalCpu(creep, currentTask, selectedTask)) {
@@ -282,6 +284,10 @@ function selectWorkerDispatchDiagnosticReason(
 
     if (isTerritoryControlTask(selectedTask)) {
       return 'preempted_for_territory';
+    }
+
+    if (selectedTask?.type === 'collectScore') {
+      return 'preempted_for_season_score';
     }
 
     if (selectedTask?.type === 'signController') {
@@ -490,6 +496,18 @@ function shouldPreemptRepairTaskForCriticalCpuRepairPreemption(
     repairPreemptionTask !== undefined &&
     !isSameTask(task, repairPreemptionTask)
   );
+}
+
+function shouldPreemptRepairTaskForSeasonScore(
+  creep: Creep,
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  if (task.type !== 'repair' || selectedTask?.type !== 'collectScore' || isSameTask(task, selectedTask)) {
+    return false;
+  }
+
+  return !isProtectedRepairTargetForConstructionBacklog(creep, getTaskTarget(task));
 }
 
 function shouldPreemptRepairTaskForConstructionBacklog(
