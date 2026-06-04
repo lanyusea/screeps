@@ -329,22 +329,43 @@ class WorldProfileDefaultsTest(unittest.TestCase):
             alert_args = monitor.build_parser().parse_args(["alert"])
             ctx = monitor.context_from_env(summary_args.world_profile)
 
+        expected_alert_timeout = (
+            (
+                monitor.ALERT_COLLECTION_DISCOVERY_REQUEST_COUNT
+                + monitor.ALERT_COLLECTION_INITIAL_ROOM_REQUEST_COUNT
+                + (
+                    monitor.DEFAULT_COLLECTION_ATTEMPTS
+                    * monitor.ALERT_COLLECTION_FALLBACK_REQUEST_COUNT_PER_ATTEMPT
+                )
+            )
+            * monitor.ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS
+            + (monitor.DEFAULT_COLLECTION_ATTEMPTS - 1) * monitor.DEFAULT_COLLECTION_RETRY_DELAY_SECONDS
+        )
         self.assertEqual(summary_args.world_profile, "persistent")
         self.assertEqual(Path(summary_args.out_dir), monitor.DEFAULT_OUT_DIR)
         self.assertEqual(Path(summary_args.runtime_summary_out_dir), monitor.DEFAULT_RUNTIME_SUMMARY_OUT_DIR)
         self.assertEqual(alert_args.world_profile, "persistent")
         self.assertEqual(Path(alert_args.out_dir), monitor.DEFAULT_OUT_DIR)
         self.assertEqual(Path(alert_args.runtime_summary_dir), monitor.DEFAULT_RUNTIME_SUMMARY_OUT_DIR)
-        self.assertEqual(alert_args.alert_timeout_seconds, monitor.DEFAULT_ALERT_TIMEOUT_SECONDS)
-        self.assertGreater(
-            monitor.DEFAULT_ALERT_TIMEOUT_SECONDS,
-            monitor.ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS * 2,
-        )
+        self.assertEqual(monitor.alert_collection_timeout_budget_seconds(), expected_alert_timeout)
+        self.assertEqual(monitor.DEFAULT_ALERT_TIMEOUT_SECONDS, expected_alert_timeout)
+        self.assertEqual(alert_args.alert_timeout_seconds, expected_alert_timeout)
+        self.assertLess(monitor.DEFAULT_ALERT_TIMEOUT_SECONDS, 15 * 60)
         self.assertEqual(ctx.base_http, monitor.DEFAULT_API_URL)
         self.assertEqual(ctx.default_shard, monitor.DEFAULT_SHARD)
         self.assertEqual(ctx.default_room, monitor.DEFAULT_ROOM)
         self.assertEqual(ctx.state_file, monitor.DEFAULT_STATE_FILE)
         self.assertEqual(ctx.cache_dir, monitor.DEFAULT_CACHE_DIR)
+
+    def test_alert_timeout_env_override_preserved(self) -> None:
+        with mock.patch.dict(
+            monitor.os.environ,
+            {"SCREEPS_AUTH_TOKEN": "token", "SCREEPS_ALERT_TIMEOUT_SECONDS": "12.5"},
+            clear=True,
+        ):
+            alert_args = monitor.build_parser().parse_args(["alert"])
+
+        self.assertEqual(alert_args.alert_timeout_seconds, 12.5)
 
     def test_seasonal_profile_isolates_monitor_defaults(self) -> None:
         with mock.patch.dict(monitor.os.environ, {"SCREEPS_AUTH_TOKEN": "token"}, clear=True):

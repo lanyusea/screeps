@@ -42,7 +42,29 @@ DEFAULT_DEBOUNCE_SECONDS = 300
 DEFAULT_COLLECTION_ATTEMPTS = 3
 DEFAULT_COLLECTION_RETRY_DELAY_SECONDS = 5
 ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS = 25.0
-DEFAULT_ALERT_TIMEOUT_SECONDS = 60.0
+ALERT_COLLECTION_DISCOVERY_REQUEST_COUNT = 2
+ALERT_COLLECTION_INITIAL_ROOM_REQUEST_COUNT = 1
+ALERT_COLLECTION_FALLBACK_REQUEST_COUNT_PER_ATTEMPT = 2
+
+
+def alert_collection_timeout_budget_seconds(
+    collection_attempts: int = DEFAULT_COLLECTION_ATTEMPTS,
+    collection_retry_delay_seconds: float = DEFAULT_COLLECTION_RETRY_DELAY_SECONDS,
+) -> float:
+    attempts = max(1, int(collection_attempts))
+    retry_delay_seconds = max(0.0, float(collection_retry_delay_seconds))
+    request_count = (
+        ALERT_COLLECTION_DISCOVERY_REQUEST_COUNT
+        + ALERT_COLLECTION_INITIAL_ROOM_REQUEST_COUNT
+        + (attempts * ALERT_COLLECTION_FALLBACK_REQUEST_COUNT_PER_ATTEMPT)
+    )
+    return (
+        request_count * ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS
+        + max(0, attempts - 1) * retry_delay_seconds
+    )
+
+
+DEFAULT_ALERT_TIMEOUT_SECONDS = alert_collection_timeout_budget_seconds()
 ALERT_TIMEOUT_POLL_SECONDS = 0.02
 ALERT_TIMEOUT_TERMINATE_GRACE_SECONDS = 1.0
 DEFERRED_STATE_WRITE_ENV = "SCREEPS_MONITOR_DEFER_STATE_WRITE"
