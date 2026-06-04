@@ -59,6 +59,7 @@ export const LOW_CPU_BUCKET_THRESHOLD = 1_000;
 export const CRITICAL_CPU_BUCKET_THRESHOLD = 100;
 export const DEGRADED_OPTIONAL_WORK_INTERVAL = 5;
 export const DEGRADED_ROOM_OPTIONAL_WORK_INTERVAL = 3;
+const CPU_BUCKET_RECOVERY_HEADROOM_MULTIPLIER = 2;
 const REPEATED_BUCKET_EMPTY_TICKS = 2;
 const SUSTAINED_OVER_LIMIT_TICKS = 2;
 
@@ -238,7 +239,7 @@ function hasLowBucketRecoveryPressure(sample: RuntimeCpuSample): boolean {
 
 function getCpuBucketRecoveryHeadroom(limit: number | undefined): number {
   if (limit !== undefined && limit > 0) {
-    return Math.ceil(limit);
+    return Math.ceil(limit * CPU_BUCKET_RECOVERY_HEADROOM_MULTIPLIER);
   }
 
   return LOW_CPU_ACCOUNT_LIMIT;
