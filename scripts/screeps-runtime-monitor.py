@@ -41,7 +41,8 @@ DEFAULT_RUNTIME_SUMMARY_OUT_DIR = Path("/root/screeps/runtime-artifacts/runtime-
 DEFAULT_DEBOUNCE_SECONDS = 300
 DEFAULT_COLLECTION_ATTEMPTS = 3
 DEFAULT_COLLECTION_RETRY_DELAY_SECONDS = 5
-DEFAULT_ALERT_TIMEOUT_SECONDS = 20.0
+ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS = 25.0
+DEFAULT_ALERT_TIMEOUT_SECONDS = 60.0
 ALERT_TIMEOUT_POLL_SECONDS = 0.02
 ALERT_TIMEOUT_TERMINATE_GRACE_SECONDS = 1.0
 DEFERRED_STATE_WRITE_ENV = "SCREEPS_MONITOR_DEFER_STATE_WRITE"
@@ -833,7 +834,7 @@ def get_json(base_http: str, token: str, path: str, params: dict[str, Any] | Non
             "User-Agent": "screeps-runtime-monitor/1.0",
         },
     )
-    with urllib.request.urlopen(request, timeout=25) as response:
+    with urllib.request.urlopen(request, timeout=ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS) as response:
         return json.load(response)
 
 
@@ -1010,11 +1011,11 @@ async def fetch_room_event(ctx: RuntimeContext, ref: RoomRef) -> dict[str, Any]:
         raise RuntimeError("Python package 'websockets' is required") from exc
 
     uri = ctx.base_ws + "/socket/websocket"
-    async with websockets.connect(uri, open_timeout=25) as websocket:
+    async with websockets.connect(uri, open_timeout=ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS) as websocket:
         await websocket.send("auth " + ctx.token)
         authenticated = False
         for _ in range(30):
-            message = await asyncio.wait_for(websocket.recv(), timeout=25)
+            message = await asyncio.wait_for(websocket.recv(), timeout=ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS)
             if isinstance(message, bytes):
                 message = message.decode()
             if isinstance(message, str) and message.startswith("auth "):
@@ -1026,7 +1027,7 @@ async def fetch_room_event(ctx: RuntimeContext, ref: RoomRef) -> dict[str, Any]:
         channel = f"room:{ref.shard}/{ref.room}"
         await websocket.send(f"subscribe {channel}")
         for _ in range(60):
-            message = await asyncio.wait_for(websocket.recv(), timeout=25)
+            message = await asyncio.wait_for(websocket.recv(), timeout=ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS)
             if isinstance(message, bytes):
                 message = message.decode()
             if not isinstance(message, str) or not message.startswith("["):

@@ -336,6 +336,10 @@ class WorldProfileDefaultsTest(unittest.TestCase):
         self.assertEqual(Path(alert_args.out_dir), monitor.DEFAULT_OUT_DIR)
         self.assertEqual(Path(alert_args.runtime_summary_dir), monitor.DEFAULT_RUNTIME_SUMMARY_OUT_DIR)
         self.assertEqual(alert_args.alert_timeout_seconds, monitor.DEFAULT_ALERT_TIMEOUT_SECONDS)
+        self.assertGreater(
+            monitor.DEFAULT_ALERT_TIMEOUT_SECONDS,
+            monitor.ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS * 2,
+        )
         self.assertEqual(ctx.base_http, monitor.DEFAULT_API_URL)
         self.assertEqual(ctx.default_shard, monitor.DEFAULT_SHARD)
         self.assertEqual(ctx.default_room, monitor.DEFAULT_ROOM)
