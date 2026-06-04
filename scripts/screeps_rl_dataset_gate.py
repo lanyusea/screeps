@@ -19,6 +19,7 @@ import screeps_rl_dataset_export as dataset_export
 import screeps_rl_mmo_validator as mmo_validator
 import screeps_rl_rollout_manager as rollout_manager
 import rl_conclusion_registry as conclusion_registry
+import screeps_cli_io
 import screeps_world_profiles as world_profiles
 import screeps_strategy_shadow_report as shadow_report
 
@@ -1706,9 +1707,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def write_output(payload: JsonObject, output: Path | None, stdout: TextIO) -> None:
-    text = canonical_json(payload)
     if output is None:
-        stdout.write(text)
+        screeps_cli_io.write_json(stdout, payload)
         return
     write_json_atomic(output, payload)
 
@@ -1860,7 +1860,10 @@ def preserve_completed_gate_artifacts(report_path: Path, summary_path: Path, err
         preserved_paths.append(summary_path)
 
     displayed_paths = ", ".join(dataset_export.display_path(path) for path in preserved_paths)
-    stderr.write(f"preserved completed gate artifacts after post-report failure: {displayed_paths}\n")
+    screeps_cli_io.write_text(
+        stderr,
+        f"preserved completed gate artifacts after post-report failure: {displayed_paths}\n",
+    )
     return True
 
 
@@ -1881,9 +1884,12 @@ def persist_cli_failure_report(args: argparse.Namespace, error: Exception, stder
         report = build_cli_failure_report(args, error, repo=repo, created_at=created_at, gate_id=gate_id, gate_dir=gate_dir)
         write_json_atomic(report_path, report)
         write_json_atomic(summary_path, build_summary(report))
-        stderr.write(f"failure report: {dataset_export.display_path(report_path)}\n")
+        screeps_cli_io.write_text(stderr, f"failure report: {dataset_export.display_path(report_path)}\n")
     except Exception as report_error:  # noqa: BLE001 - best-effort diagnostics must not hide the original error
-        stderr.write(f"warning: could not write failure report: {dataset_export.redact_text(str(report_error))}\n")
+        screeps_cli_io.write_text(
+            stderr,
+            f"warning: could not write failure report: {dataset_export.redact_text(str(report_error))}\n",
+        )
 
 
 def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: TextIO = sys.stderr) -> int:
@@ -1927,17 +1933,17 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: Tex
                 conclusion_registry_path=args.conclusion_registry,
                 repo_root=args.repo_root,
             )
-            stdout.write(canonical_json(report if args.print_report else build_summary(report)))
+            screeps_cli_io.write_json(stdout, report if args.print_report else build_summary(report))
             return 0 if report.get("ok") is True else 1
 
         parser.error(f"unsupported command: {args.command}")
     except (DatasetGateError, conclusion_registry.ConclusionRegistryError) as error:
         persist_cli_failure_report(args, error, stderr)
-        stderr.write(f"error: {error}\n")
+        screeps_cli_io.write_text(stderr, f"error: {error}\n")
         return 2
     except (RuntimeError, OSError, mmo_validator.ValidationConfigError) as error:
         persist_cli_failure_report(args, error, stderr)
-        stderr.write(f"error: {dataset_export.redact_text(str(error))}\n")
+        screeps_cli_io.write_text(stderr, f"error: {dataset_export.redact_text(str(error))}\n")
         return 2
 
     return 2

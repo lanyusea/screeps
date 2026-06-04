@@ -31,6 +31,11 @@ READY_RUNTIME_SCORECARD_PATH = (
 )
 
 
+class BrokenWriter(io.StringIO):
+    def write(self, _text: str) -> int:
+        raise BrokenPipeError("simulated closed stdout")
+
+
 def legacy_multi_tier_scenario_id() -> str:
     legacy_ids = tuple(
         scenario_id
@@ -8046,6 +8051,30 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["status"], runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS)
         self.assertEqual(payload["launchGuard"]["activeGuard"], "paid_failure_recurrence_guard")
+
+    def test_main_treats_closed_stdout_as_delivery_only_after_completed_summary(self) -> None:
+        class FakeController:
+            def __init__(self, args: argparse.Namespace, run_id: str, artifact_dir: Path) -> None:
+                self.args = args
+                self.run_id = run_id
+                self.artifact_dir = artifact_dir
+                self.final_status = "unknown"
+                self.result = {}
+
+            def run(self) -> None:
+                self.final_status = "completed"
+
+        stderr = io.StringIO()
+        with (
+            tempfile.TemporaryDirectory() as temp_dir,
+            mock.patch.object(runner, "Controller", FakeController),
+            mock.patch.object(runner.sys, "stdout", BrokenWriter()),
+            mock.patch.object(runner.sys, "stderr", stderr),
+        ):
+            exit_code = runner.main(["run-single", "--run-id", "run-test", "--artifact-root", temp_dir])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stderr.getvalue(), "")
 
     def test_bootstrap_worker_uses_configured_worker_user(self) -> None:
         args = controller_args()
