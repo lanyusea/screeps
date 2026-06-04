@@ -1,8 +1,10 @@
 import { getRuntimeCurrentRoomName } from '../config/runtimeRooms';
+import { isSeasonalRuntimeWorld } from '../runtime/seasonalPolicy';
 import {
   ACTIVE_OFFICIAL_PASSIVE_SCOUT_TARGET_SELECTION,
   TERRITORY_EXPANSION_ROOM_SELECTION
 } from '../config/roomSelection';
+import { isAutonomousTerritoryControlAllowedForColonyName } from './controlGate';
 
 export interface TerritoryExpansionScoutTargetConfig {
   colony: string;
@@ -67,6 +69,30 @@ export function getCurrentRoomScoutOnlyAdjacentRoomNames(roomName: string): stri
 export function isConfiguredExpansionScoutOnlyTarget(colony: string, roomName: string): boolean {
   return getTerritoryExpansionScoutTargets(colony).some(
     (target) => target.colony === colony && target.roomName === roomName && target.scoutOnly === true
+  );
+}
+
+export function isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(
+  colony: string,
+  roomName: string
+): boolean {
+  return (
+    isConfiguredExpansionScoutOnlyTarget(colony, roomName) &&
+    !isSeasonalRuntimeCurrentRoomAdjacentScoutOnlyTargetTerritoryControlEligible(colony, roomName)
+  );
+}
+
+export function isSeasonalRuntimeCurrentRoomAdjacentScoutOnlyTargetTerritoryControlEligible(
+  colony: string,
+  roomName: string
+): boolean {
+  const currentRoomName = getRuntimeCurrentRoomName();
+  return (
+    isSeasonalRuntimeWorld() &&
+    currentRoomName === colony &&
+    isRuntimeCurrentRoomScoutTargetsEnabled(colony) &&
+    getCurrentRoomScoutOnlyAdjacentRoomNames(currentRoomName).includes(roomName) &&
+    isAutonomousTerritoryControlAllowedForColonyName(colony)
   );
 }
 

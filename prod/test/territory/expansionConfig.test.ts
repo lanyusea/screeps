@@ -1,7 +1,8 @@
 import {
   getCurrentRoomScoutOnlyAdjacentRoomNames,
   getRuntimeCurrentRoomScoutOnlyTargets,
-  getTerritoryExpansionScoutTargets
+  getTerritoryExpansionScoutTargets,
+  isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl
 } from '../../src/territory/expansionConfig';
 
 describe('territory expansion config', () => {
@@ -206,12 +207,88 @@ describe('territory expansion config', () => {
       }
     ]);
   });
+
+  it('allows Seasonal RCL3 runtime-current-room adjacent scout-only targets through territory control gates', () => {
+    (globalThis as { Game: Partial<Game> }).Game = {
+      shard: { name: 'shardSeason', type: 'normal' } as Game['shard'],
+      rooms: {
+        E9S27: makeOwnedRoom('E9S27', 3)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      runtime: {
+        currentRoomName: 'E9S27'
+      }
+    };
+
+    expect(isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl('E9S27', 'E9S28')).toBe(false);
+  });
+
+  it('keeps persistent runtime scout-only targets excluded from territory control before the Seasonal RCL3 gate', () => {
+    (globalThis as { Game: Partial<Game> }).Game = {
+      shard: { name: 'shardSeason', type: 'normal' } as Game['shard'],
+      rooms: {
+        E9S27: makeOwnedRoom('E9S27', 2)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      runtime: {
+        currentRoomName: 'E9S27'
+      }
+    };
+
+    expect(isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl('E9S27', 'E9S28')).toBe(true);
+  });
+
+  it('keeps non-season runtime scout-only targets excluded from territory control at RCL3', () => {
+    (globalThis as { Game: Partial<Game> }).Game = {
+      rooms: {
+        E9S27: makeOwnedRoom('E9S27', 3)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      runtime: {
+        currentRoomName: 'E9S27'
+      }
+    };
+
+    expect(isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl('E9S27', 'E9S28')).toBe(true);
+  });
+
+  it('keeps non-adjacent memory scout-only targets excluded from Seasonal territory control', () => {
+    (globalThis as { Game: Partial<Game> }).Game = {
+      shard: { name: 'shardSeason', type: 'normal' } as Game['shard'],
+      rooms: {
+        E9S27: makeOwnedRoom('E9S27', 3)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      runtime: {
+        currentRoomName: 'E9S27'
+      },
+      territory: {
+        expansionScoutTargets: [
+          {
+            colony: 'E9S27',
+            roomName: 'E11S27',
+            nearestOwnedRoom: 'E9S27',
+            nearestOwnedRoomDistance: 2,
+            routeDistance: 2,
+            adjacentToOwnedRoom: false,
+            scoutOnly: true
+          }
+        ]
+      }
+    };
+
+    expect(isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl('E9S27', 'E11S27')).toBe(true);
+  });
 });
 
-function makeOwnedRoom(roomName: string): Room {
+function makeOwnedRoom(roomName: string, level = 8): Room {
   return {
     name: roomName,
-    controller: { my: true }
+    controller: { my: true, level }
   } as Room;
 }
 

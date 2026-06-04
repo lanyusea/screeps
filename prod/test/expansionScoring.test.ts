@@ -409,6 +409,50 @@ describe('next expansion scoring', () => {
     expect(Memory.territory?.targets).toBeUndefined();
   });
 
+  it('promotes sufficient Seasonal RCL3 runtime adjacent scout-only evidence without a stale RCL5 hold', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      shard: { name: 'shardSeason', type: 'normal' } as Game['shard']
+    };
+    const report = scoreExpansionCandidates(
+      makeInput(
+        [
+          makeCandidate({
+            roomName: 'E9S28',
+            scoutOnly: true,
+            controllerId: 'controller-E9S28' as Id<StructureController>,
+            sourceCount: 2,
+            sourceAccessPoints: 8,
+            mineral: { mineralType: 'O' }
+          })
+        ],
+        {
+          colonyName: 'E9S27',
+          controllerLevel: 3,
+          energyAvailable: 800,
+          energyCapacityAvailable: 800,
+          gclLevel: 2
+        }
+      )
+    );
+
+    expect(getCandidate(report, 'E9S28').preconditions).not.toContain(
+      'reach controller level 5 before scout-only remote conversion'
+    );
+
+    persistExpansionCandidateScores('E9S27', report, 1_671);
+
+    expect(getExpansionCandidateMemory()[0]).toMatchObject({
+      colony: 'E9S27',
+      roomName: 'E9S28',
+      evidenceStatus: 'sufficient',
+      scoutOnly: true,
+      recommendedAction: 'reserve',
+      visible: true,
+      updatedAt: 1_671
+    });
+    expect(getExpansionCandidateMemory()[0]).not.toHaveProperty('blockReason');
+  });
+
   it('holds sufficient E29N56 scout-only evidence below RCL5 with a controller-level block reason', () => {
     const report = scoreExpansionCandidates(
       makeInput(

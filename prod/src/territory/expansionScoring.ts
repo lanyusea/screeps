@@ -20,7 +20,7 @@ import {
   getTerritoryExpansionScoutTargets,
   type TerritoryExpansionScoutTargetConfig
 } from './expansionConfig';
-import { AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL } from './controlGate';
+import { getAutonomousTerritoryControlMinRcl } from './controlGate';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 import { pruneLowerPriorityDuplicateClaimPlans } from './multiRoomTerritory';
 import {
@@ -68,8 +68,8 @@ const SYNERGY_DUAL_SOURCE_DUPLICATE_PENALTY = 80;
 const FOREIGN_RESERVATION_CONTROLLER_PRESSURE_RISK = 'foreign reservation requires controller pressure';
 const ROOM_LIMIT_PRECONDITION_PREFIX = 'limit expansion to ';
 const GCL_LIMIT_PRECONDITION = 'wait for GCL capacity to claim another room';
-const SCOUT_ONLY_REMOTE_MIN_RCL_PRECONDITION =
-  `reach controller level ${AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL} before scout-only remote conversion`;
+const SCOUT_ONLY_REMOTE_MIN_RCL_PRECONDITION_PREFIX = 'reach controller level ';
+const SCOUT_ONLY_REMOTE_MIN_RCL_PRECONDITION_SUFFIX = ' before scout-only remote conversion';
 const SCOUT_ONLY_REMOTE_ENERGY_BUFFER_PRECONDITION =
   'preserve home energy buffer before scout-only remote conversion';
 const SCOUT_ONLY_REMOTE_CPU_BUCKET_PRECONDITION =
@@ -1208,11 +1208,12 @@ function getExpansionPreconditions(
     preconditions.push('reach controller level 2 before expansion');
   }
 
+  const scoutOnlyRemoteMinRcl = getAutonomousTerritoryControlMinRcl();
   if (
     candidate?.scoutOnly === true &&
-    (input.controllerLevel ?? 0) < AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL
+    (input.controllerLevel ?? 0) < scoutOnlyRemoteMinRcl
   ) {
-    preconditions.push(SCOUT_ONLY_REMOTE_MIN_RCL_PRECONDITION);
+    preconditions.push(getScoutOnlyRemoteMinRclPrecondition(scoutOnlyRemoteMinRcl));
   }
 
   if (candidate?.scoutOnly === true && input.homeAlertActive === true) {
@@ -1254,6 +1255,10 @@ function getExpansionPreconditions(
   }
 
   return preconditions;
+}
+
+function getScoutOnlyRemoteMinRclPrecondition(minRcl = getAutonomousTerritoryControlMinRcl()): string {
+  return `${SCOUT_ONLY_REMOTE_MIN_RCL_PRECONDITION_PREFIX}${minRcl}${SCOUT_ONLY_REMOTE_MIN_RCL_PRECONDITION_SUFFIX}`;
 }
 
 function hasActivePostClaimBootstrapBlocker(input: ExpansionScoringInput): boolean {
@@ -1501,7 +1506,7 @@ function getPersistedExpansionCandidateBlockReason(
     return undefined;
   }
 
-  if (hasExpansionPrecondition(candidate, SCOUT_ONLY_REMOTE_MIN_RCL_PRECONDITION)) {
+  if (candidate.preconditions.some(isScoutOnlyRemoteMinRclPrecondition)) {
     return 'controllerLevelLow';
   }
 
@@ -1602,6 +1607,13 @@ function getPersistedExpansionCandidateBlockReason(
 
 function hasExpansionPrecondition(candidate: ExpansionCandidateScore, precondition: string): boolean {
   return candidate.preconditions.includes(precondition);
+}
+
+function isScoutOnlyRemoteMinRclPrecondition(precondition: string): boolean {
+  return (
+    precondition.startsWith(SCOUT_ONLY_REMOTE_MIN_RCL_PRECONDITION_PREFIX) &&
+    precondition.endsWith(SCOUT_ONLY_REMOTE_MIN_RCL_PRECONDITION_SUFFIX)
+  );
 }
 
 function persistNextExpansionTarget(

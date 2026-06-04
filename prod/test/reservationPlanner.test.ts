@@ -73,6 +73,43 @@ describe('adjacent room reservation planner', () => {
     ]);
   });
 
+  it('reserves Seasonal RCL3 runtime adjacent scout-only evidence when GCL blocks claiming', () => {
+    const { colony } = makeColony({
+      roomName: 'E9S27',
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      controller: makeOwnedController('E9S27', 3)
+    });
+    Memory.runtime = { currentRoomName: 'E9S27' };
+    installGame(colony, {
+      gclLevel: 1,
+      shard: { name: 'shardSeason', type: 'normal' },
+      rooms: {
+        E9S28: makeReservationRoom('E9S28', { sourceCount: 2 })
+      },
+      exits: { E9S27: { '5': 'E9S28' } }
+    });
+
+    const evaluation = refreshAdjacentRoomReservationIntent(colony, 1_671);
+
+    expect(evaluation).toMatchObject({
+      status: 'planned',
+      colony: 'E9S27',
+      claimBlocker: 'gclInsufficient',
+      targetRoom: 'E9S28',
+      controllerId: 'controller-E9S28'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'E9S27',
+        roomName: 'E9S28',
+        action: 'reserve',
+        createdBy: ADJACENT_ROOM_RESERVATION_TARGET_CREATOR,
+        controllerId: 'controller-E9S28'
+      }
+    ]);
+  });
+
   it('prefers an unscouted adjacent room before low-priority scouted rooms', () => {
     const { colony } = makeColony({ energyAvailable: 650, energyCapacityAvailable: 650 });
     installGame(colony, {
@@ -437,10 +474,12 @@ function installGame(
   colony: ColonySnapshot,
   {
     gclLevel,
+    shard,
     rooms,
     exits
   }: {
     gclLevel: number;
+    shard?: { name: string; type: string };
     rooms: Record<string, Room>;
     exits: Record<string, Partial<Record<'1' | '3' | '5' | '7', string>>>;
   }
@@ -448,6 +487,7 @@ function installGame(
   (globalThis as unknown as { Game: Partial<Game> }).Game = {
     time: 100,
     gcl: { level: gclLevel, progress: 0, progressTotal: 0 } as GlobalControlLevel,
+    ...(shard ? { shard: shard as Game['shard'] } : {}),
     rooms: { [colony.room.name]: colony.room, ...rooms },
     spawns: {},
     creeps: {},
@@ -503,11 +543,11 @@ function makeReservationRoom(
   } as unknown as Room;
 }
 
-function makeOwnedController(roomName: string): StructureController {
+function makeOwnedController(roomName: string, level = 6): StructureController {
   return {
     id: `controller-${roomName}` as Id<StructureController>,
     my: true,
-    level: 6,
+    level,
     ticksToDowngrade: 10_000,
     owner: { username: 'me' }
   } as StructureController;

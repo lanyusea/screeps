@@ -1,6 +1,6 @@
 import type { ColonyStageAssessment } from '../colony/colonyStage';
 import type { ColonySnapshot } from '../colony/colonyRegistry';
-import { isConfiguredExpansionScoutOnlyTarget } from './expansionConfig';
+import { isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl } from './expansionConfig';
 import {
   CLAIM_SCORE_RESERVED_PENALTY,
   scoreClaimTarget,
@@ -176,7 +176,7 @@ function selectColonyExpansionCandidate(colony: ColonySnapshot): ColonyExpansion
   const claimedRooms = buildRuntimeClaimedRoomSynergyEvidence(colony.room, ownerUsername);
   const includeMineralSynergyEvidence = claimedRooms.some((room) => isNonEmptyString(room.mineralType));
   const candidates = getAdjacentRoomNames(colony.room.name).flatMap((roomName, order) => {
-    if (isConfiguredExpansionScoutOnlyTarget(colony.room.name, roomName)) {
+    if (isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(colony.room.name, roomName)) {
       return [];
     }
 
