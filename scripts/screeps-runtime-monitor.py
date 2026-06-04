@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import errno
 import html
 import json
+import math
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -39,6 +42,36 @@ DEFAULT_RUNTIME_SUMMARY_OUT_DIR = Path("/root/screeps/runtime-artifacts/runtime-
 DEFAULT_DEBOUNCE_SECONDS = 300
 DEFAULT_COLLECTION_ATTEMPTS = 3
 DEFAULT_COLLECTION_RETRY_DELAY_SECONDS = 5
+ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS = 25.0
+ALERT_COLLECTION_DISCOVERY_REQUEST_COUNT = 2
+ALERT_COLLECTION_INITIAL_ROOM_REQUEST_COUNT = 1
+ALERT_COLLECTION_FALLBACK_REQUEST_COUNT_PER_ATTEMPT = 2
+
+
+def alert_collection_timeout_budget_seconds(
+    collection_attempts: int = DEFAULT_COLLECTION_ATTEMPTS,
+    collection_retry_delay_seconds: float = DEFAULT_COLLECTION_RETRY_DELAY_SECONDS,
+    room_count: int = 1,
+) -> float:
+    attempts = max(1, int(collection_attempts))
+    rooms = max(1, int(room_count))
+    retry_delay_seconds = max(0.0, float(collection_retry_delay_seconds))
+    per_room_request_count = (
+        ALERT_COLLECTION_INITIAL_ROOM_REQUEST_COUNT
+        + attempts * ALERT_COLLECTION_FALLBACK_REQUEST_COUNT_PER_ATTEMPT
+    )
+    request_count = ALERT_COLLECTION_DISCOVERY_REQUEST_COUNT + rooms * per_room_request_count
+    return (
+        request_count * ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS
+        + rooms * max(0, attempts - 1) * retry_delay_seconds
+    )
+
+
+DEFAULT_ALERT_TIMEOUT_SECONDS = alert_collection_timeout_budget_seconds()
+ALERT_TIMEOUT_POLL_SECONDS = 0.02
+ALERT_TIMEOUT_TERMINATE_GRACE_SECONDS = 1.0
+DEFERRED_STATE_WRITE_ENV = "SCREEPS_MONITOR_DEFER_STATE_WRITE"
+DEFERRED_STATE_TARGET_ENV = "SCREEPS_MONITOR_DEFER_STATE_TARGET"
 DEFAULT_SHARD = world_profiles.PERSISTENT_DEFAULTS.shard
 DEFAULT_ROOM = world_profiles.PERSISTENT_DEFAULTS.room
 WORLD_PROFILE_ENV = world_profiles.WORLD_PROFILE_ENV
@@ -779,6 +812,16 @@ def env_default(name: str, default: str) -> str:
     return os.environ[name] if name in os.environ else default
 
 
+def positive_float_arg(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"expected a positive number, got {value!r}") from exc
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise argparse.ArgumentTypeError(f"expected a positive number, got {value!r}")
+    return parsed
+
+
 def context_from_env(world_profile: str | None = None) -> RuntimeContext:
     profile = world_profiles.resolve_world_profile(world_profile, os.environ)
     token = os.environ.get("SCREEPS_AUTH_TOKEN")
@@ -816,7 +859,7 @@ def get_json(base_http: str, token: str, path: str, params: dict[str, Any] | Non
             "User-Agent": "screeps-runtime-monitor/1.0",
         },
     )
-    with urllib.request.urlopen(request, timeout=25) as response:
+    with urllib.request.urlopen(request, timeout=ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS) as response:
         return json.load(response)
 
 
@@ -912,6 +955,17 @@ def discover_owned_rooms(ctx: RuntimeContext, forced_room: RoomRef | None) -> tu
     return [fallback], overview, warnings, [fallback]
 
 
+def alert_collection_room_count(ctx: RuntimeContext, room_arg: str | None) -> int:
+    forced_room = parse_room_arg(room_arg, ctx.default_shard)
+    if forced_room:
+        return 1
+    try:
+        overview = get_json(ctx.base_http, ctx.token, "/api/user/overview")
+    except Exception:  # noqa: BLE001 - default timeout must still exist when discovery is unavailable
+        return 1
+    return max(1, len(overview_room_refs(overview)))
+
+
 def terrain_cache_path(cache_dir: Path, ref: RoomRef) -> Path:
     return cache_dir / f"{ref.file_fragment}.json"
 
@@ -993,11 +1047,19 @@ async def fetch_room_event(ctx: RuntimeContext, ref: RoomRef) -> dict[str, Any]:
         raise RuntimeError("Python package 'websockets' is required") from exc
 
     uri = ctx.base_ws + "/socket/websocket"
-    async with websockets.connect(uri, open_timeout=25) as websocket:
+    deadline = time.monotonic() + ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS
+
+    def remaining_websocket_timeout() -> float:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(f"room snapshot websocket timed out for {ref.key}")
+        return remaining
+
+    async with websockets.connect(uri, open_timeout=ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS) as websocket:
         await websocket.send("auth " + ctx.token)
         authenticated = False
         for _ in range(30):
-            message = await asyncio.wait_for(websocket.recv(), timeout=25)
+            message = await asyncio.wait_for(websocket.recv(), timeout=remaining_websocket_timeout())
             if isinstance(message, bytes):
                 message = message.decode()
             if isinstance(message, str) and message.startswith("auth "):
@@ -1009,7 +1071,7 @@ async def fetch_room_event(ctx: RuntimeContext, ref: RoomRef) -> dict[str, Any]:
         channel = f"room:{ref.shard}/{ref.room}"
         await websocket.send(f"subscribe {channel}")
         for _ in range(60):
-            message = await asyncio.wait_for(websocket.recv(), timeout=25)
+            message = await asyncio.wait_for(websocket.recv(), timeout=remaining_websocket_timeout())
             if isinstance(message, bytes):
                 message = message.decode()
             if not isinstance(message, str) or not message.startswith("["):
@@ -3821,7 +3883,23 @@ def load_state(path: Path) -> dict[str, Any]:
         return {}
 
 
+def state_paths_match(left: Path, right: Path) -> bool:
+    try:
+        return left.expanduser().resolve(strict=False) == right.expanduser().resolve(strict=False)
+    except OSError:
+        return str(left.expanduser()) == str(right.expanduser())
+
+
+def state_write_path(path: Path) -> Path:
+    deferred_path = os.environ.get(DEFERRED_STATE_WRITE_ENV)
+    deferred_target = os.environ.get(DEFERRED_STATE_TARGET_ENV)
+    if deferred_path and deferred_target and state_paths_match(path, Path(deferred_target)):
+        return Path(deferred_path).expanduser()
+    return path
+
+
 def save_state(path: Path, state: dict[str, Any]) -> None:
+    path = state_write_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(state, indent=2, sort_keys=True)
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=str(path.parent), delete=False) as handle:
@@ -5831,6 +5909,292 @@ def print_json(payload: dict[str, Any], secrets: list[str]) -> None:
     sys.stdout.write("\n")
 
 
+class MonitorCommandTimeout(TimeoutError):
+    def __init__(self, command: str, timeout_seconds: float) -> None:
+        self.command = command
+        self.timeout_seconds = timeout_seconds
+        super().__init__(f"{command} command exceeded {timeout_seconds:g}s timeout")
+
+
+class MonitorCommandChildFailure(RuntimeError):
+    def __init__(self, command: str, exit_code: int, detail: str) -> None:
+        self.command = command
+        self.exit_code = exit_code
+        self.detail = detail
+        super().__init__(f"{command} command failed in supervised child: {detail}")
+
+
+def normalized_exit_code(value: int) -> int:
+    if value < 0:
+        return 1
+    if value > 255:
+        return 1
+    return value
+
+
+def child_exit_code_from_status(status: int) -> int:
+    if os.WIFEXITED(status):
+        return os.WEXITSTATUS(status)
+    if os.WIFSIGNALED(status):
+        return 128 + os.WTERMSIG(status)
+    return 1
+
+
+def wait_for_child_exit(pid: int, timeout_seconds: float) -> int | None:
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            waited_pid, status = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            return 1
+        if waited_pid == pid:
+            return child_exit_code_from_status(status)
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        time.sleep(min(ALERT_TIMEOUT_POLL_SECONDS, remaining))
+
+
+def signal_child_tree(pid: int, signum: int) -> None:
+    if hasattr(os, "killpg"):
+        try:
+            os.killpg(pid, signum)
+            return
+        except ProcessLookupError:
+            pass
+        except OSError:
+            pass
+    try:
+        os.kill(pid, signum)
+    except ProcessLookupError:
+        return
+    except OSError:
+        return
+
+
+def terminate_timed_out_child(pid: int) -> None:
+    signal_child_tree(pid, signal.SIGTERM)
+    if wait_for_child_exit(pid, ALERT_TIMEOUT_TERMINATE_GRACE_SECONDS) is not None:
+        return
+    signal_child_tree(pid, signal.SIGKILL)
+    wait_for_child_exit(pid, ALERT_TIMEOUT_TERMINATE_GRACE_SECONDS)
+
+
+def run_alert_child(args: argparse.Namespace, output_path: Path, deferred_state_path: Path, state_file: Path) -> None:
+    rc = 1
+    try:
+        if hasattr(os, "setsid"):
+            try:
+                os.setsid()
+            except OSError:
+                pass
+        os.environ[DEFERRED_STATE_WRITE_ENV] = str(deferred_state_path)
+        os.environ[DEFERRED_STATE_TARGET_ENV] = str(state_file)
+
+        with output_path.open("w", encoding="utf-8") as child_stdout:
+            try:
+                os.dup2(child_stdout.fileno(), 1)
+            except OSError:
+                pass
+            sys.stdout = child_stdout
+            try:
+                rc = int(args.func(args))
+            except Exception as exc:  # noqa: BLE001 - child must return scheduler-readable JSON
+                token = os.environ.get("SCREEPS_AUTH_TOKEN", "")
+                payload = command_failure_payload(args, exc, token)
+                print_json(payload, [token])
+                rc = 1
+            child_stdout.flush()
+    finally:
+        os._exit(normalized_exit_code(rc))
+
+
+def promote_deferred_state(deferred_state_path: Path, state_file: Path) -> None:
+    if not deferred_state_path.exists():
+        return
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.replace(deferred_state_path, state_file)
+        return
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+
+    temp_fd: int | None = None
+    temp_path: Path | None = None
+    try:
+        temp_fd, temp_name = tempfile.mkstemp(prefix=f".{state_file.name}.", suffix=".tmp", dir=str(state_file.parent))
+        temp_path = Path(temp_name)
+        with deferred_state_path.open("rb") as source, os.fdopen(temp_fd, "wb") as target:
+            temp_fd = None
+            shutil.copyfileobj(source, target)
+        os.replace(temp_path, state_file)
+        deferred_state_path.unlink()
+    finally:
+        if temp_fd is not None:
+            try:
+                os.close(temp_fd)
+            except OSError:
+                pass
+        if temp_path is not None:
+            try:
+                temp_path.unlink()
+            except FileNotFoundError:
+                pass
+
+
+def read_text_lossy(path: Path) -> str:
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
+        return handle.read()
+
+
+def assert_complete_json_output(command: str, exit_code: int, output: str) -> None:
+    if not output.strip():
+        raise MonitorCommandChildFailure(command, exit_code, "no JSON was written to stdout")
+    try:
+        json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise MonitorCommandChildFailure(command, exit_code, "stdout was not complete JSON") from exc
+
+
+def run_alert_with_signal_timeout(args: argparse.Namespace, timeout_seconds: float) -> int:
+    if not hasattr(signal, "SIGALRM") or not hasattr(signal, "setitimer"):
+        return int(args.func(args))
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    previous_timer = signal.getitimer(signal.ITIMER_REAL)
+
+    def raise_timeout(_signum: int, _frame: Any) -> None:
+        raise MonitorCommandTimeout("alert", timeout_seconds)
+
+    signal.signal(signal.SIGALRM, raise_timeout)
+    signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
+    try:
+        return int(args.func(args))
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        if previous_timer[0] > 0:
+            signal.setitimer(signal.ITIMER_REAL, previous_timer[0], previous_timer[1])
+
+
+def run_alert_with_process_timeout(args: argparse.Namespace, timeout_seconds: float) -> int:
+    if not hasattr(os, "fork"):
+        return run_alert_with_signal_timeout(args, timeout_seconds)
+
+    try:
+        sys.stdout.flush()
+    except Exception:
+        pass
+
+    output_fd, output_name = tempfile.mkstemp(prefix="screeps-alert-stdout-", suffix=".json")
+    os.close(output_fd)
+    output_path = Path(output_name)
+    deferred_state_fd, deferred_state_name = tempfile.mkstemp(prefix="screeps-alert-state-", suffix=".json")
+    os.close(deferred_state_fd)
+    deferred_state_path = Path(deferred_state_name)
+    try:
+        deferred_state_path.unlink()
+    except FileNotFoundError:
+        pass
+    try:
+        state_file = context_from_env(args.world_profile).state_file
+        try:
+            pid = os.fork()
+        except OSError:
+            return run_alert_with_signal_timeout(args, timeout_seconds)
+
+        if pid == 0:
+            run_alert_child(args, output_path, deferred_state_path, state_file)
+
+        rc = wait_for_child_exit(pid, timeout_seconds)
+        if rc is None:
+            terminate_timed_out_child(pid)
+            raise MonitorCommandTimeout("alert", timeout_seconds)
+
+        output = read_text_lossy(output_path)
+        assert_complete_json_output("alert", rc, output)
+        if rc == 0:
+            promote_deferred_state(deferred_state_path, state_file)
+        sys.stdout.write(output)
+        if not output.endswith("\n"):
+            sys.stdout.write("\n")
+        return rc
+    finally:
+        try:
+            output_path.unlink()
+        except FileNotFoundError:
+            pass
+        try:
+            deferred_state_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def alert_timeout_seconds_from_args(args: argparse.Namespace) -> float:
+    configured_timeout = getattr(args, "alert_timeout_seconds", None)
+    if configured_timeout is not None:
+        return float(configured_timeout)
+
+    ctx = context_from_env(getattr(args, "world_profile", None))
+    room_count = alert_collection_room_count(ctx, getattr(args, "room", None))
+    return alert_collection_timeout_budget_seconds(
+        collection_attempts=ctx.collection_attempts,
+        collection_retry_delay_seconds=ctx.collection_retry_delay_seconds,
+        room_count=room_count,
+    )
+
+
+def run_parsed_command(args: argparse.Namespace) -> int:
+    if getattr(args, "command", None) != "alert":
+        return int(args.func(args))
+
+    timeout_seconds = alert_timeout_seconds_from_args(args)
+    return run_alert_with_process_timeout(args, timeout_seconds)
+
+
+def command_failure_payload(args: argparse.Namespace, exc: Exception, token: str) -> dict[str, Any]:
+    mode = str(getattr(args, "command", "unknown"))
+    diagnostic: dict[str, Any] = {"kind": "command_failed"}
+    if isinstance(exc, MonitorCommandTimeout):
+        diagnostic = {
+            "kind": "command_timeout",
+            "command": exc.command,
+            "timeout_seconds": exc.timeout_seconds,
+        }
+    elif isinstance(exc, MonitorCommandChildFailure):
+        diagnostic = {
+            "kind": "command_child_failed",
+            "command": exc.command,
+            "exit_code": exc.exit_code,
+            "detail": exc.detail,
+        }
+
+    payload: dict[str, Any] = {
+        "ok": False,
+        "mode": mode,
+        "error": redact_secrets(str(exc), [token]),
+        "diagnostic": diagnostic,
+    }
+    if mode == "alert":
+        payload.update(
+            {
+                "alert": False,
+                "reasons": [],
+                "images": [],
+                "rooms": [],
+                "summary": {},
+                "room_summaries": [],
+                "suppressed": False,
+                "suppressed_count": 0,
+                "suppressed_reasons": [],
+                "warnings": [],
+            }
+        )
+    return payload
+
+
 def load_json_file(path: str) -> dict[str, Any]:
     with open(path, "r", encoding="utf-8") as handle:
         value = json.load(handle)
@@ -6164,6 +6528,16 @@ def apply_world_profile_defaults(args: argparse.Namespace) -> argparse.Namespace
         args.runtime_summary_out_dir = str(profile.runtime_summary_out_dir)
     if hasattr(args, "runtime_summary_dir") and getattr(args, "runtime_summary_dir") is None:
         args.runtime_summary_dir = env_default("SCREEPS_RUNTIME_SUMMARY_DIR", str(profile.runtime_summary_out_dir))
+    if (
+        hasattr(args, "alert_timeout_seconds")
+        and getattr(args, "alert_timeout_seconds") is None
+        and "SCREEPS_ALERT_TIMEOUT_SECONDS" in os.environ
+    ):
+        raw_timeout = os.environ["SCREEPS_ALERT_TIMEOUT_SECONDS"]
+        try:
+            args.alert_timeout_seconds = positive_float_arg(raw_timeout)
+        except argparse.ArgumentTypeError as exc:
+            raise ValueError(f"invalid SCREEPS_ALERT_TIMEOUT_SECONDS: {exc}") from exc
     return args
 
 
@@ -6207,6 +6581,16 @@ def build_parser() -> argparse.ArgumentParser:
     alert = subcommands.add_parser("alert", help="evaluate alert rules and render alert PNGs when needed")
     add_live_options(alert)
     alert.add_argument("--force-alert-image", action="store_true", help="render alert-style image even when no alert is emitted")
+    alert.add_argument(
+        "--alert-timeout-seconds",
+        type=positive_float_arg,
+        default=None,
+        help=(
+            "Wall-clock timeout for the alert command before emitting diagnostic JSON "
+            "(default: auto budget from monitored rooms and collection retry settings, "
+            "or SCREEPS_ALERT_TIMEOUT_SECONDS)."
+        ),
+    )
     alert.add_argument(
         "--runtime-summary-dir",
         default=None,
@@ -7640,14 +8024,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        return int(args.func(args))
+        return run_parsed_command(args)
     except Exception as exc:  # noqa: BLE001 - cron-facing JSON failure without stack or secrets
         token = os.environ.get("SCREEPS_AUTH_TOKEN", "")
-        payload = {
-            "ok": False,
-            "mode": getattr(args, "command", "unknown"),
-            "error": redact_secrets(str(exc), [token]),
-        }
+        payload = command_failure_payload(args, exc, token)
         print_json(payload, [token])
         return 1
 
