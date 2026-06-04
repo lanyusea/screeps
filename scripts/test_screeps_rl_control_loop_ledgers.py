@@ -22,6 +22,23 @@ class BrokenWriter(io.StringIO):
         raise BrokenPipeError("simulated closed stdout")
 
 
+class FlushBrokenWriter:
+    def __init__(self) -> None:
+        self.flush_attempts = 0
+        self.write_attempts = 0
+
+    def write(self, text: str) -> int:
+        self.write_attempts += 1
+        return len(text)
+
+    def flush(self) -> None:
+        self.flush_attempts += 1
+        raise BrokenPipeError("simulated buffered closed stdout")
+
+    def fileno(self) -> int:
+        raise OSError("test stream has no file descriptor")
+
+
 def write_json(path: Path, payload: JsonObject) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
@@ -130,6 +147,40 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
         self.assertTrue(payload["trainingDidRun"])
         self.assertEqual(payload["metricsFields"]["envCompleted"], 2)
         self.assertEqual(payload["githubComment"], "skipped_no_atomic_issue")
+
+    def test_training_ledger_treats_flush_broken_stdout_as_delivery_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = write_fixture_artifacts(root)
+            output = root / "out" / "training-ledger.json"
+            stdout = FlushBrokenWriter()
+            stderr = io.StringIO()
+
+            exit_code = ledgers.main(
+                [
+                    "training-ledger",
+                    "--repo-root",
+                    str(root),
+                    "--artifact-root",
+                    str(artifact_root),
+                    "--output",
+                    str(output),
+                    "--created-at",
+                    "2026-06-05T00:00:00Z",
+                    "--max-files-per-root",
+                    "4",
+                ],
+                stdout=stdout,
+                stderr=stderr,
+            )
+            payload = read_json(output)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stderr.getvalue(), "")
+        self.assertEqual(stdout.write_attempts, 1)
+        self.assertEqual(stdout.flush_attempts, 1)
+        self.assertEqual(payload["type"], ledgers.TRAINING_LEDGER_TYPE)
+        self.assertEqual(payload["status"], "RUN_VALIDATED")
 
     def test_policy_advantage_output_is_bounded_and_artifact_first(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -57,6 +57,7 @@ def write_text(stream: TextIO, text: str) -> bool:
     """Write text unless the receiver has already closed the pipe."""
     try:
         stream.write(text)
+        stream.flush()
         return True
     except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
         try:
