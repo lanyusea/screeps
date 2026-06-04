@@ -449,6 +449,16 @@ class WorldProfileDefaultsTest(unittest.TestCase):
 
 
 class AlertCommandFailurePayloadTest(unittest.TestCase):
+    def test_signal_child_tree_falls_back_to_process_signal_when_process_group_missing(self) -> None:
+        if not hasattr(monitor.os, "killpg"):
+            self.skipTest("os.killpg is unavailable")
+
+        with mock.patch.object(monitor.os, "killpg", side_effect=ProcessLookupError):
+            with mock.patch.object(monitor.os, "kill") as kill:
+                monitor.signal_child_tree(1234, monitor.signal.SIGTERM)
+
+        kill.assert_called_once_with(1234, monitor.signal.SIGTERM)
+
     def test_alert_timeout_returns_structured_diagnostic_json(self) -> None:
         def stalled_alert(_args: object) -> int:
             monitor.time.sleep(1)
@@ -492,6 +502,65 @@ class AlertCommandFailurePayloadTest(unittest.TestCase):
         self.assertEqual(payload["diagnostic"]["kind"], "command_timeout")
         self.assertEqual(payload["diagnostic"]["command"], "alert")
         self.assertNotIn("abcdef123456", stdout.getvalue())
+
+    def test_alert_timeout_does_not_promote_deferred_child_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "state.json"
+            existing_state = {"existing": True}
+            state_path.write_text(json.dumps(existing_state), encoding="utf-8")
+
+            def stalled_alert(_args: object) -> int:
+                monitor.save_state(state_path, {"rooms": {"shardX/E1N1": {"alerts": {"hostile": 123}}}})
+                monitor.time.sleep(1)
+                return 0
+
+            with mock.patch.dict(
+                monitor.os.environ,
+                {"SCREEPS_AUTH_TOKEN": "abcdef123456", "SCREEPS_MONITOR_STATE_FILE": str(state_path)},
+                clear=True,
+            ):
+                with mock.patch.object(monitor, "command_alert", new=stalled_alert):
+                    with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                        rc = monitor.main(["alert", "--alert-timeout-seconds", "0.01"])
+
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(rc, 1)
+            self.assertEqual(payload["diagnostic"]["kind"], "command_timeout")
+            self.assertEqual(json.loads(state_path.read_text(encoding="utf-8")), existing_state)
+
+    def test_alert_success_promotes_deferred_child_state_after_complete_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "state.json"
+            saved_state = {"version": 1, "rooms": {"shardX/E1N1": {"alerts": {"hostile": 123}}}}
+
+            def successful_alert(_args: object) -> int:
+                monitor.save_state(state_path, saved_state)
+                monitor.print_json(
+                    {
+                        "ok": True,
+                        "mode": "alert",
+                        "alert": False,
+                        "reasons": [],
+                        "rooms": [],
+                        "state_file": str(state_path),
+                    },
+                    ["abcdef123456"],
+                )
+                return 0
+
+            with mock.patch.dict(
+                monitor.os.environ,
+                {"SCREEPS_AUTH_TOKEN": "abcdef123456", "SCREEPS_MONITOR_STATE_FILE": str(state_path)},
+                clear=True,
+            ):
+                with mock.patch.object(monitor, "command_alert", new=successful_alert):
+                    with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                        rc = monitor.main(["alert", "--alert-timeout-seconds", "1"])
+
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(rc, 0)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(json.loads(state_path.read_text(encoding="utf-8")), saved_state)
 
     def test_alert_exception_returns_alert_shaped_failure_json(self) -> None:
         def failing_alert(_args: object) -> int:

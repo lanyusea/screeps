@@ -43,6 +43,8 @@ DEFAULT_COLLECTION_RETRY_DELAY_SECONDS = 5
 DEFAULT_ALERT_TIMEOUT_SECONDS = 20.0
 ALERT_TIMEOUT_POLL_SECONDS = 0.02
 ALERT_TIMEOUT_TERMINATE_GRACE_SECONDS = 1.0
+DEFERRED_STATE_WRITE_ENV = "SCREEPS_MONITOR_DEFER_STATE_WRITE"
+DEFERRED_STATE_TARGET_ENV = "SCREEPS_MONITOR_DEFER_STATE_TARGET"
 DEFAULT_SHARD = world_profiles.PERSISTENT_DEFAULTS.shard
 DEFAULT_ROOM = world_profiles.PERSISTENT_DEFAULTS.room
 WORLD_PROFILE_ENV = world_profiles.WORLD_PROFILE_ENV
@@ -3835,7 +3837,23 @@ def load_state(path: Path) -> dict[str, Any]:
         return {}
 
 
+def state_paths_match(left: Path, right: Path) -> bool:
+    try:
+        return left.expanduser().resolve(strict=False) == right.expanduser().resolve(strict=False)
+    except OSError:
+        return str(left.expanduser()) == str(right.expanduser())
+
+
+def state_write_path(path: Path) -> Path:
+    deferred_path = os.environ.get(DEFERRED_STATE_WRITE_ENV)
+    deferred_target = os.environ.get(DEFERRED_STATE_TARGET_ENV)
+    if deferred_path and deferred_target and state_paths_match(path, Path(deferred_target)):
+        return Path(deferred_path).expanduser()
+    return path
+
+
 def save_state(path: Path, state: dict[str, Any]) -> None:
+    path = state_write_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(state, indent=2, sort_keys=True)
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=str(path.parent), delete=False) as handle:
@@ -5898,7 +5916,7 @@ def signal_child_tree(pid: int, signum: int) -> None:
             os.killpg(pid, signum)
             return
         except ProcessLookupError:
-            return
+            pass
         except OSError:
             pass
     try:
@@ -5917,7 +5935,7 @@ def terminate_timed_out_child(pid: int) -> None:
     wait_for_child_exit(pid, ALERT_TIMEOUT_TERMINATE_GRACE_SECONDS)
 
 
-def run_alert_child(args: argparse.Namespace, output_path: Path) -> None:
+def run_alert_child(args: argparse.Namespace, output_path: Path, deferred_state_path: Path, state_file: Path) -> None:
     rc = 1
     try:
         if hasattr(os, "setsid"):
@@ -5925,6 +5943,8 @@ def run_alert_child(args: argparse.Namespace, output_path: Path) -> None:
                 os.setsid()
             except OSError:
                 pass
+        os.environ[DEFERRED_STATE_WRITE_ENV] = str(deferred_state_path)
+        os.environ[DEFERRED_STATE_TARGET_ENV] = str(state_file)
 
         with output_path.open("w", encoding="utf-8") as child_stdout:
             try:
@@ -5942,6 +5962,13 @@ def run_alert_child(args: argparse.Namespace, output_path: Path) -> None:
             child_stdout.flush()
     finally:
         os._exit(normalized_exit_code(rc))
+
+
+def promote_deferred_state(deferred_state_path: Path, state_file: Path) -> None:
+    if not deferred_state_path.exists():
+        return
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(deferred_state_path, state_file)
 
 
 def read_text_lossy(path: Path) -> str:
@@ -5991,14 +6018,22 @@ def run_alert_with_process_timeout(args: argparse.Namespace, timeout_seconds: fl
     output_fd, output_name = tempfile.mkstemp(prefix="screeps-alert-stdout-", suffix=".json")
     os.close(output_fd)
     output_path = Path(output_name)
+    deferred_state_fd, deferred_state_name = tempfile.mkstemp(prefix="screeps-alert-state-", suffix=".json")
+    os.close(deferred_state_fd)
+    deferred_state_path = Path(deferred_state_name)
     try:
+        deferred_state_path.unlink()
+    except FileNotFoundError:
+        pass
+    try:
+        state_file = context_from_env(args.world_profile).state_file
         try:
             pid = os.fork()
         except OSError:
             return run_alert_with_signal_timeout(args, timeout_seconds)
 
         if pid == 0:
-            run_alert_child(args, output_path)
+            run_alert_child(args, output_path, deferred_state_path, state_file)
 
         rc = wait_for_child_exit(pid, timeout_seconds)
         if rc is None:
@@ -6007,6 +6042,8 @@ def run_alert_with_process_timeout(args: argparse.Namespace, timeout_seconds: fl
 
         output = read_text_lossy(output_path)
         assert_complete_json_output("alert", rc, output)
+        if rc == 0:
+            promote_deferred_state(deferred_state_path, state_file)
         sys.stdout.write(output)
         if not output.endswith("\n"):
             sys.stdout.write("\n")
@@ -6014,6 +6051,10 @@ def run_alert_with_process_timeout(args: argparse.Namespace, timeout_seconds: fl
     finally:
         try:
             output_path.unlink()
+        except FileNotFoundError:
+            pass
+        try:
+            deferred_state_path.unlink()
         except FileNotFoundError:
             pass
 
