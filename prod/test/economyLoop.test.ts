@@ -338,7 +338,7 @@ describe('runEconomy', () => {
     });
   });
 
-  it('keeps emergency worker spawning during low-bucket recovery above the critical threshold', () => {
+  it('keeps emergency worker spawning during widened low-bucket recovery', () => {
     const room = {
       name: 'W1N1',
       energyAvailable: 300,
@@ -359,8 +359,8 @@ describe('runEconomy', () => {
       cpu: {
         getUsed: jest.fn().mockReturnValue(8),
         limit: 70,
-        bucket: 101,
-        tickLimit: 121
+        bucket: 1_356,
+        tickLimit: 500
       } as unknown as CPU
     };
 
