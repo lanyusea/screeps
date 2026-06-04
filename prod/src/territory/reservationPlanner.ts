@@ -5,7 +5,7 @@ import {
   scoreClaimTarget,
   type ClaimScore
 } from './claimScoring';
-import { isConfiguredExpansionScoutOnlyTarget } from './expansionConfig';
+import { isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl } from './expansionConfig';
 import { maxRoomsForRcl } from './expansionScoring';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 import { isAutonomousTerritoryControlAllowedForController } from './controlGate';
@@ -126,7 +126,7 @@ export function selectAdjacentRoomReservationPlan(
   const ownerUsername = getControllerOwnerUsername(colony.room.controller);
   const expansionPriorities = getPersistedExpansionCandidatePriorities(colonyName);
   const candidates = getAdjacentRoomNames(colonyName).flatMap((roomName, order) =>
-    isConfiguredExpansionScoutOnlyTarget(colonyName, roomName)
+    isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(colonyName, roomName)
       ? []
       : buildReservationCandidate(
           colony.room,

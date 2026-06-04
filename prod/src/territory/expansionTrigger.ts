@@ -28,8 +28,8 @@ import {
   recordPostClaimBootstrapClaimSuccess
 } from './postClaimBootstrap';
 import {
-  getTerritoryExpansionScoutTargets,
-  isConfiguredExpansionScoutOnlyTarget
+  isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl,
+  getTerritoryExpansionScoutTargets
 } from './expansionConfig';
 import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyTemplates';
 import {
@@ -526,7 +526,10 @@ function findExpansionTriggerCandidate(
   return report.candidates.find(
     (scoredCandidate) =>
       scoredCandidate.evidenceStatus !== 'unavailable' &&
-      !isConfiguredExpansionScoutOnlyTarget(colony.room.name, scoredCandidate.roomName) &&
+      !isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(
+        colony.room.name,
+        scoredCandidate.roomName
+      ) &&
       scoredCandidate.score >= config.scoreThreshold &&
       scoredCandidate.preconditions.length === 0 &&
       !isClaimPlanBlockedByHigherPriorityColony({

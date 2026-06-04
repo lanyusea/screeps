@@ -542,6 +542,140 @@ describe('expansion planner', () => {
     });
   });
 
+  it('creates Seasonal RCL3 claim intents for live runtime adjacent scout-only evidence', () => {
+    const { colony } = makeColony({
+      roomName: 'E9S27',
+      controllerLevel: 3,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800
+    });
+    installRuntimeCurrentRoom('E9S27');
+    installGame(colony, {
+      gclLevel: 2,
+      shard: { name: 'shardSeason', type: 'normal' },
+      exits: { E9S27: { '5': 'E9S28' } },
+      rooms: {
+        E9S28: makeExpansionRoom('E9S28')
+      }
+    });
+
+    expect(refreshExpansionPlannerIntent(colony, 1_671)).toMatchObject({
+      status: 'planned',
+      colony: 'E9S27',
+      targetRoom: 'E9S28',
+      action: 'claim',
+      controllerId: 'controller-E9S28'
+    });
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 1_672)).toEqual({
+      colony: 'E9S27',
+      targetRoom: 'E9S28',
+      action: 'claim',
+      createdBy: 'expansionPlanner',
+      controllerId: 'controller-E9S28'
+    });
+  });
+
+  it('reserves Seasonal RCL3 runtime adjacent scout-only evidence when GCL blocks claim', () => {
+    const { colony } = makeColony({
+      roomName: 'E9S27',
+      controllerLevel: 3,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800
+    });
+    installRuntimeCurrentRoom('E9S27');
+    installGame(colony, {
+      gclLevel: 1,
+      shard: { name: 'shardSeason', type: 'normal' },
+      exits: { E9S27: { '5': 'E9S28' } },
+      rooms: {
+        E9S28: makeExpansionRoom('E9S28')
+      }
+    });
+
+    expect(refreshExpansionPlannerIntent(colony, 1_673)).toMatchObject({
+      status: 'planned',
+      colony: 'E9S27',
+      targetRoom: 'E9S28',
+      action: 'reserve',
+      controllerId: 'controller-E9S28'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'E9S27',
+        roomName: 'E9S28',
+        action: 'reserve',
+        createdBy: 'expansionPlanner',
+        controllerId: 'controller-E9S28'
+      }
+    ]);
+  });
+
+  it('reserves Seasonal RCL3 runtime adjacent scout-only evidence while an owned expansion is below RCL3', () => {
+    const { colony } = makeColony({
+      roomName: 'E9S27',
+      controllerLevel: 3,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800
+    });
+    installRuntimeCurrentRoom('E9S27');
+    installGame(colony, {
+      gclLevel: 3,
+      shard: { name: 'shardSeason', type: 'normal' },
+      exits: { E9S27: { '1': 'E9S26', '5': 'E9S28' } },
+      rooms: {
+        E9S26: makeOwnedExpansionRoom('E9S26', 2),
+        E9S28: makeExpansionRoom('E9S28')
+      }
+    });
+
+    expect(refreshExpansionPlannerIntent(colony, 1_676)).toMatchObject({
+      status: 'planned',
+      colony: 'E9S27',
+      targetRoom: 'E9S28',
+      action: 'reserve',
+      controllerId: 'controller-E9S28'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'E9S27',
+        roomName: 'E9S28',
+        action: 'reserve',
+        createdBy: 'expansionPlanner',
+        controllerId: 'controller-E9S28'
+      }
+    ]);
+  });
+
+  it('keeps persistent RCL3 runtime scout-only adjacency out of claim and reserve planning', () => {
+    const { colony } = makeColony({
+      roomName: 'E9S27',
+      controllerLevel: 3,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800
+    });
+    installRuntimeCurrentRoom('E9S27');
+    installGame(colony, {
+      gclLevel: 2,
+      exits: { E9S27: { '5': 'E9S28' } },
+      rooms: {
+        E9S28: makeExpansionRoom('E9S28')
+      }
+    });
+
+    expect(refreshExpansionPlannerIntent(colony, 1_674)).toEqual({
+      status: 'skipped',
+      colony: 'E9S27',
+      reason: 'noCandidate',
+      candidates: []
+    });
+    const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 1_675);
+    expect(plan?.action).toBe('scout');
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(
+      (Memory.territory?.intents ?? []).filter((intent) => intent.action === 'claim' || intent.action === 'reserve')
+    ).toEqual([]);
+  });
+
   it('reserves instead of starting a second Seasonal claim while an owned expansion is below RCL3', () => {
     const { colony } = makeColony({
       controllerLevel: 3,
