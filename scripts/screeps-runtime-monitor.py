@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import errno
 import html
 import json
 import os
@@ -5968,7 +5969,34 @@ def promote_deferred_state(deferred_state_path: Path, state_file: Path) -> None:
     if not deferred_state_path.exists():
         return
     state_file.parent.mkdir(parents=True, exist_ok=True)
-    os.replace(deferred_state_path, state_file)
+    try:
+        os.replace(deferred_state_path, state_file)
+        return
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+
+    temp_fd: int | None = None
+    temp_path: Path | None = None
+    try:
+        temp_fd, temp_name = tempfile.mkstemp(prefix=f".{state_file.name}.", suffix=".tmp", dir=str(state_file.parent))
+        temp_path = Path(temp_name)
+        with deferred_state_path.open("rb") as source, os.fdopen(temp_fd, "wb") as target:
+            temp_fd = None
+            shutil.copyfileobj(source, target)
+        os.replace(temp_path, state_file)
+        deferred_state_path.unlink()
+    finally:
+        if temp_fd is not None:
+            try:
+                os.close(temp_fd)
+            except OSError:
+                pass
+        if temp_path is not None:
+            try:
+                temp_path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def read_text_lossy(path: Path) -> str:

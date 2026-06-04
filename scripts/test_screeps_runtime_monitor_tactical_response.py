@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import copy
+import errno
 import io
 import json
 import sys
@@ -527,6 +528,27 @@ class AlertCommandFailurePayloadTest(unittest.TestCase):
             self.assertEqual(rc, 1)
             self.assertEqual(payload["diagnostic"]["kind"], "command_timeout")
             self.assertEqual(json.loads(state_path.read_text(encoding="utf-8")), existing_state)
+
+    def test_promote_deferred_state_handles_cross_device_replace(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            deferred_state_path = temp_root / "deferred-state.json"
+            state_path = temp_root / "monitor-state" / "state.json"
+            saved_state = {"version": 1, "rooms": {"shardX/E1N1": {"alerts": {"hostile": 123}}}}
+            deferred_state_path.write_text(json.dumps(saved_state), encoding="utf-8")
+
+            original_replace = monitor.os.replace
+
+            def replace_with_cross_device_once(src: str | Path, dst: str | Path) -> None:
+                if Path(src) == deferred_state_path and Path(dst) == state_path:
+                    raise OSError(errno.EXDEV, "Invalid cross-device link")
+                original_replace(src, dst)
+
+            with mock.patch.object(monitor.os, "replace", side_effect=replace_with_cross_device_once):
+                monitor.promote_deferred_state(deferred_state_path, state_path)
+
+            self.assertEqual(json.loads(state_path.read_text(encoding="utf-8")), saved_state)
+            self.assertFalse(deferred_state_path.exists())
 
     def test_alert_success_promotes_deferred_child_state_after_complete_json(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
