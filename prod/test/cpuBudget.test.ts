@@ -170,7 +170,11 @@ describe('runtime CPU budget policy', () => {
       { tick: 1778516, used: 12.664124599999923, bucket: 1_305 },
       { tick: 1778516, used: 58.535224199997174, bucket: 1_356 },
       { tick: 1781934, used: 15.34289709999939, bucket: 1_646 },
-      { tick: 1781938, used: 48.868957800001226, bucket: 1_710 }
+      { tick: 1781938, used: 48.868957800001226, bucket: 1_710 },
+      { tick: 1786644, used: 9.990546399989398, bucket: 1_725 },
+      { tick: 1786646, used: 11.366261400005897, bucket: 1_708 },
+      { tick: 1786648, used: 12.4872194999989, bucket: 1_719 },
+      { tick: 1786650, used: 12.57724629999575, bucket: 1_713 }
     ].map((sample) =>
       buildRuntimeCpuBudget({
         ...sample,
@@ -193,7 +197,7 @@ describe('runtime CPU budget policy', () => {
     }
   });
 
-  it('treats post-1663 over-limit recovery buckets as low-bucket recovery pressure', () => {
+  it('treats postdeploy over-limit recovery buckets as low-bucket recovery pressure', () => {
     const budgets = [
       buildRuntimeCpuBudget({
         tick: 1781934,
@@ -207,6 +211,34 @@ describe('runtime CPU budget policy', () => {
         used: 77.13447970000198,
         limit: 70,
         bucket: 1_707,
+        tickLimit: 500
+      }),
+      buildRuntimeCpuBudget({
+        tick: 1786643,
+        used: 70.01923810000153,
+        limit: 70,
+        bucket: 1_776,
+        tickLimit: 500
+      }),
+      buildRuntimeCpuBudget({
+        tick: 1786645,
+        used: 85.61095520000526,
+        limit: 70,
+        bucket: 1_775,
+        tickLimit: 500
+      }),
+      buildRuntimeCpuBudget({
+        tick: 1786647,
+        used: 73.64354370000365,
+        limit: 70,
+        bucket: 1_774,
+        tickLimit: 500
+      }),
+      buildRuntimeCpuBudget({
+        tick: 1786649,
+        used: 76.34141639999143,
+        limit: 70,
+        bucket: 1_771,
         tickLimit: 500
       })
     ];
@@ -230,14 +262,14 @@ describe('runtime CPU budget policy', () => {
       tick: 1760016,
       used: 12,
       limit: 70,
-      bucket: 1_770,
+      bucket: 1_840,
       tickLimit: 500
     });
     const recoveredBudget = buildRuntimeCpuBudget({
       tick: 1760017,
       used: 12,
       limit: 70,
-      bucket: 1_771,
+      bucket: 1_841,
       tickLimit: 500
     });
 

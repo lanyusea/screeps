@@ -4080,6 +4080,13 @@ describe('runtime telemetry summaries', () => {
       bucket: 1_710,
       tickLimit: 500
     });
+    const freshPostDeployRecoveryBudget = buildRuntimeCpuBudget({
+      tick: RUNTIME_SUMMARY_INTERVAL,
+      used: 70.01923810000153,
+      limit: 70,
+      bucket: 1_776,
+      tickLimit: 500
+    });
     const spawnEvent: RuntimeTelemetryEvent = {
       type: 'spawn',
       roomName: 'W1N1',
@@ -4118,6 +4125,10 @@ describe('runtime telemetry summaries', () => {
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [spawnEvent], postDeployRecoveryBudget)).toBe(false);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL * 5, [spawnEvent], postDeployRecoveryBudget)).toBe(true);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [safeModeEvent], postDeployRecoveryBudget)).toBe(true);
+    expect(freshPostDeployRecoveryBudget.reasons).toEqual(['lowBucketRecovery', 'usedOverLimit']);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [spawnEvent], freshPostDeployRecoveryBudget)).toBe(false);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL * 5, [spawnEvent], freshPostDeployRecoveryBudget)).toBe(true);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [safeModeEvent], freshPostDeployRecoveryBudget)).toBe(true);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL * 5, [], criticalBucketBudget)).toBe(false);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [spawnEvent], criticalBucketBudget)).toBe(false);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [safeModeEvent], criticalBucketBudget)).toBe(true);
