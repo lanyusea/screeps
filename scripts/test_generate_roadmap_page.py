@@ -1659,6 +1659,51 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertIn("Source: cached", runtime_column["items"][0]["description"])
         self.assertNotEqual(runtime_column["items"][0].get("number"), 29)
 
+    def test_project_item_fetch_timeout_uses_scaled_default_and_env_override(self) -> None:
+        self.assertEqual(
+            roadmap.project_item_fetch_timeout({}),
+            roadmap.DEFAULT_PROJECT_ITEM_FETCH_TIMEOUT_SECONDS,
+        )
+        self.assertGreaterEqual(roadmap.DEFAULT_PROJECT_ITEM_FETCH_TIMEOUT_SECONDS, 120)
+        self.assertEqual(roadmap.project_item_fetch_timeout({roadmap.PROJECT_ITEM_FETCH_TIMEOUT_ENV: "240"}), 240)
+        self.assertEqual(roadmap.project_item_fetch_timeout({roadmap.PROJECT_ITEM_FETCH_TIMEOUT_ENV: "0"}), 1)
+        self.assertEqual(
+            roadmap.project_item_fetch_timeout({roadmap.PROJECT_ITEM_FETCH_TIMEOUT_ENV: "invalid"}),
+            roadmap.DEFAULT_PROJECT_ITEM_FETCH_TIMEOUT_SECONDS,
+        )
+
+    def test_fetch_project_items_payload_uses_configured_timeout(self) -> None:
+        captured: dict[str, Any] = {}
+
+        def fake_run_json(command: list[str], cwd: Path, timeout: int = 30) -> tuple[Any | None, dict[str, Any] | None]:
+            captured["command"] = command
+            captured["cwd"] = cwd
+            captured["timeout"] = timeout
+            return {"totalCount": 2, "items": [{"title": "one"}, {"title": "two"}]}, None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            with (
+                patch.dict(
+                    "os.environ",
+                    {
+                        roadmap.PROJECT_ITEM_FETCH_LIMIT_ENV: "2",
+                        roadmap.PROJECT_ITEM_FETCH_TIMEOUT_ENV: "150",
+                    },
+                ),
+                patch.object(roadmap, "run_json", side_effect=fake_run_json),
+            ):
+                payload, error, completeness = roadmap.fetch_project_items_payload(repo_root, "lanyusea", 3)
+
+        self.assertIsNone(error)
+        self.assertEqual(payload, {"totalCount": 2, "items": [{"title": "one"}, {"title": "two"}]})
+        self.assertEqual(captured["cwd"], repo_root)
+        self.assertEqual(captured["timeout"], 150)
+        self.assertEqual(captured["command"][:4], ["gh", "project", "item-list", "3"])
+        self.assertEqual(captured["command"][captured["command"].index("--owner") + 1], "lanyusea")
+        self.assertEqual(captured["command"][captured["command"].index("--limit") + 1], "2")
+        self.assertEqual(completeness, {"complete": True, "returnedCount": 2, "totalCount": 2, "limit": 2})
+
     def test_fetch_github_snapshot_rejects_incomplete_project_payload(self) -> None:
         project_payload = {
             "totalCount": 3,

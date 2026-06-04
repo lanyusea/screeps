@@ -37,7 +37,9 @@ DEFAULT_OWNER = "lanyusea"
 DEFAULT_REPO = "screeps"
 DEFAULT_PROJECT_NUMBER = 3
 DEFAULT_PROJECT_ITEM_FETCH_LIMIT = 2000
+DEFAULT_PROJECT_ITEM_FETCH_TIMEOUT_SECONDS = 180
 PROJECT_ITEM_FETCH_LIMIT_ENV = "SCREEPS_ROADMAP_PROJECT_ITEM_LIMIT"
+PROJECT_ITEM_FETCH_TIMEOUT_ENV = "SCREEPS_ROADMAP_PROJECT_ITEM_TIMEOUT_SECONDS"
 PAGE_TITLE = "Hermes Screeps Project Roadmap Report"
 PAGES_URL = "https://lanyusea.github.io/screeps/"
 GITHUB_PROJECT_URL = "https://github.com/users/lanyusea/projects/3"
@@ -1054,6 +1056,18 @@ def project_item_fetch_limit(environ: Mapping[str, str] | None = None) -> int:
     return max(1, parsed)
 
 
+def project_item_fetch_timeout(environ: Mapping[str, str] | None = None) -> int:
+    source = os.environ if environ is None else environ
+    raw_timeout = str(source.get(PROJECT_ITEM_FETCH_TIMEOUT_ENV) or "").strip()
+    if not raw_timeout:
+        return DEFAULT_PROJECT_ITEM_FETCH_TIMEOUT_SECONDS
+    try:
+        parsed = int(raw_timeout)
+    except ValueError:
+        return DEFAULT_PROJECT_ITEM_FETCH_TIMEOUT_SECONDS
+    return max(1, parsed)
+
+
 def load_runtime_kpi_report(repo_root: Path, paths: Sequence[str] | None = None) -> JsonObject:
     script_path = repo_root / "scripts" / "screeps_runtime_kpi_artifact_bridge.py"
     if not script_path.exists():
@@ -1983,7 +1997,7 @@ def fetch_project_items_payload(
         "--format",
         "json",
     ]
-    payload, command_error = run_json(command, repo_root, timeout=60)
+    payload, command_error = run_json(command, repo_root, timeout=project_item_fetch_timeout())
     completeness = summarize_project_item_completeness(payload, fetch_limit)
     if command_error:
         return payload, command_error, completeness
