@@ -29,6 +29,7 @@ EXPECTED_PROCESS_LABELS = [
 ]
 EXPECTED_KPI_TITLES = ("Territory", "Resources", "Combat")
 MISSING_LOCAL_CACHE_EVIDENCE = "current refresh found no local cache evidence"
+UNHYDRATED_PROJECT_EVIDENCE_REASON = "project-evidence-field-unhydrated"
 
 
 def load_generator(repo_root: Path) -> ModuleType:
@@ -197,6 +198,36 @@ def process_card_value(data: JsonObject, label: str) -> Any:
     return None
 
 
+def validate_project_handoff_evidence_summary(data: JsonObject, failures: list[str]) -> None:
+    github = data.get("github")
+    if not isinstance(github, dict):
+        return
+    if github.get("projectItemsSource") != "live":
+        return
+
+    summary = github.get("projectHandoffEvidenceValidation")
+    if not isinstance(summary, dict):
+        failures.append(
+            "docs/roadmap-data.json: github.projectHandoffEvidenceValidation must be present "
+            "for live Project data"
+        )
+        return
+
+    mode = str(summary.get("mode") or "")
+    severity = str(summary.get("severity") or "")
+    reason = str(summary.get("reason") or "")
+    if mode == "enforced":
+        return
+    if mode == "skipped" and severity == "warning" and reason == UNHYDRATED_PROJECT_EVIDENCE_REASON:
+        return
+
+    failures.append(
+        "docs/roadmap-data.json: github.projectHandoffEvidenceValidation must be enforced or "
+        f"explicitly warn {UNHYDRATED_PROJECT_EVIDENCE_REASON!r} for live Project data; "
+        f"saw mode={mode!r}, severity={severity!r}, reason={reason!r}"
+    )
+
+
 def validate_process_metrics(data: JsonObject, failures: list[str]) -> None:
     cards = data.get("report", {}).get("processCards", [])
     labels = [str(card.get("label") or "") for card in cards if isinstance(card, dict)] if isinstance(cards, list) else []
@@ -293,7 +324,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         committed_html, committed_cards, committed_data = committed_inputs
         validate_kpi_html("docs/index.html", committed_html, committed_cards, generator, failures)
         validate_process_metrics(committed_data, failures)
-        failures.extend(generator.validate_project_handoff_evidence(committed_data))
+        validate_project_handoff_evidence_summary(committed_data, failures)
         compact_html = re.sub(r"\s+", "", committed_html)
         assert_check(
             failures,

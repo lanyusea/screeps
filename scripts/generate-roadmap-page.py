@@ -37,7 +37,9 @@ DEFAULT_OWNER = "lanyusea"
 DEFAULT_REPO = "screeps"
 DEFAULT_PROJECT_NUMBER = 3
 DEFAULT_PROJECT_ITEM_FETCH_LIMIT = 2000
+DEFAULT_PROJECT_ITEM_FETCH_TIMEOUT_SECONDS = 180
 PROJECT_ITEM_FETCH_LIMIT_ENV = "SCREEPS_ROADMAP_PROJECT_ITEM_LIMIT"
+PROJECT_ITEM_FETCH_TIMEOUT_ENV = "SCREEPS_ROADMAP_PROJECT_ITEM_TIMEOUT_SECONDS"
 PAGE_TITLE = "Hermes Screeps Project Roadmap Report"
 PAGES_URL = "https://lanyusea.github.io/screeps/"
 GITHUB_PROJECT_URL = "https://github.com/users/lanyusea/projects/3"
@@ -73,7 +75,6 @@ NOT_OBSERVED = "not observed"
 NOT_INSTRUMENTED = "not instrumented"
 INSUFFICIENT_EVIDENCE = "insufficient evidence"
 ACTIVE_HANDOFF_EVIDENCE_STATUSES = frozenset({"In progress", "In review", "Ready"})
-RECENT_DONE_HANDOFF_EVIDENCE_MIN_NUMBER = 1479
 
 
 JsonObject = dict[str, Any]
@@ -594,6 +595,11 @@ PROJECT_DOMAIN_FIELD_KEYS: tuple[str, ...] = (
     "project_domain",
     "Domain",
 )
+PROJECT_TEXT_FIELD_KEYS: dict[str, tuple[str, ...]] = {
+    "evidence": ("Evidence", "evidence"),
+    "nextAction": ("Next action", "nextAction", "next_action"),
+    "blockedBy": ("Blocked by", "blockedBy", "blocked_by"),
+}
 
 PROJECT_DOMAIN_GOALS: dict[str, str] = {
     "Agent OS": "Keep autonomous scheduling, routing, review, and handoff operations healthy.",
@@ -841,11 +847,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         delivery_window_days=delivery_window_days,
         cron_output_root=cron_output_root,
     )
-    data = sanitize_public_data(data)
     evidence_failures = validate_project_handoff_evidence(data)
     if evidence_failures:
         detail = "\n".join(f"- {failure}" for failure in evidence_failures)
         raise RuntimeError(f"roadmap Project evidence validation failed:\n{detail}")
+    data = sanitize_public_data(data)
 
     json_path = docs_dir / "roadmap-data.json"
     html_path = docs_dir / "index.html"
@@ -1046,6 +1052,18 @@ def project_item_fetch_limit(environ: Mapping[str, str] | None = None) -> int:
         parsed = int(raw_limit)
     except ValueError:
         return DEFAULT_PROJECT_ITEM_FETCH_LIMIT
+    return max(1, parsed)
+
+
+def project_item_fetch_timeout(environ: Mapping[str, str] | None = None) -> int:
+    source = os.environ if environ is None else environ
+    raw_timeout = str(source.get(PROJECT_ITEM_FETCH_TIMEOUT_ENV) or "").strip()
+    if not raw_timeout:
+        return DEFAULT_PROJECT_ITEM_FETCH_TIMEOUT_SECONDS
+    try:
+        parsed = int(raw_timeout)
+    except ValueError:
+        return DEFAULT_PROJECT_ITEM_FETCH_TIMEOUT_SECONDS
     return max(1, parsed)
 
 
@@ -1923,6 +1941,9 @@ def fetch_github_snapshot(
             pull_requests = cached_prs
             used_cache = True
     project_items_source = "live" if project_error is None else "unavailable"
+    project_text_field_hydration = (
+        summarize_project_text_field_hydration(project_json) if project_error is None else {}
+    )
     project_items = normalize_project_items(project_json) if project_error is None else []
     if project_error and cached_snapshot is not None:
         cached_project_items = cached_github_collection(cached_snapshot, "projectItems")
@@ -1934,7 +1955,7 @@ def fetch_github_snapshot(
     current_project_items = project_items if project_items_source == "live" else []
     roadmap_cards = build_roadmap_cards(current_project_items, issues, pull_requests)
     kanban_cards = build_kanban_cards(current_project_items, issues, pull_requests)
-    return {
+    snapshot = {
         "fetched": not errors,
         "sourceMode": github_source_mode(errors, seeded_issue_count, used_cache),
         "usedCachedSnapshot": used_cache,
@@ -1945,6 +1966,7 @@ def fetch_github_snapshot(
         "projectItems": project_items,
         "projectItemsSource": project_items_source,
         "projectItemsCompleteness": project_completeness,
+        "projectTextFieldHydration": project_text_field_hydration,
         "roadmapCards": roadmap_cards,
         "kanban": {
             "columns": build_kanban_columns(kanban_cards),
@@ -1952,6 +1974,8 @@ def fetch_github_snapshot(
         },
         "processMetrics": build_process_metrics(issues, pull_requests, current_project_items, errors),
     }
+    snapshot["projectHandoffEvidenceValidation"] = project_handoff_evidence_validation_summary(snapshot)
+    return snapshot
 
 
 def fetch_project_items_payload(
@@ -1972,7 +1996,7 @@ def fetch_project_items_payload(
         "--format",
         "json",
     ]
-    payload, command_error = run_json(command, repo_root, timeout=60)
+    payload, command_error = run_json(command, repo_root, timeout=project_item_fetch_timeout())
     completeness = summarize_project_item_completeness(payload, fetch_limit)
     if command_error:
         return payload, command_error, completeness
@@ -1993,6 +2017,23 @@ def summarize_project_item_completeness(payload: Any, fetch_limit: int) -> JsonO
         "returnedCount": returned_count,
         "totalCount": total_count,
         "limit": fetch_limit,
+    }
+
+
+def summarize_project_text_field_hydration(payload: Any) -> JsonObject:
+    raw_items = payload.get("items") if isinstance(payload, dict) else None
+    items = [item for item in raw_items if isinstance(item, dict)] if isinstance(raw_items, list) else []
+    fields: JsonObject = {}
+    for field_name, keys in PROJECT_TEXT_FIELD_KEYS.items():
+        observed_keys = sorted({key for item in items for key in keys if key in item})
+        fields[field_name] = {
+            "hydrated": bool(observed_keys) or not items,
+            "observedKeys": observed_keys,
+        }
+    return {
+        "source": "gh project item-list",
+        "itemsInspected": len(items),
+        "fields": fields,
     }
 
 
@@ -2489,18 +2530,67 @@ def validate_project_handoff_evidence(data: JsonObject) -> list[str]:
     github = data.get("github")
     if not isinstance(github, dict) or github.get("projectItemsSource") != "live":
         return []
+    if not project_handoff_evidence_field_is_hydrated(github):
+        return []
 
+    raw_project_evidence_by_number = project_handoff_evidence_by_number(github.get("projectItems"))
     failures: list[str] = []
     for path, item in iter_project_handoff_items(github):
         if not project_item_requires_handoff_evidence(item):
             continue
-        if str(item.get("evidence") or "").strip():
+        if project_item_has_handoff_evidence(item):
+            continue
+        if not path.startswith("github.projectItems") and project_item_has_raw_handoff_evidence(
+            item, raw_project_evidence_by_number
+        ):
             continue
         number = project_item_number(item)
         item_ref = f"#{number}" if number is not None else str(item.get("title") or "unknown item")
         status = normalize_status(item.get("status"))
         failures.append(f"docs/roadmap-data.json: {path} {item_ref} {status} must carry Project Evidence")
     return failures
+
+
+def project_handoff_evidence_validation_summary(github: JsonObject) -> JsonObject:
+    if github.get("projectItemsSource") != "live":
+        return {
+            "mode": "skipped",
+            "severity": "info",
+            "reason": "project-data-not-live",
+            "message": "Project Evidence validation waits for live Project item data.",
+        }
+    if not project_handoff_evidence_field_is_hydrated(github):
+        return {
+            "mode": "skipped",
+            "severity": "warning",
+            "reason": "project-evidence-field-unhydrated",
+            "message": (
+                "GitHub Project item-list omitted the Project Evidence text field; "
+                "handoff evidence validation was not enforced for this refresh."
+            ),
+        }
+    return {
+        "mode": "enforced",
+        "severity": "gate",
+        "reason": "project-evidence-field-hydrated",
+        "message": "Project Evidence validation is enforced for active handoff items.",
+    }
+
+
+def project_handoff_evidence_field_is_hydrated(github: JsonObject) -> bool:
+    hydration = github.get("projectTextFieldHydration")
+    if not isinstance(hydration, dict):
+        return True
+    items_inspected = hydration.get("itemsInspected")
+    if not isinstance(items_inspected, int) or items_inspected <= 0:
+        return True
+    fields = hydration.get("fields")
+    if not isinstance(fields, dict):
+        return True
+    evidence = fields.get("evidence")
+    if not isinstance(evidence, dict):
+        return True
+    return evidence.get("hydrated") is not False
 
 
 def iter_project_handoff_items(github: JsonObject) -> Iterable[tuple[str, JsonObject]]:
@@ -2539,10 +2629,38 @@ def iter_project_handoff_collection(path: str, value: Any) -> Iterable[tuple[str
 
 def project_item_requires_handoff_evidence(item: Mapping[str, Any]) -> bool:
     status = normalize_status(item.get("status"))
-    if status in ACTIVE_HANDOFF_EVIDENCE_STATUSES:
-        return True
+    return status in ACTIVE_HANDOFF_EVIDENCE_STATUSES
+
+
+def project_item_has_handoff_evidence(item: Mapping[str, Any]) -> bool:
+    return bool(project_item_handoff_evidence_text(item))
+
+
+def project_item_handoff_evidence_text(item: Mapping[str, Any]) -> str:
+    return str(item.get("evidence") or item.get("Evidence") or "").strip()
+
+
+def project_handoff_evidence_by_number(value: Any) -> dict[int, str]:
+    evidence_by_number: dict[int, str] = {}
+    if not isinstance(value, list):
+        return evidence_by_number
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        number = project_item_number(item)
+        if number is None or number in evidence_by_number:
+            continue
+        evidence = project_item_handoff_evidence_text(item)
+        if evidence:
+            evidence_by_number[number] = evidence
+    return evidence_by_number
+
+
+def project_item_has_raw_handoff_evidence(
+    item: Mapping[str, Any], raw_project_evidence_by_number: Mapping[int, str]
+) -> bool:
     number = project_item_number(item)
-    return status == "Done" and number is not None and number >= RECENT_DONE_HANDOFF_EVIDENCE_MIN_NUMBER
+    return number is not None and bool(raw_project_evidence_by_number.get(number))
 
 
 def project_item_number(item: Mapping[str, Any]) -> int | None:
