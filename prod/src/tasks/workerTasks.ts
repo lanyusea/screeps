@@ -7459,7 +7459,7 @@ function isEmergencyOwnedRampartRepairTarget(structure: AnyStructure): structure
     matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') &&
     isOwnedRampart(structure) &&
     !isWorkerRepairTargetComplete(structure) &&
-    structure.hits <= EMERGENCY_RAMPART_REPAIR_HITS_CEILING
+    structure.hits < BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING
   );
 }
 

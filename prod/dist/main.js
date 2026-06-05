@@ -31224,7 +31224,7 @@ function isCriticalOwnedSpawnRepairTarget(structure) {
   return isOwnedSpawnRepairTarget(structure) && !isWorkerRepairTargetComplete(structure) && getHitsRatio(structure) <= CRITICAL_SPAWN_REPAIR_HITS_RATIO;
 }
 function isEmergencyOwnedRampartRepairTarget(structure) {
-  return matchesStructureType18(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure) && !isWorkerRepairTargetComplete(structure) && structure.hits <= EMERGENCY_RAMPART_REPAIR_HITS_CEILING;
+  return matchesStructureType18(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure) && !isWorkerRepairTargetComplete(structure) && structure.hits < BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING;
 }
 function isActiveOwnedRampartRepairTarget(structure) {
   const repairCeiling = Math.min(structure.hitsMax, ACTIVE_RAMPART_REPAIR_HITS_CEILING);

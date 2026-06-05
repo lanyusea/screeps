@@ -4630,13 +4630,13 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
-  it('preempts assigned construction for emergency owned rampart repair', () => {
+  it('preempts assigned construction for near-floor owned rampart repair', () => {
     const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
     const rampart = {
       id: 'rampart-critical',
       structureType: 'rampart',
       my: true,
-      hits: 3_601,
+      hits: BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING - 1,
       hitsMax: 30_000_000
     } as StructureRampart;
     const spawn = {
