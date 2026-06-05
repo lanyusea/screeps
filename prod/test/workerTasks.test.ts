@@ -13078,6 +13078,117 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
+  it('keeps one loaded E29N55 builder on construction below the generic spawn buffer when workers carry surplus energy', () => {
+    const site = {
+      id: 'wall-site1',
+      structureType: 'constructedWall',
+      progress: 0,
+      progressTotal: 5_000
+    } as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 3_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N55',
+      constructionSites: [site],
+      controller,
+      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY + 50,
+      energyCapacityAvailable: 2_300,
+      myStructures: [fullSpawn as AnyOwnedStructure]
+    });
+    const builder = {
+      name: 'BuilderCandidate',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({
+      BuilderCandidate: builder,
+      LoadedWorkerA: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }),
+      LoadedWorkerB: makeLoadedWorker(room, { type: 'transfer', targetId: 'spawn-full' as Id<AnyStoreStructure> }),
+      EmptyWorker: {
+        name: 'EmptyWorker',
+        memory: { role: 'worker', colony: 'E29N55' },
+        store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+        room
+      } as unknown as Creep
+    });
+
+    expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'wall-site1' });
+  });
+
+  it('keeps near-full E29N55 construction ahead of critical container repair under a spawn reserve signal', () => {
+    const site = {
+      id: 'container-site1',
+      my: true,
+      structureType: 'container',
+      progress: 3_900,
+      progressTotal: 4_500
+    } as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
+    const damagedContainer = makeStructure('damaged-container', 'container' as StructureConstant, 500, 2_000);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 3_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N55',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 2_250,
+      energyCapacityAvailable: 2_300,
+      myStructures: [fullSpawn as AnyOwnedStructure],
+      structures: [damagedContainer]
+    });
+    const builder = {
+      name: 'NearFullBuilder',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(98),
+        getFreeCapacity: jest.fn().mockReturnValue(2)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({
+      NearFullBuilder: builder,
+      RecoveryWorker: {
+        name: 'RecoveryWorker',
+        memory: { role: 'worker', colony: 'E29N55' },
+        store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+        room
+      } as unknown as Creep
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      economy: {
+        spawnEnergyReservation: {
+          updatedAt: 1_812_850,
+          rooms: {
+            E29N55: {
+              bodyCost: 2_300,
+              creepName: 'worker-E29N55-next',
+              reservedAt: 1_812_850,
+              reservedEnergy: 2_300,
+              role: 'worker',
+              roomName: 'E29N55',
+              updatedAt: 1_812_850
+            }
+          }
+        }
+      }
+    };
+
+    expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'container-site1' });
+  });
+
   it('reserves a loaded worker for construction when healthy energy and idle workers leave build coverage empty', () => {
     const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 317, {

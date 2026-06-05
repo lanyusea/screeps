@@ -1659,6 +1659,51 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertIn("Source: cached", runtime_column["items"][0]["description"])
         self.assertNotEqual(runtime_column["items"][0].get("number"), 29)
 
+    def test_project_item_fetch_timeout_uses_scaled_default_and_env_override(self) -> None:
+        self.assertEqual(
+            roadmap.project_item_fetch_timeout({}),
+            roadmap.DEFAULT_PROJECT_ITEM_FETCH_TIMEOUT_SECONDS,
+        )
+        self.assertGreaterEqual(roadmap.DEFAULT_PROJECT_ITEM_FETCH_TIMEOUT_SECONDS, 120)
+        self.assertEqual(roadmap.project_item_fetch_timeout({roadmap.PROJECT_ITEM_FETCH_TIMEOUT_ENV: "240"}), 240)
+        self.assertEqual(roadmap.project_item_fetch_timeout({roadmap.PROJECT_ITEM_FETCH_TIMEOUT_ENV: "0"}), 1)
+        self.assertEqual(
+            roadmap.project_item_fetch_timeout({roadmap.PROJECT_ITEM_FETCH_TIMEOUT_ENV: "invalid"}),
+            roadmap.DEFAULT_PROJECT_ITEM_FETCH_TIMEOUT_SECONDS,
+        )
+
+    def test_fetch_project_items_payload_uses_configured_timeout(self) -> None:
+        captured: dict[str, Any] = {}
+
+        def fake_run_json(command: list[str], cwd: Path, timeout: int = 30) -> tuple[Any | None, dict[str, Any] | None]:
+            captured["command"] = command
+            captured["cwd"] = cwd
+            captured["timeout"] = timeout
+            return {"totalCount": 2, "items": [{"title": "one"}, {"title": "two"}]}, None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            with (
+                patch.dict(
+                    "os.environ",
+                    {
+                        roadmap.PROJECT_ITEM_FETCH_LIMIT_ENV: "2",
+                        roadmap.PROJECT_ITEM_FETCH_TIMEOUT_ENV: "150",
+                    },
+                ),
+                patch.object(roadmap, "run_json", side_effect=fake_run_json),
+            ):
+                payload, error, completeness = roadmap.fetch_project_items_payload(repo_root, "lanyusea", 3)
+
+        self.assertIsNone(error)
+        self.assertEqual(payload, {"totalCount": 2, "items": [{"title": "one"}, {"title": "two"}]})
+        self.assertEqual(captured["cwd"], repo_root)
+        self.assertEqual(captured["timeout"], 150)
+        self.assertEqual(captured["command"][:4], ["gh", "project", "item-list", "3"])
+        self.assertEqual(captured["command"][captured["command"].index("--owner") + 1], "lanyusea")
+        self.assertEqual(captured["command"][captured["command"].index("--limit") + 1], "2")
+        self.assertEqual(completeness, {"complete": True, "returnedCount": 2, "totalCount": 2, "limit": 2})
+
     def test_fetch_github_snapshot_rejects_incomplete_project_payload(self) -> None:
         project_payload = {
             "totalCount": 3,
@@ -1798,6 +1843,56 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(runtime_card["doneItems"], 0)
         self.assertEqual([item["number"] for item in runtime_column["items"]], [1375])
         self.assertEqual([item["number"] for item in release_column["items"]], [1376])
+        self.assertEqual(snapshot["projectTextFieldHydration"]["itemsInspected"], 2)
+        self.assertFalse(snapshot["projectTextFieldHydration"]["fields"]["evidence"]["hydrated"])
+        self.assertEqual(snapshot["projectHandoffEvidenceValidation"]["mode"], "skipped")
+        self.assertEqual(snapshot["projectHandoffEvidenceValidation"]["severity"], "warning")
+
+    def test_project_handoff_evidence_validation_uses_raw_values_before_public_sanitization(self) -> None:
+        data = {
+            "github": {
+                "projectItemsSource": "live",
+                "projectTextFieldHydration": {
+                    "itemsInspected": 1,
+                    "fields": {"evidence": {"hydrated": True, "observedKeys": ["Evidence"]}},
+                },
+                "projectItems": [
+                    {
+                        "number": 1662,
+                        "type": "PullRequest",
+                        "status": "In review",
+                        "title": "review-stage handoff",
+                        "evidence": "controller-side verification captured current Project Evidence.",
+                    }
+                ],
+                "roadmapCards": [
+                    {
+                        "number": 1662,
+                        "type": "PullRequest",
+                        "status": "In review",
+                        "title": "sanitized public roadmap card",
+                        "evidence": "",
+                    }
+                ],
+                "kanban": {
+                    "cards": [
+                        {
+                            "number": 1662,
+                            "type": "PullRequest",
+                            "status": "In review",
+                            "title": "sanitized public kanban card",
+                            "evidence": "",
+                        }
+                    ]
+                },
+            }
+        }
+
+        failures = roadmap.validate_project_handoff_evidence(data)
+        sanitized = roadmap.sanitize_public_data(data)
+
+        self.assertEqual(failures, [])
+        self.assertEqual(sanitized["github"]["projectItems"][0]["evidence"], "")
 
     def test_merge_issue_context_preserves_explicit_empty_project_values(self) -> None:
         merged = roadmap.merge_issue_context(

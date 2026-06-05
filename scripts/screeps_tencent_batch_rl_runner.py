@@ -47,6 +47,7 @@ from screeps_rl_experiment_card import (
     scenario_supports_multi_tier_policy_comparison,
 )
 import screeps_rl_scale_gates as scale_gates
+import screeps_cli_io
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TCCLI = Path("/root/.hermes/hermes-agent/venv/bin/tccli")
@@ -6113,33 +6114,33 @@ def main(argv: list[str] | None = None) -> int:
         controller.finished_at = utc_now_iso()
         controller.result["error"] = type(error).__name__ + ": " + str(error)
         controller.write_summary()
-        print(json.dumps({"ok": False, "runId": run_id, "artifactDir": str(artifact_dir), "error": str(error)}, ensure_ascii=False), file=sys.stderr)
+        screeps_cli_io.write_json_line(
+            sys.stderr,
+            {"ok": False, "runId": run_id, "artifactDir": str(artifact_dir), "error": str(error)},
+        )
         return 2
     if controller.final_status == "completed_scale_down_failed":
-        print(
-            json.dumps(
-                {"ok": False, "runId": run_id, "artifactDir": str(artifact_dir), "status": controller.final_status},
-                ensure_ascii=False,
-            ),
-            file=sys.stderr,
+        screeps_cli_io.write_json_line(
+            sys.stderr,
+            {"ok": False, "runId": run_id, "artifactDir": str(artifact_dir), "status": controller.final_status},
         )
         return 3
     if controller.final_status in {E1S1_REPEAT_GUARD_FINAL_STATUS, PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS}:
-        print(
-            json.dumps(
-                {
-                    "ok": False,
-                    "runId": run_id,
-                    "artifactDir": str(artifact_dir),
-                    "status": controller.final_status,
-                    "launchGuard": controller.result.get("launchGuard"),
-                },
-                ensure_ascii=False,
-            ),
-            file=sys.stderr,
+        screeps_cli_io.write_json_line(
+            sys.stderr,
+            {
+                "ok": False,
+                "runId": run_id,
+                "artifactDir": str(artifact_dir),
+                "status": controller.final_status,
+                "launchGuard": controller.result.get("launchGuard"),
+            },
         )
         return 4
-    print(json.dumps({"ok": True, "runId": run_id, "artifactDir": str(artifact_dir), "status": controller.final_status}, ensure_ascii=False))
+    screeps_cli_io.write_json_line(
+        sys.stdout,
+        {"ok": True, "runId": run_id, "artifactDir": str(artifact_dir), "status": controller.final_status},
+    )
     return 0
 
 

@@ -19,6 +19,11 @@ import screeps_rl_dataset_gate as gate
 JsonObject = dict[str, Any]
 
 
+class BrokenWriter(io.StringIO):
+    def write(self, _text: str) -> int:
+        raise BrokenPipeError("simulated closed stdout")
+
+
 def write_json(path: Path, payload: JsonObject) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
@@ -160,6 +165,14 @@ def fake_shadow_report(paths: list[str], out_dir: Path, **kwargs: Any) -> JsonOb
 
 
 class ScreepsRlDatasetGateTest(unittest.TestCase):
+    def test_contract_treats_closed_stdout_as_delivery_only(self) -> None:
+        stderr = io.StringIO()
+
+        exit_code = gate.main(["contract"], stdout=BrokenWriter(), stderr=stderr)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stderr.getvalue(), "")
+
     def test_contract_exposes_executable_inputs_and_outputs(self) -> None:
         contract = gate.build_contract()
 

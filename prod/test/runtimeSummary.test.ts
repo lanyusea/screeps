@@ -364,6 +364,8 @@ describe('runtime telemetry summaries', () => {
             ownedRoomCount: 1,
             roomCapacityStatus: 'roomLimitReached',
             roomLimitCapacity: 1,
+            rclRoomLimitCapacity: 1,
+            roomLimitBasis: 'rclPolicy',
             activePipelineStateKey: 'pipeline:none',
             controlCounts: {
               active: { claim: 0, reserve: 0, scout: 0 },
@@ -3312,6 +3314,31 @@ describe('runtime telemetry summaries', () => {
     });
   });
 
+  it('reports when GCL capacity raises the room limit above the internal RCL policy', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL, controllerLevel: 4 });
+    const globals = globalThis as unknown as { Game: Partial<Game> };
+    globals.Game.gcl = { level: 5 } as GlobalControlLevel;
+    globals.Game.rooms = {
+      ...globals.Game.rooms,
+      W2N1: makeOwnedRuntimeSummaryRoom('W2N1', 4),
+      W3N1: makeOwnedRuntimeSummaryRoom('W3N1', 3)
+    };
+
+    emitRuntimeSummary([colony], [], [], { persistOccupationRecommendations: false });
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.territoryExpansionProgress).toMatchObject({
+      colony: 'W1N1',
+      ownedRoomCount: 3,
+      roomCapacityStatus: 'available',
+      roomLimitCapacity: 5,
+      rclRoomLimitCapacity: 3,
+      gclRoomCapacity: 5,
+      roomLimitBasis: 'gclCapacity'
+    });
+  });
+
   it('groups creeps by colony before building per-room summaries', () => {
     const firstColony = makeColony({
       time: RUNTIME_SUMMARY_INTERVAL,
@@ -4476,6 +4503,21 @@ function makeWorker(memory: CreepMemory, energy = 0, name?: string): Creep {
     memory,
     store: makeEnergyStore(energy)
   } as unknown as Creep;
+}
+
+function makeOwnedRuntimeSummaryRoom(roomName: string, controllerLevel: number): Room {
+  return {
+    name: roomName,
+    energyAvailable: 300,
+    energyCapacityAvailable: 300,
+    controller: {
+      my: true,
+      owner: { username: 'me' },
+      level: controllerLevel,
+      ticksToDowngrade: 15_000
+    },
+    find: jest.fn().mockReturnValue([])
+  } as unknown as Room;
 }
 
 function makeWorkerBehaviorSample(

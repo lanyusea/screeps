@@ -125,6 +125,7 @@ import {
   generateStrategyRecommendations,
   rejectUncertain
 } from '../strategy/strategyRecommender';
+import { runScoreCollector, SCORE_COLLECTOR_ROLE } from '../season/scoreCollection';
 
 const ERR_BUSY_CODE = -4 as ScreepsReturnCode;
 const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
@@ -406,6 +407,8 @@ export function runEconomy(
       runCrossRoomHauler(creep);
     } else if (creep.memory.role === MINERAL_HARVESTER_ROLE) {
       runMineralHarvester(creep);
+    } else if (creep.memory.role === SCORE_COLLECTOR_ROLE) {
+      runScoreCollector(creep);
     } else if (creep.memory.role === TERRITORY_CLAIMER_ROLE) {
       if (!runPlannedClaimReservation(creep)) {
         runClaimer(creep, telemetryEvents);
