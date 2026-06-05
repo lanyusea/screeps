@@ -3840,6 +3840,7 @@ function canSpendCreepEnergyOnConstructionSite(
     (carriedEnergy > 0 && isMissingSpawnRecoveryConstructionSite(creep.room, site)) ||
     (carriedEnergy > 0 && checkEnergyBufferForConstructionSpending(creep.room)) ||
     (carriedEnergy > 0 && checkEnergyBufferForStoredConstructionSpending(creep.room)) ||
+    (carriedEnergy > 0 && canSpendCarriedSurplusOnBoundedConstruction(creep, site)) ||
     (carriedEnergy > 0 &&
       isExtensionConstructionSite(site) &&
       checkEnergyBufferForExtensionConstruction(creep.room, carriedEnergy)) ||
@@ -3852,6 +3853,26 @@ function canSpendCreepEnergyOnConstructionSite(
     (carriedEnergy > 0 &&
       hasMinimumWorkerSpawnEnergyForConstruction(creep.room) &&
       isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext))
+  );
+}
+
+function canSpendCarriedSurplusOnBoundedConstruction(creep: Creep, site: ConstructionSite): boolean {
+  const room = creep.room;
+  const controller = room.controller;
+  const survivalAssessment = getWorkerColonySurvivalAssessment(creep);
+  const roomEnergy = getRoomEnergyAvailable(room);
+  return (
+    site.my !== false &&
+    controller?.my === true &&
+    roomEnergy !== null &&
+    roomEnergy >= MINIMUM_WORKER_SPAWN_ENERGY &&
+    !hasVisibleHostilePresence(room) &&
+    !suppressesBootstrapNonCriticalWork(survivalAssessment) &&
+    !suppressesTerritoryWork(survivalAssessment) &&
+    !shouldGuardControllerDowngrade(controller) &&
+    getActiveWorkParts(creep) > 0 &&
+    hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep) &&
+    !hasOtherSameRoomBuildCoverageWorker(creep)
   );
 }
 
