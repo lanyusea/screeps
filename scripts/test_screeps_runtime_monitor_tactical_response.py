@@ -298,6 +298,13 @@ def make_worker_assignment_gap_metrics() -> monitor.RoomSummaryMetrics:
         owned_creep_objects=[],
         task_counts={"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0},
         worker_assignment_evidence_available=True,
+        worker_assignment_evidence={
+            "source": "runtime-summary",
+            "available": True,
+            "workerCount": 0,
+            "assignedTaskCount": 0,
+            "productiveAssignmentCount": 0,
+        },
         worker_assignment_evidence_unavailable_reason=None,
         construction_sites=[{"type": "constructionSite"}],
         pending_build_progress=50,
@@ -3346,6 +3353,197 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         )
         self.assertIsNone(reason)
         self.assertEqual(next_state, 0)
+
+    def test_collect_snapshots_merges_redacted_creep_memory_assignment_evidence(self) -> None:
+        ref = monitor.RoomRef(shard="shardX", room="E29N55")
+        ctx = monitor.RuntimeContext(
+            base_http="https://screeps.com",
+            token="secret-token",
+            default_shard="shardX",
+            default_room="E29N55",
+            owner=None,
+            owner_id=None,
+            state_file=Path("/tmp/state.json"),
+            cache_dir=Path("/tmp/cache"),
+            debounce_seconds=300,
+            collection_attempts=1,
+            collection_retry_delay_seconds=0,
+        )
+
+        async def fake_fetch_room_event(_ctx: monitor.RuntimeContext, _ref: monitor.RoomRef) -> dict[str, object]:
+            return {
+                "gameTime": 1839622,
+                "objects": {
+                    "spawn-1": {
+                        "_id": "spawn-1",
+                        "type": "spawn",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                    },
+                    "site-1": {
+                        "_id": "site-1",
+                        "type": "constructionSite",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "structureType": "extension",
+                        "progress": 0,
+                        "progressTotal": 50,
+                    },
+                    "worker-1": {
+                        "_id": "worker-1",
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "name": "WorkerBuild",
+                        "body": [{"type": "work", "hits": 100}, {"type": "carry", "hits": 100}],
+                        "store": {"energy": 25, "capacity": 50},
+                    },
+                },
+            }
+
+        def fake_get_json(_base_http: str, _token: str, path: str, params: dict[str, object] | None = None) -> object:
+            self.assertEqual(path, "/api/user/memory")
+            self.assertEqual(params, {"path": "creeps", "shard": "shardX"})
+            return {
+                "ok": 1,
+                "data": json.dumps(
+                    {
+                        "WorkerBuild": {
+                            "role": "worker",
+                            "task": {"type": "build", "targetId": "token=abcdef123456"},
+                            "workerDispatchDiagnostic": {
+                                "tick": 1839622,
+                                "reason": "selected_build",
+                                "assignedTask": "build",
+                                "assignedTargetId": "site-1",
+                            },
+                            "secretNotes": "do-not-emit",
+                        }
+                    }
+                ),
+            }
+
+        with mock.patch.object(monitor, "discover_owned_rooms", return_value=([ref], {"username": "lanyusea"}, [], [ref])):
+            with mock.patch.object(monitor, "user_identity", return_value=("lanyusea", "user-1")):
+                with mock.patch.object(monitor, "fetch_terrain", return_value="0" * monitor.TERRAIN_CELLS):
+                    with mock.patch.object(monitor, "fetch_room_event", side_effect=fake_fetch_room_event):
+                        with mock.patch.object(monitor, "get_json", side_effect=fake_get_json):
+                            snapshots, warnings, overview_refs = monitor.collect_snapshots(ctx, None)
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(overview_refs, [ref])
+        payload = monitor.runtime_summary_payload_from_snapshots(snapshots)
+        room = payload["rooms"][0]
+        productive_energy = room["resources"]["productiveEnergy"]
+        evidence = room["workerAssignmentEvidence"]
+
+        self.assertTrue(room["workerAssignmentEvidenceAvailable"])
+        self.assertTrue(productive_energy["workerAssignmentEvidenceAvailable"])
+        self.assertEqual(room["taskCounts"]["build"], 1)
+        self.assertEqual(evidence["productiveAssignmentCount"], 1)
+        self.assertEqual(productive_energy["productiveAssignmentCount"], 1)
+        self.assertEqual(evidence["creepSamples"][0]["name"], "WorkerBuild")
+        self.assertEqual(evidence["creepSamples"][0]["role"], "worker")
+        self.assertEqual(evidence["creepSamples"][0]["task"], "build")
+        self.assertEqual(evidence["creepSamples"][0]["dispatchAssignedTask"], "build")
+        rendered = json.dumps(evidence, sort_keys=True)
+        self.assertNotIn("secretNotes", rendered)
+        self.assertNotIn("abcdef123456", rendered)
+
+    def test_runtime_summary_payload_marks_partial_creep_memory_samples(self) -> None:
+        objects = monitor.normalize_objects(
+            {
+                "worker-1": {
+                    "_id": "worker-1",
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "lanyusea"},
+                    "name": "WorkerBuild",
+                    "store": {"energy": 25, "capacity": 50},
+                },
+                "worker-2": {
+                    "_id": "worker-2",
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "lanyusea"},
+                    "name": "WorkerMissing",
+                    "store": {"energy": 0, "capacity": 50},
+                },
+            }
+        )
+        objects = monitor.attach_safe_creep_memory_to_owned_creeps(
+            objects,
+            {"WorkerBuild": {"role": "worker", "task": {"type": "build", "targetId": "site-1"}}},
+            "lanyusea",
+        )
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E29N55"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=objects,
+            tick=1839623,
+            owner="lanyusea",
+            info={},
+        )
+
+        payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+        evidence = payload["rooms"][0]["workerAssignmentEvidence"]
+        samples = {sample["name"]: sample for sample in evidence["creepSamples"]}
+
+        self.assertTrue(payload["rooms"][0]["workerAssignmentEvidenceAvailable"])
+        self.assertEqual(payload["rooms"][0]["taskCounts"]["build"], 1)
+        self.assertEqual(evidence["visibleCreepCount"], 2)
+        self.assertEqual(evidence["workerCount"], 1)
+        self.assertTrue(samples["WorkerBuild"]["memoryAvailable"])
+        self.assertFalse(samples["WorkerMissing"]["memoryAvailable"])
+        self.assertNotIn("workerAssignmentEvidenceUnavailableReason", payload["rooms"][0])
+
+    def test_worker_assignment_evidence_caps_and_redacts_creep_samples(self) -> None:
+        objects: dict[str, dict[str, object]] = {}
+        creep_memory: dict[str, dict[str, object]] = {}
+        for index in range(monitor.MAX_CREEP_MEMORY_ASSIGNMENT_EVIDENCE_PER_ROOM + 3):
+            name = f"Worker{index:02d}"
+            objects[f"worker-{index}"] = {
+                "_id": f"worker-{index}",
+                "type": "creep",
+                "my": True,
+                "owner": {"username": "lanyusea"},
+                "name": name,
+                "store": {"energy": index, "capacity": 50},
+            }
+            creep_memory[name] = {
+                "role": "worker",
+                "task": {
+                    "type": "upgrade",
+                    "targetId": "controller-1-" + ("x" * 200),
+                },
+                "password": "do-not-emit",
+            }
+        normalized = monitor.attach_safe_creep_memory_to_owned_creeps(
+            monitor.normalize_objects(objects),
+            creep_memory,
+            "lanyusea",
+        )
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E29N55"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=normalized,
+            tick=1839624,
+            owner="lanyusea",
+            info={},
+        )
+
+        evidence = monitor.runtime_summary_payload_from_snapshots([snapshot])["rooms"][0]["workerAssignmentEvidence"]
+        rendered = json.dumps(evidence, sort_keys=True)
+
+        self.assertEqual(evidence["sampleLimit"], monitor.MAX_CREEP_MEMORY_ASSIGNMENT_EVIDENCE_PER_ROOM)
+        self.assertEqual(len(evidence["creepSamples"]), monitor.MAX_CREEP_MEMORY_ASSIGNMENT_EVIDENCE_PER_ROOM)
+        self.assertTrue(evidence["sampleTruncated"])
+        self.assertNotIn("password", rendered)
+        self.assertNotIn("do-not-emit", rendered)
+        self.assertLessEqual(
+            max(len(sample["taskTargetId"]) for sample in evidence["creepSamples"]),
+            monitor.MAX_CREEP_MEMORY_ASSIGNMENT_STRING_LENGTH,
+        )
 
     def test_runtime_summary_payload_ignores_non_worker_assignment_evidence(self) -> None:
         snapshot = monitor.RoomSnapshot(
