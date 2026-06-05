@@ -815,6 +815,19 @@ def existing_reward_decision_id(previous_policy: JsonObject | None, training_pay
     )
 
 
+def existing_reward_decision_artifact_path(
+    previous_policy: JsonObject | None,
+    training_payload: JsonObject | None,
+) -> str | None:
+    payload = as_dict(training_payload)
+    return first_text_value(
+        as_dict(previous_policy).get("rewardDecisionArtifactPath"),
+        payload.get("rewardDecisionArtifactPath"),
+        as_dict(payload.get("trainingArtifacts")).get("rewardDecisionArtifactPath"),
+        as_dict(payload.get("metricsFields")).get("rewardDecisionArtifactPath"),
+    )
+
+
 def reward_decision_id_for_scorecard(scorecard_id: str, candidate_policy_id: str) -> str:
     digest = hashlib.sha1(f"{scorecard_id}\n{candidate_policy_id}".encode("utf-8")).hexdigest()[:12]
     return f"RD-AUTO-{digest}"
@@ -835,6 +848,181 @@ def reward_decision_existing_path(
         path = Path(existing_path)
         return path if path.is_absolute() else repo_root / path
     return reward_decision_path(artifact_root, reward_decision_id)
+
+
+def scorecard_ids_match(candidate_scorecard_id: str | None, record_scorecard_id: str | None) -> bool:
+    if candidate_scorecard_id is None:
+        return True
+    if record_scorecard_id is None:
+        return False
+    return (
+        candidate_scorecard_id == record_scorecard_id
+        or candidate_scorecard_id in record_scorecard_id
+        or record_scorecard_id in candidate_scorecard_id
+    )
+
+
+def reward_decision_record_timestamp(path: Path, record: JsonObject) -> datetime:
+    for key in ("updatedAt", "createdAt", "decidedAt", "generatedAt"):
+        parsed = static_dashboard.parse_iso_datetime(record.get(key))
+        if parsed is not None:
+            return parsed
+    return static_dashboard.artifact_timestamp(path, record)
+
+
+def load_reward_decision_record(path: Path) -> JsonObject | None:
+    record = load_json(path)
+    if record is None:
+        return None
+    reward_decision_id = text_value(record.get("rewardDecisionId"))
+    if reward_decision_id is None:
+        return None
+    return record
+
+
+def reward_decision_record_matches_candidate(
+    record: JsonObject,
+    *,
+    scorecard_id: str | None,
+    candidate_policy_id: str | None,
+) -> bool:
+    candidate = candidate_policy_text(candidate_policy_id)
+    if candidate is None:
+        return False
+    record_candidate = candidate_policy_text(
+        record.get("candidatePolicyId"),
+        as_dict(record.get("validationEvidence")).get("candidatePolicyId"),
+    )
+    if record_candidate != candidate:
+        return False
+    record_scorecard_id = first_text_value(
+        record.get("scorecardId"),
+        as_dict(record.get("validationEvidence")).get("scorecardId"),
+    )
+    return scorecard_ids_match(scorecard_id, record_scorecard_id)
+
+
+def find_existing_scorecard_reward_decision(
+    *,
+    artifact_root: Path,
+    repo_root: Path,
+    scorecard_id: str | None,
+    candidate_policy_id: str | None,
+) -> tuple[str | None, str | None]:
+    candidate = candidate_policy_text(candidate_policy_id)
+    if candidate is None:
+        return None, None
+
+    if scorecard_id is not None:
+        expected_id = reward_decision_id_for_scorecard(scorecard_id, candidate)
+        expected_path = reward_decision_path(artifact_root, expected_id)
+        expected_record = load_reward_decision_record(expected_path)
+        if (
+            expected_record is not None
+            and text_value(expected_record.get("rewardDecisionId")) == expected_id
+            and reward_decision_record_matches_candidate(
+                expected_record,
+                scorecard_id=scorecard_id,
+                candidate_policy_id=candidate,
+            )
+        ):
+            return expected_id, repo_display_path(expected_path, repo_root)
+
+    matches: list[tuple[datetime, str, str, Path]] = []
+    decision_root = artifact_root / "rl-control-loop" / "reward-decisions"
+    if not decision_root.is_dir():
+        return None, None
+    for path in sorted(decision_root.glob("*.json")):
+        record = load_reward_decision_record(path)
+        if record is None:
+            continue
+        if not reward_decision_record_matches_candidate(
+            record,
+            scorecard_id=scorecard_id,
+            candidate_policy_id=candidate,
+        ):
+            continue
+        reward_decision_id = text_value(record.get("rewardDecisionId"))
+        if reward_decision_id is None:
+            continue
+        matches.append((reward_decision_record_timestamp(path, record), reward_decision_id, path.as_posix(), path))
+    if not matches:
+        return None, None
+    if scorecard_id is None:
+        unique_ids = {reward_decision_id for _timestamp, reward_decision_id, _path_key, _path in matches}
+        if len(unique_ids) != 1:
+            return None, None
+    _timestamp, reward_decision_id, _path_key, path = max(matches)
+    return reward_decision_id, repo_display_path(path, repo_root)
+
+
+def matching_carried_reward_decision_link(
+    *,
+    previous_policy: JsonObject | None,
+    training_payload: JsonObject | None,
+    scorecard_id: str | None,
+    candidate_policy_id: str | None,
+    artifact_root: Path,
+    repo_root: Path,
+) -> tuple[str | None, str | None]:
+    reward_decision_id = existing_reward_decision_id(previous_policy, training_payload)
+    if reward_decision_id is None:
+        return None, None
+
+    path_candidates = [
+        reward_decision_existing_path(
+            reward_decision_id=reward_decision_id,
+            existing_path=existing_reward_decision_artifact_path(previous_policy, training_payload),
+            artifact_root=artifact_root,
+            repo_root=repo_root,
+        ),
+        reward_decision_path(artifact_root, reward_decision_id),
+    ]
+    seen: set[str] = set()
+    for path in path_candidates:
+        path_key = path.as_posix()
+        if path_key in seen:
+            continue
+        seen.add(path_key)
+        record = load_reward_decision_record(path)
+        if record is None or text_value(record.get("rewardDecisionId")) != reward_decision_id:
+            continue
+        if not reward_decision_record_matches_candidate(
+            record,
+            scorecard_id=scorecard_id,
+            candidate_policy_id=candidate_policy_id,
+        ):
+            continue
+        return reward_decision_id, repo_display_path(path, repo_root)
+    return None, None
+
+
+def resolve_reward_decision_link(
+    *,
+    previous_policy: JsonObject | None,
+    training_payload: JsonObject | None,
+    scorecard: JsonObject | None,
+    candidate_policy_id: str | None,
+    artifact_root: Path,
+    repo_root: Path,
+) -> tuple[str | None, str | None]:
+    scorecard_id = text_value(as_dict(scorecard).get("scorecardId"))
+    carried_id, carried_path = matching_carried_reward_decision_link(
+        previous_policy=previous_policy,
+        training_payload=training_payload,
+        scorecard_id=scorecard_id,
+        candidate_policy_id=candidate_policy_id,
+        artifact_root=artifact_root,
+        repo_root=repo_root,
+    )
+    if carried_id is not None:
+        return carried_id, carried_path
+    return find_existing_scorecard_reward_decision(
+        artifact_root=artifact_root,
+        repo_root=repo_root,
+        scorecard_id=scorecard_id,
+        candidate_policy_id=candidate_policy_id,
+    )
 
 
 def scorecard_reward_decision_type(training: JsonObject) -> str:
@@ -1102,10 +1290,15 @@ def emit_scorecard_reward_decision_if_missing(
     online_utility_status: str,
     current_policy_advantage_path: Path | None,
 ) -> tuple[str | None, str | None]:
-    existing = existing_reward_decision_id(previous_policy, training_payload)
-    existing_path = first_text_value(as_dict(previous_policy).get("rewardDecisionArtifactPath"))
-
     scorecard_id = text_value(scorecard.get("scorecardId"))
+    existing, existing_path = resolve_reward_decision_link(
+        previous_policy=previous_policy,
+        training_payload=training_payload,
+        scorecard=scorecard,
+        candidate_policy_id=candidate_policy_id,
+        artifact_root=artifact_root,
+        repo_root=repo_root,
+    )
     if scorecard_id is None or candidate_policy_text(candidate_policy_id) is None:
         if existing is not None:
             return existing, existing_path
@@ -1237,7 +1430,13 @@ def training_online_deployment_blocker(training: JsonObject) -> str | None:
     return None
 
 
-def training_anomalies(dashboard: JsonObject, previous: JsonObject | None, repo_root: Path) -> list[JsonObject]:
+def training_anomalies(
+    dashboard: JsonObject,
+    previous: JsonObject | None,
+    repo_root: Path,
+    *,
+    reward_decision_id: str | None = None,
+) -> list[JsonObject]:
     training = as_dict(dashboard.get("training"))
     gate = as_dict(dashboard.get("gate"))
     anomalies: list[JsonObject] = []
@@ -1270,7 +1469,11 @@ def training_anomalies(dashboard: JsonObject, previous: JsonObject | None, repo_
             }
         )
     for item in as_list((previous or {}).get("anomalies")):
-        if isinstance(item, dict) and item.get("code") not in {anomaly["code"] for anomaly in anomalies}:
+        if not isinstance(item, dict):
+            continue
+        if reward_decision_id is not None and item.get("code") == "REWARD_DECISION_ID_NULL":
+            continue
+        if item.get("code") not in {anomaly["code"] for anomaly in anomalies}:
             anomalies.append(item)
     return anomalies[:12]
 
@@ -1308,10 +1511,12 @@ def build_training_ledger(
     training = as_dict(summary.get("training"))
     gate = as_dict(summary.get("gate"))
     simulator = as_dict(summary.get("simulator"))
+    previous_policy = latest_artifact_payload(summary, "policyAdvantage", repo_root)
     status = training_status(training)
     did_run = training_did_run(training)
     iteration = as_dict((previous or {}).get("iterationExecution"))
     environment = as_dict((previous or {}).get("environmentExecution"))
+    training_artifacts = as_dict((previous or {}).get("trainingArtifacts"))
     metrics_fields = as_dict((previous or {}).get("metricsFields"))
     git = git_metadata(repo_root)
     episodes = int_value(training.get("episodes")) or int_value(iteration.get("episodesRun")) or 0
@@ -1319,8 +1524,27 @@ def build_training_ledger(
     ticks_run = int_value(iteration.get("simulatorTicksRun")) or int_value(simulator.get("ticksRun")) or 0
     env_completed = int_value(environment.get("completed")) or int_value(simulator.get("succeeded")) or 0
     env_failed = int_value(environment.get("failed")) or int_value(simulator.get("failed")) or 0
-    anomalies = training_anomalies(summary, previous, repo_root)
     previous_environment = as_dict((previous or {}).get("environmentExecution"))
+    policy_update = as_dict((previous or {}).get("policyUpdate"))
+    next_candidate_policy = as_dict(policy_update.get("nextCandidatePolicy"))
+    candidate_policy_ids = as_list(training_artifacts.get("candidatePolicyIds"))
+    scorecard = selected_scorecard_evidence(previous, previous_policy, repo_root)
+    candidate_policy_id = candidate_policy_text(
+        metrics_fields.get("candidatePolicyId"),
+        (previous or {}).get("policyUpdateCandidatePolicyId"),
+        next_candidate_policy.get("candidatePolicyId"),
+        candidate_policy_ids[-1] if candidate_policy_ids else None,
+        scorecard.get("scorecardCandidatePolicyId"),
+    )
+    reward_decision_id, reward_decision_artifact_path = resolve_reward_decision_link(
+        previous_policy=previous_policy,
+        training_payload=previous,
+        scorecard=scorecard,
+        candidate_policy_id=candidate_policy_id,
+        artifact_root=artifact_root,
+        repo_root=repo_root,
+    )
+    anomalies = training_anomalies(summary, previous, repo_root, reward_decision_id=reward_decision_id)
 
     return {
         "type": TRAINING_LEDGER_TYPE,
@@ -1330,6 +1554,8 @@ def build_training_ledger(
         "sourceIssue": None,
         "historicalContextIssues": HISTORICAL_CONTEXT_ISSUES,
         **git,
+        "rewardDecisionId": reward_decision_id,
+        "rewardDecisionArtifactPath": reward_decision_artifact_path,
         "status": status,
         "trainingDidRun": did_run,
         "e1Gate": {
@@ -1371,12 +1597,13 @@ def build_training_ledger(
             "policyUpdateNote": iteration.get("policyUpdateNote") or "bounded artifact producer did not launch training",
         },
         "trainingArtifacts": {
-            "experimentCard": as_dict((previous or {}).get("trainingArtifacts")).get("experimentCard"),
-            "experimentCardPath": as_dict((previous or {}).get("trainingArtifacts")).get("experimentCardPath"),
-            "simulatorRunIds": as_dict((previous or {}).get("trainingArtifacts")).get("simulatorRunIds", []),
-            "trainingReportIds": as_dict((previous or {}).get("trainingArtifacts")).get("trainingReportIds", []),
-            "candidatePolicyIds": as_dict((previous or {}).get("trainingArtifacts")).get("candidatePolicyIds", []),
-            "rewardDecisionId": as_dict((previous or {}).get("trainingArtifacts")).get("rewardDecisionId"),
+            "experimentCard": training_artifacts.get("experimentCard"),
+            "experimentCardPath": training_artifacts.get("experimentCardPath"),
+            "simulatorRunIds": training_artifacts.get("simulatorRunIds", []),
+            "trainingReportIds": training_artifacts.get("trainingReportIds", []),
+            "candidatePolicyIds": training_artifacts.get("candidatePolicyIds", []),
+            "rewardDecisionId": reward_decision_id,
+            "rewardDecisionArtifactPath": reward_decision_artifact_path,
             "latestTrainingLedger": latest_artifact_path(summary, "trainingLedger", repo_root),
         },
         "anomalies": anomalies,
@@ -1394,7 +1621,7 @@ def build_training_ledger(
             "policyUpdateIterations": metrics_fields.get("policyUpdateIterations", policy_updates),
             "trainingReportIds": metrics_fields.get("trainingReportIds", []),
             "candidatePolicyId": metrics_fields.get("candidatePolicyId"),
-            "rewardDecisionId": metrics_fields.get("rewardDecisionId"),
+            "rewardDecisionId": reward_decision_id,
             "anomalyCategories": [item.get("code") for item in anomalies],
         },
         "githubComment": "skipped_no_atomic_issue",
