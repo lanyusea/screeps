@@ -40411,7 +40411,7 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     constructionScoring,
     ...includeOptionalSummary ? summarizeRuntimeBehavior(colonyWorkers, colonyCreeps, tick) : {},
     ...includeStructureSnapshot ? { structures: summarizeStructures(colony, colonyWorkers) } : {},
-    ...includeOptionalSummary ? summarizeWorkerEfficiency(colonyWorkers, tick) : {},
+    ...summarizeOptionalWorkerEfficiency(colonyWorkers, tick, includeOptionalSummary),
     ...includeOptionalSummary ? summarizeRefillTelemetry(colonyWorkers, tick) : {},
     ...summarizeSpawnCriticalRefill(colonyWorkers, tick),
     ...buildControllerSummary(colony.room),
@@ -41504,12 +41504,24 @@ function calculateRoadCoverageRatio(roadCount, pendingRoadSiteCount) {
   }
   return roundRatio6(roadCount, totalKnownRoadWork);
 }
+function summarizeOptionalWorkerEfficiency(workers, tick, includeOptionalSummary) {
+  if (!includeOptionalSummary) {
+    return {
+      workerLoadEfficiency: summarizeUnavailableWorkerLoadEfficiency("optional_summary_suppressed_by_cpu")
+    };
+  }
+  return summarizeWorkerEfficiency(workers, tick);
+}
 function summarizeWorkerEfficiency(workers, tick) {
   const samples = workers.map((worker) => ({ creepName: getCreepName2(worker), sample: worker.memory.workerEfficiency })).filter(
     (entry) => isWorkerEfficiencySample(entry.sample) && isRecentWorkerEfficiencySample(entry.sample, tick)
   ).sort(compareWorkerEfficiencySampleEntries);
   if (samples.length === 0) {
-    return {};
+    return {
+      workerLoadEfficiency: summarizeUnavailableWorkerLoadEfficiency(
+        workers.length === 0 ? "no_worker_creeps" : "recent_worker_efficiency_sample_missing"
+      )
+    };
   }
   const reportedSamples = samples.slice(0, MAX_WORKER_EFFICIENCY_SAMPLES).map(toRuntimeWorkerEfficiencySample);
   const lowLoadReturnSamples = samples.filter((entry) => entry.sample.type === "lowLoadReturn");
@@ -41530,7 +41542,15 @@ function summarizeWorkerEfficiency(workers, tick) {
       samples: reportedSamples,
       ...samples.length > MAX_WORKER_EFFICIENCY_SAMPLES ? { omittedSampleCount: samples.length - MAX_WORKER_EFFICIENCY_SAMPLES } : {}
     },
-    ...workerLoadEfficiency ? { workerLoadEfficiency } : {}
+    workerLoadEfficiency: workerLoadEfficiency != null ? workerLoadEfficiency : summarizeUnavailableWorkerLoadEfficiency("recent_worker_efficiency_sample_missing")
+  };
+}
+function summarizeUnavailableWorkerLoadEfficiency(unavailableReason) {
+  return {
+    sampleCount: 0,
+    tripEnergyMean: null,
+    tripEnergyMin: null,
+    unavailableReason
   };
 }
 function summarizeWorkerLoadEfficiency(samples) {
