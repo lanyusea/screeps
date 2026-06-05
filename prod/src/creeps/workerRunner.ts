@@ -182,6 +182,8 @@ export function runWorker(creep: Creep): void {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPreemptTaskForUrgentRepair(currentTask, selectedTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForSeasonScore(currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptSeasonScoreTask(currentTask, selectedTask)) {
@@ -1566,10 +1568,25 @@ function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(
   }
 
   if (hasLowWorkerEnergyLoad(creep)) {
-    return shouldPreemptLowLoadEnergyAcquisitionForReturn(creep, selectedTask);
+    return isUrgentRepairTask(selectedTask) || shouldPreemptLowLoadEnergyAcquisitionForReturn(creep, selectedTask);
   }
 
   return isUrgentEnergySpendingTask(selectedTask) || isDowngradeGuardUpgradeTask(creep, selectedTask);
+}
+
+function shouldPreemptTaskForUrgentRepair(
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  if (task.type !== 'build' && task.type !== 'repair' && task.type !== 'transfer') {
+    return false;
+  }
+
+  if (!selectedTask || isSameTask(task, selectedTask) || !isUrgentRepairTask(selectedTask)) {
+    return false;
+  }
+
+  return true;
 }
 
 function shouldPreemptEnergyAcquisitionTaskForSeasonScore(
@@ -1929,7 +1946,34 @@ function isUrgentEnergySpendingTask(task: CreepTaskMemory): boolean {
     return getTransferSinkPriority(target) >= 2;
   }
 
+  if (task.type === 'repair') {
+    return isUrgentRepairTarget(target);
+  }
+
   return task.type === 'build' && isCapacityEnablingConstructionSite(target);
+}
+
+function isUrgentRepairTask(task: CreepTaskMemory): boolean {
+  return task.type === 'repair' && isUrgentRepairTarget(getTaskTarget(task));
+}
+
+function isUrgentRepairTarget(target: unknown): boolean {
+  if (!isRepairPreemptionStructure(target) || isWorkerRepairTargetComplete(target)) {
+    return false;
+  }
+
+  if (isBuildPreemptionCriticalSpawnRepairTarget(target)) {
+    return true;
+  }
+
+  if (isBuildPreemptionBarrierRepairTarget(target)) {
+    return (
+      (isBuildPreemptionOwnedRampart(target) && target.hits <= EMERGENCY_RAMPART_REPAIR_HITS_CEILING) ||
+      target.hits <= BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING
+    );
+  }
+
+  return isBuildPreemptionCriticalRoadOrContainerRepairTarget(target);
 }
 
 function getTaskTarget(task: CreepTaskMemory): unknown {
