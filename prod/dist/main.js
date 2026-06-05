@@ -26696,6 +26696,10 @@ function selectCriticalCpuWorkerTask(creep) {
   if (emergencySpawnOrExtensionRefillTask) {
     return emergencySpawnOrExtensionRefillTask;
   }
+  const missingSpawnConstructionSite = selectMissingSpawnRecoveryConstructionSite(creep);
+  if (missingSpawnConstructionSite) {
+    return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: missingSpawnConstructionSite.id });
+  }
   const emergencyRampartRepairTarget = selectEmergencyOwnedRampartRepairTarget(creep);
   if (emergencyRampartRepairTarget) {
     return applyMinimumUsefulLoadPolicy(creep, {
@@ -26709,10 +26713,6 @@ function selectCriticalCpuWorkerTask(creep) {
       type: "repair",
       targetId: threatenedBarrierRepairTarget.id
     });
-  }
-  const missingSpawnConstructionSite = selectMissingSpawnRecoveryConstructionSite(creep);
-  if (missingSpawnConstructionSite) {
-    return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: missingSpawnConstructionSite.id });
   }
   const storedProtectedConstructionTask = selectStoredProtectedSourceContainerConstructionTask(creep);
   if (storedProtectedConstructionTask) {

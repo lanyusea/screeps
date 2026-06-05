@@ -12444,6 +12444,48 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
+  it('keeps carried spawn recovery ahead of near-floor rampart repair under critical CPU bucket pressure', () => {
+    const spawnSite = {
+      id: 'spawn-site1',
+      structureType: 'spawn',
+      progress: 0,
+      progressTotal: 15_000
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const rampart = makeStructure(
+      'rampart-near-floor',
+      'rampart' as StructureConstant,
+      EMERGENCY_RAMPART_REPAIR_HITS_CEILING + 1,
+      300_000,
+      { my: true }
+    );
+    const creep = {
+      name: 'RecoveryBuilder',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: makeWorkerTaskRoom({
+        constructionSites: [spawnSite],
+        controller,
+        energyAvailable: 0,
+        energyCapacityAvailable: 650,
+        myStructures: [],
+        structures: [rampart]
+      })
+    } as unknown as Creep;
+    setGameCreeps({ RecoveryBuilder: creep });
+    setCpuBucket(43);
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'spawn-site1' });
+  });
+
   it('uses the survival buffer multiplier before selecting construction spending', () => {
     const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
     const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
