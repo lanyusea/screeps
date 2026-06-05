@@ -373,6 +373,11 @@ function selectCriticalCpuWorkerTask(creep: Creep): CreepTaskMemory | null {
     return emergencySpawnOrExtensionRefillTask;
   }
 
+  const missingSpawnConstructionSite = selectMissingSpawnRecoveryConstructionSite(creep);
+  if (missingSpawnConstructionSite) {
+    return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: missingSpawnConstructionSite.id });
+  }
+
   const emergencyRampartRepairTarget = selectEmergencyOwnedRampartRepairTarget(creep);
   if (emergencyRampartRepairTarget) {
     return applyMinimumUsefulLoadPolicy(creep, {
@@ -387,11 +392,6 @@ function selectCriticalCpuWorkerTask(creep: Creep): CreepTaskMemory | null {
       type: 'repair',
       targetId: threatenedBarrierRepairTarget.id as Id<Structure>
     });
-  }
-
-  const missingSpawnConstructionSite = selectMissingSpawnRecoveryConstructionSite(creep);
-  if (missingSpawnConstructionSite) {
-    return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: missingSpawnConstructionSite.id });
   }
 
   const storedProtectedConstructionTask = selectStoredProtectedSourceContainerConstructionTask(creep);
@@ -7521,7 +7521,7 @@ function isEmergencyOwnedRampartRepairTarget(structure: AnyStructure): structure
     matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') &&
     isOwnedRampart(structure) &&
     !isWorkerRepairTargetComplete(structure) &&
-    structure.hits <= EMERGENCY_RAMPART_REPAIR_HITS_CEILING
+    structure.hits < BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING
   );
 }
 
