@@ -4628,6 +4628,155 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('preempts assigned construction for emergency owned rampart repair', () => {
+    const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
+    const rampart = {
+      id: 'rampart-critical',
+      structureType: 'rampart',
+      my: true,
+      hits: 3_601,
+      hitsMax: 30_000_000
+    } as StructureRampart;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      spawning: null,
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+    } as unknown as StructureSpawn;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const build = jest.fn();
+    const repair = jest.fn().mockReturnValue(0);
+    const room = {
+      name: 'E29N55',
+      energyAvailable: 800,
+      energyCapacityAvailable: 2300,
+      controller,
+      find: jest.fn((type: number) => {
+        if (type === FIND_MY_STRUCTURES) {
+          return [spawn];
+        }
+
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [site];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [rampart];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const creep = {
+      name: 'Builder',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      build,
+      repair,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Builder: creep },
+      getObjectById: jest.fn((id: string) =>
+        id === 'rampart-critical' ? rampart : id === 'site1' ? site : null
+      ) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'repair', targetId: 'rampart-critical' });
+    expect(repair).toHaveBeenCalledWith(rampart);
+    expect(build).not.toHaveBeenCalled();
+  });
+
+  it('returns partial acquired energy for emergency owned rampart repair', () => {
+    const source = { id: 'source1', energy: 3_000 } as Source;
+    const rampart = {
+      id: 'rampart-critical',
+      structureType: 'rampart',
+      my: true,
+      hits: 3_601,
+      hitsMax: 30_000_000
+    } as StructureRampart;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      spawning: null,
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+    } as unknown as StructureSpawn;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const harvest = jest.fn();
+    const repair = jest.fn().mockReturnValue(0);
+    const room = {
+      name: 'E29N55',
+      energyAvailable: 800,
+      energyCapacityAvailable: 2300,
+      controller,
+      find: jest.fn((type: number) => {
+        if (type === FIND_MY_STRUCTURES) {
+          return [spawn];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [rampart];
+        }
+
+        if (type === FIND_SOURCES) {
+          return [source];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const creep = {
+      name: 'Harvester',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'harvest', targetId: 'source1' as Id<Source> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(10),
+        getFreeCapacity: jest.fn().mockReturnValue(40),
+        getCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      harvest,
+      repair,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Harvester: creep },
+      getObjectById: jest.fn((id: string) =>
+        id === 'rampart-critical' ? rampart : id === 'source1' ? source : null
+      ) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'repair', targetId: 'rampart-critical' });
+    expect(repair).toHaveBeenCalledWith(rampart);
+    expect(harvest).not.toHaveBeenCalled();
+  });
+
   it('preempts construction for fillable spawn energy after urgent pressure has cleared', () => {
     const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
     const spawn = {
