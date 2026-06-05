@@ -8187,10 +8187,13 @@ describe('planTerritoryIntent', () => {
     });
   });
 
-  it('recovers suspended reserve-first remote mining from preserved sources after cooldown without target visibility', () => {
+  it('keeps suspended reserve-first remote mining without visibility until a safe visible refresh', () => {
+    installRemoteMiningPlanningGlobals();
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     const colony = makeSafeColony();
     const suspendedAt = 700;
-    const recoveredAt = suspendedAt + TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS + 1;
+    const notVisibleAt = suspendedAt + TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS + 1;
+    const visibleSafeAt = notVisibleAt + 1;
     const existingSources: Record<string, TerritoryRemoteMiningSourceMemory> = {
       source1: {
         sourceId: 'source1',
@@ -8202,6 +8205,13 @@ describe('planTerritoryIntent', () => {
         energyAvailable: 300,
         energyFlowing: true
       }
+    };
+    const existingRemoteMining: TerritoryRemoteMiningRoomMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'suspended',
+      updatedAt: suspendedAt,
+      sources: existingSources
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
@@ -8220,29 +8230,62 @@ describe('planTerritoryIntent', () => {
           }
         ],
         remoteMining: {
-          'W1N1:W2N1': {
-            colony: 'W1N1',
-            roomName: 'W2N1',
-            status: 'suspended',
-            updatedAt: suspendedAt,
-            sources: existingSources
-          }
+          'W1N1:W2N1': existingRemoteMining
         }
       }
     };
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
-      time: recoveredAt,
+      time: notVisibleAt,
       rooms: { W1N1: colony.room }
     };
 
-    refreshRemoteMiningSetup(colony, recoveredAt);
+    refreshRemoteMiningSetup(colony, notVisibleAt);
+
+    expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toBe(existingRemoteMining);
+    expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toEqual({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'suspended',
+      updatedAt: suspendedAt,
+      sources: existingSources
+    });
+
+    const container = makeRemoteMiningContainer('container1', 300);
+    const remoteHarvester = makeAssignedRemoteMiningCreep('remoteHarvester', 'W2N1');
+    const visibleSafeRoom = makeRemoteMiningRoom({
+      structures: [container],
+      creeps: [remoteHarvester],
+      controller: {
+        id: 'controller2' as Id<StructureController>,
+        my: false,
+        pos: { x: 25, y: 25, roomName: 'W2N1' } as RoomPosition,
+        reservation: { username: 'me', ticksToEnd: 4_000 }
+      } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: visibleSafeAt,
+      rooms: { W1N1: colony.room, W2N1: visibleSafeRoom }
+    };
+
+    refreshRemoteMiningSetup(colony, visibleSafeAt);
 
     expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toEqual({
       colony: 'W1N1',
       roomName: 'W2N1',
       status: 'active',
-      updatedAt: recoveredAt,
-      sources: existingSources
+      updatedAt: visibleSafeAt,
+      sources: {
+        source1: {
+          sourceId: 'source1',
+          containerId: 'container1',
+          containerBuilt: true,
+          containerSitePending: false,
+          harvesterAssigned: true,
+          haulerAssigned: false,
+          energyAvailable: 300,
+          energyFlowing: true
+        }
+      }
     });
   });
 

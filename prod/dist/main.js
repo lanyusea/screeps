@@ -22287,7 +22287,7 @@ function getNotVisibleRemoteMiningStatus(previous, sources, suspended) {
     return "suspended";
   }
   if ((previous == null ? void 0 : previous.status) === "suspended") {
-    return getRemoteMiningStatus(Object.values(sources));
+    return "suspended";
   }
   return (_a2 = previous == null ? void 0 : previous.status) != null ? _a2 : "containerPending";
 }
