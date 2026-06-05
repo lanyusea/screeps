@@ -167,6 +167,17 @@ describe('runtime telemetry summaries', () => {
               urgency: 'critical'
             }
           },
+          constructionScoring: {
+            source: 'runtime-summary',
+            loopRan: true,
+            skipped: false,
+            rawCandidateCount: 4,
+            viableCandidateCount: 4,
+            suppressedCandidateCount: 3,
+            dominantSuppressionReason: 'lower_ranked_candidate',
+            acceptedCandidateCount: 1,
+            sitePlacementAttempted: false
+          },
           structures: {
             towerCount: 0,
             rampartCount: 0,
@@ -575,6 +586,17 @@ describe('runtime telemetry summaries', () => {
     const payload = parseLoggedSummary();
     const [room] = payload.rooms as Array<Record<string, unknown>>;
     expect(room.constructionPriority).toEqual({ candidates: [], nextPrimary: null });
+    expect(room.constructionScoring).toEqual({
+      source: 'runtime-summary',
+      loopRan: false,
+      skipped: true,
+      skipReason: 'lowBucket',
+      rawCandidateCount: 0,
+      viableCandidateCount: 0,
+      suppressedCandidateCount: 0,
+      acceptedCandidateCount: 0,
+      sitePlacementAttempted: false
+    });
     expect(room.territoryExpansion).toBeUndefined();
     expect(room.behavior).toBeUndefined();
     expect(room.workerEfficiency).toBeUndefined();
@@ -582,6 +604,38 @@ describe('runtime telemetry summaries', () => {
     expect(room.refillWorkerUtilization).toBeUndefined();
     expect(room.workerEnergyThroughput).toBeUndefined();
     expect(onStrategyRegistryRuntimeUse).not.toHaveBeenCalled();
+  });
+
+  it('reports construction scoring skipped by low-bucket CPU recovery', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL * 5,
+      includeEventLog: false
+    });
+    (Game as Partial<Game>).cpu = {
+      getUsed: jest.fn().mockReturnValue(18),
+      limit: 70,
+      bucket: 1_100,
+      tickLimit: 500
+    } as unknown as CPU;
+
+    emitRuntimeSummary([colony], [], [], {
+      strategyRegistry: DEFAULT_STRATEGY_REGISTRY
+    });
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.constructionPriority).toEqual({ candidates: [], nextPrimary: null });
+    expect(room.constructionScoring).toEqual({
+      source: 'runtime-summary',
+      loopRan: false,
+      skipped: true,
+      skipReason: 'lowBucketRecovery',
+      rawCandidateCount: 0,
+      viableCandidateCount: 0,
+      suppressedCandidateCount: 0,
+      acceptedCandidateCount: 0,
+      sitePlacementAttempted: false
+    });
   });
 
   it('omits optional room telemetry after the current tick exceeds its CPU limit', () => {
@@ -1704,6 +1758,16 @@ describe('runtime telemetry summaries', () => {
         score: 0
       }
     });
+    expect(room.constructionScoring).toEqual({
+      source: 'runtime-summary',
+      loopRan: true,
+      skipped: false,
+      rawCandidateCount: 0,
+      viableCandidateCount: 0,
+      suppressedCandidateCount: 0,
+      acceptedCandidateCount: 0,
+      sitePlacementAttempted: false
+    });
     expect(room.constructionActivity).toEqual({
       source: 'runtime-summary',
       state: 'no_viable_candidate',
@@ -1781,9 +1845,49 @@ describe('runtime telemetry summaries', () => {
         urgency: 'critical'
       }
     });
+    expect(room.constructionScoring).toEqual({
+      source: 'runtime-summary',
+      loopRan: true,
+      skipped: false,
+      rawCandidateCount: 4,
+      viableCandidateCount: 4,
+      suppressedCandidateCount: 3,
+      dominantSuppressionReason: 'lower_ranked_candidate',
+      acceptedCandidateCount: 1,
+      sitePlacementAttempted: false
+    });
     expect((room.resources as Record<string, Record<string, unknown>>).productiveEnergy.constructionActivity).toEqual(
       room.constructionActivity
     );
+  });
+
+  it('reports an accepted construction scoring candidate when a viable primary build candidate exists', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false
+    });
+
+    emitRuntimeSummary([colony], []);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.constructionScoring).toMatchObject({
+      source: 'runtime-summary',
+      loopRan: true,
+      skipped: false,
+      rawCandidateCount: 4,
+      viableCandidateCount: 4,
+      acceptedCandidateCount: 1,
+      sitePlacementAttempted: false
+    });
+    expect(room.constructionActivity).toMatchObject({
+      candidate: {
+        buildItem: 'build rampart defense',
+        room: 'W1N1',
+        score: 49,
+        urgency: 'critical'
+      }
+    });
   });
 
   it('does not report an energy-buffer or spawn-reservation construction block when E29N57 has stored energy for build work', () => {

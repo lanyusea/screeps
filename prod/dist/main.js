@@ -180,6 +180,7 @@ function normalizeRuntimeSummaryRoom(rawRoom) {
     ...isRecord(rawRoom.resources) ? { resources: normalizeResourceSummary(rawRoom.resources) } : {},
     ...isRecord(rawRoom.combat) ? { combat: normalizeCombatSummary(rawRoom.combat) } : {},
     ...isRecord(rawRoom.constructionPriority) ? { constructionPriority: normalizeConstructionPrioritySummary(rawRoom.constructionPriority) } : {},
+    ...isRecord(rawRoom.constructionScoring) ? { constructionScoring: normalizeConstructionScoringSummary(rawRoom.constructionScoring) } : {},
     ...isRecord(rawRoom.territoryRecommendation) ? { territoryRecommendation: normalizeTerritoryRecommendationSummary(rawRoom.territoryRecommendation) } : {}
   };
 }
@@ -271,6 +272,21 @@ function normalizeConstructionPrioritySummary(rawSummary) {
   return {
     ...Array.isArray(rawSummary.candidates) ? { candidates: rawSummary.candidates.flatMap(normalizeConstructionCandidate) } : {},
     ...rawSummary.nextPrimary === null ? { nextPrimary: null } : isRecord(rawSummary.nextPrimary) ? { nextPrimary: (_a2 = normalizeConstructionCandidate(rawSummary.nextPrimary)[0]) != null ? _a2 : null } : {}
+  };
+}
+function normalizeConstructionScoringSummary(rawSummary) {
+  return {
+    ...isNonEmptyString(rawSummary.source) ? { source: rawSummary.source } : {},
+    ...typeof rawSummary.loopRan === "boolean" ? { loopRan: rawSummary.loopRan } : {},
+    ...typeof rawSummary.skipped === "boolean" ? { skipped: rawSummary.skipped } : {},
+    ...isNonEmptyString(rawSummary.skipReason) ? { skipReason: rawSummary.skipReason } : {},
+    ...isFiniteNumber(rawSummary.rawCandidateCount) ? { rawCandidateCount: rawSummary.rawCandidateCount } : {},
+    ...isFiniteNumber(rawSummary.viableCandidateCount) ? { viableCandidateCount: rawSummary.viableCandidateCount } : {},
+    ...isFiniteNumber(rawSummary.suppressedCandidateCount) ? { suppressedCandidateCount: rawSummary.suppressedCandidateCount } : {},
+    ...isNonEmptyString(rawSummary.dominantSuppressionReason) ? { dominantSuppressionReason: rawSummary.dominantSuppressionReason } : {},
+    ...isFiniteNumber(rawSummary.acceptedCandidateCount) ? { acceptedCandidateCount: rawSummary.acceptedCandidateCount } : {},
+    ...typeof rawSummary.sitePlacementAttempted === "boolean" ? { sitePlacementAttempted: rawSummary.sitePlacementAttempted } : {},
+    ...isNonEmptyString(rawSummary.sitePlacementFailureReason) ? { sitePlacementFailureReason: rawSummary.sitePlacementFailureReason } : {}
   };
 }
 function normalizeConstructionCandidate(rawCandidate) {
@@ -12503,9 +12519,13 @@ var OBSERVATION_LABELS = {
 };
 function scoreConstructionPriorities(roomState, candidates, options = {}) {
   const scoredCandidates = candidates.map((candidate) => scoreConstructionCandidate(roomState, candidate, options)).sort(compareConstructionPriorityScores);
+  const rawCandidateCount = resolveScoringRawCandidateCount(options.rawCandidateCount, scoredCandidates.length);
+  const telemetryCandidates = scoredCandidates.slice(0, rawCandidateCount);
+  const nextPrimary = selectNextPrimaryConstruction(scoredCandidates);
   return {
     candidates: scoredCandidates,
-    nextPrimary: selectNextPrimaryConstruction(scoredCandidates)
+    nextPrimary,
+    scoring: summarizeConstructionPriorityScoring(telemetryCandidates, nextPrimary)
   };
 }
 function scoreConstructionCandidate(roomState, candidate, options = {}) {
@@ -12577,6 +12597,80 @@ function selectNextPrimaryConstruction(candidates) {
     return null;
   }
   return (_a2 = candidates.find((candidate) => !candidate.blocked)) != null ? _a2 : candidates[0];
+}
+function resolveScoringRawCandidateCount(value, fallback) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.max(0, Math.floor(value));
+}
+function summarizeConstructionPriorityScoring(candidates, nextPrimary) {
+  const acceptedCandidateCount = isAcceptedConstructionScoringCandidate(nextPrimary) ? 1 : 0;
+  const viableCandidateCount = candidates.filter(isViableConstructionScoringCandidate).length;
+  const suppressionReasons = candidates.flatMap((candidate) => {
+    const reason = getConstructionScoringSuppressionReason(candidate, nextPrimary);
+    return reason ? [reason] : [];
+  });
+  return {
+    loopRan: true,
+    skipped: false,
+    rawCandidateCount: candidates.length,
+    viableCandidateCount,
+    suppressedCandidateCount: suppressionReasons.length,
+    acceptedCandidateCount,
+    sitePlacementAttempted: false,
+    ...getDominantConstructionScoringSuppressionReason(suppressionReasons)
+  };
+}
+function isAcceptedConstructionScoringCandidate(candidate) {
+  return candidate !== null && isViableConstructionScoringCandidate(candidate);
+}
+function isViableConstructionScoringCandidate(candidate) {
+  return candidate.policyAction === "build" && !candidate.blocked && candidate.score > 0 && candidate.urgency !== "blocked";
+}
+function getConstructionScoringSuppressionReason(candidate, nextPrimary) {
+  if (candidate === nextPrimary && isViableConstructionScoringCandidate(candidate)) {
+    return null;
+  }
+  if (candidate.blocked || candidate.urgency === "blocked") {
+    return "blocked_preconditions";
+  }
+  if (candidate.policyAction !== "build") {
+    return "non_build_policy_action";
+  }
+  if (candidate.score <= 0) {
+    return "non_positive_score";
+  }
+  return "lower_ranked_candidate";
+}
+function getDominantConstructionScoringSuppressionReason(reasons) {
+  var _a2, _b;
+  if (reasons.length === 0) {
+    return {};
+  }
+  const counts = /* @__PURE__ */ new Map();
+  for (const reason of reasons) {
+    counts.set(reason, ((_a2 = counts.get(reason)) != null ? _a2 : 0) + 1);
+  }
+  const dominantReason = (_b = [...counts.entries()].sort(compareConstructionScoringSuppressionReasonCounts)[0]) == null ? void 0 : _b[0];
+  return dominantReason ? { dominantSuppressionReason: dominantReason } : {};
+}
+function compareConstructionScoringSuppressionReasonCounts(left, right) {
+  return right[1] - left[1] || constructionScoringSuppressionReasonRank(left[0]) - constructionScoringSuppressionReasonRank(right[0]) || left[0].localeCompare(right[0]);
+}
+function constructionScoringSuppressionReasonRank(reason) {
+  switch (reason) {
+    case "blocked_preconditions":
+      return 0;
+    case "non_build_policy_action":
+      return 1;
+    case "non_positive_score":
+      return 2;
+    case "lower_ranked_candidate":
+      return 3;
+    default:
+      return 4;
+  }
 }
 function shouldPrioritizeSourceLogisticsConstruction(room) {
   return isSourceLogisticsEnergyStarved(
@@ -12654,7 +12748,12 @@ function getPostClaimConstructionSiteImpactPriority(site, context) {
 }
 function buildRuntimeConstructionPriorityReport(colony, creeps, options = {}) {
   const state = buildRuntimeConstructionPriorityState(colony, creeps);
-  return scoreConstructionPriorities(state, buildRuntimeConstructionCandidates(state), options);
+  const rawCandidates = buildRuntimeConstructionCandidates(state);
+  const candidates = rawCandidates.length > 0 ? rawCandidates : [createRuntimeConstructionObservationCandidate()];
+  return scoreConstructionPriorities(state, candidates, {
+    ...options,
+    rawCandidateCount: rawCandidates.length
+  });
 }
 function selectConstructionPriorityStrategyRegistryEntry(registry) {
   var _a2;
@@ -13653,24 +13752,21 @@ function sumStoredEnergy(objects) {
   return objects.reduce((total, object) => total + getStoredEnergy5(object), 0);
 }
 function buildRuntimeConstructionCandidates(state) {
-  const candidates = [
+  return [
     ...buildExistingSiteCandidates(state),
     ...buildPlannedLocalCandidates(state),
     ...buildRemoteLogisticsCandidates(state)
   ];
-  if (candidates.length > 0) {
-    return candidates;
-  }
-  return [
-    {
-      buildItem: "observe construction backlog",
-      buildType: "observation",
-      requiredObservations: ["construction-sites"],
-      expectedKpiMovement: ["construction priority table becomes evidence-backed"],
-      risk: ["no build action should be selected until construction-site observations exist"],
-      vision: { resources: 0.2 }
-    }
-  ];
+}
+function createRuntimeConstructionObservationCandidate() {
+  return {
+    buildItem: "observe construction backlog",
+    buildType: "observation",
+    requiredObservations: ["construction-sites"],
+    expectedKpiMovement: ["construction priority table becomes evidence-backed"],
+    risk: ["no build action should be selected until construction-site observations exist"],
+    vision: { resources: 0.2 }
+  };
 }
 function buildExistingSiteCandidates(state) {
   var _a2;
@@ -39821,12 +39917,13 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     territoryExpansion,
     tick
   );
-  const constructionPriority = includeOptionalSummary ? summarizeConstructionPriority(
+  const constructionPriorityEvaluation = includeOptionalSummary ? summarizeConstructionPriority(
     colony,
     colonyWorkers,
     strategyRegistry,
     onStrategyRegistryRuntimeUse
-  ) : emptyConstructionPrioritySummary();
+  ) : emptyConstructionPriorityEvaluation(cpuBudget);
+  const { constructionPriority, constructionScoring } = constructionPriorityEvaluation;
   const constructionActivity = summarizeConstructionActivity(
     resourcesWithoutActivity.productiveEnergy,
     constructionPriority,
@@ -39855,6 +39952,7 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     constructionSiteCount: resources.productiveEnergy.constructionSiteCount,
     constructionDeadlockTicks,
     constructionActivity,
+    constructionScoring,
     ...includeOptionalSummary ? summarizeRuntimeBehavior(colonyWorkers, colonyCreeps, tick) : {},
     ...includeStructureSnapshot ? { structures: summarizeStructures(colony, colonyWorkers) } : {},
     ...includeOptionalSummary ? summarizeWorkerEfficiency(colonyWorkers, tick) : {},
@@ -39956,6 +40054,36 @@ function emptyConstructionPrioritySummary() {
     candidates: [],
     nextPrimary: null
   };
+}
+function emptyConstructionPriorityEvaluation(cpuBudget) {
+  return {
+    constructionPriority: emptyConstructionPrioritySummary(),
+    constructionScoring: {
+      source: "runtime-summary",
+      loopRan: false,
+      skipped: true,
+      skipReason: selectConstructionScoringSkipReason(cpuBudget),
+      rawCandidateCount: 0,
+      viableCandidateCount: 0,
+      suppressedCandidateCount: 0,
+      acceptedCandidateCount: 0,
+      sitePlacementAttempted: false
+    }
+  };
+}
+function selectConstructionScoringSkipReason(cpuBudget) {
+  for (const reason of [
+    "lowCpuLimit",
+    "criticalBucket",
+    "lowBucket",
+    "lowBucketRecovery",
+    "usedOverLimit"
+  ]) {
+    if (cpuBudget.reasons.includes(reason)) {
+      return reason;
+    }
+  }
+  return "optionalSummarySuppressed";
 }
 function emptyTerritoryRecommendationReport() {
   return {
@@ -41751,8 +41879,24 @@ function summarizeConstructionPriority(colony, colonyWorkers, strategyRegistry, 
     recordStrategyRegistryRuntimeUse2(strategyEntry, onStrategyRegistryRuntimeUse);
   }
   return {
-    candidates: report.candidates.map(toRuntimeConstructionPriorityCandidateSummary),
-    nextPrimary: report.nextPrimary ? toRuntimeConstructionPriorityCandidateSummary(report.nextPrimary) : null
+    constructionPriority: {
+      candidates: report.candidates.map(toRuntimeConstructionPriorityCandidateSummary),
+      nextPrimary: report.nextPrimary ? toRuntimeConstructionPriorityCandidateSummary(report.nextPrimary) : null
+    },
+    constructionScoring: toRuntimeConstructionScoringSummary(report.scoring)
+  };
+}
+function toRuntimeConstructionScoringSummary(scoring) {
+  return {
+    source: "runtime-summary",
+    loopRan: scoring.loopRan,
+    skipped: scoring.skipped,
+    rawCandidateCount: scoring.rawCandidateCount,
+    viableCandidateCount: scoring.viableCandidateCount,
+    suppressedCandidateCount: scoring.suppressedCandidateCount,
+    acceptedCandidateCount: scoring.acceptedCandidateCount,
+    sitePlacementAttempted: scoring.sitePlacementAttempted,
+    ...scoring.dominantSuppressionReason ? { dominantSuppressionReason: scoring.dominantSuppressionReason } : {}
   };
 }
 function recordStrategyRegistryRuntimeUse2(strategyEntry, onStrategyRegistryRuntimeUse) {

@@ -131,6 +131,7 @@ export interface ConstructionPriorityScore {
 export interface ConstructionPriorityReport {
   candidates: ConstructionPriorityScore[];
   nextPrimary: ConstructionPriorityScore | null;
+  scoring: ConstructionPriorityScoringSummary;
 }
 
 export interface ConstructionPriorityStrategyParameters {
@@ -143,6 +144,24 @@ export interface ConstructionPriorityStrategyParameters {
 
 export interface ConstructionPriorityScoringOptions {
   strategyParameters?: ConstructionPriorityStrategyParameters;
+  rawCandidateCount?: number;
+}
+
+export type ConstructionPriorityCandidateSuppressionReason =
+  | 'blocked_preconditions'
+  | 'lower_ranked_candidate'
+  | 'non_build_policy_action'
+  | 'non_positive_score';
+
+export interface ConstructionPriorityScoringSummary {
+  loopRan: true;
+  skipped: false;
+  rawCandidateCount: number;
+  viableCandidateCount: number;
+  suppressedCandidateCount: number;
+  acceptedCandidateCount: number;
+  sitePlacementAttempted: false;
+  dominantSuppressionReason?: ConstructionPriorityCandidateSuppressionReason;
 }
 
 export interface ConstructionPriorityPlanningOptions {
@@ -332,10 +351,14 @@ export function scoreConstructionPriorities(
   const scoredCandidates = candidates
     .map((candidate) => scoreConstructionCandidate(roomState, candidate, options))
     .sort(compareConstructionPriorityScores);
+  const rawCandidateCount = resolveScoringRawCandidateCount(options.rawCandidateCount, scoredCandidates.length);
+  const telemetryCandidates = scoredCandidates.slice(0, rawCandidateCount);
+  const nextPrimary = selectNextPrimaryConstruction(scoredCandidates);
 
   return {
     candidates: scoredCandidates,
-    nextPrimary: selectNextPrimaryConstruction(scoredCandidates)
+    nextPrimary,
+    scoring: summarizeConstructionPriorityScoring(telemetryCandidates, nextPrimary)
   };
 }
 
@@ -417,6 +440,113 @@ export function selectNextPrimaryConstruction(
   }
 
   return candidates.find((candidate) => !candidate.blocked) ?? candidates[0];
+}
+
+function resolveScoringRawCandidateCount(value: number | undefined, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.max(0, Math.floor(value));
+}
+
+function summarizeConstructionPriorityScoring(
+  candidates: ConstructionPriorityScore[],
+  nextPrimary: ConstructionPriorityScore | null
+): ConstructionPriorityScoringSummary {
+  const acceptedCandidateCount = isAcceptedConstructionScoringCandidate(nextPrimary) ? 1 : 0;
+  const viableCandidateCount = candidates.filter(isViableConstructionScoringCandidate).length;
+  const suppressionReasons = candidates.flatMap((candidate) => {
+    const reason = getConstructionScoringSuppressionReason(candidate, nextPrimary);
+    return reason ? [reason] : [];
+  });
+
+  return {
+    loopRan: true,
+    skipped: false,
+    rawCandidateCount: candidates.length,
+    viableCandidateCount,
+    suppressedCandidateCount: suppressionReasons.length,
+    acceptedCandidateCount,
+    sitePlacementAttempted: false,
+    ...getDominantConstructionScoringSuppressionReason(suppressionReasons)
+  };
+}
+
+function isAcceptedConstructionScoringCandidate(candidate: ConstructionPriorityScore | null): boolean {
+  return candidate !== null && isViableConstructionScoringCandidate(candidate);
+}
+
+function isViableConstructionScoringCandidate(candidate: ConstructionPriorityScore): boolean {
+  return candidate.policyAction === 'build' && !candidate.blocked && candidate.score > 0 && candidate.urgency !== 'blocked';
+}
+
+function getConstructionScoringSuppressionReason(
+  candidate: ConstructionPriorityScore,
+  nextPrimary: ConstructionPriorityScore | null
+): ConstructionPriorityCandidateSuppressionReason | null {
+  if (candidate === nextPrimary && isViableConstructionScoringCandidate(candidate)) {
+    return null;
+  }
+
+  if (candidate.blocked || candidate.urgency === 'blocked') {
+    return 'blocked_preconditions';
+  }
+
+  if (candidate.policyAction !== 'build') {
+    return 'non_build_policy_action';
+  }
+
+  if (candidate.score <= 0) {
+    return 'non_positive_score';
+  }
+
+  return 'lower_ranked_candidate';
+}
+
+function getDominantConstructionScoringSuppressionReason(
+  reasons: ConstructionPriorityCandidateSuppressionReason[]
+): { dominantSuppressionReason?: ConstructionPriorityCandidateSuppressionReason } {
+  if (reasons.length === 0) {
+    return {};
+  }
+
+  const counts = new Map<ConstructionPriorityCandidateSuppressionReason, number>();
+  for (const reason of reasons) {
+    counts.set(reason, (counts.get(reason) ?? 0) + 1);
+  }
+
+  const dominantReason = [...counts.entries()].sort(compareConstructionScoringSuppressionReasonCounts)[0]?.[0];
+  return dominantReason ? { dominantSuppressionReason: dominantReason } : {};
+}
+
+function compareConstructionScoringSuppressionReasonCounts(
+  left: [ConstructionPriorityCandidateSuppressionReason, number],
+  right: [ConstructionPriorityCandidateSuppressionReason, number]
+): number {
+  return (
+    right[1] - left[1] ||
+    constructionScoringSuppressionReasonRank(left[0]) -
+      constructionScoringSuppressionReasonRank(right[0]) ||
+    left[0].localeCompare(right[0])
+  );
+}
+
+function constructionScoringSuppressionReasonRank(
+  reason: ConstructionPriorityCandidateSuppressionReason
+): number {
+  switch (reason) {
+    case 'blocked_preconditions':
+      return 0;
+    case 'non_build_policy_action':
+      return 1;
+    case 'non_positive_score':
+      return 2;
+    case 'lower_ranked_candidate':
+      return 3;
+    default:
+      return 4;
+  }
 }
 
 export function buildConstructionSiteImpactPriorityContext(
@@ -570,7 +700,13 @@ export function buildRuntimeConstructionPriorityReport(
   options: ConstructionPriorityScoringOptions = {}
 ): ConstructionPriorityReport {
   const state = buildRuntimeConstructionPriorityState(colony, creeps);
-  return scoreConstructionPriorities(state, buildRuntimeConstructionCandidates(state), options);
+  const rawCandidates = buildRuntimeConstructionCandidates(state);
+  const candidates =
+    rawCandidates.length > 0 ? rawCandidates : [createRuntimeConstructionObservationCandidate()];
+  return scoreConstructionPriorities(state, candidates, {
+    ...options,
+    rawCandidateCount: rawCandidates.length
+  });
 }
 
 export function constructionPriorityStrategyParametersFromRegistry(
@@ -2219,26 +2355,22 @@ function sumStoredEnergy(objects: unknown[]): number {
 }
 
 function buildRuntimeConstructionCandidates(state: RuntimeConstructionPriorityState): ConstructionBuildCandidate[] {
-  const candidates = [
+  return [
     ...buildExistingSiteCandidates(state),
     ...buildPlannedLocalCandidates(state),
     ...buildRemoteLogisticsCandidates(state)
   ];
+}
 
-  if (candidates.length > 0) {
-    return candidates;
-  }
-
-  return [
-    {
-      buildItem: 'observe construction backlog',
-      buildType: 'observation',
-      requiredObservations: ['construction-sites'],
-      expectedKpiMovement: ['construction priority table becomes evidence-backed'],
-      risk: ['no build action should be selected until construction-site observations exist'],
-      vision: { resources: 0.2 }
-    }
-  ];
+function createRuntimeConstructionObservationCandidate(): ConstructionBuildCandidate {
+  return {
+    buildItem: 'observe construction backlog',
+    buildType: 'observation',
+    requiredObservations: ['construction-sites'],
+    expectedKpiMovement: ['construction priority table becomes evidence-backed'],
+    risk: ['no build action should be selected until construction-site observations exist'],
+    vision: { resources: 0.2 }
+  };
 }
 
 function buildExistingSiteCandidates(state: RuntimeConstructionPriorityState): ConstructionBuildCandidate[] {
