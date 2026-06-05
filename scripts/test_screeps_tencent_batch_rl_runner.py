@@ -4586,6 +4586,9 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             pre_scale_attempt = json.loads(pre_scale_attempt_path.read_text(encoding="utf-8"))
             timeout_attempt = json.loads(timeout_attempt_path.read_text(encoding="utf-8"))
             self.assertGreater(timeout_attempt["finishedAt"], pre_scale_attempt["finishedAt"])
+            same_mtime = 1_779_999_999
+            os.utime(pre_scale_attempt_path, (same_mtime, same_mtime))
+            os.utime(timeout_attempt_path, (same_mtime, same_mtime))
             args = runner.parse_cli_args([
                 "run-single",
                 "--run-id",
@@ -4725,11 +4728,11 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             )
             write_post_fix_validation_recovery_remote_timeout_summary(
                 artifact_root,
-                "postfix-room-busy-validation-timeout",
+                "z-postfix-room-busy-validation-timeout",
             )
             latest_recovery_path = write_post_fix_validation_recovery_remote_timeout_summary(
                 artifact_root,
-                "postfix-validation-run-timeout-2",
+                "a-postfix-validation-run-timeout-2",
             )
             latest_recovery = json.loads(latest_recovery_path.read_text(encoding="utf-8"))
             latest_recovery["finishedAt"] = "2026-06-02T00:16:27Z"
@@ -4743,7 +4746,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 "wallClockSeconds": 2941.509,
                 "runSummaries": [
                     {
-                        "runId": "postfix-validation-run-timeout-2-r04",
+                        "runId": "a-postfix-validation-run-timeout-2-r04",
                         "ok": False,
                         "totalEnvironments": 5,
                         "successful": 4,
@@ -4753,8 +4756,9 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 ],
             }
             latest_recovery_path.write_text(json.dumps(latest_recovery), encoding="utf-8")
-            touched_time = latest_recovery_path.stat().st_mtime + 10
-            os.utime(latest_recovery_path, (touched_time, touched_time))
+            same_mtime = 1_779_999_999
+            for summary_path in artifact_root.glob("*/controller-summary.json"):
+                os.utime(summary_path, (same_mtime, same_mtime))
             args = runner.parse_cli_args([
                 "run-single",
                 "--run-id",
@@ -4800,12 +4804,12 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_CONSUMED_STATUS)
         self.assertEqual(guard["postFixValidation"]["priorAttemptCount"], 3)
         prior_attempt = guard["postFixValidation"]["priorAttempt"]
-        self.assertEqual(prior_attempt["runId"], "postfix-validation-run-timeout-2")
+        self.assertEqual(prior_attempt["runId"], "a-postfix-validation-run-timeout-2")
         self.assertEqual(prior_attempt["partialSimulatorProgress"]["successfulEnvironmentRows"], 19)
         self.assertEqual(prior_attempt["partialSimulatorProgress"]["failedEnvironmentRows"], 1)
         self.assertEqual(
             prior_attempt["partialSimulatorProgress"]["notableRunSummaries"][0]["runId"],
-            "postfix-validation-run-timeout-2-r04",
+            "a-postfix-validation-run-timeout-2-r04",
         )
         recovery = guard["postFixValidation"]["recoveryEligibility"]
         self.assertFalse(recovery["eligible"])

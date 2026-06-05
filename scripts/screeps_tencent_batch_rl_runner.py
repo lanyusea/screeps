@@ -3597,7 +3597,19 @@ def paid_failure_post_fix_validation_attempts(
         )
         if item is not None and paid_failure_post_fix_attempt_consumes_validation_slot(item):
             attempts.append(item)
+    attempts.sort(key=paid_failure_post_fix_validation_attempt_order_key, reverse=True)
     return attempts
+
+
+def paid_failure_post_fix_validation_attempt_order_key(
+    attempt: dict[str, Any],
+) -> tuple[bool, float, str]:
+    epoch = paid_failure_summary_item_epoch(attempt)
+    return (
+        epoch is not None,
+        epoch if epoch is not None else 0.0,
+        text_value(attempt.get("summaryPath")) or "",
+    )
 
 
 def paid_failure_post_fix_validation_attempt_from_summary(
