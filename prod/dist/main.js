@@ -27083,6 +27083,15 @@ function selectHeuristicWorkerTask(creep) {
   if (capacityConstructionSite) {
     return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: capacityConstructionSite.id });
   }
+  const nearFullConstructionBacklogTask = selectNearFullConstructionBacklogTaskBeforeCriticalRepair(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    getShouldYieldSpawnReservationToConstructionBacklog
+  );
+  if (nearFullConstructionBacklogTask) {
+    return applyMinimumUsefulLoadPolicy(creep, nearFullConstructionBacklogTask);
+  }
   const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
   if (criticalRepairTarget) {
     return applyMinimumUsefulLoadPolicy(creep, {
@@ -29337,6 +29346,20 @@ function selectReadyFollowUpProductiveEnergySinkTask(creep, capacityConstruction
   );
   return criticalRoadConstructionSite ? { type: "build", targetId: criticalRoadConstructionSite.id } : null;
 }
+function selectNearFullConstructionBacklogTaskBeforeCriticalRepair(creep, constructionSites, constructionReservationContext, getShouldYieldSpawnReservationToConstructionBacklog) {
+  if (!isRoomEnergyFullOrCoveredByCarriedEnergy(creep.room, getUsedEnergy2(creep)) || !getShouldYieldSpawnReservationToConstructionBacklog() || shouldUpgradeForRcl3DefenseUnlock(creep, creep.room.controller)) {
+    return null;
+  }
+  const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const constructionSite = selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    () => true,
+    { priorityContext: constructionPriorityContext }
+  );
+  return constructionSite ? { type: "build", targetId: constructionSite.id } : null;
+}
 function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(creep, spawnOrExtensionEnergySink, constructionSites, constructionReservationContext, getShouldYieldSpawnReservationToConstructionBacklog) {
   const deferForHealthyBuffer = shouldDeferIdleSpawnExtensionRefillForHealthyBuffer(
     creep,
@@ -29398,6 +29421,14 @@ function hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep) {
 function hasHealthyRoomEnergyBuffer(room) {
   const energyAvailable = getRoomEnergyAvailable10(room);
   return energyAvailable !== null && energyAvailable >= getEffectiveRoomEnergyBufferThreshold(room);
+}
+function isRoomEnergyFullOrCoveredByCarriedEnergy(room, carriedEnergy) {
+  const energyAvailable = getRoomEnergyAvailable10(room);
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable7(room);
+  if (carriedEnergy <= 0 || energyAvailable === null || energyCapacityAvailable === null || energyCapacityAvailable <= 0) {
+    return false;
+  }
+  return Math.max(0, energyCapacityAvailable - energyAvailable) <= carriedEnergy;
 }
 function hasActiveSpawningSpawn(room) {
   return findSpawnExtensionEnergyStructures(room).some(
@@ -32873,6 +32904,8 @@ function runWorker(creep) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForSpawnReservationRefill(currentTask, spawnReservationRefillTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPreemptEnergyAcquisitionTaskForNearFullConstruction(creep, currentTask, selectedTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptTaskForUrgentRepair(currentTask, selectedTask)) {
@@ -33045,12 +33078,17 @@ function selectWorkerTaskContext(creep, currentTask) {
   var _a2;
   const baseSelectedTask = selectWorkerTaskForRunner(creep);
   const energyCriticalTask = selectWorkerEnergyCriticalTask(creep, currentTask, baseSelectedTask);
+  const effectiveEnergyCriticalTask = shouldYieldStorageCriticalAcquisitionToNearFullConstruction(
+    creep,
+    energyCriticalTask,
+    baseSelectedTask
+  ) ? null : energyCriticalTask;
   const spawnReservationRefillTask = selectSpawnEnergyReservationRefillTask(
     creep,
     currentTask,
-    energyCriticalTask != null ? energyCriticalTask : baseSelectedTask
+    effectiveEnergyCriticalTask != null ? effectiveEnergyCriticalTask : baseSelectedTask
   );
-  const selectedTask = (_a2 = spawnReservationRefillTask != null ? spawnReservationRefillTask : energyCriticalTask) != null ? _a2 : baseSelectedTask;
+  const selectedTask = (_a2 = spawnReservationRefillTask != null ? spawnReservationRefillTask : effectiveEnergyCriticalTask) != null ? _a2 : baseSelectedTask;
   return { baseSelectedTask, energyCriticalTask, selectedTask, spawnReservationRefillTask };
 }
 function getCriticalCpuTaskRetentionDecision(creep, task) {
@@ -33501,6 +33539,10 @@ function getRoomEnergyAvailable12(room) {
   const energyAvailable = room.energyAvailable;
   return typeof energyAvailable === "number" && Number.isFinite(energyAvailable) ? Math.max(0, energyAvailable) : null;
 }
+function getRoomEnergyCapacityAvailable8(room) {
+  const energyCapacityAvailable = room.energyCapacityAvailable;
+  return typeof energyCapacityAvailable === "number" && Number.isFinite(energyCapacityAvailable) ? Math.max(0, energyCapacityAvailable) : null;
+}
 function getCarriedEnergy4(creep) {
   return getStoredEnergy17(creep);
 }
@@ -33750,6 +33792,9 @@ function shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, task, selecte
 }
 function shouldPreemptEnergyAcquisitionTaskForSpawnReservationRefill(task, spawnReservationRefillTask) {
   return isEnergyAcquisitionTask2(task) && (spawnReservationRefillTask == null ? void 0 : spawnReservationRefillTask.type) === "transfer" && !isSameTask2(task, spawnReservationRefillTask);
+}
+function shouldPreemptEnergyAcquisitionTaskForNearFullConstruction(creep, task, selectedTask) {
+  return isEnergyAcquisitionTask2(task) && selectedTask !== null && !isSameTask2(task, selectedTask) && shouldYieldStorageCriticalAcquisitionToNearFullConstruction(creep, task, selectedTask);
 }
 function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, task, selectedTask) {
   var _a2;
@@ -34031,14 +34076,38 @@ function isCapacityEnablingConstructionSite2(target) {
   if (typeof structureType !== "string") {
     return false;
   }
-  return matchesCapacityConstructionStructureType(structureType, "STRUCTURE_SPAWN", "spawn") || matchesCapacityConstructionStructureType(structureType, "STRUCTURE_EXTENSION", "extension");
+  return matchesConstructionStructureType(structureType, "STRUCTURE_SPAWN", "spawn") || matchesConstructionStructureType(structureType, "STRUCTURE_EXTENSION", "extension");
+}
+function shouldYieldStorageCriticalAcquisitionToNearFullConstruction(creep, acquisitionTask, selectedTask) {
+  var _a2, _b;
+  if (acquisitionTask === null || !isEnergyAcquisitionTask2(acquisitionTask) || (selectedTask == null ? void 0 : selectedTask.type) !== "build" || ((_b = (_a2 = creep.memory) == null ? void 0 : _a2.workerEnergyCriticalPolicy) == null ? void 0 : _b.reason) !== "storage") {
+    return false;
+  }
+  const carriedEnergy = getUsedTransferEnergy(creep);
+  const constructionSite = getTaskTarget(selectedTask);
+  return carriedEnergy > 0 && isRoomEnergyFullOrCoveredByCarriedEnergy2(creep.room, carriedEnergy) && isCriticalConstructionSite(constructionSite) && canSpendWorkerEnergyOnConstructionSite(creep, constructionSite);
+}
+function isCriticalConstructionSite(target) {
+  const structureType = target == null ? void 0 : target.structureType;
+  if (typeof structureType !== "string") {
+    return false;
+  }
+  return matchesConstructionStructureType(structureType, "STRUCTURE_SPAWN", "spawn") || matchesConstructionStructureType(structureType, "STRUCTURE_EXTENSION", "extension") || matchesConstructionStructureType(structureType, "STRUCTURE_TOWER", "tower") || matchesConstructionStructureType(structureType, "STRUCTURE_CONTAINER", "container") || matchesConstructionStructureType(structureType, "STRUCTURE_ROAD", "road");
+}
+function isRoomEnergyFullOrCoveredByCarriedEnergy2(room, carriedEnergy) {
+  const energyAvailable = getRoomEnergyAvailable12(room);
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable8(room);
+  if (carriedEnergy <= 0 || energyAvailable === null || energyCapacityAvailable === null || energyCapacityAvailable <= 0) {
+    return false;
+  }
+  return Math.max(0, energyCapacityAvailable - energyAvailable) <= carriedEnergy;
 }
 function isSpawnConstructionTaskTarget(target) {
   const structureType = target == null ? void 0 : target.structureType;
   if (typeof structureType !== "string") {
     return false;
   }
-  return matchesCapacityConstructionStructureType(structureType, "STRUCTURE_SPAWN", "spawn");
+  return matchesConstructionStructureType(structureType, "STRUCTURE_SPAWN", "spawn");
 }
 function getFreeTransferEnergyCapacity(target) {
   var _a2;
@@ -34157,7 +34226,7 @@ function matchesTransferSinkStructureType(actual, globalName, fallback) {
   const constants = globalThis;
   return actual === ((_a2 = constants[globalName]) != null ? _a2 : fallback);
 }
-function matchesCapacityConstructionStructureType(actual, globalName, fallback) {
+function matchesConstructionStructureType(actual, globalName, fallback) {
   var _a2;
   const constants = globalThis;
   return actual === ((_a2 = constants[globalName]) != null ? _a2 : fallback);

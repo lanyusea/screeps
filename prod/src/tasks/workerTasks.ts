@@ -1027,6 +1027,16 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: capacityConstructionSite.id });
   }
 
+  const nearFullConstructionBacklogTask = selectNearFullConstructionBacklogTaskBeforeCriticalRepair(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    getShouldYieldSpawnReservationToConstructionBacklog
+  );
+  if (nearFullConstructionBacklogTask) {
+    return applyMinimumUsefulLoadPolicy(creep, nearFullConstructionBacklogTask);
+  }
+
   const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
   if (criticalRepairTarget) {
     return applyMinimumUsefulLoadPolicy(creep, {
@@ -4566,6 +4576,31 @@ function selectReadyFollowUpProductiveEnergySinkTask(
   return criticalRoadConstructionSite ? { type: 'build', targetId: criticalRoadConstructionSite.id } : null;
 }
 
+function selectNearFullConstructionBacklogTaskBeforeCriticalRepair(
+  creep: Creep,
+  constructionSites: ConstructionSite[],
+  constructionReservationContext: ConstructionReservationContext,
+  getShouldYieldSpawnReservationToConstructionBacklog: () => boolean
+): Extract<CreepTaskMemory, { type: 'build' }> | null {
+  if (
+    !isRoomEnergyFullOrCoveredByCarriedEnergy(creep.room, getUsedEnergy(creep)) ||
+    !getShouldYieldSpawnReservationToConstructionBacklog() ||
+    shouldUpgradeForRcl3DefenseUnlock(creep, creep.room.controller)
+  ) {
+    return null;
+  }
+
+  const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const constructionSite = selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    () => true,
+    { priorityContext: constructionPriorityContext }
+  );
+  return constructionSite ? { type: 'build', targetId: constructionSite.id } : null;
+}
+
 function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(
   creep: Creep,
   spawnOrExtensionEnergySink: StructureSpawn | StructureExtension | null,
@@ -4673,6 +4708,21 @@ function hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep: Creep):
 function hasHealthyRoomEnergyBuffer(room: Room): boolean {
   const energyAvailable = getRoomEnergyAvailable(room);
   return energyAvailable !== null && energyAvailable >= getEffectiveRoomEnergyBufferThreshold(room);
+}
+
+function isRoomEnergyFullOrCoveredByCarriedEnergy(room: Room, carriedEnergy: number): boolean {
+  const energyAvailable = getRoomEnergyAvailable(room);
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
+  if (
+    carriedEnergy <= 0 ||
+    energyAvailable === null ||
+    energyCapacityAvailable === null ||
+    energyCapacityAvailable <= 0
+  ) {
+    return false;
+  }
+
+  return Math.max(0, energyCapacityAvailable - energyAvailable) <= carriedEnergy;
 }
 
 function hasActiveSpawningSpawn(room: Room): boolean {
