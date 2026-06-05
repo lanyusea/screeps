@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -22,12 +23,16 @@ import screeps_rl_live_dashboard as live_dashboard
 SCHEMA_VERSION = 1
 TRAINING_LEDGER_TYPE = "screeps-rl-training-execution-ledger"
 POLICY_ADVANTAGE_TYPE = "screeps-rl-policy-online-advantage-report"
+REWARD_DECISION_RECORD_TYPE = "screeps-rl-reward-decision-record"
 STEWARD_DIGEST_TYPE = "screeps-rl-steward-bounded-digest"
 DEFAULT_ARTIFACT_ROOT = Path("runtime-artifacts")
 DEFAULT_CONTROL_LOOP_DIR = Path("runtime-artifacts/rl-control-loop")
 DEFAULT_MAX_FILES_PER_ROOT = 25
 DEFAULT_STDOUT_BYTES = 4096
 HISTORICAL_CONTEXT_ISSUES = [879, 893, 1589]
+REWARD_DECISION_SOURCE_ISSUE = 1690
+REWARD_DECISION_RELATED_ISSUES = [907, 924]
+REWARD_DECISION_PLACEHOLDER_CANDIDATE_IDS = {"NO_STABLE_CANDIDATE", "N/A", "UNKNOWN"}
 POLICY_METRIC_CATEGORIES = ("territory", "resources", "combat", "reliability", "logistics")
 
 JsonObject = dict[str, Any]
@@ -704,6 +709,449 @@ def field_from(payload: JsonObject | None, key: str, fallback: Any) -> Any:
     return fallback
 
 
+def first_text_value(*values: Any) -> str | None:
+    for value in values:
+        text = text_value(value)
+        if text is not None:
+            return text
+    return None
+
+
+def candidate_policy_text(*values: Any) -> str | None:
+    for value in values:
+        text = text_value(value)
+        if text is None:
+            continue
+        if text.upper() in REWARD_DECISION_PLACEHOLDER_CANDIDATE_IDS:
+            continue
+        return text
+    return None
+
+
+def normalized_latest_training_payload(
+    summary: JsonObject,
+    artifact_root: Path,
+    repo_root: Path,
+) -> JsonObject | None:
+    training_path = latest_artifact_absolute_path(summary, "trainingLedger", repo_root)
+    return normalize_training_evidence_payload(
+        training_path,
+        artifact_root,
+        latest_artifact_payload(summary, "trainingLedger", repo_root),
+    )
+
+
+def selected_scorecard_comparison(training_payload: JsonObject | None) -> JsonObject:
+    payload = as_dict(training_payload)
+    scorecard_set = as_dict(payload.get("candidateScorecards"))
+    selected_scorecard_id = first_text_value(
+        payload.get("scorecardId"),
+        as_dict(payload.get("candidateScorecard")).get("scorecardId"),
+        scorecard_set.get("selectedScorecardId"),
+    )
+    if selected_scorecard_id is None:
+        return as_dict(payload.get("candidateScorecard"))
+    for item in as_list(scorecard_set.get("comparisons")):
+        if not isinstance(item, dict):
+            continue
+        if text_value(item.get("scorecardId")) == selected_scorecard_id:
+            return item
+    return as_dict(payload.get("candidateScorecard"))
+
+
+def selected_scorecard_evidence(
+    training_payload: JsonObject | None,
+    previous_policy: JsonObject | None,
+    repo_root: Path,
+) -> JsonObject:
+    payload = as_dict(training_payload)
+    previous = as_dict(previous_policy)
+    comparison = selected_scorecard_comparison(payload)
+    training_artifacts = as_dict(payload.get("trainingArtifacts"))
+    scorecard_id = first_text_value(
+        payload.get("scorecardId"),
+        comparison.get("scorecardId"),
+        as_dict(payload.get("candidateScorecards")).get("selectedScorecardId"),
+        previous.get("scorecardId"),
+    )
+    scorecard_artifact_path = first_text_value(
+        payload.get("scorecardArtifactPath"),
+        comparison.get("scorecardArtifactPath"),
+        training_artifacts.get("scorecardArtifactPath"),
+        previous.get("scorecardArtifactPath"),
+    )
+    scorecard_candidate_id = candidate_policy_text(
+        comparison.get("candidateStrategyId"),
+        as_dict(payload.get("candidateScorecard")).get("candidateStrategyId"),
+        comparison.get("candidatePolicyId"),
+    )
+    return {
+        "scorecardId": scorecard_id,
+        "scorecardArtifactPath": repo_display_path(scorecard_artifact_path, repo_root) if scorecard_artifact_path else None,
+        "scorecardCandidatePolicyId": scorecard_candidate_id,
+        "baselinePolicyId": first_text_value(
+            comparison.get("baselineStrategyId"),
+            as_dict(payload.get("candidateScorecard")).get("baselineStrategyId"),
+            previous.get("baselinePolicyId"),
+        ),
+        "status": first_text_value(comparison.get("status"), as_dict(payload.get("candidateScorecard")).get("status")),
+        "classification": first_text_value(
+            comparison.get("classification"),
+            as_dict(payload.get("candidateScorecard")).get("classification"),
+        ),
+        "validationScaleComputeBlocked": comparison.get("validationScaleComputeBlocked"),
+        "missingPrerequisite": first_text_value(comparison.get("missingPrerequisite")),
+        "reason": first_text_value(comparison.get("reason")),
+    }
+
+
+def existing_reward_decision_id(previous_policy: JsonObject | None, training_payload: JsonObject | None) -> str | None:
+    payload = as_dict(training_payload)
+    return first_text_value(
+        as_dict(previous_policy).get("rewardDecisionId"),
+        payload.get("rewardDecisionId"),
+        as_dict(payload.get("trainingArtifacts")).get("rewardDecisionId"),
+        as_dict(payload.get("metricsFields")).get("rewardDecisionId"),
+    )
+
+
+def reward_decision_id_for_scorecard(scorecard_id: str, candidate_policy_id: str) -> str:
+    digest = hashlib.sha1(f"{scorecard_id}\n{candidate_policy_id}".encode("utf-8")).hexdigest()[:12]
+    return f"RD-AUTO-{digest}"
+
+
+def reward_decision_path(artifact_root: Path, reward_decision_id: str) -> Path:
+    return artifact_root / "rl-control-loop" / "reward-decisions" / f"{reward_decision_id}.json"
+
+
+def reward_decision_existing_path(
+    *,
+    reward_decision_id: str,
+    existing_path: str | None,
+    artifact_root: Path,
+    repo_root: Path,
+) -> Path:
+    if existing_path:
+        path = Path(existing_path)
+        return path if path.is_absolute() else repo_root / path
+    return reward_decision_path(artifact_root, reward_decision_id)
+
+
+def scorecard_reward_decision_type(training: JsonObject) -> str:
+    if training.get("trustedGradientUpdate") is True:
+        return "change"
+    return "hold"
+
+
+def reward_decision_reason(decision_type: str, training: JsonObject, scorecard: JsonObject) -> str:
+    if decision_type == "change":
+        return (
+            "Selected candidate scorecard is present and Loop A marks trustedGradientUpdate=true; "
+            "register a reward change-control decision before any gated rollout planning."
+        )
+    blocker = training_online_deployment_blocker(training)
+    return (
+        blocker
+        or text_value(scorecard.get("reason"))
+        or "Selected candidate scorecard is present, but the gradient trust gate has not authorized a reward change."
+    )
+
+
+def reward_decision_hypothesis(decision_type: str, candidate_policy_id: str, scorecard_id: str) -> str:
+    if decision_type == "change":
+        return (
+            f"Candidate {candidate_policy_id} should be carried into reward/change-control validation because "
+            f"scorecard {scorecard_id} selected it with trusted offline gradient evidence, while live rollout remains gated."
+        )
+    return (
+        f"Candidate {candidate_policy_id} should stay on hold despite scorecard {scorecard_id}; "
+        "additional Loop A evidence must prove a trusted, stable gradient before reward or policy rollout changes proceed."
+    )
+
+
+def reward_decision_validation_evidence(
+    *,
+    training: JsonObject,
+    scorecard: JsonObject,
+    evidence_windows: JsonObject,
+    linked_artifact_paths: JsonObject,
+    rollout_gate: Any,
+    deployability_status: str,
+    online_utility_status: str,
+) -> JsonObject:
+    return {
+        "scorecardId": scorecard.get("scorecardId"),
+        "scorecardStatus": scorecard.get("status"),
+        "scorecardClassification": scorecard.get("classification"),
+        "scorecardArtifactPath": scorecard.get("scorecardArtifactPath"),
+        "trustedGradientUpdate": training.get("trustedGradientUpdate"),
+        "gradientStable": training.get("gradientStable"),
+        "policyUpdatePromotionStatus": training.get("policyUpdatePromotionStatus"),
+        "onlineUtilityStatus": online_utility_status,
+        "deployabilityStatus": deployability_status,
+        "rolloutGate": rollout_gate,
+        "evidenceWindows": evidence_windows,
+        "linkedArtifactPaths": linked_artifact_paths,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+    }
+
+
+def build_scorecard_reward_decision_record(
+    *,
+    reward_decision_id: str,
+    decision_type: str,
+    created_at: str,
+    candidate_policy_id: str,
+    baseline_policy_id: str | None,
+    scorecard: JsonObject,
+    training: JsonObject,
+    evidence_windows: JsonObject,
+    linked_artifact_paths: JsonObject,
+    rollout_gate: Any,
+    deployability_status: str,
+    online_utility_status: str,
+) -> JsonObject:
+    scorecard_id = str(scorecard.get("scorecardId"))
+    reason = reward_decision_reason(decision_type, training, scorecard)
+    return {
+        "type": REWARD_DECISION_RECORD_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "rewardDecisionId": reward_decision_id,
+        "decisionType": decision_type,
+        "title": "Automated scorecard-selected policy reward change-control decision",
+        "state": "proposed",
+        "sourceIssue": REWARD_DECISION_SOURCE_ISSUE,
+        "relatedIssues": REWARD_DECISION_RELATED_ISSUES,
+        "linkedGitHubIssue": f"https://github.com/lanyusea/screeps/issues/{REWARD_DECISION_SOURCE_ISSUE}",
+        "linkedMetricEvidence": [
+            f"https://github.com/lanyusea/screeps/issues/{issue}"
+            for issue in [REWARD_DECISION_SOURCE_ISSUE, *REWARD_DECISION_RELATED_ISSUES]
+        ],
+        "linkedDashboardPanels": [
+            "Loop B policy advantage",
+            "#924 candidate-vs-baseline scorecard",
+            "Loop A training execution ledger",
+        ],
+        "scorecardId": scorecard_id,
+        "candidatePolicyId": candidate_policy_id,
+        "scorecardCandidatePolicyId": scorecard.get("scorecardCandidatePolicyId"),
+        "baselinePolicyId": baseline_policy_id,
+        "problemStatement": (
+            "Loop B had a scorecard-selected candidate but rewardDecisionId was null, blocking deployability "
+            "despite available scorecard/change-control evidence."
+        ),
+        "hypothesis": reward_decision_hypothesis(decision_type, candidate_policy_id, scorecard_id),
+        "reason": reason,
+        "currentRewardCoverage": "Generated Loop A/B artifacts preserve offline/private evidence only; no live reward defaults are changed.",
+        "proposedChangeType": (
+            "scorecard_selected_candidate_change_control"
+            if decision_type == "change"
+            else "scorecard_selected_candidate_hold"
+        ),
+        "component": "policy-gradient-scorecard-selection",
+        "direction": "scorecard-selected candidate is eligible only through offline/private validation gates",
+        "expectedBehaviorChange": (
+            "The selected candidate is no longer left without a reward/change-control decision record. "
+            "Downstream rollout gates can distinguish trusted change candidates from explicit holds."
+        ),
+        "decisionDisposition": decision_type,
+        "validationEvidence": reward_decision_validation_evidence(
+            training=training,
+            scorecard=scorecard,
+            evidence_windows=evidence_windows,
+            linked_artifact_paths=linked_artifact_paths,
+            rollout_gate=rollout_gate,
+            deployability_status=deployability_status,
+            online_utility_status=online_utility_status,
+        ),
+        "linkedArtifactPaths": linked_artifact_paths,
+        "riskAndRegressions": [
+            "Do not infer online MMO utility from offline/private scorecard evidence alone.",
+            "Do not promote if reliability, CPU, construction, territory, or resource scorecard dimensions regress.",
+            "Do not allow learned-policy live control or official MMO writes from this record.",
+        ],
+        "validationWindows": [
+            {
+                "name": "scorecard_selected_candidate_validation",
+                "requiredEvidence": [
+                    "#924-compatible selected scorecard artifact",
+                    "Loop A training report or ledger with candidate policy evidence",
+                    "trustedGradientUpdate=true before change disposition can be used for rollout planning",
+                    "liveEffect:false",
+                    "officialMmoWrites:false",
+                    "officialMmoWritesAllowed:false",
+                ],
+            }
+        ],
+        "acceptanceCriteria": [
+            "Policy-advantage artifact carries this non-null rewardDecisionId.",
+            "Decision record links scorecardId, candidatePolicyId, validation evidence, artifact paths, and #1690/#907/#924 context.",
+            "A hold disposition remains non-promotable until trustedGradientUpdate=true and scorecard safety gates pass.",
+            "All generated artifacts preserve liveEffect:false, officialMmoWrites:false, and officialMmoWritesAllowed:false.",
+        ],
+        "rollbackCriteria": [
+            "Reject or rollback if gated validation shows reliability below 0.98.",
+            "Reject or rollback if CPU, construction progress, territory, resources, or combat scorecard dimensions regress versus incumbent.",
+            "Reject if any artifact enables official MMO learned-policy writes, Memory writes, RawMemory writes, creep intents, spawn intents, construction intents, or market intents.",
+            "Reject if owner or steward supersedes this generated decision.",
+        ],
+        "holdCriteria": [
+            "Hold while trustedGradientUpdate is not true.",
+            "Hold while the selected scorecard artifact is missing or marked unusable.",
+            "Hold while rollout gates lack fresh validation and rollback windows.",
+            "Hold if any live-control safety flag is true.",
+        ],
+        "safety": {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+            "memoryWritesAllowed": False,
+            "rawMemoryWritesAllowed": False,
+            "rawCreepIntentControl": False,
+            "spawnIntentControl": False,
+            "constructionIntentControl": False,
+            "marketIntentControl": False,
+        },
+        "stewardDecision": {
+            "state": "needs_gated_validation" if decision_type == "change" else "hold_for_trusted_gradient",
+            "decidedBy": "bounded-control-loop-ledger-producer",
+            "decidedAt": created_at,
+            "notes": reason,
+        },
+        "ownerDecision": {
+            "state": "not_requested",
+            "decidedBy": None,
+            "decidedAt": None,
+            "notes": "No owner approval, no live official MMO authority, and no deployment authorization.",
+        },
+        "linkedPRs": [],
+        "linkedTrainingRuns": as_list(evidence_windows.get("trainingReportIds")),
+        "linkedPolicyEvaluations": [
+            path
+            for path in [
+                linked_artifact_paths.get("policyAdvantageArtifactPath"),
+                linked_artifact_paths.get("scorecardArtifactPath"),
+                linked_artifact_paths.get("trainingLedgerPath"),
+            ]
+            if isinstance(path, str)
+        ],
+        "createdAt": created_at,
+        "updatedAt": created_at,
+    }
+
+
+def reward_decision_evidence_signature(record: JsonObject) -> JsonObject:
+    validation = as_dict(record.get("validationEvidence"))
+    evidence_windows = as_dict(validation.get("evidenceWindows"))
+    return {
+        "decisionType": record.get("decisionType"),
+        "decisionDisposition": record.get("decisionDisposition"),
+        "scorecardId": record.get("scorecardId"),
+        "candidatePolicyId": record.get("candidatePolicyId"),
+        "scorecardCandidatePolicyId": record.get("scorecardCandidatePolicyId"),
+        "baselinePolicyId": record.get("baselinePolicyId"),
+        "proposedChangeType": record.get("proposedChangeType"),
+        "stewardDecisionState": as_dict(record.get("stewardDecision")).get("state"),
+        "scorecardStatus": validation.get("scorecardStatus"),
+        "scorecardClassification": validation.get("scorecardClassification"),
+        "scorecardArtifactPath": validation.get("scorecardArtifactPath"),
+        "trustedGradientUpdate": validation.get("trustedGradientUpdate"),
+        "gradientStable": validation.get("gradientStable"),
+        "policyUpdatePromotionStatus": validation.get("policyUpdatePromotionStatus"),
+        "onlineUtilityStatus": validation.get("onlineUtilityStatus"),
+        "deployabilityStatus": validation.get("deployabilityStatus"),
+        "rolloutGate": validation.get("rolloutGate"),
+        "trainingReportIds": as_list(evidence_windows.get("trainingReportIds")),
+        "latestTrainingLedger": evidence_windows.get("latestTrainingLedger"),
+    }
+
+
+def write_scorecard_reward_decision_if_stale(
+    path: Path,
+    desired_record: JsonObject,
+    created_at: str,
+) -> None:
+    existing_record = load_json(path) if path.exists() else None
+    if existing_record is not None:
+        desired_record["createdAt"] = first_text_value(existing_record.get("createdAt")) or desired_record.get(
+            "createdAt"
+        )
+        desired_record["updatedAt"] = created_at
+    existing_signature = reward_decision_evidence_signature(existing_record) if existing_record is not None else None
+    desired_signature = reward_decision_evidence_signature(desired_record)
+    if existing_signature != desired_signature:
+        write_json_atomic(path, desired_record)
+
+
+def emit_scorecard_reward_decision_if_missing(
+    *,
+    previous_policy: JsonObject | None,
+    training_payload: JsonObject | None,
+    training: JsonObject,
+    scorecard: JsonObject,
+    candidate_policy_id: str,
+    baseline_policy_id: str | None,
+    artifact_root: Path,
+    repo_root: Path,
+    created_at: str,
+    evidence_windows: JsonObject,
+    rollout_gate: Any,
+    deployability_status: str,
+    online_utility_status: str,
+    current_policy_advantage_path: Path | None,
+) -> tuple[str | None, str | None]:
+    existing = existing_reward_decision_id(previous_policy, training_payload)
+    existing_path = first_text_value(as_dict(previous_policy).get("rewardDecisionArtifactPath"))
+
+    scorecard_id = text_value(scorecard.get("scorecardId"))
+    if scorecard_id is None or candidate_policy_text(candidate_policy_id) is None:
+        if existing is not None:
+            return existing, existing_path
+        return None, None
+
+    reward_decision_id = reward_decision_id_for_scorecard(scorecard_id, candidate_policy_id)
+    if existing is not None and existing != reward_decision_id:
+        return existing, existing_path
+
+    path = reward_decision_path(artifact_root, reward_decision_id)
+    if existing is not None:
+        path = reward_decision_existing_path(
+            reward_decision_id=reward_decision_id,
+            existing_path=existing_path,
+            artifact_root=artifact_root,
+            repo_root=repo_root,
+        )
+    linked_artifact_paths: JsonObject = {
+        "rewardDecisionArtifactPath": repo_display_path(path, repo_root),
+        "policyAdvantageArtifactPath": repo_display_path(current_policy_advantage_path, repo_root) if current_policy_advantage_path else None,
+        "trainingLedgerPath": repo_display_path(as_dict(training).get("latestPath"), repo_root),
+        "scorecardArtifactPath": scorecard.get("scorecardArtifactPath"),
+    }
+    linked_artifact_paths = {key: value for key, value in linked_artifact_paths.items() if value is not None}
+    decision_type = scorecard_reward_decision_type(training)
+    write_scorecard_reward_decision_if_stale(
+        path,
+        build_scorecard_reward_decision_record(
+            reward_decision_id=reward_decision_id,
+            decision_type=decision_type,
+            created_at=created_at,
+            candidate_policy_id=candidate_policy_id,
+            baseline_policy_id=baseline_policy_id,
+            scorecard=scorecard,
+            training=training,
+            evidence_windows=evidence_windows,
+            linked_artifact_paths=linked_artifact_paths,
+            rollout_gate=rollout_gate,
+            deployability_status=deployability_status,
+            online_utility_status=online_utility_status,
+        ),
+        created_at,
+    )
+    return reward_decision_id, repo_display_path(path, repo_root)
+
+
 def metric_list_to_category_map(metrics: Sequence[Any]) -> JsonObject:
     mapped: JsonObject = {}
     for item in metrics:
@@ -985,9 +1433,11 @@ def build_policy_advantage(
     created_at: str,
     source_cron: str,
     max_files_per_root: int,
+    current_policy_advantage_path: Path | None = None,
 ) -> JsonObject:
     summary = dashboard_summary(repo_root, artifact_root, created_at, max_files_per_root)
     previous = latest_artifact_payload(summary, "policyAdvantage", repo_root)
+    training_payload = normalized_latest_training_payload(summary, artifact_root, repo_root)
     policy = as_dict(summary.get("policy"))
     training = as_dict(summary.get("training"))
     git = git_metadata(repo_root)
@@ -1011,17 +1461,61 @@ def build_policy_advantage(
             "reason": deployment_blocker,
             "source": "training_report_gradient_gate",
         }
+    scorecard = selected_scorecard_evidence(training_payload, previous, repo_root)
+    training_payload_dict = as_dict(training_payload)
+    policy_update = as_dict(training_payload_dict.get("policyUpdate"))
+    next_candidate_policy = as_dict(policy_update.get("nextCandidatePolicy"))
+    candidate_policy_id = (
+        candidate_policy_text(
+            field_from(previous, "candidatePolicyId", None),
+            policy.get("candidate"),
+            training_payload_dict.get("policyUpdateCandidatePolicyId"),
+            next_candidate_policy.get("candidatePolicyId"),
+            scorecard.get("scorecardCandidatePolicyId"),
+        )
+        or "NO_STABLE_CANDIDATE"
+    )
+    baseline_policy_id = first_text_value(
+        field_from(previous, "baselinePolicyId", None),
+        scorecard.get("baselinePolicyId"),
+        policy.get("baseline"),
+        "incumbent",
+    )
+    evidence_windows = policy_evidence_windows(previous, summary, training, repo_root)
+    carried_reward_decision_id = existing_reward_decision_id(previous, training_payload)
+    reward_decision_id, reward_decision_artifact_path = emit_scorecard_reward_decision_if_missing(
+        previous_policy=previous,
+        training_payload=training_payload,
+        training=training,
+        scorecard=scorecard,
+        candidate_policy_id=candidate_policy_id,
+        baseline_policy_id=baseline_policy_id,
+        artifact_root=artifact_root,
+        repo_root=repo_root,
+        created_at=created_at,
+        evidence_windows=evidence_windows,
+        rollout_gate=rollout_gate,
+        deployability_status=deployability,
+        online_utility_status=status,
+        current_policy_advantage_path=current_policy_advantage_path,
+    )
+    emitted_reward_decision = carried_reward_decision_id is None and reward_decision_id is not None
 
     return {
         "type": POLICY_ADVANTAGE_TYPE,
         "schemaVersion": SCHEMA_VERSION,
         "createdAt": created_at,
         "sourceCron": source_cron,
-        "sourceIssue": None,
+        "sourceIssue": (
+            REWARD_DECISION_SOURCE_ISSUE if emitted_reward_decision else field_from(previous, "sourceIssue", None)
+        ),
+        "relatedIssues": (
+            REWARD_DECISION_RELATED_ISSUES if emitted_reward_decision else field_from(previous, "relatedIssues", [])
+        ),
         "historicalContextIssues": HISTORICAL_CONTEXT_ISSUES,
         **git,
-        "candidatePolicyId": field_from(previous, "candidatePolicyId", policy.get("candidate") or "NO_STABLE_CANDIDATE"),
-        "baselinePolicyId": field_from(previous, "baselinePolicyId", policy.get("baseline") or "incumbent"),
+        "candidatePolicyId": candidate_policy_id,
+        "baselinePolicyId": baseline_policy_id,
         "mode": field_from(previous, "mode", "offline"),
         "onlineUtilityStatus": status,
         "deployabilityStatus": deployability,
@@ -1030,7 +1524,7 @@ def build_policy_advantage(
         "validationWindow": field_from(previous, "validationWindow", None),
         "rolloutGate": rollout_gate,
         "rollbackCriteria": field_from(previous, "rollbackCriteria", {"reliabilityRegression": ">=2%", "officialMmoWritesAllowed": False}),
-        "evidenceWindows": policy_evidence_windows(previous, summary, training, repo_root),
+        "evidenceWindows": evidence_windows,
         "metrics": metrics,
         "regressions": regressions,
         "trainingStrategyFeedback": field_from(
@@ -1049,8 +1543,11 @@ def build_policy_advantage(
             "nextExperimentCardDelta",
             "Produce a candidate with fresh Loop A compute evidence and a pre/post KPI measurement window.",
         ),
-        "rewardDecisionId": field_from(previous, "rewardDecisionId", None),
-        "scorecardId": field_from(previous, "scorecardId", None),
+        "rewardDecisionId": reward_decision_id,
+        "rewardDecisionArtifactPath": reward_decision_artifact_path,
+        "scorecardId": scorecard.get("scorecardId"),
+        "scorecardArtifactPath": scorecard.get("scorecardArtifactPath"),
+        "scorecardDecisionEvidence": scorecard,
         "githubComment": "skipped_no_atomic_issue",
         "boundedProducer": {
             "maxFilesPerRoot": max_files_per_root,
@@ -1141,14 +1638,15 @@ def run_command(args: argparse.Namespace) -> tuple[Path, JsonObject]:
         )
         path = resolve_against_repo(args.output, repo_root) if args.output else output_path(out_dir, created_at, "training-ledger")
     elif args.command == "policy-advantage":
+        path = resolve_against_repo(args.output, repo_root) if args.output else output_path(out_dir, created_at, "policy-advantage")
         payload = build_policy_advantage(
             repo_root=repo_root,
             artifact_root=artifact_root,
             created_at=created_at,
             source_cron=args.source_cron,
             max_files_per_root=max_files,
+            current_policy_advantage_path=path,
         )
-        path = resolve_against_repo(args.output, repo_root) if args.output else output_path(out_dir, created_at, "policy-advantage")
     elif args.command == "steward-digest":
         payload = build_steward_digest(
             repo_root=repo_root,

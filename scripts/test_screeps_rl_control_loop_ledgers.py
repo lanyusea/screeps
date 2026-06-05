@@ -119,7 +119,12 @@ LOCAL2W_REPORT_ID = (
 )
 
 
-def write_root_local2w_training_report_artifacts(root: Path, *, include_positive_policy: bool = False) -> tuple[Path, str]:
+def write_root_local2w_training_report_artifacts(
+    root: Path,
+    *,
+    include_positive_policy: bool = False,
+    trusted_gradient_update: bool = False,
+) -> tuple[Path, str]:
     artifact_root = root / "runtime-artifacts"
     write_json(
         artifact_root / "rl-dataset-gates" / "e1-lite" / "gate_report.json",
@@ -215,19 +220,36 @@ def write_root_local2w_training_report_artifacts(root: Path, *, include_positive
                 "runtimeParameterInjection": True,
             },
             "policyUpdatePromotionGate": {
-                "status": "blocked_gradient_stability_untrusted",
+                "status": "ready" if trusted_gradient_update else "blocked_gradient_stability_untrusted",
                 "runtimeParameterConsumption": True,
-                "trustedGradientUpdate": False,
-                "gradientStable": False,
-                "reason": "true-gradient estimate conflicts with momentum direction",
+                "trustedGradientUpdate": trusted_gradient_update,
+                "gradientStable": trusted_gradient_update,
+                "reason": None if trusted_gradient_update else "true-gradient estimate conflicts with momentum direction",
             },
-            "trustedGradientUpdate": False,
-            "gradientStable": False,
+            "trustedGradientUpdate": trusted_gradient_update,
+            "gradientStable": trusted_gradient_update,
             "scorecardId": f"rl-scorecard-{LOCAL2W_REPORT_ID}-187e0c0e1786",
             "scorecardArtifactPath": (
                 "runtime-artifacts/rl-training/candidate-scorecards/"
                 f"{LOCAL2W_REPORT_ID}/rl-scorecard-{LOCAL2W_REPORT_ID}-187e0c0e1786.json"
             ),
+            "candidateScorecard": {
+                "status": "ready" if trusted_gradient_update else "materialized",
+                "classification": (
+                    "runtime_injected_candidate_scorecard_ready"
+                    if trusted_gradient_update
+                    else "gradient_stability_untrusted_scorecard_materialized"
+                ),
+                "scorecardId": f"rl-scorecard-{LOCAL2W_REPORT_ID}-187e0c0e1786",
+                "scorecardArtifactPath": (
+                    "runtime-artifacts/rl-training/candidate-scorecards/"
+                    f"{LOCAL2W_REPORT_ID}/rl-scorecard-{LOCAL2W_REPORT_ID}-187e0c0e1786.json"
+                ),
+                "candidateStrategyId": "construction-priority.pg.risk-aware-seed.v1",
+                "baselineStrategyId": "construction-priority.pg.incumbent-seed.v1",
+                "validationScaleComputeBlocked": not trusted_gradient_update,
+                "scorecardUsable": True,
+            },
         },
     )
     if include_positive_policy:
@@ -528,6 +550,49 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
         self.assertEqual(payload["metrics"]["territory"]["advantage"], "BLOCKED_NO_COMPUTE")
         self.assertEqual(payload["regressions"][0]["metric"], "territory")
 
+    def test_policy_advantage_emits_reward_decision_for_trusted_selected_scorecard(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root, report_id = write_root_local2w_training_report_artifacts(
+                root,
+                include_positive_policy=True,
+                trusted_gradient_update=True,
+            )
+            output = root / "out" / "policy-advantage.json"
+
+            exit_code = ledgers.main(
+                [
+                    "policy-advantage",
+                    "--repo-root",
+                    str(root),
+                    "--artifact-root",
+                    str(artifact_root),
+                    "--output",
+                    str(output),
+                    "--created-at",
+                    "2026-06-05T00:00:01Z",
+                    "--max-files-per-root",
+                    "4",
+                ],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+            payload = read_json(output)
+            decision = read_json(root / payload["rewardDecisionArtifactPath"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIsNotNone(payload["rewardDecisionId"])
+        self.assertEqual(payload["rewardDecisionId"], decision["rewardDecisionId"])
+        self.assertEqual(decision["decisionType"], "change")
+        self.assertEqual(decision["sourceIssue"], 1690)
+        self.assertEqual(decision["relatedIssues"], [907, 924])
+        self.assertEqual(decision["scorecardId"], payload["scorecardId"])
+        self.assertEqual(decision["candidatePolicyId"], payload["candidatePolicyId"])
+        self.assertEqual(decision["validationEvidence"]["trustedGradientUpdate"], True)
+        self.assertEqual(decision["linkedArtifactPaths"]["policyAdvantageArtifactPath"], "out/policy-advantage.json")
+        self.assertEqual(decision["linkedTrainingRuns"], [report_id])
+        self.assertIn("runtime-artifacts/rl-training/candidate-scorecards", decision["linkedArtifactPaths"]["scorecardArtifactPath"])
+
     def test_policy_advantage_keeps_untrusted_root_training_report_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -552,6 +617,7 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
                 stderr=io.StringIO(),
             )
             payload = read_json(output)
+            decision = read_json(root / payload["rewardDecisionArtifactPath"])
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(payload["onlineUtilityStatus"], "BLOCKED")
@@ -560,6 +626,122 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
         self.assertEqual(payload["rolloutGate"]["reason"], "training report marks trustedGradientUpdate=false")
         self.assertEqual(payload["evidenceWindows"]["trainingReportIds"], [report_id])
         self.assertTrue(payload["evidenceWindows"]["latestTrainingLedger"].endswith(f"{report_id}.json"))
+        self.assertIsNotNone(payload["rewardDecisionId"])
+        self.assertTrue(payload["rewardDecisionArtifactPath"].endswith(f"{payload['rewardDecisionId']}.json"))
+        self.assertEqual(decision["rewardDecisionId"], payload["rewardDecisionId"])
+        self.assertEqual(decision["decisionType"], "hold")
+        self.assertEqual(decision["validationEvidence"]["trustedGradientUpdate"], False)
+        self.assertIn("Hold while trustedGradientUpdate is not true.", decision["holdCriteria"])
+
+    def test_policy_advantage_refreshes_reward_decision_when_scorecard_becomes_trusted(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root, report_id = write_root_local2w_training_report_artifacts(
+                root,
+                include_positive_policy=True,
+            )
+            first_output = artifact_root / "rl-control-loop" / "20260605T000001Z-policy-advantage.json"
+
+            first_exit = ledgers.main(
+                [
+                    "policy-advantage",
+                    "--repo-root",
+                    str(root),
+                    "--artifact-root",
+                    str(artifact_root),
+                    "--output",
+                    str(first_output),
+                    "--created-at",
+                    "2026-06-05T00:00:01Z",
+                    "--max-files-per-root",
+                    "4",
+                ],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+            first_payload = read_json(first_output)
+            first_decision = read_json(root / first_payload["rewardDecisionArtifactPath"])
+
+            write_root_local2w_training_report_artifacts(
+                root,
+                include_positive_policy=False,
+                trusted_gradient_update=True,
+            )
+            second_output = artifact_root / "rl-control-loop" / "20260605T000101Z-policy-advantage.json"
+
+            second_exit = ledgers.main(
+                [
+                    "policy-advantage",
+                    "--repo-root",
+                    str(root),
+                    "--artifact-root",
+                    str(artifact_root),
+                    "--output",
+                    str(second_output),
+                    "--created-at",
+                    "2026-06-05T00:01:01Z",
+                    "--max-files-per-root",
+                    "4",
+                ],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+            second_payload = read_json(second_output)
+            refreshed_decision = read_json(root / second_payload["rewardDecisionArtifactPath"])
+
+        self.assertEqual(first_exit, 0)
+        self.assertEqual(second_exit, 0)
+        self.assertEqual(first_payload["rewardDecisionId"], second_payload["rewardDecisionId"])
+        self.assertEqual(
+            first_payload["rewardDecisionArtifactPath"],
+            second_payload["rewardDecisionArtifactPath"],
+        )
+        self.assertEqual(first_decision["decisionType"], "hold")
+        self.assertEqual(first_decision["validationEvidence"]["trustedGradientUpdate"], False)
+        self.assertEqual(refreshed_decision["rewardDecisionId"], second_payload["rewardDecisionId"])
+        self.assertEqual(refreshed_decision["decisionType"], "change")
+        self.assertEqual(refreshed_decision["decisionDisposition"], "change")
+        self.assertEqual(refreshed_decision["validationEvidence"]["trustedGradientUpdate"], True)
+        self.assertEqual(refreshed_decision["validationEvidence"]["gradientStable"], True)
+        self.assertEqual(refreshed_decision["linkedTrainingRuns"], [report_id])
+        self.assertEqual(
+            refreshed_decision["linkedArtifactPaths"]["policyAdvantageArtifactPath"],
+            "runtime-artifacts/rl-control-loop/20260605T000101Z-policy-advantage.json",
+        )
+        self.assertEqual(refreshed_decision["createdAt"], "2026-06-05T00:00:01Z")
+        self.assertEqual(refreshed_decision["updatedAt"], "2026-06-05T00:01:01Z")
+
+    def test_policy_advantage_does_not_emit_reward_decision_without_scorecard_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = write_fixture_artifacts(root)
+            output = root / "out" / "policy-advantage.json"
+
+            exit_code = ledgers.main(
+                [
+                    "policy-advantage",
+                    "--repo-root",
+                    str(root),
+                    "--artifact-root",
+                    str(artifact_root),
+                    "--output",
+                    str(output),
+                    "--created-at",
+                    "2026-06-05T00:00:01Z",
+                    "--max-files-per-root",
+                    "4",
+                ],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+            payload = read_json(output)
+            decision_dir_exists = (artifact_root / "rl-control-loop" / "reward-decisions").exists()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIsNone(payload["rewardDecisionId"])
+        self.assertIsNone(payload["rewardDecisionArtifactPath"])
+        self.assertIsNone(payload["scorecardId"])
+        self.assertFalse(decision_dir_exists)
 
     def test_steward_digest_uses_bounded_scan_without_github_side_effects(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
