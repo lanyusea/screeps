@@ -7175,6 +7175,63 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(controller.steps[-1].detail["hostKeyCount"], 1)
         self.assertIn("203.0.113.10", controller.known_hosts_prepared_public_ips)
 
+    def test_prepare_worker_known_host_preserves_hashed_existing_entry_when_keyscan_unavailable(self) -> None:
+        hashed_key = "|1|salt|hash ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIhashed"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            args = controller_args()
+            args.known_hosts_path = str(Path(temp_dir) / "known_hosts")
+            known_hosts = Path(args.known_hosts_path)
+            known_hosts.write_text(hashed_key + "\n", encoding="utf-8")
+            controller = runner.Controller(args=args, run_id="run-test", artifact_dir=Path(temp_dir))
+            controller.public_ip = "203.0.113.10"
+            keyscan_calls = 0
+            find_calls = 0
+
+            def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                nonlocal keyscan_calls, find_calls
+                if cmd[0] == "ssh-keyscan":
+                    keyscan_calls += 1
+                    return subprocess.CompletedProcess(cmd, 1, "", "")
+                if cmd[:2] == ["ssh-keygen", "-F"]:
+                    find_calls += 1
+                    stdout = f"# Host 203.0.113.10 found: line 1\n{hashed_key}\n"
+                    return subprocess.CompletedProcess(cmd, 0, stdout, "")
+                if cmd[:2] == ["ssh-keygen", "-R"]:
+                    raise AssertionError("hashed existing known_hosts entry should not be removed before strict SSH")
+                if cmd[0] == "ssh":
+                    raise AssertionError("accept-new SSH should not run for an existing known_hosts entry")
+                raise AssertionError(cmd)
+
+            with (
+                mock.patch.object(runner.subprocess, "run", side_effect=fake_run),
+                mock.patch.object(runner.time, "sleep", return_value=None) as sleep,
+            ):
+                result = controller.prepare_worker_known_host()
+
+            self.assertTrue(result.ok)
+            self.assertEqual(result.status, "existing_known_host_keyscan_unavailable")
+            self.assertEqual(known_hosts.read_text(encoding="utf-8"), hashed_key + "\n")
+
+        self.assertEqual(keyscan_calls, 3)
+        self.assertEqual(find_calls, 1)
+        sleep.assert_has_calls([mock.call(2.0), mock.call(5.0)])
+        self.assertEqual(
+            [step.name for step in controller.steps],
+            [
+                "scan_worker_host_key",
+                "scan_worker_host_key",
+                "scan_worker_host_key",
+                "find_worker_known_host",
+                "prepare_worker_known_host",
+            ],
+        )
+        self.assertEqual(controller.steps[3].detail["status"], "existing_known_host_entry")
+        self.assertIn("[REDACTED_HOST_KEY]", controller.steps[3].stdout_tail or "")
+        self.assertNotIn("AAAAC3NzaC1lZDI1NTE5AAAAIhashed", controller.steps[3].stdout_tail or "")
+        self.assertEqual(controller.steps[-1].detail["status"], "existing_known_host_keyscan_unavailable")
+        self.assertEqual(controller.steps[-1].detail["hostKeyCount"], 1)
+        self.assertIn("203.0.113.10", controller.known_hosts_prepared_public_ips)
+
     def test_ssh_cmd_preserves_existing_entry_then_self_heals_strict_mismatch(self) -> None:
         stale_key = "203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIstale"
         current_key = "203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIcurrent"
@@ -7260,10 +7317,15 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             controller = runner.Controller(args=args, run_id="run-test", artifact_dir=Path(temp_dir))
             controller.public_ip = "203.0.113.10"
             commands: list[list[str]] = []
+            find_calls = 0
 
             def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                nonlocal find_calls
                 commands.append(cmd)
                 if cmd[0] == "ssh-keyscan":
+                    return subprocess.CompletedProcess(cmd, 1, "", "")
+                if cmd[:2] == ["ssh-keygen", "-F"]:
+                    find_calls += 1
                     return subprocess.CompletedProcess(cmd, 1, "", "")
                 if cmd[0] == "ssh-keygen":
                     known_hosts.write_text("", encoding="utf-8")
@@ -7286,12 +7348,14 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             self.assertEqual(result.status, "accepted_new_known_host")
 
         sleep.assert_has_calls([mock.call(2.0), mock.call(5.0)])
+        self.assertEqual(find_calls, 1)
         self.assertEqual(
             [step.name for step in controller.steps],
             [
                 "scan_worker_host_key",
                 "scan_worker_host_key",
                 "scan_worker_host_key",
+                "find_worker_known_host",
                 "clear_worker_known_host",
                 "accept_new_worker_known_host",
             ],
