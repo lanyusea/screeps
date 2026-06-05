@@ -8,6 +8,7 @@ declare global {
     runtime?: RuntimeConfigMemory;
     defense?: DefenseMemory;
     scout?: Record<string, unknown>;
+    seasonScoreCollectors?: SeasonScoreCollectorsDiagnosticsMemory;
     intel?: IntelMemory;
     enableMarketTrading?: boolean;
     economy?: EconomyMemory;
@@ -60,6 +61,7 @@ declare global {
     workerEnergyCriticalPolicy?: WorkerEnergyCriticalPolicyMemory;
     workerDispatchDiagnostic?: WorkerDispatchDiagnosticMemory;
     seasonScoreCollection?: SeasonScoreCollectionDiagnosticMemory;
+    seasonScoreCollector?: CreepSeasonScoreCollectorMemory;
     energyDropoffOptimization?: WorkerEnergyDropoffOptimizationMemory;
     behaviorTelemetry?: CreepBehaviorTelemetryMemory;
     blockedBuildTarget?: WorkerBlockedBuildTargetMemory;
@@ -1255,6 +1257,40 @@ declare global {
     blockedReason?: SeasonScoreCollectionBlockReason;
     assignedCreepName?: string;
     assignedCollectorRange?: number;
+  }
+
+  type SeasonScoreCollectorState = 'travelling' | 'holding' | 'collecting' | 'blocked';
+  type SeasonScoreCollectorBlocker =
+    | 'missing_assignment'
+    | 'move_unavailable'
+    | 'non_seasonal'
+    | 'target_unreachable';
+  type SeasonScoreCollectorStaleReason =
+    | 'collector_stale'
+    | 'collector_ttl_insufficient'
+    | 'target_unreachable';
+
+  interface CreepSeasonScoreCollectorMemory {
+    homeRoom: string;
+    targetRoom: string;
+    assignedAt: number;
+    updatedAt?: number;
+    state?: SeasonScoreCollectorState;
+    visibleScoreCount?: number;
+    assignedScoreTargetId?: string;
+    blocker?: SeasonScoreCollectorBlocker;
+    staleReason?: SeasonScoreCollectorStaleReason;
+  }
+
+  interface SeasonScoreCollectorsDiagnosticsMemory {
+    updatedAt: number;
+    activeCount: number;
+    candidateRooms: string[];
+    targetRooms: string[];
+    nextSpawnTargetRoom?: string;
+    blocker?: 'all_targets_covered' | 'no_candidate_rooms' | 'non_seasonal' | 'safety_priority' | 'spawn_unavailable';
+    staleTargetRoom?: string;
+    staleReason?: SeasonScoreCollectorStaleReason;
   }
 
   type WorkerTaskBehaviorActionType = 'harvest' | 'transfer' | 'build' | 'repair' | 'upgrade';
