@@ -824,6 +824,19 @@ def reward_decision_path(artifact_root: Path, reward_decision_id: str) -> Path:
     return artifact_root / "rl-control-loop" / "reward-decisions" / f"{reward_decision_id}.json"
 
 
+def reward_decision_existing_path(
+    *,
+    reward_decision_id: str,
+    existing_path: str | None,
+    artifact_root: Path,
+    repo_root: Path,
+) -> Path:
+    if existing_path:
+        path = Path(existing_path)
+        return path if path.is_absolute() else repo_root / path
+    return reward_decision_path(artifact_root, reward_decision_id)
+
+
 def scorecard_reward_decision_type(training: JsonObject) -> str:
     if training.get("trustedGradientUpdate") is True:
         return "change"
@@ -1029,6 +1042,49 @@ def build_scorecard_reward_decision_record(
     }
 
 
+def reward_decision_evidence_signature(record: JsonObject) -> JsonObject:
+    validation = as_dict(record.get("validationEvidence"))
+    evidence_windows = as_dict(validation.get("evidenceWindows"))
+    return {
+        "decisionType": record.get("decisionType"),
+        "decisionDisposition": record.get("decisionDisposition"),
+        "scorecardId": record.get("scorecardId"),
+        "candidatePolicyId": record.get("candidatePolicyId"),
+        "scorecardCandidatePolicyId": record.get("scorecardCandidatePolicyId"),
+        "baselinePolicyId": record.get("baselinePolicyId"),
+        "proposedChangeType": record.get("proposedChangeType"),
+        "stewardDecisionState": as_dict(record.get("stewardDecision")).get("state"),
+        "scorecardStatus": validation.get("scorecardStatus"),
+        "scorecardClassification": validation.get("scorecardClassification"),
+        "scorecardArtifactPath": validation.get("scorecardArtifactPath"),
+        "trustedGradientUpdate": validation.get("trustedGradientUpdate"),
+        "gradientStable": validation.get("gradientStable"),
+        "policyUpdatePromotionStatus": validation.get("policyUpdatePromotionStatus"),
+        "onlineUtilityStatus": validation.get("onlineUtilityStatus"),
+        "deployabilityStatus": validation.get("deployabilityStatus"),
+        "rolloutGate": validation.get("rolloutGate"),
+        "trainingReportIds": as_list(evidence_windows.get("trainingReportIds")),
+        "latestTrainingLedger": evidence_windows.get("latestTrainingLedger"),
+    }
+
+
+def write_scorecard_reward_decision_if_stale(
+    path: Path,
+    desired_record: JsonObject,
+    created_at: str,
+) -> None:
+    existing_record = load_json(path) if path.exists() else None
+    if existing_record is not None:
+        desired_record["createdAt"] = first_text_value(existing_record.get("createdAt")) or desired_record.get(
+            "createdAt"
+        )
+        desired_record["updatedAt"] = created_at
+    existing_signature = reward_decision_evidence_signature(existing_record) if existing_record is not None else None
+    desired_signature = reward_decision_evidence_signature(desired_record)
+    if existing_signature != desired_signature:
+        write_json_atomic(path, desired_record)
+
+
 def emit_scorecard_reward_decision_if_missing(
     *,
     previous_policy: JsonObject | None,
@@ -1048,15 +1104,25 @@ def emit_scorecard_reward_decision_if_missing(
 ) -> tuple[str | None, str | None]:
     existing = existing_reward_decision_id(previous_policy, training_payload)
     existing_path = first_text_value(as_dict(previous_policy).get("rewardDecisionArtifactPath"))
-    if existing is not None:
-        return existing, existing_path
 
     scorecard_id = text_value(scorecard.get("scorecardId"))
     if scorecard_id is None or candidate_policy_text(candidate_policy_id) is None:
+        if existing is not None:
+            return existing, existing_path
         return None, None
 
     reward_decision_id = reward_decision_id_for_scorecard(scorecard_id, candidate_policy_id)
+    if existing is not None and existing != reward_decision_id:
+        return existing, existing_path
+
     path = reward_decision_path(artifact_root, reward_decision_id)
+    if existing is not None:
+        path = reward_decision_existing_path(
+            reward_decision_id=reward_decision_id,
+            existing_path=existing_path,
+            artifact_root=artifact_root,
+            repo_root=repo_root,
+        )
     linked_artifact_paths: JsonObject = {
         "rewardDecisionArtifactPath": repo_display_path(path, repo_root),
         "policyAdvantageArtifactPath": repo_display_path(current_policy_advantage_path, repo_root) if current_policy_advantage_path else None,
@@ -1065,24 +1131,24 @@ def emit_scorecard_reward_decision_if_missing(
     }
     linked_artifact_paths = {key: value for key, value in linked_artifact_paths.items() if value is not None}
     decision_type = scorecard_reward_decision_type(training)
-    if not path.exists():
-        write_json_atomic(
-            path,
-            build_scorecard_reward_decision_record(
-                reward_decision_id=reward_decision_id,
-                decision_type=decision_type,
-                created_at=created_at,
-                candidate_policy_id=candidate_policy_id,
-                baseline_policy_id=baseline_policy_id,
-                scorecard=scorecard,
-                training=training,
-                evidence_windows=evidence_windows,
-                linked_artifact_paths=linked_artifact_paths,
-                rollout_gate=rollout_gate,
-                deployability_status=deployability_status,
-                online_utility_status=online_utility_status,
-            ),
-        )
+    write_scorecard_reward_decision_if_stale(
+        path,
+        build_scorecard_reward_decision_record(
+            reward_decision_id=reward_decision_id,
+            decision_type=decision_type,
+            created_at=created_at,
+            candidate_policy_id=candidate_policy_id,
+            baseline_policy_id=baseline_policy_id,
+            scorecard=scorecard,
+            training=training,
+            evidence_windows=evidence_windows,
+            linked_artifact_paths=linked_artifact_paths,
+            rollout_gate=rollout_gate,
+            deployability_status=deployability_status,
+            online_utility_status=online_utility_status,
+        ),
+        created_at,
+    )
     return reward_decision_id, repo_display_path(path, repo_root)
 
 
