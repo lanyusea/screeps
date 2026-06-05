@@ -2171,6 +2171,94 @@ describe('next expansion scoring', () => {
     expect(belowLimit.next?.preconditions).not.toContain(roomLimitPrecondition);
   });
 
+  it('lets GCL capacity raise the safe expansion room limit above the internal RCL cap', () => {
+    expect(maxRoomsForRcl(4)).toBe(3);
+
+    const atCurrentRoomCount = scoreExpansionCandidates(
+      makeInput([makeCandidate({ roomName: 'W3N1', sourceCount: 2 })], {
+        controllerLevel: 4,
+        ownedRoomCount: 3,
+        gclLevel: 5
+      })
+    );
+    const belowGclCapacity = scoreExpansionCandidates(
+      makeInput([makeCandidate({ roomName: 'W4N1', sourceCount: 2 })], {
+        controllerLevel: 4,
+        ownedRoomCount: 4,
+        gclLevel: 5
+      })
+    );
+    const atGclCapacity = scoreExpansionCandidates(
+      makeInput([makeCandidate({ roomName: 'W5N1', sourceCount: 2 })], {
+        controllerLevel: 4,
+        ownedRoomCount: 5,
+        gclLevel: 5
+      })
+    );
+    const aboveGclCapacity = scoreExpansionCandidates(
+      makeInput([makeCandidate({ roomName: 'W6N1', sourceCount: 2 })], {
+        controllerLevel: 4,
+        ownedRoomCount: 6,
+        gclLevel: 5
+      })
+    );
+    const scoutNeededAtCurrentRoomCount = scoreExpansionCandidates(
+      makeInput([makeCandidate({ roomName: 'W7N1', sourceCount: undefined, visible: false })], {
+        controllerLevel: 4,
+        ownedRoomCount: 3,
+        gclLevel: 5
+      })
+    );
+
+    expect(atCurrentRoomCount.next?.preconditions).not.toContain(
+      'limit expansion to 3 owned rooms for current controller level'
+    );
+    expect(refreshNextExpansionTargetSelection(makeSafeColony({ controllerLevel: 4 }), atCurrentRoomCount, 216))
+      .toMatchObject({
+        status: 'planned',
+        colony: 'W1N1',
+        targetRoom: 'W3N1'
+      });
+    expect(belowGclCapacity.next?.preconditions).not.toContain(
+      'limit expansion to 3 owned rooms for current controller level'
+    );
+    expect(refreshNextExpansionTargetSelection(makeSafeColony({ controllerLevel: 4 }), belowGclCapacity, 217))
+      .toMatchObject({
+        status: 'planned',
+        colony: 'W1N1',
+        targetRoom: 'W4N1'
+      });
+    expect(atGclCapacity.next?.preconditions).toContain('wait for GCL capacity to claim another room');
+    expect(atGclCapacity.next?.preconditions).not.toContain(
+      'limit expansion to 3 owned rooms for current controller level'
+    );
+    expect(refreshNextExpansionTargetSelection(makeSafeColony({ controllerLevel: 4 }), atGclCapacity, 218))
+      .toEqual({
+        status: 'skipped',
+        colony: 'W1N1',
+        reason: 'gclInsufficient'
+      });
+    expect(aboveGclCapacity.next?.preconditions).toContain('wait for GCL capacity to claim another room');
+    expect(aboveGclCapacity.next?.preconditions).not.toContain(
+      'limit expansion to 3 owned rooms for current controller level'
+    );
+    expect(scoutNeededAtCurrentRoomCount.next).toMatchObject({
+      roomName: 'W7N1',
+      evidenceStatus: 'insufficient-evidence',
+      preconditions: []
+    });
+    expect(refreshNextExpansionTargetSelection(
+      makeSafeColony({ controllerLevel: 4 }),
+      scoutNeededAtCurrentRoomCount,
+      219
+    )).toMatchObject({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'insufficientEvidence'
+    });
+    expect(selectExpansionScoutTargets(scoutNeededAtCurrentRoomCount)).toMatchObject([{ roomName: 'W7N1' }]);
+  });
+
   it('does not persist next expansion claim intents when the RCL room limit is reached', () => {
     const colony = makeSafeColony({ controllerLevel: 3 });
     const report = scoreExpansionCandidates(

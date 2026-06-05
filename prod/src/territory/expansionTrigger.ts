@@ -5,9 +5,10 @@ import {
 } from './autoClaim';
 import {
   NEXT_EXPANSION_TARGET_CREATOR,
-  maxRoomsForRcl,
+  getExpansionRoomLimitCapacity,
   type ExpansionCandidateReport,
   type ExpansionCandidateScore,
+  type ExpansionRoomLimitBasis,
   type NextExpansionTargetSelection
 } from './expansionScoring';
 import {
@@ -70,6 +71,8 @@ interface ExpansionProgressBlocker {
 export interface AutonomousExpansionCapacitySummary {
   ownedRoomCount: number;
   roomLimitCapacity: number;
+  rclRoomLimitCapacity: number;
+  roomLimitBasis: ExpansionRoomLimitBasis;
   status: 'available' | 'gclInsufficient' | 'roomLimitReached';
   gclRoomCapacity?: number;
 }
@@ -193,18 +196,23 @@ export function getAutonomousExpansionCapacitySummary(
     colony.room.name,
     getControllerOwnerUsername(colony.room.controller)
   );
-  const roomLimitCapacity = maxRoomsForRcl(colony.room.controller?.level);
   const gclRoomCapacity = getGclLevel();
+  const roomLimit = getExpansionRoomLimitCapacity({
+    controllerLevel: colony.room.controller?.level,
+    gclLevel: gclRoomCapacity
+  });
   const status =
     gclRoomCapacity !== null && ownedRoomCount >= gclRoomCapacity
       ? 'gclInsufficient'
-      : ownedRoomCount >= roomLimitCapacity
+      : ownedRoomCount >= roomLimit.roomLimitCapacity
         ? 'roomLimitReached'
         : 'available';
 
   return {
     ownedRoomCount,
-    roomLimitCapacity,
+    roomLimitCapacity: roomLimit.roomLimitCapacity,
+    rclRoomLimitCapacity: roomLimit.rclRoomLimitCapacity,
+    roomLimitBasis: roomLimit.roomLimitBasis,
     status,
     ...(gclRoomCapacity !== null ? { gclRoomCapacity } : {})
   };
@@ -1252,7 +1260,13 @@ function getExpansionCapacitySkipReason(colony: ColonySnapshot): NextExpansionTa
     return 'gclInsufficient';
   }
 
-  if (ownedRoomCount >= maxRoomsForRcl(colony.room.controller?.level)) {
+  if (
+    ownedRoomCount >=
+    getExpansionRoomLimitCapacity({
+      controllerLevel: colony.room.controller?.level,
+      gclLevel
+    }).roomLimitCapacity
+  ) {
     return 'roomLimitReached';
   }
 
