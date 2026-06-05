@@ -31,6 +31,7 @@ import {
 } from '../defense/deadZone';
 import { isBootstrapDefenseFloorSatisfiedForTerritory } from '../defense/defensePlanner';
 import { planSourceContainerConstruction } from '../construction/sourceContainerPlanner';
+import { buildCriticalRoadLogisticsContext } from '../construction/criticalRoads';
 import {
   findSourceContainer,
   findSourceContainerConstructionSite
@@ -100,6 +101,7 @@ export const TERRITORY_ADJACENT_CONTROLLER_PROGRESS_WORKER_SURPLUS = 0;
 
 const EXIT_DIRECTION_ORDER: ExitKey[] = ['1', '3', '5', '7'];
 const MIN_CLAIM_PARTS_FOR_RESERVATION_PROGRESS = 2;
+const OK_CODE = 0 as ScreepsReturnCode;
 const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const TERRITORY_CANDIDATE_PRIORITY_URGENT_RENEWAL = 0;
 const TERRITORY_CANDIDATE_PRIORITY_VISIBLE_CLAIM = 1;
@@ -115,6 +117,15 @@ const TERRITORY_SCOUT_INTEL_PLANNING_TTL = 10_000;
 const SCOUT_ONLY_REMOTE_MIN_CPU_BUCKET = 500;
 const OCCUPATION_RECOMMENDATION_TARGET_CREATOR: TerritoryTargetMemory['createdBy'] = 'occupationRecommendation';
 const REMOTE_MINING_SOURCE_CONTAINER_MIN_RCL = 0;
+const REMOTE_MINING_CRITICAL_ROAD_MAX_SITES_PER_TICK = 1;
+const REMOTE_MINING_CRITICAL_ROAD_MAX_PENDING_SITES = 12;
+const REMOTE_MINING_CRITICAL_ROAD_PATH_RANGE = 1;
+const REMOTE_MINING_CRITICAL_ROAD_MAX_OPS = 400;
+const REMOTE_MINING_CRITICAL_ROAD_COST = 1;
+const REMOTE_MINING_CRITICAL_ROAD_BLOCKED_COST = 0xff;
+const REMOTE_MINING_CRITICAL_ROAD_EDGE_MIN = 1;
+const REMOTE_MINING_CRITICAL_ROAD_EDGE_MAX = 48;
+const DEFAULT_TERRAIN_WALL_MASK = 1;
 const MAX_CONTROLLER_LEVEL = 8;
 
 export interface TerritoryIntentPlan {
@@ -229,6 +240,23 @@ interface RecoveredTerritoryFollowUpRetryMetadata {
 }
 
 type RemoteMiningRoomState = Omit<TerritoryRemoteMiningRoomMemory, 'updatedAt'>;
+
+interface RemoteMiningTargetRecord {
+  colony: string;
+  roomName: string;
+  order: number;
+  source: 'postClaimBootstrap' | 'reserveIntent' | 'ownReservation';
+  refreshWhenUnfocused?: boolean;
+  controllerId?: Id<StructureController>;
+}
+
+interface RemoteMiningRoadPlanningLookups {
+  costMatrix: CostMatrix;
+  blockedPositions: Set<string>;
+  existingRoadPositions: Set<string>;
+  pendingRoadSitePositions: Set<string>;
+  terrain: RoomTerrain;
+}
 
 const recoveredTerritoryFollowUpRetryMetadata = new WeakMap<
   TerritoryIntentPlan,
@@ -1189,9 +1217,10 @@ export function refreshRemoteMiningSetup(
   }
 
   const colonyName = colony.room.name;
-  const allRecords = getRemoteMiningBootstrapRecords(territoryMemory, colonyName);
+  const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller);
+  const allRecords = getRemoteMiningTargetRecords(territoryMemory, colonyName, colonyOwnerUsername, gameTime);
   const records = allRecords
-    .filter((record) => shouldRefreshRemoteMiningBootstrapRecord(record, options.focusRoomName));
+    .filter((record) => shouldRefreshRemoteMiningTargetRecord(record, options.focusRoomName));
   const storedRemoteMining = territoryMemory.remoteMining;
   if (storedRemoteMining === undefined && records.length === 0) {
     return;
@@ -1212,14 +1241,16 @@ export function refreshRemoteMiningSetup(
     const room = getVisibleRoom(record.roomName);
     if (!room) {
       const previous = remoteMining[key];
+      const sources = previous?.sources ?? {};
+      const suspended = isRemoteMiningSuspended(territoryMemory, record.colony, record.roomName, gameTime);
       updateRemoteMiningRoomMemoryIfChanged(
         remoteMining,
         key,
         {
           colony: record.colony,
           roomName: record.roomName,
-          status: previous?.status ?? 'containerPending',
-          sources: previous?.sources ?? {}
+          status: getNotVisibleRemoteMiningStatus(previous, sources, suspended),
+          sources
         },
         gameTime
       );
@@ -1241,6 +1272,22 @@ export function refreshRemoteMiningSetup(
       continue;
     }
 
+    if (!isVisibleRoomSafeForRemoteMining(room, colonyOwnerUsername)) {
+      const previous = remoteMining[key];
+      updateRemoteMiningRoomMemoryIfChanged(
+        remoteMining,
+        key,
+        {
+          colony: record.colony,
+          roomName: record.roomName,
+          status: 'suspended',
+          sources: previous?.sources ?? {}
+        },
+        gameTime
+      );
+      continue;
+    }
+
     const suspended = isRemoteMiningSuspended(territoryMemory, record.colony, record.roomName, gameTime);
     if (!suspended) {
       planSourceContainerConstruction(
@@ -1255,6 +1302,7 @@ export function refreshRemoteMiningSetup(
           minimumControllerLevel: REMOTE_MINING_SOURCE_CONTAINER_MIN_RCL
         }
       );
+      planRemoteMiningCriticalRoadConstruction(room, record.colony);
     }
 
     const sources = getRemoteMiningSources(room);
@@ -1298,11 +1346,11 @@ export function refreshRemoteMiningSetup(
   }
 }
 
-function shouldRefreshRemoteMiningBootstrapRecord(
-  record: TerritoryPostClaimBootstrapMemory,
+function shouldRefreshRemoteMiningTargetRecord(
+  record: RemoteMiningTargetRecord,
   focusRoomName: string | null | undefined
 ): boolean {
-  return record.status === 'ready' || !isNonEmptyString(focusRoomName) || record.roomName === focusRoomName;
+  return record.refreshWhenUnfocused === true || !isNonEmptyString(focusRoomName) || record.roomName === focusRoomName;
 }
 
 export function isTerritoryHomeSafe(
@@ -5541,6 +5589,10 @@ function isTerritoryIntentSuspensionActive(intent: TerritoryIntentMemory, gameTi
     return false;
   }
 
+  if (intent.suspended.reason === 'owner_reserve_only') {
+    return intent.action === 'claim';
+  }
+
   if (intent.suspended.reason === 'hostile_presence') {
     const hostileCount = getVisibleHostileCreepCount(intent.targetRoom);
     if (hostileCount !== null) {
@@ -5596,6 +5648,10 @@ function isTerritoryIntentSuppressed(
 }
 
 function isTerritorySuppressionFresh(intent: TerritoryIntentMemory, gameTime: number): boolean {
+  if (intent.status === 'suppressed' && intent.action === 'claim' && intent.reason === 'owner_reserve_only') {
+    return true;
+  }
+
   return intent.status === 'suppressed' && gameTime - intent.updatedAt <= TERRITORY_SUPPRESSION_RETRY_TICKS;
 }
 
@@ -5994,6 +6050,19 @@ function isHostileOwnedController(controller: StructureController | undefined): 
   return controller.my !== true;
 }
 
+function isVisibleRoomSafeForRemoteMining(room: Room, colonyOwnerUsername: string | null): boolean {
+  if (isHostileOwnedController(room.controller)) {
+    return false;
+  }
+
+  if (room.controller && isForeignReservedController(room.controller, colonyOwnerUsername)) {
+    return false;
+  }
+
+  const hostileCount = getVisibleHostileCreepCount(room.name);
+  return hostileCount === null || hostileCount <= 0;
+}
+
 function isControllerOwnedByColony(controller: StructureController, colonyOwnerUsername: string | null): boolean {
   const ownerUsername = getControllerOwnerUsername(controller);
   return controller.my === true || (isNonEmptyString(ownerUsername) && ownerUsername === colonyOwnerUsername);
@@ -6037,6 +6106,178 @@ function isOwnReservedController(
 ): boolean {
   const reservation = controller.reservation;
   return isNonEmptyString(actorUsername) && isNonEmptyString(reservation?.username) && reservation.username === actorUsername;
+}
+
+function planRemoteMiningCriticalRoadConstruction(room: Room, colonyName: string): ScreepsReturnCode | null {
+  if (
+    typeof STRUCTURE_ROAD !== 'string' ||
+    typeof room.find !== 'function' ||
+    typeof room.createConstructionSite !== 'function' ||
+    !isRemoteMiningPathFinderAvailable()
+  ) {
+    return null;
+  }
+
+  const context = buildCriticalRoadLogisticsContext(room, { colonyRoomName: colonyName });
+  const routes = context.routes ?? [];
+  if (routes.length === 0) {
+    return null;
+  }
+
+  const lookups = createRemoteMiningRoadPlanningLookups(room);
+  if (!lookups || lookups.pendingRoadSitePositions.size >= REMOTE_MINING_CRITICAL_ROAD_MAX_PENDING_SITES) {
+    return null;
+  }
+
+  let placedSites = 0;
+  for (const route of routes) {
+    const path = PathFinder.search(
+      route.origin,
+      { pos: route.destination, range: REMOTE_MINING_CRITICAL_ROAD_PATH_RANGE },
+      {
+        maxOps: REMOTE_MINING_CRITICAL_ROAD_MAX_OPS,
+        roomCallback: (roomName) => (roomName === room.name ? lookups.costMatrix : false)
+      }
+    );
+
+    for (const position of path.path) {
+      if (!canPlaceRemoteMiningRoad(lookups, position, room.name)) {
+        continue;
+      }
+
+      const result = room.createConstructionSite(position.x, position.y, STRUCTURE_ROAD);
+      if (result === getOkCode()) {
+        const key = getRemoteMiningRoadPositionKey(position);
+        lookups.pendingRoadSitePositions.add(key);
+        lookups.blockedPositions.add(key);
+        lookups.costMatrix.set(position.x, position.y, REMOTE_MINING_CRITICAL_ROAD_COST);
+      }
+
+      placedSites += 1;
+      if (result !== getOkCode() || placedSites >= REMOTE_MINING_CRITICAL_ROAD_MAX_SITES_PER_TICK) {
+        return result;
+      }
+    }
+  }
+
+  return null;
+}
+
+function isRemoteMiningPathFinderAvailable(): boolean {
+  return (
+    typeof PathFinder !== 'undefined' &&
+    typeof PathFinder.search === 'function' &&
+    typeof PathFinder.CostMatrix === 'function'
+  );
+}
+
+function createRemoteMiningRoadPlanningLookups(room: Room): RemoteMiningRoadPlanningLookups | null {
+  if (typeof FIND_STRUCTURES !== 'number' || typeof FIND_CONSTRUCTION_SITES !== 'number') {
+    return null;
+  }
+
+  const terrain = getRemoteMiningRoomTerrain(room);
+  if (!terrain) {
+    return null;
+  }
+
+  const lookups: RemoteMiningRoadPlanningLookups = {
+    terrain,
+    costMatrix: new PathFinder.CostMatrix(),
+    blockedPositions: new Set<string>(),
+    existingRoadPositions: new Set<string>(),
+    pendingRoadSitePositions: new Set<string>()
+  };
+
+  for (const structure of room.find(FIND_STRUCTURES) as Structure[]) {
+    cacheRemoteMiningRoadObject(lookups, structure, room.name);
+  }
+
+  for (const site of room.find(FIND_CONSTRUCTION_SITES) as ConstructionSite[]) {
+    cacheRemoteMiningRoadObject(lookups, site, room.name);
+  }
+
+  return lookups;
+}
+
+function cacheRemoteMiningRoadObject(
+  lookups: RemoteMiningRoadPlanningLookups,
+  target: Structure | ConstructionSite,
+  roomName: string
+): void {
+  const position = target.pos;
+  if (!position || position.roomName !== roomName) {
+    return;
+  }
+
+  const key = getRemoteMiningRoadPositionKey(position);
+  lookups.blockedPositions.add(key);
+  lookups.costMatrix.set(position.x, position.y, REMOTE_MINING_CRITICAL_ROAD_BLOCKED_COST);
+  if (matchesStructureType(target.structureType, 'STRUCTURE_ROAD', 'road')) {
+    if ('progress' in target) {
+      lookups.pendingRoadSitePositions.add(key);
+    } else {
+      lookups.existingRoadPositions.add(key);
+    }
+    lookups.costMatrix.set(position.x, position.y, REMOTE_MINING_CRITICAL_ROAD_COST);
+  }
+}
+
+function getRemoteMiningRoomTerrain(room: Room): RoomTerrain | null {
+  if (typeof room.getTerrain === 'function') {
+    return room.getTerrain();
+  }
+
+  const getRoomTerrain = (globalThis as { Game?: Partial<Pick<Game, 'map'>> }).Game?.map?.getRoomTerrain;
+  return typeof getRoomTerrain === 'function' ? getRoomTerrain(room.name) : null;
+}
+
+function canPlaceRemoteMiningRoad(
+  lookups: RemoteMiningRoadPlanningLookups,
+  position: RoomPosition,
+  roomName: string
+): boolean {
+  if (
+    position.roomName !== roomName ||
+    position.x < REMOTE_MINING_CRITICAL_ROAD_EDGE_MIN ||
+    position.x > REMOTE_MINING_CRITICAL_ROAD_EDGE_MAX ||
+    position.y < REMOTE_MINING_CRITICAL_ROAD_EDGE_MIN ||
+    position.y > REMOTE_MINING_CRITICAL_ROAD_EDGE_MAX
+  ) {
+    return false;
+  }
+
+  const key = getRemoteMiningRoadPositionKey(position);
+  if (
+    lookups.blockedPositions.has(key) ||
+    lookups.existingRoadPositions.has(key) ||
+    lookups.pendingRoadSitePositions.has(key)
+  ) {
+    return false;
+  }
+
+  return (lookups.terrain.get(position.x, position.y) & getTerrainWallMask()) === 0;
+}
+
+function getRemoteMiningRoadPositionKey(position: RoomPosition): string {
+  return `${position.roomName}:${position.x}:${position.y}`;
+}
+
+function getTerrainWallMask(): number {
+  return typeof TERRAIN_MASK_WALL === 'number' ? TERRAIN_MASK_WALL : DEFAULT_TERRAIN_WALL_MASK;
+}
+
+function getOkCode(): ScreepsReturnCode {
+  return typeof OK === 'number' ? OK : OK_CODE;
+}
+
+function matchesStructureType(
+  actual: string | undefined,
+  globalName: 'STRUCTURE_ROAD',
+  fallback: string
+): boolean {
+  const constants = globalThis as unknown as Partial<Record<typeof globalName, string>>;
+  return actual === (constants[globalName] ?? fallback);
 }
 
 function updateTerritoryReservationMemory(
@@ -6162,10 +6403,50 @@ function getGameTime(): number {
   return typeof gameTime === 'number' ? gameTime : 0;
 }
 
+function getRemoteMiningTargetRecords(
+  territoryMemory: TerritoryMemory,
+  colonyName: string,
+  colonyOwnerUsername: string | null,
+  gameTime: number
+): RemoteMiningTargetRecord[] {
+  const existingRemoteMiningKeys = getExistingRemoteMiningMemoryKeys(territoryMemory.remoteMining, colonyName);
+  return uniqueRemoteMiningTargetRecords([
+    ...getRemoteMiningBootstrapRecords(territoryMemory, colonyName),
+    ...getRemoteMiningReserveIntentRecords(
+      territoryMemory,
+      colonyName,
+      colonyOwnerUsername,
+      gameTime,
+      existingRemoteMiningKeys
+    ),
+    ...getVisibleOwnReservedRemoteMiningRecords(colonyName, colonyOwnerUsername)
+  ]).sort(compareRemoteMiningTargetRecords);
+}
+
+function getExistingRemoteMiningMemoryKeys(
+  records: TerritoryMemory['remoteMining'],
+  colonyName: string
+): ReadonlySet<string> {
+  if (!isRecord(records)) {
+    return new Set();
+  }
+
+  return new Set(
+    Object.values(records)
+      .filter((record) => (
+        isRecord(record) &&
+        record.colony === colonyName &&
+        isNonEmptyString(record.roomName) &&
+        record.roomName !== colonyName
+      ))
+      .map((record) => getRemoteMiningMemoryKey(colonyName, String(record.roomName)))
+  );
+}
+
 function getRemoteMiningBootstrapRecords(
   territoryMemory: TerritoryMemory,
   colonyName: string
-): TerritoryPostClaimBootstrapMemory[] {
+): RemoteMiningTargetRecord[] {
   const records = territoryMemory.postClaimBootstraps;
   if (!isRecord(records)) {
     return [];
@@ -6173,7 +6454,15 @@ function getRemoteMiningBootstrapRecords(
 
   return Object.values(records)
     .filter((record): record is TerritoryPostClaimBootstrapMemory => isRemoteMiningBootstrapRecord(record, colonyName))
-    .sort(compareRemoteMiningBootstrapRecords);
+    .sort(compareRemoteMiningBootstrapRecords)
+    .map((record): RemoteMiningTargetRecord => ({
+      colony: record.colony,
+      roomName: record.roomName,
+      source: 'postClaimBootstrap',
+      order: record.claimedAt,
+      refreshWhenUnfocused: record.status === 'ready',
+      ...(record.controllerId ? { controllerId: record.controllerId } : {})
+    }));
 }
 
 function isRemoteMiningBootstrapRecord(
@@ -6204,6 +6493,162 @@ function compareRemoteMiningBootstrapRecords(
   right: TerritoryPostClaimBootstrapMemory
 ): number {
   return left.claimedAt - right.claimedAt || left.roomName.localeCompare(right.roomName);
+}
+
+function getRemoteMiningReserveIntentRecords(
+  territoryMemory: TerritoryMemory,
+  colonyName: string,
+  colonyOwnerUsername: string | null,
+  gameTime: number,
+  existingRemoteMiningKeys: ReadonlySet<string>
+): RemoteMiningTargetRecord[] {
+  return normalizeTerritoryIntents(territoryMemory.intents)
+    .filter((intent): intent is TerritoryIntentMemory & { action: 'reserve' } =>
+      isRemoteMiningReserveIntent(intent, colonyName, colonyOwnerUsername, gameTime, existingRemoteMiningKeys)
+    )
+    .map((intent): RemoteMiningTargetRecord => ({
+      colony: intent.colony,
+      roomName: intent.targetRoom,
+      source: 'reserveIntent',
+      order: intent.updatedAt,
+      refreshWhenUnfocused: true,
+      ...(intent.controllerId ? { controllerId: intent.controllerId } : {})
+    }));
+}
+
+function isRemoteMiningReserveIntent(
+  intent: TerritoryIntentMemory,
+  colonyName: string,
+  colonyOwnerUsername: string | null,
+  gameTime: number,
+  existingRemoteMiningKeys: ReadonlySet<string>
+): intent is TerritoryIntentMemory & { action: 'reserve' } {
+  if (
+    intent.colony !== colonyName ||
+    intent.action !== 'reserve' ||
+    intent.targetRoom === colonyName ||
+    (intent.status !== 'planned' && intent.status !== 'active') ||
+    isKnownDeadZoneRoom(intent.targetRoom) ||
+    !isRemoteMiningAdjacentRoom(colonyName, intent.targetRoom)
+  ) {
+    return false;
+  }
+
+  const memoryKey = getRemoteMiningMemoryKey(intent.colony, intent.targetRoom);
+  const hasExistingRemoteMining = existingRemoteMiningKeys.has(memoryKey);
+  if (isRemoteMiningBlockingTerritorySuspension(intent, gameTime)) {
+    return hasExistingRemoteMining;
+  }
+
+  const room = getVisibleRoom(intent.targetRoom);
+  if (room != null) {
+    return isVisibleRoomSafeForRemoteMining(room, colonyOwnerUsername) || hasExistingRemoteMining;
+  }
+
+  return hasExistingRemoteMining;
+}
+
+function getVisibleOwnReservedRemoteMiningRecords(
+  colonyName: string,
+  colonyOwnerUsername: string | null
+): RemoteMiningTargetRecord[] {
+  const rooms = (globalThis as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms;
+  if (!rooms) {
+    return [];
+  }
+
+  return Object.values(rooms)
+    .filter((room): room is Room =>
+      room != null &&
+      room.name !== colonyName &&
+      isRemoteMiningAdjacentRoom(colonyName, room.name) &&
+      isVisibleRoomSafeForRemoteMining(room, colonyOwnerUsername) &&
+      room.controller !== undefined &&
+      isOwnReservedController(room.controller, colonyOwnerUsername)
+    )
+    .map((room, index): RemoteMiningTargetRecord => ({
+      colony: colonyName,
+      roomName: room.name,
+      source: 'ownReservation',
+      order: index,
+      refreshWhenUnfocused: true,
+      ...(room.controller?.id ? { controllerId: room.controller.id } : {})
+    }));
+}
+
+function uniqueRemoteMiningTargetRecords(records: RemoteMiningTargetRecord[]): RemoteMiningTargetRecord[] {
+  const byKey = new Map<string, RemoteMiningTargetRecord>();
+  for (const record of records) {
+    const key = getRemoteMiningMemoryKey(record.colony, record.roomName);
+    const existing = byKey.get(key);
+    if (!existing || compareRemoteMiningTargetRecordSource(record, existing) < 0) {
+      byKey.set(key, record);
+    }
+  }
+
+  return [...byKey.values()];
+}
+
+function compareRemoteMiningTargetRecordSource(
+  left: RemoteMiningTargetRecord,
+  right: RemoteMiningTargetRecord
+): number {
+  return getRemoteMiningTargetSourceRank(left.source) - getRemoteMiningTargetSourceRank(right.source);
+}
+
+function getRemoteMiningTargetSourceRank(source: RemoteMiningTargetRecord['source']): number {
+  switch (source) {
+    case 'postClaimBootstrap':
+      return 0;
+    case 'reserveIntent':
+      return 1;
+    case 'ownReservation':
+      return 2;
+  }
+}
+
+function compareRemoteMiningTargetRecords(
+  left: RemoteMiningTargetRecord,
+  right: RemoteMiningTargetRecord
+): number {
+  return (
+    left.order - right.order ||
+    compareRemoteMiningTargetRecordSource(left, right) ||
+    left.roomName.localeCompare(right.roomName)
+  );
+}
+
+function isRemoteMiningAdjacentRoom(colonyName: string, roomName: string): boolean {
+  if (isRoomAdjacentToColony(colonyName, roomName)) {
+    return true;
+  }
+
+  const colony = parseRemoteMiningRoomCoordinates(colonyName);
+  const target = parseRemoteMiningRoomCoordinates(roomName);
+  if (!colony || !target) {
+    return false;
+  }
+
+  const distance = Math.max(Math.abs(colony.x - target.x), Math.abs(colony.y - target.y));
+  return distance === 1;
+}
+
+function parseRemoteMiningRoomCoordinates(roomName: string): { x: number; y: number } | null {
+  const match = /^([WE])(\d+)([NS])(\d+)$/.exec(roomName);
+  if (!match) {
+    return null;
+  }
+
+  const horizontalValue = Number(match[2]);
+  const verticalValue = Number(match[4]);
+  if (!Number.isFinite(horizontalValue) || !Number.isFinite(verticalValue)) {
+    return null;
+  }
+
+  return {
+    x: match[1] === 'E' ? horizontalValue : -horizontalValue - 1,
+    y: match[3] === 'S' ? verticalValue : -verticalValue - 1
+  };
 }
 
 function getRemoteMiningMemoryKey(colony: string, roomName: string): string {
@@ -6295,8 +6740,12 @@ function isRemoteMiningSuspended(
     (intent) =>
       intent.colony === colony &&
       intent.targetRoom === roomName &&
-      isTerritoryIntentSuspensionActive(intent, gameTime)
+      isRemoteMiningBlockingTerritorySuspension(intent, gameTime)
   );
+}
+
+function isRemoteMiningBlockingTerritorySuspension(intent: TerritoryIntentMemory, gameTime: number): boolean {
+  return intent.suspended?.reason !== 'owner_reserve_only' && isTerritoryIntentSuspensionActive(intent, gameTime);
 }
 
 function getRemoteMiningSources(room: Room): Source[] {
@@ -6381,7 +6830,7 @@ function hasAssignedRemoteHauler(
 function hasRemoteEnergyFlow(
   container: StructureContainer,
   creeps: Creep[],
-  record: TerritoryPostClaimBootstrapMemory,
+  record: Pick<RemoteMiningTargetRecord, 'colony' | 'roomName'>,
   sourceId: string
 ): boolean {
   return (
@@ -6402,6 +6851,22 @@ function getRemoteMiningStatus(
   }
 
   return 'containerReady';
+}
+
+function getNotVisibleRemoteMiningStatus(
+  previous: TerritoryRemoteMiningRoomMemory | undefined,
+  sources: Record<string, TerritoryRemoteMiningSourceMemory>,
+  suspended: boolean
+): TerritoryRemoteMiningStatus {
+  if (suspended) {
+    return 'suspended';
+  }
+
+  if (previous?.status === 'suspended') {
+    return getRemoteMiningStatus(Object.values(sources));
+  }
+
+  return previous?.status ?? 'containerPending';
 }
 
 function getWritableTerritoryMemoryRecord(): TerritoryMemory | null {

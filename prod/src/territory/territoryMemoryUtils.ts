@@ -55,20 +55,30 @@ export function normalizeTerritoryIntentSuspension(
     return null;
   }
 
-  if (
-    rawSuspension.reason !== 'hostile_presence' ||
-    !isFiniteNumber(rawSuspension.hostileCount) ||
-    rawSuspension.hostileCount <= 0 ||
-    !isFiniteNumber(rawSuspension.updatedAt)
-  ) {
+  if (!isFiniteNumber(rawSuspension.updatedAt)) {
     return null;
   }
 
-  return {
-    reason: rawSuspension.reason,
-    hostileCount: Math.floor(rawSuspension.hostileCount),
-    updatedAt: rawSuspension.updatedAt
-  };
+  if (rawSuspension.reason === 'owner_reserve_only') {
+    return {
+      reason: rawSuspension.reason,
+      updatedAt: rawSuspension.updatedAt
+    };
+  }
+
+  if (
+    rawSuspension.reason === 'hostile_presence' &&
+    isFiniteNumber(rawSuspension.hostileCount) &&
+    rawSuspension.hostileCount > 0
+  ) {
+    return {
+      reason: rawSuspension.reason,
+      hostileCount: Math.floor(rawSuspension.hostileCount),
+      updatedAt: rawSuspension.updatedAt
+    };
+  }
+
+  return null;
 }
 
 export function normalizeTerritoryFollowUp(rawFollowUp: unknown): TerritoryFollowUpMemory | null {
@@ -107,7 +117,12 @@ function isTerritoryIntentStatus(status: unknown): status is TerritoryIntentMemo
 }
 
 function isTerritoryIntentSuppressionReason(reason: unknown): reason is TerritoryIntentSuppressionReason {
-  return reason === 'deadZoneTarget' || reason === 'deadZoneRoute' || reason === 'controllerLevel';
+  return (
+    reason === 'deadZoneTarget' ||
+    reason === 'deadZoneRoute' ||
+    reason === 'controllerLevel' ||
+    reason === 'owner_reserve_only'
+  );
 }
 
 function isTerritoryExpansionCandidateBlockReason(

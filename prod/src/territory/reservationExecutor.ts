@@ -815,6 +815,10 @@ function isTerritoryIntentSuspensionActive(intent: TerritoryIntentMemory, gameTi
     return false;
   }
 
+  if (intent.suspended.reason === 'owner_reserve_only') {
+    return intent.action === 'claim';
+  }
+
   return gameTime - intent.suspended.updatedAt <= TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS;
 }
 
