@@ -63,7 +63,12 @@ type TransferSinkStructureConstantGlobal =
   | 'STRUCTURE_LINK'
   | 'STRUCTURE_SPAWN'
   | 'STRUCTURE_TOWER';
-type CapacityConstructionStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION';
+type ConstructionStructureConstantGlobal =
+  | 'STRUCTURE_SPAWN'
+  | 'STRUCTURE_EXTENSION'
+  | 'STRUCTURE_TOWER'
+  | 'STRUCTURE_CONTAINER'
+  | 'STRUCTURE_ROAD';
 
 const MAX_IMMEDIATE_RESELECT_EXECUTIONS = 1;
 const WORKER_NULL_LOOP_TICK_WINDOW = 10;
@@ -179,6 +184,8 @@ export function runWorker(creep: Creep): void {
   } else if (shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForSpawnReservationRefill(currentTask, spawnReservationRefillTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPreemptEnergyAcquisitionTaskForNearFullConstruction(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
@@ -411,13 +418,25 @@ function selectWorkerTaskContext(
 ): WorkerTaskSelectionContext {
   const baseSelectedTask = selectWorkerTaskForRunner(creep);
   const energyCriticalTask = selectWorkerEnergyCriticalTask(creep, currentTask, baseSelectedTask);
+  const effectiveEnergyCriticalTask = shouldYieldStorageCriticalAcquisitionToNearFullConstruction(
+    creep,
+    energyCriticalTask,
+    baseSelectedTask
+  )
+    ? null
+    : energyCriticalTask;
   const spawnReservationRefillTask = selectSpawnEnergyReservationRefillTask(
     creep,
     currentTask,
-    energyCriticalTask ?? baseSelectedTask
+    effectiveEnergyCriticalTask ?? baseSelectedTask
   );
-  const selectedTask = spawnReservationRefillTask ?? energyCriticalTask ?? baseSelectedTask;
-  return { baseSelectedTask, energyCriticalTask, selectedTask, spawnReservationRefillTask };
+  const selectedTask = spawnReservationRefillTask ?? effectiveEnergyCriticalTask ?? baseSelectedTask;
+  return {
+    baseSelectedTask,
+    energyCriticalTask: effectiveEnergyCriticalTask,
+    selectedTask,
+    spawnReservationRefillTask
+  };
 }
 
 function getCriticalCpuTaskRetentionDecision(
@@ -1165,6 +1184,13 @@ function getRoomEnergyAvailable(room: Room): number | null {
     : null;
 }
 
+function getRoomEnergyCapacityAvailable(room: Room): number | null {
+  const energyCapacityAvailable = (room as Room & { energyCapacityAvailable?: unknown }).energyCapacityAvailable;
+  return typeof energyCapacityAvailable === 'number' && Number.isFinite(energyCapacityAvailable)
+    ? Math.max(0, energyCapacityAvailable)
+    : null;
+}
+
 function getCarriedEnergy(creep: Creep): number {
   return getStoredEnergy(creep);
 }
@@ -1539,6 +1565,19 @@ function shouldPreemptEnergyAcquisitionTaskForSpawnReservationRefill(
     isEnergyAcquisitionTask(task) &&
     spawnReservationRefillTask?.type === 'transfer' &&
     !isSameTask(task, spawnReservationRefillTask)
+  );
+}
+
+function shouldPreemptEnergyAcquisitionTaskForNearFullConstruction(
+  creep: Creep,
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  return (
+    isEnergyAcquisitionTask(task) &&
+    selectedTask !== null &&
+    !isSameTask(task, selectedTask) &&
+    shouldYieldStorageCriticalAcquisitionToNearFullConstruction(creep, task, selectedTask)
   );
 }
 
@@ -1989,9 +2028,63 @@ function isCapacityEnablingConstructionSite(target: unknown): target is Construc
   }
 
   return (
-    matchesCapacityConstructionStructureType(structureType, 'STRUCTURE_SPAWN', 'spawn') ||
-    matchesCapacityConstructionStructureType(structureType, 'STRUCTURE_EXTENSION', 'extension')
+    matchesConstructionStructureType(structureType, 'STRUCTURE_SPAWN', 'spawn') ||
+    matchesConstructionStructureType(structureType, 'STRUCTURE_EXTENSION', 'extension')
   );
+}
+
+function shouldYieldStorageCriticalAcquisitionToNearFullConstruction(
+  creep: Creep,
+  acquisitionTask: CreepTaskMemory | null,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  if (
+    acquisitionTask === null ||
+    !isEnergyAcquisitionTask(acquisitionTask) ||
+    selectedTask?.type !== 'build' ||
+    creep.memory?.workerEnergyCriticalPolicy?.reason !== 'storage'
+  ) {
+    return false;
+  }
+
+  const carriedEnergy = getUsedTransferEnergy(creep);
+  const constructionSite = getTaskTarget(selectedTask);
+  return (
+    carriedEnergy > 0 &&
+    isRoomEnergyFullOrCoveredByCarriedEnergy(creep.room, carriedEnergy) &&
+    isCriticalConstructionSite(constructionSite) &&
+    canSpendWorkerEnergyOnConstructionSite(creep, constructionSite)
+  );
+}
+
+function isCriticalConstructionSite(target: unknown): target is ConstructionSite {
+  const structureType = (target as { structureType?: unknown } | null)?.structureType;
+  if (typeof structureType !== 'string') {
+    return false;
+  }
+
+  return (
+    matchesConstructionStructureType(structureType, 'STRUCTURE_SPAWN', 'spawn') ||
+    matchesConstructionStructureType(structureType, 'STRUCTURE_EXTENSION', 'extension') ||
+    matchesConstructionStructureType(structureType, 'STRUCTURE_TOWER', 'tower') ||
+    matchesConstructionStructureType(structureType, 'STRUCTURE_CONTAINER', 'container') ||
+    matchesConstructionStructureType(structureType, 'STRUCTURE_ROAD', 'road')
+  );
+}
+
+function isRoomEnergyFullOrCoveredByCarriedEnergy(room: Room, carriedEnergy: number): boolean {
+  const energyAvailable = getRoomEnergyAvailable(room);
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
+  if (
+    carriedEnergy <= 0 ||
+    energyAvailable === null ||
+    energyCapacityAvailable === null ||
+    energyCapacityAvailable <= 0
+  ) {
+    return false;
+  }
+
+  return Math.max(0, energyCapacityAvailable - energyAvailable) <= carriedEnergy;
 }
 
 function isSpawnConstructionTaskTarget(target: unknown): target is ConstructionSite {
@@ -2000,7 +2093,7 @@ function isSpawnConstructionTaskTarget(target: unknown): target is ConstructionS
     return false;
   }
 
-  return matchesCapacityConstructionStructureType(structureType, 'STRUCTURE_SPAWN', 'spawn');
+  return matchesConstructionStructureType(structureType, 'STRUCTURE_SPAWN', 'spawn');
 }
 
 function getFreeTransferEnergyCapacity(target: unknown): number {
@@ -2161,12 +2254,12 @@ function matchesTransferSinkStructureType(
   return actual === (constants[globalName] ?? fallback);
 }
 
-function matchesCapacityConstructionStructureType(
+function matchesConstructionStructureType(
   actual: string,
-  globalName: CapacityConstructionStructureConstantGlobal,
+  globalName: ConstructionStructureConstantGlobal,
   fallback: string
 ): boolean {
-  const constants = globalThis as unknown as Partial<Record<CapacityConstructionStructureConstantGlobal, string>>;
+  const constants = globalThis as unknown as Partial<Record<ConstructionStructureConstantGlobal, string>>;
   return actual === (constants[globalName] ?? fallback);
 }
 
