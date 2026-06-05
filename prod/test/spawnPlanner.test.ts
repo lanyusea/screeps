@@ -446,6 +446,48 @@ describe('planSpawn', () => {
     };
   }
 
+  function makeRemoteMiningMemory(
+    targetRoom = 'W2N1',
+    {
+      colony = 'W1N1',
+      sourceId = `${targetRoom}-source0`,
+      containerId = `${targetRoom}-container0`,
+      status = containerId === null ? 'containerPending' : 'containerReady',
+      containerBuilt = containerId !== null,
+      containerSitePending = containerId === null,
+      energyAvailable = 0,
+      energyFlowing = false
+    }: {
+      colony?: string;
+      sourceId?: string;
+      containerId?: string | null;
+      status?: TerritoryRemoteMiningStatus;
+      containerBuilt?: boolean;
+      containerSitePending?: boolean;
+      energyAvailable?: number;
+      energyFlowing?: boolean;
+    } = {}
+  ): TerritoryRemoteMiningRoomMemory {
+    return {
+      colony,
+      roomName: targetRoom,
+      status,
+      updatedAt: 501,
+      sources: {
+        [sourceId]: {
+          sourceId,
+          ...(containerId === null ? {} : { containerId }),
+          containerBuilt,
+          containerSitePending,
+          harvesterAssigned: false,
+          haulerAssigned: false,
+          energyAvailable,
+          energyFlowing
+        }
+      }
+    };
+  }
+
   function makePostClaimSustainUpgrader(targetRoom = 'W2N1', homeRoom = 'W1N1'): Creep {
     return {
       memory: {
@@ -2318,7 +2360,9 @@ describe('planSpawn', () => {
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
-        postClaimBootstraps: { W2N1: makeSatisfiedPostClaimRemoteMemory() }
+        remoteMining: {
+          'W1N1:W2N1': makeRemoteMiningMemory()
+        }
       }
     };
 
@@ -2560,7 +2604,13 @@ describe('planSpawn', () => {
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
-        postClaimBootstraps: { W2N1: makeSatisfiedPostClaimRemoteMemory() }
+        remoteMining: {
+          'W1N1:W2N1': makeRemoteMiningMemory('W2N1', {
+            containerId: null,
+            containerBuilt: false,
+            containerSitePending: true
+          })
+        }
       }
     };
 
@@ -2615,6 +2665,15 @@ describe('planSpawn', () => {
             colony: 'E17S59',
             controllerId: 'controller-e17s58' as Id<StructureController>
           }
+        },
+        remoteMining: {
+          'E17S59:E17S58': makeRemoteMiningMemory('E17S58', {
+            colony: 'E17S59',
+            sourceId: 'e17s58-source-a',
+            containerId: null,
+            containerBuilt: false,
+            containerSitePending: true
+          })
         },
         scoutIntel: {
           'E17S59>E18S59': makeFreshScoutIntel('E17S59', 'E18S59', 814),
@@ -2675,6 +2734,15 @@ describe('planSpawn', () => {
             controllerId: 'controller-e18s59' as Id<StructureController>
           }
         },
+        remoteMining: {
+          'E17S59:E18S59': makeRemoteMiningMemory('E18S59', {
+            colony: 'E17S59',
+            sourceId: 'e18s59-source-a',
+            containerId: null,
+            containerBuilt: false,
+            containerSitePending: true
+          })
+        },
         scoutIntel: {
           'E17S59>E18S59': makeFreshScoutIntel('E17S59', 'E18S59', 837),
           'E17S59>E17S60': makeFreshScoutIntel('E17S59', 'E17S60', 837)
@@ -2698,12 +2766,12 @@ describe('planSpawn', () => {
     });
   });
 
-  it('spawns a remote harvester for a reserve-only room while an owner hold suppresses claiming', () => {
+  it('spawns a remote harvester for a reserve-only room without claim intent pressure', () => {
     const { colony, spawn } = makeColony({
       roomName: 'E9S27',
-      energyAvailable: 650,
-      energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController(6)
+      energyAvailable: 1300,
+      energyCapacityAvailable: 1300,
+      controller: makeSafeOwnedController(4)
     });
     const source = makeRemoteSource('e9s28-source-a', 10, 10, 'E9S28');
     const remoteRoom = makeRemoteEconomyRoom({
@@ -2726,21 +2794,9 @@ describe('planSpawn', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
         targets: [
-          { colony: 'E9S27', roomName: 'E9S28', action: 'claim' },
           { colony: 'E9S27', roomName: 'E9S28', action: 'reserve' }
         ],
         intents: [
-          {
-            colony: 'E9S27',
-            targetRoom: 'E9S28',
-            action: 'claim',
-            status: 'suppressed',
-            updatedAt: 1_000,
-            suspended: {
-              reason: 'owner_reserve_only',
-              updatedAt: 1_000
-            } as unknown as TerritoryIntentSuspensionMemory
-          },
           {
             colony: 'E9S27',
             targetRoom: 'E9S28',
@@ -2812,7 +2868,9 @@ describe('planSpawn', () => {
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
-        postClaimBootstraps: { W2N1: makeSatisfiedPostClaimRemoteMemory() }
+        remoteMining: {
+          'W1N1:W2N1': makeRemoteMiningMemory()
+        }
       }
     };
 
@@ -2871,7 +2929,9 @@ describe('planSpawn', () => {
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
-        postClaimBootstraps: { W2N1: makeSatisfiedPostClaimRemoteMemory() }
+        remoteMining: {
+          'W1N1:W2N1': makeRemoteMiningMemory()
+        }
       }
     };
 
@@ -2894,7 +2954,9 @@ describe('planSpawn', () => {
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
-        postClaimBootstraps: { W2N1: makeSatisfiedPostClaimRemoteMemory() },
+        remoteMining: {
+          'W1N1:W2N1': makeRemoteMiningMemory()
+        },
         intents: [
           {
             colony: 'W1N1',
@@ -2932,7 +2994,9 @@ describe('planSpawn', () => {
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
-        postClaimBootstraps: { W2N1: makeSatisfiedPostClaimRemoteMemory() }
+        remoteMining: {
+          'W1N1:W2N1': makeRemoteMiningMemory()
+        }
       }
     };
 

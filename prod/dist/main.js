@@ -35725,10 +35725,7 @@ function getRemoteSourceAssignmentsInRoom(homeRoom, room) {
   });
 }
 function getRemoteSourceRoomRecords(homeRoom) {
-  return uniqueRemoteSourceRoomRecords([
-    ...getRemoteMiningRecords(homeRoom),
-    ...getRemoteBootstrapRecords(homeRoom)
-  ]).sort(compareRemoteSourceRoomRecords);
+  return uniqueRemoteSourceRoomRecords(getRemoteMiningRecords(homeRoom)).sort(compareRemoteSourceRoomRecords);
 }
 function getRemoteMiningRecords(homeRoom) {
   var _a2, _b;
@@ -35739,50 +35736,24 @@ function getRemoteMiningRecords(homeRoom) {
   return Object.values(records).filter((record) => isRemoteMiningRecord(record, homeRoom)).map((record) => ({
     colony: record.colony,
     roomName: record.roomName,
-    order: record.updatedAt,
-    source: "remoteMining"
+    order: record.updatedAt
   }));
 }
 function isRemoteMiningRecord(record, homeRoom) {
   return isRecord24(record) && record.colony === homeRoom && isNonEmptyString24(record.roomName) && record.roomName !== homeRoom && (record.status === "containerPending" || record.status === "containerReady" || record.status === "active");
 }
-function getRemoteBootstrapRecords(homeRoom) {
-  var _a2, _b;
-  const records = (_b = (_a2 = globalThis.Memory) == null ? void 0 : _a2.territory) == null ? void 0 : _b.postClaimBootstraps;
-  if (!isRecord24(records)) {
-    return [];
-  }
-  return Object.values(records).filter((record) => isRemoteBootstrapRecord(record, homeRoom)).sort(compareRemoteBootstrapRecords).map((record) => ({
-    colony: record.colony,
-    roomName: record.roomName,
-    order: record.claimedAt,
-    source: "postClaimBootstrap"
-  }));
-}
-function isRemoteBootstrapRecord(record, homeRoom) {
-  return isRecord24(record) && record.colony === homeRoom && isNonEmptyString24(record.roomName) && record.roomName !== homeRoom && (record.status === "detected" || record.status === "spawnSitePending" || record.status === "spawnSiteBlocked" || record.status === "spawningWorkers" || record.status === "ready");
-}
-function compareRemoteBootstrapRecords(left, right) {
-  return left.claimedAt - right.claimedAt || left.roomName.localeCompare(right.roomName);
-}
 function uniqueRemoteSourceRoomRecords(records) {
   const byRoom = /* @__PURE__ */ new Map();
   for (const record of records) {
     const existing = byRoom.get(record.roomName);
-    if (!existing || compareRemoteSourceRoomRecordSource(record, existing) < 0) {
+    if (!existing || compareRemoteSourceRoomRecords(record, existing) < 0) {
       byRoom.set(record.roomName, record);
     }
   }
   return [...byRoom.values()];
 }
 function compareRemoteSourceRoomRecords(left, right) {
-  return left.order - right.order || compareRemoteSourceRoomRecordSource(left, right) || left.roomName.localeCompare(right.roomName);
-}
-function compareRemoteSourceRoomRecordSource(left, right) {
-  return getRemoteSourceRoomRecordSourceRank(left.source) - getRemoteSourceRoomRecordSourceRank(right.source);
-}
-function getRemoteSourceRoomRecordSourceRank(source) {
-  return source === "postClaimBootstrap" ? 0 : 1;
+  return left.order - right.order || left.roomName.localeCompare(right.roomName);
 }
 function compareRemoteSourceAssignments(left, right) {
   return left.targetRoom.localeCompare(right.targetRoom) || String(left.sourceId).localeCompare(String(right.sourceId));

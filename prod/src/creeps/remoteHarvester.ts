@@ -37,7 +37,6 @@ interface RemoteSourceRoomRecord {
   colony: string;
   roomName: string;
   order: number;
-  source: 'remoteMining' | 'postClaimBootstrap';
 }
 
 export { buildRemoteHarvesterBody };
@@ -225,10 +224,7 @@ function getRemoteSourceAssignmentsInRoom(homeRoom: string, room: Room): RemoteS
 }
 
 function getRemoteSourceRoomRecords(homeRoom: string): RemoteSourceRoomRecord[] {
-  return uniqueRemoteSourceRoomRecords([
-    ...getRemoteMiningRecords(homeRoom),
-    ...getRemoteBootstrapRecords(homeRoom)
-  ]).sort(compareRemoteSourceRoomRecords);
+  return uniqueRemoteSourceRoomRecords(getRemoteMiningRecords(homeRoom)).sort(compareRemoteSourceRoomRecords);
 }
 
 function getRemoteMiningRecords(homeRoom: string): RemoteSourceRoomRecord[] {
@@ -242,8 +238,7 @@ function getRemoteMiningRecords(homeRoom: string): RemoteSourceRoomRecord[] {
     .map((record): RemoteSourceRoomRecord => ({
       colony: record.colony,
       roomName: record.roomName,
-      order: record.updatedAt,
-      source: 'remoteMining'
+      order: record.updatedAt
     }));
 }
 
@@ -257,49 +252,11 @@ function isRemoteMiningRecord(record: unknown, homeRoom: string): record is Terr
   );
 }
 
-function getRemoteBootstrapRecords(homeRoom: string): RemoteSourceRoomRecord[] {
-  const records = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.postClaimBootstraps;
-  if (!isRecord(records)) {
-    return [];
-  }
-
-  return Object.values(records)
-    .filter((record): record is TerritoryPostClaimBootstrapMemory => isRemoteBootstrapRecord(record, homeRoom))
-    .sort(compareRemoteBootstrapRecords)
-    .map((record): RemoteSourceRoomRecord => ({
-      colony: record.colony,
-      roomName: record.roomName,
-      order: record.claimedAt,
-      source: 'postClaimBootstrap'
-    }));
-}
-
-function isRemoteBootstrapRecord(record: unknown, homeRoom: string): record is TerritoryPostClaimBootstrapMemory {
-  return (
-    isRecord(record) &&
-    record.colony === homeRoom &&
-    isNonEmptyString(record.roomName) &&
-    record.roomName !== homeRoom &&
-    (record.status === 'detected' ||
-      record.status === 'spawnSitePending' ||
-      record.status === 'spawnSiteBlocked' ||
-      record.status === 'spawningWorkers' ||
-      record.status === 'ready')
-  );
-}
-
-function compareRemoteBootstrapRecords(
-  left: TerritoryPostClaimBootstrapMemory,
-  right: TerritoryPostClaimBootstrapMemory
-): number {
-  return left.claimedAt - right.claimedAt || left.roomName.localeCompare(right.roomName);
-}
-
 function uniqueRemoteSourceRoomRecords(records: RemoteSourceRoomRecord[]): RemoteSourceRoomRecord[] {
   const byRoom = new Map<string, RemoteSourceRoomRecord>();
   for (const record of records) {
     const existing = byRoom.get(record.roomName);
-    if (!existing || compareRemoteSourceRoomRecordSource(record, existing) < 0) {
+    if (!existing || compareRemoteSourceRoomRecords(record, existing) < 0) {
       byRoom.set(record.roomName, record);
     }
   }
@@ -308,19 +265,7 @@ function uniqueRemoteSourceRoomRecords(records: RemoteSourceRoomRecord[]): Remot
 }
 
 function compareRemoteSourceRoomRecords(left: RemoteSourceRoomRecord, right: RemoteSourceRoomRecord): number {
-  return (
-    left.order - right.order ||
-    compareRemoteSourceRoomRecordSource(left, right) ||
-    left.roomName.localeCompare(right.roomName)
-  );
-}
-
-function compareRemoteSourceRoomRecordSource(left: RemoteSourceRoomRecord, right: RemoteSourceRoomRecord): number {
-  return getRemoteSourceRoomRecordSourceRank(left.source) - getRemoteSourceRoomRecordSourceRank(right.source);
-}
-
-function getRemoteSourceRoomRecordSourceRank(source: RemoteSourceRoomRecord['source']): number {
-  return source === 'postClaimBootstrap' ? 0 : 1;
+  return left.order - right.order || left.roomName.localeCompare(right.roomName);
 }
 
 function compareRemoteSourceAssignments(left: RemoteSourceAssignment, right: RemoteSourceAssignment): number {

@@ -1,4 +1,4 @@
-import { runRemoteHarvester } from '../src/creeps/remoteHarvester';
+import { getRemoteSourceAssignments, runRemoteHarvester } from '../src/creeps/remoteHarvester';
 
 const OK_CODE = 0 as ScreepsReturnCode;
 
@@ -33,6 +33,29 @@ describe('runRemoteHarvester', () => {
 
     expect(creep.transfer).toHaveBeenCalledWith(container, RESOURCE_ENERGY);
     expect(creep.harvest).not.toHaveBeenCalled();
+  });
+
+  it('does not select remote assignments directly from post-claim bootstrap memory', () => {
+    const remoteRoom = makeRoom('W2N1', false, [], undefined, { sources: [makeSource('source1')] });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { W2N1: remoteRoom }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'spawnSitePending',
+            claimedAt: 500,
+            updatedAt: 501,
+            workerTarget: 1
+          }
+        }
+      }
+    };
+
+    expect(getRemoteSourceAssignments('W1N1')).toEqual([]);
   });
 
   it('retreats home when the assigned remote room is hostile owned', () => {
