@@ -81,7 +81,11 @@ declare global {
     | 'workerFallback';
   type DefenseUnsafeRoomReason = 'enemyTower' | 'hostilePresence';
   type DefenseThreatLevel = 'none' | 'hostile_present' | 'under_attack';
-  type TerritoryIntentSuppressionReason = 'deadZoneTarget' | 'deadZoneRoute' | 'controllerLevel';
+  type TerritoryIntentSuppressionReason =
+    | 'deadZoneTarget'
+    | 'deadZoneRoute'
+    | 'controllerLevel'
+    | 'owner_reserve_only';
 
   interface IntelMemory {
     scoutReports?: Record<string, RoomScoutReportMemory>;
@@ -671,7 +675,7 @@ declare global {
     | 'expansionPlanner'
     | 'nextExpansionScoring'
     | 'adjacentRoomReservation';
-  type TerritoryIntentSuspensionReason = 'hostile_presence';
+  type TerritoryIntentSuspensionReason = 'hostile_presence' | 'owner_reserve_only';
   type TerritoryScoutAttemptStatus = 'requested' | 'observed' | 'timedOut';
   type TerritoryScoutValidationStatus = 'pending' | 'passed' | 'blocked' | 'fallback';
   type TerritoryScoutValidationReason =
@@ -856,7 +860,7 @@ declare global {
 
   interface TerritoryIntentSuspensionMemory {
     reason: TerritoryIntentSuspensionReason;
-    hostileCount: number;
+    hostileCount?: number;
     updatedAt: number;
   }
 

@@ -33,6 +33,13 @@ export interface RemoteContainerAssignment extends RemoteSourceAssignment {
   containerId: Id<StructureContainer>;
 }
 
+interface RemoteSourceRoomRecord {
+  colony: string;
+  roomName: string;
+  order: number;
+  source: 'remoteMining' | 'postClaimBootstrap';
+}
+
 export { buildRemoteHarvesterBody };
 
 export function selectRemoteHarvesterAssignment(homeRoom: string): RemoteSourceAssignment | null {
@@ -48,7 +55,7 @@ export function getRemoteSourceAssignments(homeRoom: string): RemoteSourceAssign
     return [];
   }
 
-  const records = getRemoteBootstrapRecords(homeRoom);
+  const records = getRemoteSourceRoomRecords(homeRoom);
   const assignments: RemoteSourceAssignment[] = [];
   for (const record of records) {
     if (
@@ -60,7 +67,7 @@ export function getRemoteSourceAssignments(homeRoom: string): RemoteSourceAssign
     }
 
     const room = getVisibleRoom(record.roomName);
-    if (!isUsableRemoteRoom(room)) {
+    if (!isUsableRemoteRoom(room, homeRoom)) {
       continue;
     }
 
@@ -186,6 +193,10 @@ export function shouldRetreatFromRemote(
     return true;
   }
 
+  if (isForeignReservedRemoteController(targetRoom?.controller, assignment.homeRoom)) {
+    return true;
+  }
+
   return isVisibleRemoteThreatened(targetRoom, assignment.targetRoom);
 }
 
@@ -213,7 +224,40 @@ function getRemoteSourceAssignmentsInRoom(homeRoom: string, room: Room): RemoteS
     });
 }
 
-function getRemoteBootstrapRecords(homeRoom: string): TerritoryPostClaimBootstrapMemory[] {
+function getRemoteSourceRoomRecords(homeRoom: string): RemoteSourceRoomRecord[] {
+  return uniqueRemoteSourceRoomRecords([
+    ...getRemoteMiningRecords(homeRoom),
+    ...getRemoteBootstrapRecords(homeRoom)
+  ]).sort(compareRemoteSourceRoomRecords);
+}
+
+function getRemoteMiningRecords(homeRoom: string): RemoteSourceRoomRecord[] {
+  const records = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.remoteMining;
+  if (!isRecord(records)) {
+    return [];
+  }
+
+  return Object.values(records)
+    .filter((record): record is TerritoryRemoteMiningRoomMemory => isRemoteMiningRecord(record, homeRoom))
+    .map((record): RemoteSourceRoomRecord => ({
+      colony: record.colony,
+      roomName: record.roomName,
+      order: record.updatedAt,
+      source: 'remoteMining'
+    }));
+}
+
+function isRemoteMiningRecord(record: unknown, homeRoom: string): record is TerritoryRemoteMiningRoomMemory {
+  return (
+    isRecord(record) &&
+    record.colony === homeRoom &&
+    isNonEmptyString(record.roomName) &&
+    record.roomName !== homeRoom &&
+    (record.status === 'containerPending' || record.status === 'containerReady' || record.status === 'active')
+  );
+}
+
+function getRemoteBootstrapRecords(homeRoom: string): RemoteSourceRoomRecord[] {
   const records = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.postClaimBootstraps;
   if (!isRecord(records)) {
     return [];
@@ -221,7 +265,13 @@ function getRemoteBootstrapRecords(homeRoom: string): TerritoryPostClaimBootstra
 
   return Object.values(records)
     .filter((record): record is TerritoryPostClaimBootstrapMemory => isRemoteBootstrapRecord(record, homeRoom))
-    .sort(compareRemoteBootstrapRecords);
+    .sort(compareRemoteBootstrapRecords)
+    .map((record): RemoteSourceRoomRecord => ({
+      colony: record.colony,
+      roomName: record.roomName,
+      order: record.claimedAt,
+      source: 'postClaimBootstrap'
+    }));
 }
 
 function isRemoteBootstrapRecord(record: unknown, homeRoom: string): record is TerritoryPostClaimBootstrapMemory {
@@ -245,12 +295,46 @@ function compareRemoteBootstrapRecords(
   return left.claimedAt - right.claimedAt || left.roomName.localeCompare(right.roomName);
 }
 
+function uniqueRemoteSourceRoomRecords(records: RemoteSourceRoomRecord[]): RemoteSourceRoomRecord[] {
+  const byRoom = new Map<string, RemoteSourceRoomRecord>();
+  for (const record of records) {
+    const existing = byRoom.get(record.roomName);
+    if (!existing || compareRemoteSourceRoomRecordSource(record, existing) < 0) {
+      byRoom.set(record.roomName, record);
+    }
+  }
+
+  return [...byRoom.values()];
+}
+
+function compareRemoteSourceRoomRecords(left: RemoteSourceRoomRecord, right: RemoteSourceRoomRecord): number {
+  return (
+    left.order - right.order ||
+    compareRemoteSourceRoomRecordSource(left, right) ||
+    left.roomName.localeCompare(right.roomName)
+  );
+}
+
+function compareRemoteSourceRoomRecordSource(left: RemoteSourceRoomRecord, right: RemoteSourceRoomRecord): number {
+  return getRemoteSourceRoomRecordSourceRank(left.source) - getRemoteSourceRoomRecordSourceRank(right.source);
+}
+
+function getRemoteSourceRoomRecordSourceRank(source: RemoteSourceRoomRecord['source']): number {
+  return source === 'postClaimBootstrap' ? 0 : 1;
+}
+
 function compareRemoteSourceAssignments(left: RemoteSourceAssignment, right: RemoteSourceAssignment): number {
   return left.targetRoom.localeCompare(right.targetRoom) || String(left.sourceId).localeCompare(String(right.sourceId));
 }
 
-function isUsableRemoteRoom(room: Room | undefined): room is Room {
-  return room != null && !isForeignOwnedRemoteController(room.controller) && typeof room.find === 'function';
+function isUsableRemoteRoom(room: Room | undefined, homeRoom: string): room is Room {
+  return (
+    room != null &&
+    !isForeignOwnedRemoteController(room.controller) &&
+    !isForeignReservedRemoteController(room.controller, homeRoom) &&
+    !isVisibleRemoteThreatened(room, room.name) &&
+    typeof room.find === 'function'
+  );
 }
 
 function isForeignOwnedRemoteController(controller: StructureController | undefined): boolean {
@@ -259,6 +343,24 @@ function isForeignOwnedRemoteController(controller: StructureController | undefi
   }
 
   return controller.my !== true;
+}
+
+function isForeignReservedRemoteController(
+  controller: StructureController | undefined,
+  homeRoom: string
+): boolean {
+  const reservationUsername = controller?.reservation?.username;
+  if (!isNonEmptyString(reservationUsername)) {
+    return false;
+  }
+
+  const homeOwnerUsername = getHomeRoomOwnerUsername(homeRoom);
+  return !isNonEmptyString(homeOwnerUsername) || reservationUsername !== homeOwnerUsername;
+}
+
+function getHomeRoomOwnerUsername(homeRoom: string): string | null {
+  const username = getVisibleRoom(homeRoom)?.controller?.owner?.username;
+  return isNonEmptyString(username) ? username : null;
 }
 
 function countRemoteHarvestersForSource(assignment: RemoteSourceAssignment): number {

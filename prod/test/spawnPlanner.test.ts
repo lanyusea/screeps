@@ -2698,6 +2698,96 @@ describe('planSpawn', () => {
     });
   });
 
+  it('spawns a remote harvester for a reserve-only room while an owner hold suppresses claiming', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'E9S27',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController(6)
+    });
+    const source = makeRemoteSource('e9s28-source-a', 10, 10, 'E9S28');
+    const remoteRoom = makeRemoteEconomyRoom({
+      roomName: 'E9S28',
+      source,
+      container: null,
+      controller: {
+        id: '6a1c3660d05a7c237d18c27d' as Id<StructureController>,
+        my: false,
+        reservation: { username: 'player', ticksToEnd: 4_000 }
+      } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 69_999,
+      rooms: { E9S27: colony.room, E9S28: remoteRoom },
+      spawns: { Spawn1: spawn },
+      creeps: {},
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          { colony: 'E9S27', roomName: 'E9S28', action: 'claim' },
+          { colony: 'E9S27', roomName: 'E9S28', action: 'reserve' }
+        ],
+        intents: [
+          {
+            colony: 'E9S27',
+            targetRoom: 'E9S28',
+            action: 'claim',
+            status: 'suppressed',
+            updatedAt: 1_000,
+            suspended: {
+              reason: 'owner_reserve_only',
+              updatedAt: 1_000
+            } as unknown as TerritoryIntentSuspensionMemory
+          },
+          {
+            colony: 'E9S27',
+            targetRoom: 'E9S28',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: 69_998,
+            controllerId: '6a1c3660d05a7c237d18c27d' as Id<StructureController>
+          }
+        ],
+        remoteMining: {
+          'E9S27:E9S28': {
+            colony: 'E9S27',
+            roomName: 'E9S28',
+            status: 'containerPending',
+            updatedAt: 69_998,
+            sources: {
+              'e9s28-source-a': {
+                sourceId: 'e9s28-source-a',
+                containerBuilt: false,
+                containerSitePending: true,
+                harvesterAssigned: false,
+                haulerAssigned: false,
+                energyAvailable: 0,
+                energyFlowing: false
+              }
+            }
+          }
+        }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 70_000)).toEqual({
+      spawn,
+      body: ['work', 'work', 'work', 'work', 'work', 'carry', 'move'],
+      name: 'remoteHarvester-E9S27-E9S28-e9s28-source-a-70000',
+      memory: {
+        role: 'remoteHarvester',
+        colony: 'E9S27',
+        remoteHarvester: {
+          homeRoom: 'E9S27',
+          targetRoom: 'E9S28',
+          sourceId: 'e9s28-source-a'
+        }
+      }
+    });
+  });
+
   it('dispatches a remote hauler only when the assigned remote container is above threshold', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,

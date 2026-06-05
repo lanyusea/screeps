@@ -242,7 +242,7 @@ const SPAWN_QUEUE: SpawnQueueDefinition[] = [
   { tier: 'controllerDowngradeGuard', getPriority: () => 'critical' },
   { tier: 'localEnergyHauling', getPriority: getLocalEnergyHaulingSpawnQueuePriority },
   { tier: 'territoryRemote', getPriority: getTerritoryRemoteSpawnQueuePriority },
-  { tier: 'remoteEconomy', getPriority: () => 'high' },
+  { tier: 'remoteEconomy', getPriority: getRemoteEconomySpawnQueuePriority },
   { tier: 'localRefillSurvival', getPriority: getLocalRefillSurvivalSpawnQueuePriority },
   { tier: 'postClaimControllerSustain', getPriority: getPostClaimControllerSustainSpawnQueuePriority },
   { tier: 'controllerUpgradeDemand', getPriority: () => 'normal' },
@@ -513,6 +513,10 @@ function getPostClaimControllerSustainSpawnQueuePriority(context: SpawnPlanningC
 
 function getTerritoryRemoteSpawnQueuePriority(context: SpawnPlanningContext): SpawnQueueRolePriority {
   return hasExpansionClaimSpawnDemand(context.colony.room.name) ? 'high' : 'low';
+}
+
+function getRemoteEconomySpawnQueuePriority(context: SpawnPlanningContext): SpawnQueueRolePriority {
+  return context.options.allowTerritoryFollowUp === true ? 'low' : 'high';
 }
 
 function shouldDeferSpawnQueueEntryForLowEnergy(

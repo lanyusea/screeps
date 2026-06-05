@@ -1225,6 +1225,10 @@ function isTerritoryIntentSuspensionActive(intent: TerritoryIntentMemory, gameTi
     return false;
   }
 
+  if (intent.suspended.reason === 'owner_reserve_only') {
+    return intent.action === 'claim';
+  }
+
   if (intent.suspended.reason === 'hostile_presence') {
     const hostileCount = getVisibleHostileCreepCount(intent.targetRoom);
     if (hostileCount !== null) {

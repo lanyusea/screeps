@@ -1495,6 +1495,7 @@ describe('runTerritoryControllerCreep', () => {
         action: 'claim',
         status: 'suppressed',
         updatedAt: 515,
+        reason: 'owner_reserve_only',
         followUp
       },
       {
@@ -1589,6 +1590,7 @@ describe('runTerritoryControllerCreep', () => {
         action: 'claim',
         status: 'suppressed',
         updatedAt: 516,
+        reason: 'owner_reserve_only',
         followUp
       },
       {

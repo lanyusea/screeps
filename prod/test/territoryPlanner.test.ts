@@ -39,6 +39,7 @@ describe('planTerritoryIntent', () => {
     (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 9;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     delete (globalThis as { Game?: Partial<Game> }).Game;
+    delete (globalThis as { PathFinder?: Partial<PathFinder> }).PathFinder;
   });
 
   it('scouts the first valid enabled target for the colony when visibility is missing', () => {
@@ -7450,7 +7451,8 @@ describe('planTerritoryIntent', () => {
         targetRoom: 'W2N1',
         action: 'claim',
         status: 'suppressed',
-        updatedAt: 544
+        updatedAt: 544,
+        reason: 'owner_reserve_only'
       },
       {
         colony: 'W1N1',
@@ -7463,6 +7465,13 @@ describe('planTerritoryIntent', () => {
     ]);
     expect(Memory.territory?.demands).toBeUndefined();
     expect(Memory.territory?.executionHints).toBeUndefined();
+    expect(
+      shouldSpawnTerritoryControllerCreep(
+        { colony: 'W1N1', targetRoom: 'W2N1', action: 'claim' },
+        { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+        544 + TERRITORY_SUPPRESSION_RETRY_TICKS + 1
+      )
+    ).toBe(false);
   });
 
   it('does not overwrite a fresh suppressed reserve fallback intent from autonomous expansion fallback', () => {
@@ -7905,6 +7914,453 @@ describe('planTerritoryIntent', () => {
     });
   });
 
+  it('plans reserve-first remote containers and critical roads without post-claim bootstrap memory', () => {
+    installRemoteMiningPlanningGlobals();
+    const colony = makeSafeColony({
+      roomName: 'E9S27',
+      controller: {
+        my: true,
+        owner: { username: 'me' },
+        level: 4,
+        ticksToDowngrade: 10_000
+      } as StructureController,
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300
+    });
+    const constructionSites: ConstructionSite[] = [];
+    const remoteRoom = makeRemoteMiningRoom({
+      roomName: 'E9S28',
+      sourceId: 'e9s28-source-a',
+      constructionSites,
+      createConstructionSite: jest.fn((x: number, y: number, structureType: StructureConstant) => {
+        constructionSites.push({
+          id: `site-${x}-${y}-${structureType}`,
+          structureType,
+          pos: { x, y, roomName: 'E9S28' } as RoomPosition
+        } as ConstructionSite);
+        return 0 as ScreepsReturnCode;
+      }),
+      controller: {
+        id: '6a1c3660d05a7c237d18c27d' as Id<StructureController>,
+        my: false,
+        pos: { x: 25, y: 25, roomName: 'E9S28' } as RoomPosition,
+        reservation: { username: 'me', ticksToEnd: 4_000 }
+      } as StructureController
+    });
+    (globalThis as unknown as { PathFinder: Partial<PathFinder> }).PathFinder = {
+      CostMatrix: class {
+        public set(): void {}
+        public get(): number {
+          return 0;
+        }
+      } as unknown as typeof PathFinder.CostMatrix,
+      search: jest.fn(() => ({
+        path: [{ x: 12, y: 10, roomName: 'E9S28' } as RoomPosition],
+        ops: 1,
+        cost: 1,
+        incomplete: false
+      }))
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'E9S27', roomName: 'E9S28', action: 'reserve' }],
+        intents: [
+          {
+            colony: 'E9S27',
+            targetRoom: 'E9S28',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: 69_978,
+            controllerId: '6a1c3660d05a7c237d18c27d' as Id<StructureController>
+          }
+        ]
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 69_979,
+      rooms: { E9S27: colony.room, E9S28: remoteRoom },
+      spawns: {
+        Spawn1: { name: 'Spawn1', pos: { x: 17, y: 24, roomName: 'E9S27' } as RoomPosition } as StructureSpawn
+      },
+      map: {
+        getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
+      } as unknown as GameMap
+    };
+
+    refreshRemoteMiningSetup(colony, 69_979);
+
+    expect(remoteRoom.createConstructionSite).toHaveBeenCalledWith(11, 11, STRUCTURE_CONTAINER);
+    expect(remoteRoom.createConstructionSite).toHaveBeenCalledWith(12, 10, STRUCTURE_ROAD);
+    expect(Memory.territory?.postClaimBootstraps).toBeUndefined();
+    expect(Memory.territory?.remoteMining?.['E9S27:E9S28']).toEqual({
+      colony: 'E9S27',
+      roomName: 'E9S28',
+      status: 'containerPending',
+      updatedAt: 69_979,
+      sources: {
+        'e9s28-source-a': {
+          sourceId: 'e9s28-source-a',
+          containerBuilt: false,
+          containerSitePending: true,
+          harvesterAssigned: false,
+          haulerAssigned: false,
+          energyAvailable: 0,
+          energyFlowing: false
+        }
+      }
+    });
+  });
+
+  it('preserves reserve-first remote mining memory when reserve target visibility drops', () => {
+    const colony = makeSafeColony();
+    const existingRemoteMining: TerritoryRemoteMiningRoomMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'containerPending',
+      updatedAt: 700,
+      sources: {
+        source1: {
+          sourceId: 'source1',
+          containerBuilt: false,
+          containerSitePending: true,
+          harvesterAssigned: true,
+          haulerAssigned: false,
+          energyAvailable: 0,
+          energyFlowing: false
+        }
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: 701
+          }
+        ],
+        remoteMining: {
+          'W1N1:W2N1': existingRemoteMining
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 702,
+      rooms: { W1N1: colony.room }
+    };
+
+    refreshRemoteMiningSetup(colony, 702);
+
+    expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toBe(existingRemoteMining);
+    expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toEqual({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'containerPending',
+      updatedAt: 700,
+      sources: {
+        source1: {
+          sourceId: 'source1',
+          containerBuilt: false,
+          containerSitePending: true,
+          harvesterAssigned: true,
+          haulerAssigned: false,
+          energyAvailable: 0,
+          energyFlowing: false
+        }
+      }
+    });
+  });
+
+  it('preserves existing reserve-first remote mining memory while the reserve intent is hostile-suspended', () => {
+    const colony = makeSafeColony();
+    const existingRemoteMining: TerritoryRemoteMiningRoomMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'containerPending',
+      updatedAt: 700,
+      sources: {
+        source1: {
+          sourceId: 'source1',
+          containerBuilt: false,
+          containerSitePending: true,
+          harvesterAssigned: true,
+          haulerAssigned: false,
+          energyAvailable: 0,
+          energyFlowing: false
+        }
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: 701,
+            suspended: {
+              reason: 'hostile_presence',
+              hostileCount: 1,
+              updatedAt: 701
+            }
+          }
+        ],
+        remoteMining: {
+          'W1N1:W2N1': existingRemoteMining
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 702,
+      rooms: { W1N1: colony.room }
+    };
+
+    refreshRemoteMiningSetup(colony, 702);
+
+    expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toEqual({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'suspended',
+      updatedAt: 702,
+      sources: existingRemoteMining.sources
+    });
+  });
+
+  it('preserves reserve-first source state when a visible suspended remote is unsafe', () => {
+    const colony = makeSafeColony();
+    const existingSources: Record<string, TerritoryRemoteMiningSourceMemory> = {
+      source1: {
+        sourceId: 'source1',
+        containerBuilt: false,
+        containerSitePending: true,
+        harvesterAssigned: true,
+        haulerAssigned: false,
+        energyAvailable: 0,
+        energyFlowing: false
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: 701,
+            suspended: {
+              reason: 'hostile_presence',
+              hostileCount: 1,
+              updatedAt: 701
+            }
+          }
+        ],
+        remoteMining: {
+          'W1N1:W2N1': {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'containerPending',
+            updatedAt: 700,
+            sources: existingSources
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 702,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: {
+          name: 'W2N1',
+          controller: {
+            id: 'controller2' as Id<StructureController>,
+            my: false,
+            reservation: { username: 'enemy', ticksToEnd: 1_000 }
+          } as StructureController
+        } as Room
+      }
+    };
+
+    refreshRemoteMiningSetup(colony, 702);
+
+    expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toEqual({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'suspended',
+      updatedAt: 702,
+      sources: existingSources
+    });
+  });
+
+  it('keeps suspended reserve-first remote mining without visibility until a safe visible refresh', () => {
+    installRemoteMiningPlanningGlobals();
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    const colony = makeSafeColony();
+    const suspendedAt = 700;
+    const notVisibleAt = suspendedAt + TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS + 1;
+    const visibleSafeAt = notVisibleAt + 1;
+    const existingSources: Record<string, TerritoryRemoteMiningSourceMemory> = {
+      source1: {
+        sourceId: 'source1',
+        containerId: 'container1',
+        containerBuilt: true,
+        containerSitePending: false,
+        harvesterAssigned: true,
+        haulerAssigned: false,
+        energyAvailable: 300,
+        energyFlowing: true
+      }
+    };
+    const existingRemoteMining: TerritoryRemoteMiningRoomMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'suspended',
+      updatedAt: suspendedAt,
+      sources: existingSources
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: suspendedAt,
+            suspended: {
+              reason: 'hostile_presence',
+              hostileCount: 1,
+              updatedAt: suspendedAt
+            }
+          }
+        ],
+        remoteMining: {
+          'W1N1:W2N1': existingRemoteMining
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: notVisibleAt,
+      rooms: { W1N1: colony.room }
+    };
+
+    refreshRemoteMiningSetup(colony, notVisibleAt);
+
+    expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toBe(existingRemoteMining);
+    expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toEqual({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'suspended',
+      updatedAt: suspendedAt,
+      sources: existingSources
+    });
+
+    const container = makeRemoteMiningContainer('container1', 300);
+    const remoteHarvester = makeAssignedRemoteMiningCreep('remoteHarvester', 'W2N1');
+    const visibleSafeRoom = makeRemoteMiningRoom({
+      structures: [container],
+      creeps: [remoteHarvester],
+      controller: {
+        id: 'controller2' as Id<StructureController>,
+        my: false,
+        pos: { x: 25, y: 25, roomName: 'W2N1' } as RoomPosition,
+        reservation: { username: 'me', ticksToEnd: 4_000 }
+      } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: visibleSafeAt,
+      rooms: { W1N1: colony.room, W2N1: visibleSafeRoom }
+    };
+
+    refreshRemoteMiningSetup(colony, visibleSafeAt);
+
+    expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toEqual({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'active',
+      updatedAt: visibleSafeAt,
+      sources: {
+        source1: {
+          sourceId: 'source1',
+          containerId: 'container1',
+          containerBuilt: true,
+          containerSitePending: false,
+          harvesterAssigned: true,
+          haulerAssigned: false,
+          energyAvailable: 300,
+          energyFlowing: true
+        }
+      }
+    });
+  });
+
+  it('does not create reserve-first remote mining memory for an unproven invisible reserve target', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 701
+          }
+        ]
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 702,
+      rooms: { W1N1: colony.room }
+    };
+
+    refreshRemoteMiningSetup(colony, 702);
+
+    expect(Memory.territory?.remoteMining).toBeUndefined();
+  });
+
+  it('does not plan reserve-first remote mining through a foreign reservation', () => {
+    installRemoteMiningPlanningGlobals();
+    const colony = makeSafeColony();
+    const remoteRoom = makeRemoteMiningRoom({
+      controller: {
+        id: 'controller2' as Id<StructureController>,
+        my: false,
+        pos: { x: 25, y: 25, roomName: 'W2N1' } as RoomPosition,
+        reservation: { username: 'enemy', ticksToEnd: 3_000 }
+      } as StructureController
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 706
+          }
+        ]
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 707,
+      rooms: { W1N1: colony.room, W2N1: remoteRoom },
+      map: {
+        getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
+      } as unknown as GameMap
+    };
+
+    refreshRemoteMiningSetup(colony, 707);
+
+    expect(remoteRoom.createConstructionSite).not.toHaveBeenCalled();
+    expect(Memory.territory?.remoteMining).toBeUndefined();
+  });
+
   it('defers remote mining setup for non-focused active post-claim rooms', () => {
     (globalThis as unknown as {
       FIND_STRUCTURES: number;
@@ -8295,7 +8751,29 @@ function makeRemoteMiningBootstrap(): TerritoryPostClaimBootstrapMemory {
   };
 }
 
+function installRemoteMiningPlanningGlobals(): void {
+  (globalThis as unknown as {
+    FIND_STRUCTURES: number;
+    FIND_CONSTRUCTION_SITES: number;
+    FIND_MY_CREEPS: number;
+    FIND_MY_STRUCTURES: number;
+    STRUCTURE_CONTAINER: StructureConstant;
+    STRUCTURE_ROAD: StructureConstant;
+    TERRAIN_MASK_WALL: number;
+    OK: ScreepsReturnCode;
+  }).FIND_STRUCTURES = 10;
+  (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 11;
+  (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 12;
+  (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 13;
+  (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+  (globalThis as unknown as { STRUCTURE_ROAD: StructureConstant }).STRUCTURE_ROAD = 'road';
+  (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+  (globalThis as unknown as { OK: ScreepsReturnCode }).OK = 0 as ScreepsReturnCode;
+}
+
 function makeRemoteMiningRoom({
+  roomName = 'W2N1',
+  sourceId = 'source1',
   structures = [],
   constructionSites = [],
   creeps = [],
@@ -8304,10 +8782,12 @@ function makeRemoteMiningRoom({
     id: 'controller2',
     my: true,
     level: 1,
-    pos: { x: 25, y: 25, roomName: 'W2N1' } as RoomPosition
+    pos: { x: 25, y: 25, roomName } as RoomPosition
   } as StructureController,
   requireFindReceiver = false
 }: {
+  roomName?: string;
+  sourceId?: string;
   structures?: AnyStructure[];
   constructionSites?: ConstructionSite[];
   creeps?: Creep[];
@@ -8316,7 +8796,7 @@ function makeRemoteMiningRoom({
   requireFindReceiver?: boolean;
 } = {}): Room & { createConstructionSite: jest.Mock } {
   const room = {
-    name: 'W2N1',
+    name: roomName,
     energyAvailable: 0,
     energyCapacityAvailable: 0,
     controller,
@@ -8328,7 +8808,7 @@ function makeRemoteMiningRoom({
     }
 
     if (type === FIND_SOURCES) {
-      return [{ id: 'source1', pos: { x: 10, y: 10, roomName: 'W2N1' } as RoomPosition } as Source];
+      return [{ id: sourceId, pos: { x: 10, y: 10, roomName } as RoomPosition } as Source];
     }
 
     if (type === FIND_STRUCTURES) {
