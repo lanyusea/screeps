@@ -295,6 +295,84 @@ describe('runWorker', () => {
     expect(repair).not.toHaveBeenCalledWith(road);
   });
 
+  it('preempts retained critical CPU rampart repair for missing spawn construction', () => {
+    const spawnSite = {
+      id: 'spawn-site1',
+      structureType: 'spawn',
+      progress: 0,
+      progressTotal: 15_000
+    } as ConstructionSite;
+    const rampart = {
+      id: 'rampart1',
+      structureType: 'rampart',
+      my: true,
+      hits: 10_001,
+      hitsMax: 100_000
+    } as StructureRampart;
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: {
+        my: true,
+        level: 3,
+        ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 100
+      } as StructureController,
+      find: jest.fn((type: number) => {
+        if (type === FIND_MY_STRUCTURES) {
+          return [];
+        }
+
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [spawnSite];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [rampart];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const build = jest.fn().mockReturnValue(0);
+    const repair = jest.fn();
+    const creep = {
+      name: 'RepairWorker',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'repair', targetId: 'rampart1' as Id<Structure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      build,
+      repair,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { RepairWorker: creep },
+      time: 127,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 62,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById: jest.fn((id: string) =>
+        id === 'rampart1' ? rampart : id === 'spawn-site1' ? spawnSite : null
+      ) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'spawn-site1' });
+    expect(build).toHaveBeenCalledWith(spawnSite);
+    expect(repair).not.toHaveBeenCalled();
+  });
+
   it('pauses retained critical CPU repair when this worker must reserve energy for near-term spawn refill', () => {
     const busyFullSpawn = {
       id: 'spawn-busy',

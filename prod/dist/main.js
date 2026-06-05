@@ -33016,6 +33016,8 @@ function runWorker(creep) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptForWorkerEnergyCriticalTask(currentTask, energyCriticalTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (criticalCpuTaskRetention.forceSelectedTask) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptRepairTaskForCriticalCpuRepairPreemption(
     currentTask,
     criticalCpuTaskRetention.repairPreemptionTask
@@ -33250,15 +33252,36 @@ function getCriticalCpuRepairRetentionDecision(creep, task) {
     return { retain: false };
   }
   const preemptionTarget = selectCriticalCpuRepairPreemptionTarget(creep);
-  if (preemptionTarget !== null && String(preemptionTarget.id) !== String(task.targetId)) {
+  if (preemptionTarget !== null) {
     const repairPreemptionTask = {
       type: "repair",
       targetId: preemptionTarget.id
     };
+    const selectionContext = selectWorkerTaskContext(creep, task);
+    if (!isSameOptionalTask(selectionContext.selectedTask, repairPreemptionTask)) {
+      if (shouldCriticalCpuSelectedTaskPreemptRepairRetention(selectionContext.selectedTask)) {
+        return {
+          retain: false,
+          forceSelectedTask: true,
+          selectionContext
+        };
+      }
+      if (String(preemptionTarget.id) === String(task.targetId)) {
+        return { retain: true };
+      }
+      return {
+        retain: false,
+        repairPreemptionTask,
+        selectionContext: createSingleTaskSelectionContext(repairPreemptionTask)
+      };
+    }
+    if (String(preemptionTarget.id) === String(task.targetId)) {
+      return { retain: true };
+    }
     return {
       retain: false,
       repairPreemptionTask,
-      selectionContext: createSingleTaskSelectionContext(repairPreemptionTask)
+      selectionContext
     };
   }
   return { retain: true };
@@ -33270,6 +33293,9 @@ function createSingleTaskSelectionContext(task) {
     selectedTask: task,
     spawnReservationRefillTask: null
   };
+}
+function shouldCriticalCpuSelectedTaskPreemptRepairRetention(selectedTask) {
+  return (selectedTask == null ? void 0 : selectedTask.type) === "build" && isSpawnConstructionTaskTarget(getTaskTarget(selectedTask));
 }
 function shouldRetainCriticalCpuRepairTask(creep) {
   return getUsedTransferEnergy(creep) > 0 && !assessWorkerEnergyCriticalState(creep).active && !isControllerDowngradeGuardActive2(creep.room) && !shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep);
