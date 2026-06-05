@@ -208,6 +208,12 @@ REMOTE_SIMULATOR_PLACE_SPAWN_ROOM_BUSY_RE = re.compile(
     r"(?:place-spawn room busy after \d+ attempt\(s\)|\bplace_spawn_room_busy\b|room-busy placement lock)",
     re.IGNORECASE,
 )
+REMOTE_PRIVATE_SERVER_HTTP_READINESS_TIMEOUT_RE = re.compile(
+    r"(?:private[- ]server did not become HTTP[- ]ready after \d+s|"
+    r"private[- ]server HTTP[- ]readiness (?:timeout|timed out)|"
+    r"HTTP[- ]readiness timeout)",
+    re.IGNORECASE,
+)
 REMOTE_NETWORK_RE = re.compile(
     r"(?:connection refused|request canceled|too many requests|toomanyrequests|network .*timed? out|"
     r"net/http|Client\.Timeout)",
@@ -2578,6 +2584,17 @@ def remote_training_failure_diagnostics(
         process_failure_class=process_failure_class,
         controller_timed_out=controller_timed_out,
     )
+    partial_progress = remote_training_partial_simulator_progress(artifact_dir, run_id)
+    timeout_reason = None
+    if failure_class == "remote_training_timeout":
+        timeout_reason = remote_training_failure_timeout_reason(
+            files,
+            controller_timed_out=controller_timed_out,
+        )
+    if timeout_reason is None:
+        timeout_reason = partial_simulator_progress_timeout_reason(partial_progress)
+    if timeout_reason is not None and failure_class in {"remote_process_failed", "remote_training_timeout"}:
+        failure_class = "remote_training_timeout"
     payload: dict[str, Any] = {
         "status": "failed_exit",
         "failureClass": failure_class,
@@ -2586,15 +2603,16 @@ def remote_training_failure_diagnostics(
         "artifactDir": str(remote_dir),
         "diagnostics": files,
     }
+    if timeout_reason is not None and failure_class == "remote_training_timeout":
+        payload["timeoutReason"] = timeout_reason
     if controller_timed_out:
         payload["controllerTimedOut"] = True
-    next_action = remote_training_failure_next_action(failure_class)
+    next_action = remote_training_failure_next_action(failure_class, timeout_reason)
     if next_action is not None:
         payload["nextAction"] = next_action
     resource_guard = remote_training_resource_guard_summary(artifact_dir, run_id)
     if resource_guard is not None:
         payload["resourceGuard"] = resource_guard
-    partial_progress = remote_training_partial_simulator_progress(artifact_dir, run_id)
     if partial_progress is not None:
         payload["partialSimulatorProgress"] = partial_progress
     if collection_error:
@@ -2652,6 +2670,9 @@ def remote_training_partial_simulator_progress(artifact_dir: Path, run_id: str |
             "ticksRun": ticks_run,
             "wallClockSeconds": round(wall_clock_seconds, 3),
         }
+        failure = simulator_run_summary_failure_summary(payload)
+        if failure is not None:
+            summary["failure"] = failure
         summaries.append(summary)
         totals["completedEnvironmentRows"] += completed_environment_rows
         totals["successfulEnvironmentRows"] += successful
@@ -2671,6 +2692,66 @@ def remote_training_partial_simulator_progress(artifact_dir: Path, run_id: str |
     }
 
 
+def simulator_run_summary_failure_summary(payload: dict[str, Any]) -> dict[str, Any] | None:
+    ok = payload.get("ok") is True
+    failed = scale_gates.non_negative_int(payload.get("failed")) or 0
+    if ok and failed == 0:
+        return None
+    texts = simulator_run_summary_failure_texts(payload)
+    diagnostic_text = "\n".join(texts)
+    timeout_reason = remote_training_timeout_reason_from_text(diagnostic_text)
+    if timeout_reason == "private_server_http_readiness":
+        return {
+            "classification": "private_server_http_readiness_timeout",
+            "timeoutReason": timeout_reason,
+            "diagnosticExcerpt": diagnostic_tail(diagnostic_text, 600),
+        }
+    failure_class = text_value(payload.get("failureClass"))
+    if failure_class is not None:
+        return {
+            "classification": failure_class,
+            "diagnosticExcerpt": diagnostic_tail(diagnostic_text or failure_class, 600),
+        }
+    if REMOTE_SIMULATOR_PLACE_SPAWN_ROOM_BUSY_RE.search(diagnostic_text):
+        return {
+            "classification": PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+            "diagnosticExcerpt": diagnostic_tail(diagnostic_text, 600),
+        }
+    if diagnostic_text:
+        return {
+            "classification": "simulator_run_failed",
+            "diagnosticExcerpt": diagnostic_tail(diagnostic_text, 600),
+        }
+    return None
+
+
+def simulator_run_summary_failure_texts(payload: dict[str, Any]) -> list[str]:
+    texts: list[str] = []
+
+    def add_text(value: Any) -> None:
+        if isinstance(value, str) and value:
+            texts.append(value)
+
+    add_text(payload.get("failureClass"))
+    add_text(payload.get("error"))
+    errors = payload.get("errors")
+    if isinstance(errors, list):
+        for error in errors:
+            add_text(error)
+    variants = payload.get("variants")
+    if isinstance(variants, list):
+        for variant in variants:
+            if not isinstance(variant, dict):
+                continue
+            add_text(variant.get("failureClass"))
+            add_text(variant.get("error"))
+            variant_errors = variant.get("errors")
+            if isinstance(variant_errors, list):
+                for error in variant_errors:
+                    add_text(error)
+    return texts
+
+
 def classify_remote_training_failure(
     files: Mapping[str, dict[str, Any]],
     *,
@@ -2678,15 +2759,15 @@ def classify_remote_training_failure(
     process_failure_class: str | None = None,
     controller_timed_out: bool = False,
 ) -> str:
-    diagnostic_text = "\n".join(
-        tail for entry in files.values() for tail in [entry.get("tail")] if isinstance(tail, str)
-    )
+    diagnostic_text = remote_training_diagnostic_text(files)
     if REMOTE_RESOURCE_GUARD_RE.search(diagnostic_text):
         return "simulator_resource_guard_rejected"
     if REMOTE_SIMULATOR_PLACE_SPAWN_ROOM_BUSY_RE.search(diagnostic_text):
         return "simulator_place_spawn_room_busy"
     if process_failure_class in {"network_unreachable", "host_key_self_healing_failed", "host_key_mismatch"}:
         return process_failure_class
+    if remote_training_timeout_reason_from_text(diagnostic_text) is not None:
+        return "remote_training_timeout"
     simulator_setup_text = "\n".join(
         tail
         for filename, entry in files.items()
@@ -2718,7 +2799,30 @@ def classify_remote_training_failure(
     return "remote_process_failed"
 
 
-def remote_training_failure_next_action(failure_class: str) -> str | None:
+def remote_training_diagnostic_text(files: Mapping[str, dict[str, Any]]) -> str:
+    return "\n".join(
+        tail for entry in files.values() for tail in [entry.get("tail")] if isinstance(tail, str)
+    )
+
+
+def remote_training_timeout_reason_from_text(text: str) -> str | None:
+    if REMOTE_PRIVATE_SERVER_HTTP_READINESS_TIMEOUT_RE.search(text):
+        return "private_server_http_readiness"
+    return None
+
+
+def remote_training_failure_timeout_reason(
+    files: Mapping[str, dict[str, Any]],
+    *,
+    controller_timed_out: bool = False,
+) -> str | None:
+    reason = remote_training_timeout_reason_from_text(remote_training_diagnostic_text(files))
+    if reason is not None:
+        return reason
+    return "controller_timeout" if controller_timed_out else None
+
+
+def remote_training_failure_next_action(failure_class: str, timeout_reason: str | None = None) -> str | None:
     if failure_class == "simulator_setup_retryable":
         return (
             "rerun the same bounded validation after Docker image pull/setup flakiness settles; "
@@ -2727,6 +2831,11 @@ def remote_training_failure_next_action(failure_class: str) -> str | None:
     if failure_class == "network_unreachable":
         return "rerun after the worker SSH/network path is reachable"
     if failure_class == "remote_training_timeout":
+        if timeout_reason == "private_server_http_readiness":
+            return (
+                "inspect failed simulator private-server HTTP readiness diagnostics, then rerun "
+                "validation in smaller chunks or with an explicitly sized training timeout"
+            )
         return (
             "inspect collected partial diagnostics, then rerun validation in smaller chunks "
             "or with an explicitly sized training timeout"
@@ -3278,14 +3387,35 @@ def paid_failure_post_fix_validation_recovery_eligibility(
         result["reason"] = "a post-fix validation already completed"
         return result
     if recovery_class is None:
+        recovery_attempt_count = sum(
+            1 for attempt in prior_attempts if attempt.get("recoveryAttempt") is True
+        )
+        if recovery_attempt_count > 0:
+            result["reason"] = (
+                "post-fix validation recovery was already attempted"
+                if recovery_attempt_count == 1
+                else f"post-fix validation recovery was already attempted {recovery_attempt_count} times"
+            )
+            latest_recovery = next(
+                (attempt for attempt in prior_attempts if attempt.get("recoveryAttempt") is True),
+                None,
+            )
+            partial_progress = dict_value(
+                latest_recovery.get("partialSimulatorProgress") if latest_recovery else None
+            )
+            if partial_progress is not None:
+                result["latestRecoveryPartialSimulatorProgress"] = partial_progress
+            timeout_reason = text_value(
+                latest_recovery.get("remoteTrainingTimeoutReason") if latest_recovery else None
+            )
+            if timeout_reason is not None:
+                result["latestRecoveryTimeoutReason"] = timeout_reason
+            return result
         if len(prior_attempts) not in (1, 2):
             result["reason"] = (
                 "recovery requires one prior consumed post-fix validation attempt, or one timed-out "
                 "recovery attempt after a no-compute admission failure"
             )
-            return result
-        if any(attempt.get("recoveryAttempt") is True for attempt in prior_attempts):
-            result["reason"] = "post-fix validation recovery was already attempted"
             return result
         if paid_failure_post_fix_attempt_reached_compute_or_training(prior_attempt):
             result["reason"] = (
@@ -3581,7 +3711,19 @@ def paid_failure_post_fix_validation_attempts(
         )
         if item is not None and paid_failure_post_fix_attempt_consumes_validation_slot(item):
             attempts.append(item)
+    attempts.sort(key=paid_failure_post_fix_validation_attempt_order_key, reverse=True)
     return attempts
+
+
+def paid_failure_post_fix_validation_attempt_order_key(
+    attempt: dict[str, Any],
+) -> tuple[bool, float, str]:
+    epoch = paid_failure_summary_item_epoch(attempt)
+    return (
+        epoch is not None,
+        epoch if epoch is not None else 0.0,
+        text_value(attempt.get("summaryPath")) or "",
+    )
 
 
 def paid_failure_post_fix_validation_attempt_from_summary(
@@ -3627,7 +3769,22 @@ def paid_failure_post_fix_validation_attempt_from_summary(
         preflight_only = inputs.get("preflightOnly") is True
     environments_run = scale_gates.non_negative_int(execution.get("environmentsRun"))
     remote_failure = dict_value(path_value(summary, "outputs", "remoteTrainingFailure"))
-    remote_failure_class = text_value(remote_failure.get("failureClass")) if remote_failure else None
+    raw_partial_progress = (
+        dict_value(remote_failure.get("partialSimulatorProgress")) if remote_failure is not None else None
+    )
+    artifact_partial_progress = remote_training_partial_simulator_progress(summary_path.parent, run_id)
+    partial_progress = paid_failure_post_fix_partial_simulator_progress_summary(
+        artifact_partial_progress or raw_partial_progress
+    )
+    remote_timeout_reason = paid_failure_post_fix_remote_training_timeout_reason(
+        summary,
+        remote_failure,
+        artifact_partial_progress or raw_partial_progress,
+    )
+    remote_failure_class = paid_failure_post_fix_remote_training_failure_class(
+        remote_failure,
+        remote_timeout_reason,
+    )
     training_report = dict_value(path_value(summary, "outputs", "trainingReport"))
     execution_timeouts = dict_value(inputs.get("executionTimeouts")) or {}
     planned_batch_scale = dict_value(inputs.get("plannedBatchScale"))
@@ -3669,10 +3826,119 @@ def paid_failure_post_fix_validation_attempt_from_summary(
         "environmentsRun": environments_run,
         "remoteTrainingFailurePresent": remote_failure is not None,
         "remoteTrainingFailureClass": remote_failure_class,
+        "remoteTrainingTimeoutReason": remote_timeout_reason,
+        "partialSimulatorProgress": partial_progress,
         "validationPlan": validation_plan,
     }
     attempt["validationSlotConsumed"] = paid_failure_post_fix_attempt_consumes_validation_slot(attempt)
     return attempt
+
+
+def paid_failure_post_fix_remote_training_timeout_reason(
+    summary: dict[str, Any],
+    remote_failure: dict[str, Any] | None,
+    partial_progress: dict[str, Any] | None,
+) -> str | None:
+    if remote_failure is not None:
+        timeout_reason = text_value(remote_failure.get("timeoutReason"))
+        if timeout_reason is not None:
+            return timeout_reason
+        for text in iter_failure_signature_texts(remote_failure):
+            reason = remote_training_timeout_reason_from_text(text)
+            if reason is not None:
+                return reason
+    reason = partial_simulator_progress_timeout_reason(partial_progress)
+    if reason is not None:
+        return reason
+    for text in iter_failure_signature_texts(summary):
+        reason = remote_training_timeout_reason_from_text(text)
+        if reason is not None:
+            return reason
+    return None
+
+
+def paid_failure_post_fix_remote_training_failure_class(
+    remote_failure: dict[str, Any] | None,
+    timeout_reason: str | None,
+) -> str | None:
+    failure_class = text_value(remote_failure.get("failureClass")) if remote_failure is not None else None
+    if timeout_reason is not None and failure_class in {None, "remote_process_failed"}:
+        return "remote_training_timeout"
+    return failure_class
+
+
+def partial_simulator_progress_timeout_reason(progress: dict[str, Any] | None) -> str | None:
+    if progress is None:
+        return None
+    run_summaries = progress.get("runSummaries")
+    if not isinstance(run_summaries, list):
+        return None
+    for run_summary in run_summaries:
+        run = dict_value(run_summary)
+        if run is None:
+            continue
+        failure = dict_value(run.get("failure"))
+        if failure is not None:
+            timeout_reason = text_value(failure.get("timeoutReason"))
+            if timeout_reason is not None:
+                return timeout_reason
+            if text_value(failure.get("classification")) == "private_server_http_readiness_timeout":
+                return "private_server_http_readiness"
+            excerpt = text_value(failure.get("diagnosticExcerpt"))
+            if excerpt is not None:
+                reason = remote_training_timeout_reason_from_text(excerpt)
+                if reason is not None:
+                    return reason
+    return None
+
+
+def paid_failure_post_fix_partial_simulator_progress_summary(
+    progress: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if progress is None:
+        return None
+    summary: dict[str, Any] = {}
+    for key in (
+        "runSummaryCount",
+        "completedEnvironmentRows",
+        "successfulEnvironmentRows",
+        "failedEnvironmentRows",
+        "ticksRun",
+    ):
+        value = scale_gates.non_negative_int(progress.get(key))
+        if value is not None:
+            summary[key] = value
+    wall_clock_seconds = numeric_value(progress.get("wallClockSeconds"))
+    if wall_clock_seconds is not None:
+        summary["wallClockSeconds"] = round(wall_clock_seconds, 3)
+
+    notable_runs: list[dict[str, Any]] = []
+    run_summaries = progress.get("runSummaries")
+    if isinstance(run_summaries, list):
+        for run_summary in run_summaries:
+            run = dict_value(run_summary)
+            if run is None:
+                continue
+            failed = scale_gates.non_negative_int(run.get("failed")) or 0
+            if run.get("ok") is True and failed == 0:
+                continue
+            notable_run: dict[str, Any] = {
+                "runId": text_value(run.get("runId")),
+                "ok": run.get("ok") is True,
+                "totalEnvironments": scale_gates.non_negative_int(run.get("totalEnvironments")),
+                "successful": scale_gates.non_negative_int(run.get("successful")),
+                "failed": failed,
+                "ticksRun": scale_gates.non_negative_int(run.get("ticksRun")),
+            }
+            failure = dict_value(run.get("failure"))
+            if failure is not None:
+                notable_run["failure"] = copy.deepcopy(failure)
+            notable_runs.append(notable_run)
+            if len(notable_runs) >= 5:
+                break
+    if notable_runs:
+        summary["notableRunSummaries"] = notable_runs
+    return summary or None
 
 
 def paid_failure_post_fix_execution_context_complete(
@@ -3836,6 +4102,13 @@ def paid_failure_recurrence_next_action(
                 "validation signature; only launch a recovery with that signature"
             )
         run_id = text_value(prior.get("runId")) or "the prior post-fix validation"
+        recovery_reason = text_value(recovery.get("reason"))
+        if recovery_reason is not None:
+            return (
+                f"{base}; post-fix validation was already attempted in {run_id} without a completed report; "
+                f"{recovery_reason}; inspect collected partial diagnostics and do not launch another "
+                "paid rerun until a new bounded validation plan is selected"
+            )
         return (
             f"{base}; post-fix validation was already attempted in {run_id} without a completed report, "
             "so inspect that run and ship a local code/diagnostic fix before any further paid rerun"
