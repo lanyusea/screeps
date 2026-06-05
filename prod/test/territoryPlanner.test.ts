@@ -7451,7 +7451,8 @@ describe('planTerritoryIntent', () => {
         targetRoom: 'W2N1',
         action: 'claim',
         status: 'suppressed',
-        updatedAt: 544
+        updatedAt: 544,
+        reason: 'owner_reserve_only'
       },
       {
         colony: 'W1N1',
@@ -7464,6 +7465,13 @@ describe('planTerritoryIntent', () => {
     ]);
     expect(Memory.territory?.demands).toBeUndefined();
     expect(Memory.territory?.executionHints).toBeUndefined();
+    expect(
+      shouldSpawnTerritoryControllerCreep(
+        { colony: 'W1N1', targetRoom: 'W2N1', action: 'claim' },
+        { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+        544 + TERRITORY_SUPPRESSION_RETRY_TICKS + 1
+      )
+    ).toBe(false);
   });
 
   it('does not overwrite a fresh suppressed reserve fallback intent from autonomous expansion fallback', () => {

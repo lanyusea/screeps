@@ -83,6 +83,7 @@ describe('room reservation', () => {
         status: 'suppressed',
         updatedAt: 200,
         createdBy: 'nextExpansionScoring',
+        reason: 'owner_reserve_only',
         controllerId: controller.id
       },
       {

@@ -18616,9 +18616,10 @@ function suppressSameRoomClaimTerritoryIntents(territoryMemory, intents, colony,
       continue;
     }
     intents[i] = {
-      ...intent,
+      ...withoutTerritoryIntentSuspension(intent),
       status: "suppressed",
-      updatedAt: gameTime
+      updatedAt: gameTime,
+      reason: "owner_reserve_only"
     };
     removeTerritoryFollowUpDemand(territoryMemory, colony, targetRoom, "claim");
     removeTerritoryFollowUpExecutionHint(territoryMemory, colony, targetRoom, "claim");
