@@ -951,6 +951,58 @@ def write_post_fix_validation_recovery_remote_timeout_summary(artifact_root: Pat
     return summary_path
 
 
+def write_post_fix_validation_readiness_timeout_summary(
+    artifact_root: Path,
+    run_id: str,
+    *,
+    recovery_attempt: bool = False,
+) -> Path:
+    summary_path = write_post_fix_validation_remote_timeout_summary(artifact_root, run_id)
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    remote_failure = summary["outputs"]["remoteTrainingFailure"]
+    remote_failure["failureClass"] = "remote_process_failed"
+    remote_failure["returncode"] = 2
+    remote_failure.pop("controllerTimedOut", None)
+    remote_failure["diagnostics"]["training-stderr.log"]["tail"] = (
+        "remote training failed after partial simulator progress; inspect simulator run summaries"
+    )
+    summary["outputs"]["error"] = "BatchRunError: remote_training failed with exit 2"
+    summary["steps"][0]["returncode"] = 2
+    summary["steps"][0]["stderr_tail"] = remote_failure["diagnostics"]["training-stderr.log"]["tail"]
+    summary["execution"]["environmentsRun"] = 20
+    if recovery_attempt:
+        launch_guard = summary["outputs"]["launchGuard"]
+        launch_guard["status"] = runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_RECOVERY_ALLOWED_STATUS
+        launch_guard["postFixValidation"]["status"] = "recovery_allowed"
+    simulator_run = summary_path.parent / "remote" / "simulator-artifacts" / f"{run_id}-r04"
+    simulator_run.mkdir(parents=True)
+    readiness_error = "private server did not become HTTP-ready after 900s: <urlopen error [Errno 111] Connection refused>"
+    (simulator_run / "run_summary.json").write_text(
+        json.dumps(
+            {
+                "runId": f"{run_id}-r04",
+                "ok": False,
+                "successful": 4,
+                "failed": 1,
+                "total_environments": 5,
+                "total_ticks": 8000,
+                "wallClockSeconds": 913.193,
+                "error": readiness_error,
+                "variants": [
+                    {
+                        "ok": False,
+                        "error": readiness_error,
+                        "errors": [readiness_error],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    return summary_path
+
+
 def write_invalid_run_id_validation_admission_failure_summary(artifact_root: Path, run_id: str) -> Path:
     summary_path = write_post_fix_validation_pre_scale_admission_failure_summary(
         artifact_root,
@@ -4822,6 +4874,93 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertIn("new bounded validation plan", guard["nextAction"])
         self.assertFalse(summary["execution"]["computeAttempted"])
 
+    def test_paid_failure_recurrence_guard_classifies_readiness_timeout_recovery_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD):
+                write_tencent_failure_summary(artifact_root, f"tencent-pg-room-busy-{index}")
+            write_post_fix_validation_pre_scale_admission_failure_summary(
+                artifact_root,
+                "tencent-postfix-room-busy-v1",
+            )
+            write_post_fix_validation_recovery_remote_timeout_summary(
+                artifact_root,
+                "postfix-room-busy-validation-timeout",
+            )
+            latest_recovery_path = write_post_fix_validation_readiness_timeout_summary(
+                artifact_root,
+                "postfix-validation-run-readiness-timeout",
+                recovery_attempt=True,
+            )
+            touched_time = latest_recovery_path.stat().st_mtime + 10
+            os.utime(latest_recovery_path, (touched_time, touched_time))
+            args = runner.parse_cli_args([
+                "run-single",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+                "--training-approach",
+                "policy_gradient",
+                "--scenario-id",
+                runner.MULTI_TIER_SCENARIO_ID,
+                "--ticks",
+                str(runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS),
+                "--workers",
+                "5",
+                "--scale-environments",
+                "5",
+                "--repetitions",
+                "20",
+                "--training-timeout-seconds",
+                "7200",
+                "--postfix-validation-signature",
+                runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+            ])
+            artifact_dir = artifact_root / "new-run"
+
+            with mock.patch.object(
+                runner,
+                "paid_failure_recurrence_known_fix_status",
+                return_value={
+                    "signature": runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+                    "issue": "#1501",
+                    "pullRequest": "#1504",
+                    "mergeCommit": "95f960b2",
+                    "present": True,
+                    "evidence": "merge commit 95f960b2 is reachable from HEAD",
+                },
+            ):
+                events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
+
+        self.assertEqual(events, [])
+        self.assertEqual(controller.final_status, runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS)
+        self.assertTrue(guard["blocked"])
+        self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_CONSUMED_STATUS)
+        self.assertEqual(guard["postFixValidation"]["priorAttemptCount"], 3)
+        prior_attempt = guard["postFixValidation"]["priorAttempt"]
+        self.assertEqual(prior_attempt["runId"], "postfix-validation-run-readiness-timeout")
+        self.assertEqual(prior_attempt["remoteTrainingFailureClass"], "remote_training_timeout")
+        self.assertEqual(prior_attempt["remoteTrainingTimeoutReason"], "private_server_http_readiness")
+        progress = prior_attempt["partialSimulatorProgress"]
+        self.assertEqual(progress["completedEnvironmentRows"], 5)
+        self.assertEqual(progress["successfulEnvironmentRows"], 4)
+        self.assertEqual(progress["failedEnvironmentRows"], 1)
+        notable = progress["notableRunSummaries"][0]
+        self.assertEqual(notable["runId"], "postfix-validation-run-readiness-timeout-r04")
+        self.assertEqual(notable["failure"]["classification"], "private_server_http_readiness_timeout")
+        self.assertEqual(notable["failure"]["timeoutReason"], "private_server_http_readiness")
+        recovery = guard["postFixValidation"]["recoveryEligibility"]
+        self.assertFalse(recovery["eligible"])
+        self.assertEqual(recovery["latestRecoveryTimeoutReason"], "private_server_http_readiness")
+        self.assertEqual(
+            recovery["latestRecoveryPartialSimulatorProgress"]["notableRunSummaries"][0]["failure"]["classification"],
+            "private_server_http_readiness_timeout",
+        )
+        self.assertIn("already attempted 2 times", recovery["reason"])
+        self.assertIn("new bounded validation plan", guard["nextAction"])
+        self.assertFalse(summary["execution"]["computeAttempted"])
+
     def test_paid_failure_recurrence_guard_explains_timeout_recovery_when_signature_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             artifact_root = Path(temp_dir) / "batch-runs"
@@ -6340,6 +6479,52 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(failure["retryable"])
         self.assertNotIn("controllerTimedOut", failure)
         self.assertNotIn("nextAction", failure)
+
+    def test_remote_training_diagnostics_classifies_private_server_http_readiness_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            remote = root / "remote"
+            simulator_run = remote / "simulator-artifacts" / "run-test-r04"
+            simulator_run.mkdir(parents=True)
+            readiness_error = (
+                "private server did not become HTTP-ready after 900s: "
+                "<urlopen error [Errno 111] Connection refused>"
+            )
+            (remote / "training-stderr.log").write_text(
+                "remote training failed after partial simulator progress\n",
+                encoding="utf-8",
+            )
+            (simulator_run / "run_summary.json").write_text(
+                json.dumps(
+                    {
+                        "runId": "run-test-r04",
+                        "ok": False,
+                        "successful": 4,
+                        "failed": 1,
+                        "total_environments": 5,
+                        "total_ticks": 8000,
+                        "wallClockSeconds": 913.193,
+                        "error": readiness_error,
+                        "variants": [{"ok": False, "errors": [readiness_error]}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            failure = runner.remote_training_failure_diagnostics(root, 2, run_id="run-test")
+
+        self.assertEqual(failure["failureClass"], "remote_training_timeout")
+        self.assertEqual(failure["timeoutReason"], "private_server_http_readiness")
+        self.assertFalse(failure["retryable"])
+        self.assertNotIn("controllerTimedOut", failure)
+        self.assertIn("HTTP readiness", failure["nextAction"])
+        progress = failure["partialSimulatorProgress"]
+        self.assertEqual(progress["completedEnvironmentRows"], 5)
+        self.assertEqual(progress["successfulEnvironmentRows"], 4)
+        self.assertEqual(progress["failedEnvironmentRows"], 1)
+        failed_run = progress["runSummaries"][0]
+        self.assertEqual(failed_run["failure"]["classification"], "private_server_http_readiness_timeout")
+        self.assertEqual(failed_run["failure"]["timeoutReason"], "private_server_http_readiness")
 
     def test_run_remote_training_classifies_ssh_server_timeout(self) -> None:
         args = controller_args()
