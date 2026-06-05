@@ -399,6 +399,20 @@ function selectCriticalCpuWorkerTask(creep: Creep): CreepTaskMemory | null {
     return applyMinimumUsefulLoadPolicy(creep, storedProtectedConstructionTask);
   }
 
+  const constructionSites = findConstructionSites(creep.room);
+  const constructionReservationContext =
+    constructionSites.length > 0
+      ? createConstructionReservationContext(creep.room)
+      : createEmptyConstructionReservationContext();
+  const boundedConstructionBacklogTask = selectBoundedConstructionBacklogTaskBeforeNonCriticalRefill(
+    creep,
+    constructionSites,
+    constructionReservationContext
+  );
+  if (boundedConstructionBacklogTask) {
+    return applyMinimumUsefulLoadPolicy(creep, boundedConstructionBacklogTask);
+  }
+
   if (spawnOrExtensionEnergySink) {
     return {
       type: 'transfer',
@@ -831,6 +845,7 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return cachedShouldYieldSpawnReservationToConstructionBacklog;
   };
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
+  const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
   const ownedSpawnCount = getOwnedSpawnCount(creep.room);
   const hasMissingSpawnRecoveryConstructionSite =
     ownedSpawnCount === 0 && constructionSites.some(isSpawnConstructionSite);
@@ -900,6 +915,18 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     );
     if (productiveTaskBeforeIdleRefill) {
       return applyMinimumUsefulLoadPolicy(creep, productiveTaskBeforeIdleRefill);
+    }
+
+    const boundedConstructionTaskBeforeTowerRefill = priorityTowerEnergySink
+      ? selectBoundedConstructionBacklogTaskBeforeNonCriticalRefill(
+        creep,
+        constructionSites,
+        constructionReservationContext,
+        priorityTowerEnergySink
+      )
+      : null;
+    if (boundedConstructionTaskBeforeTowerRefill) {
+      return applyMinimumUsefulLoadPolicy(creep, boundedConstructionTaskBeforeTowerRefill);
     }
   }
 
@@ -986,7 +1013,6 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     }
   }
 
-  const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
   if (priorityTowerEnergySink) {
     return applyMinimumUsefulLoadPolicy(creep, {
       type: 'transfer',
@@ -4641,6 +4667,39 @@ function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(
 
   const repairTarget = selectRepairTarget(creep);
   return repairTarget ? { type: 'repair', targetId: repairTarget.id as Id<Structure> } : null;
+}
+
+function selectBoundedConstructionBacklogTaskBeforeNonCriticalRefill(
+  creep: Creep,
+  constructionSites: ConstructionSite[],
+  constructionReservationContext: ConstructionReservationContext,
+  deferredRefillSink: FillableEnergySink | null = null
+): Extract<CreepTaskMemory, { type: 'build' }> | null {
+  if (hasVisibleHostilePresence(creep.room)) {
+    return null;
+  }
+
+  if (deferredRefillSink !== null && !isNonCriticalRefillSinkForConstructionBacklog(creep, deferredRefillSink)) {
+    return null;
+  }
+
+  if (!shouldYieldSpawnReservationToConstructionBacklog(creep, constructionSites, constructionReservationContext)) {
+    return null;
+  }
+
+  const priorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const constructionSite = selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    (site) => site.my !== false && canSpendCreepEnergyOnConstructionSite(creep, site, priorityContext),
+    { priorityContext }
+  );
+  return constructionSite ? { type: 'build', targetId: constructionSite.id } : null;
+}
+
+function isNonCriticalRefillSinkForConstructionBacklog(creep: Creep, sink: FillableEnergySink): boolean {
+  return isTowerEnergySink(sink) && !hasVisibleHostilePresence(creep.room);
 }
 
 function shouldDeferIdleSpawnExtensionRefillForHealthyBuffer(
