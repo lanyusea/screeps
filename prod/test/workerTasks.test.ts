@@ -12444,6 +12444,54 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
+  it('keeps critical CPU infrastructure repair ahead of construction when no safe refill is deferred', () => {
+    const site = {
+      id: 'wall-site1',
+      my: true,
+      structureType: 'constructedWall',
+      progress: 0,
+      progressTotal: 5_000
+    } as ConstructionSite;
+    const criticalContainer = makeStructure(
+      'container-critical',
+      'container' as StructureConstant,
+      500,
+      2_000
+    );
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [site],
+      controller,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      structures: [criticalContainer]
+    });
+    const creep = {
+      name: 'CriticalCpuWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    const reserveWorker = {
+      name: 'ReserveWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ CriticalCpuWorker: creep, ReserveWorker: reserveWorker });
+    setCpuBucket(43);
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'container-critical' });
+  });
+
   it('keeps carried spawn recovery ahead of near-floor rampart repair under critical CPU bucket pressure', () => {
     const spawnSite = {
       id: 'spawn-site1',

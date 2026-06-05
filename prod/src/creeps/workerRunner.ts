@@ -1842,7 +1842,10 @@ function shouldPreemptTransferTaskForConstructionBacklog(
   }
 
   const currentTarget = getTaskTarget(task);
-  if (!isNonCriticalSpawnExtensionTransferTarget(currentTarget)) {
+  if (
+    !isNonCriticalSpawnExtensionTransferTarget(currentTarget) &&
+    !isNonCriticalTowerRefillTransferTarget(creep, currentTarget)
+  ) {
     return false;
   }
 
@@ -1863,6 +1866,10 @@ function hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep: Creep
 
 function isNonCriticalSpawnExtensionTransferTarget(target: unknown): boolean {
   return getTransferSinkPriority(target) === 2;
+}
+
+function isNonCriticalTowerRefillTransferTarget(creep: Creep, target: unknown): boolean {
+  return getTransferSinkPriority(target) === 1 && !isRoomThreatened(creep);
 }
 
 function shouldPreemptSpendingTaskForControllerPressure(
