@@ -19336,7 +19336,7 @@ function getPersistedTerritoryIntentCandidates(colony, colonyName, colonyOwnerUs
       colony,
       targetRoom: intent.targetRoom,
       territoryMemory
-    }) || !isVisibleTerritoryIntentActionable(intent.targetRoom, intent.action, intent.controllerId, colonyOwnerUsername)) {
+    }) || isTerritoryControlAction3(intent.action) && isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(colonyName, intent.targetRoom) || !isVisibleTerritoryIntentActionable(intent.targetRoom, intent.action, intent.controllerId, colonyOwnerUsername)) {
       return [];
     }
     const intentKey = `${intent.targetRoom}:${intent.action}`;
@@ -20129,7 +20129,7 @@ function getScoutOnlyRemoteConversionBlockReason(colony, candidate, recommendati
   if (isCpuBucketBelowScoutOnlyRemoteFloor()) {
     return "cpuBucketLow";
   }
-  if (!isScoutOnlyRemoteEnergyBufferReady(colony)) {
+  if (candidate.source !== "occupationIntent" && !isScoutOnlyRemoteEnergyBufferReady(colony)) {
     return "energyBufferLow";
   }
   return null;

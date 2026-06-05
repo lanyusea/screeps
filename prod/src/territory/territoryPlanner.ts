@@ -44,7 +44,10 @@ import {
   isClaimPlanBlockedByHigherPriorityColony,
   pruneLowerPriorityDuplicateClaimPlans
 } from './multiRoomTerritory';
-import { isConfiguredExpansionScoutOnlyTarget } from './expansionConfig';
+import {
+  isConfiguredExpansionScoutOnlyTarget,
+  isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl
+} from './expansionConfig';
 import {
   AUTONOMOUS_TERRITORY_CONTROL_SUPPRESSION_REASON,
   isAutonomousTerritoryControlAllowedForColony,
@@ -2311,6 +2314,8 @@ function getPersistedTerritoryIntentCandidates(
           targetRoom: intent.targetRoom,
           territoryMemory
         })) ||
+      (isTerritoryControlAction(intent.action) &&
+        isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(colonyName, intent.targetRoom)) ||
       !isVisibleTerritoryIntentActionable(intent.targetRoom, intent.action, intent.controllerId, colonyOwnerUsername)
     ) {
       return [];
@@ -3601,7 +3606,10 @@ function getScoutOnlyRemoteConversionBlockReason(
     return 'cpuBucketLow';
   }
 
-  if (!isScoutOnlyRemoteEnergyBufferReady(colony)) {
+  if (
+    candidate.source !== 'occupationIntent' &&
+    !isScoutOnlyRemoteEnergyBufferReady(colony)
+  ) {
     return 'energyBufferLow';
   }
 
