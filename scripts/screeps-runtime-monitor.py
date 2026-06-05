@@ -5162,6 +5162,21 @@ def safe_assignment_string(value: Any) -> str | None:
     return redacted[: MAX_CREEP_MEMORY_ASSIGNMENT_STRING_LENGTH - 3] + "..."
 
 
+def user_memory_api_error(payload: Any, secrets: list[str] | None = None) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    ok = payload.get("ok")
+    if ok not in (0, False):
+        return None
+    status = "ok=false" if ok is False else "ok=0"
+    for key in ("error", "message", "err"):
+        detail = string_value(payload.get(key))
+        if detail is not None:
+            redacted = redact_secrets(detail, secrets or [])
+            return f"user memory API returned {status}: {short_text(redacted, 120)}"
+    return f"user memory API returned {status}"
+
+
 def decode_user_memory_data(payload: Any) -> dict[str, Any] | None:
     if not isinstance(payload, dict):
         return None
@@ -5207,6 +5222,9 @@ def fetch_creep_memory_map_for_shard(ctx: RuntimeContext, shard: str) -> dict[st
     for params, path_requested in requests:
         try:
             payload = get_json(ctx.base_http, ctx.token, "/api/user/memory", params)
+            api_error = user_memory_api_error(payload, [ctx.token])
+            if api_error is not None:
+                raise RuntimeError(api_error)
         except Exception as exc:  # noqa: BLE001 - caller reports one sanitized warning per shard
             last_error = exc
             continue
