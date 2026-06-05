@@ -19336,7 +19336,7 @@ function getPersistedTerritoryIntentCandidates(colony, colonyName, colonyOwnerUs
       colony,
       targetRoom: intent.targetRoom,
       territoryMemory
-    }) || !isVisibleTerritoryIntentActionable(intent.targetRoom, intent.action, intent.controllerId, colonyOwnerUsername)) {
+    }) || isTerritoryControlAction3(intent.action) && isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(colonyName, intent.targetRoom) || !isVisibleTerritoryIntentActionable(intent.targetRoom, intent.action, intent.controllerId, colonyOwnerUsername)) {
       return [];
     }
     const intentKey = `${intent.targetRoom}:${intent.action}`;
@@ -19653,8 +19653,12 @@ function getAdjacentReserveCandidates(colonyName, originRoomName, colonyOwnerUse
     if (roomName === colonyName || existingTargetRooms.has(roomName) || isKnownDeadZoneRoom(roomName) || isTerritoryTargetSuppressed(target, intents, gameTime) || isTerritoryRoomSuspendedForColony(intents, colonyName, roomName, gameTime) || isRecoveredTerritoryFollowUpAttemptCoolingDownForAction(intents, colonyName, roomName, "reserve", gameTime)) {
       return [];
     }
+    const controlExcluded = isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(colonyName, roomName);
     const candidateState = getAdjacentReserveCandidateState(roomName, colonyOwnerUsername);
     if (candidateState === "safe") {
+      if (controlExcluded) {
+        return [];
+      }
       const candidate = scoreTerritoryCandidate(
         {
           target,
@@ -20072,6 +20076,12 @@ function getRecommendedTerritoryIntentAction(candidate, recommendation, roleCoun
   if (isAutoClaimApprovedTerritoryCandidate(candidate)) {
     return candidate.intentAction;
   }
+  if (candidate.source === "occupationIntent" && candidate.intentAction === "scout" && isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(
+    candidate.target.colony,
+    candidate.target.roomName
+  )) {
+    return "scout";
+  }
   if (blockReason !== null && isConfiguredScoutOnlyRemoteConversionTarget(candidate)) {
     return "scout";
   }
@@ -20129,7 +20139,7 @@ function getScoutOnlyRemoteConversionBlockReason(colony, candidate, recommendati
   if (isCpuBucketBelowScoutOnlyRemoteFloor()) {
     return "cpuBucketLow";
   }
-  if (!isScoutOnlyRemoteEnergyBufferReady(colony)) {
+  if (candidate.source !== "occupationIntent" && !isScoutOnlyRemoteEnergyBufferReady(colony)) {
     return "energyBufferLow";
   }
   return null;
