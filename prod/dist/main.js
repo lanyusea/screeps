@@ -33124,7 +33124,12 @@ function selectWorkerTaskContext(creep, currentTask) {
     effectiveEnergyCriticalTask != null ? effectiveEnergyCriticalTask : baseSelectedTask
   );
   const selectedTask = (_a2 = spawnReservationRefillTask != null ? spawnReservationRefillTask : effectiveEnergyCriticalTask) != null ? _a2 : baseSelectedTask;
-  return { baseSelectedTask, energyCriticalTask, selectedTask, spawnReservationRefillTask };
+  return {
+    baseSelectedTask,
+    energyCriticalTask: effectiveEnergyCriticalTask,
+    selectedTask,
+    spawnReservationRefillTask
+  };
 }
 function getCriticalCpuTaskRetentionDecision(creep, task) {
   if (!getRuntimeCpuBudget().critical || !task || !canExecuteTask(creep, task)) {

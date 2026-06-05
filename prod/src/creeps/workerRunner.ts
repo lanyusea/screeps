@@ -431,7 +431,12 @@ function selectWorkerTaskContext(
     effectiveEnergyCriticalTask ?? baseSelectedTask
   );
   const selectedTask = spawnReservationRefillTask ?? effectiveEnergyCriticalTask ?? baseSelectedTask;
-  return { baseSelectedTask, energyCriticalTask, selectedTask, spawnReservationRefillTask };
+  return {
+    baseSelectedTask,
+    energyCriticalTask: effectiveEnergyCriticalTask,
+    selectedTask,
+    spawnReservationRefillTask
+  };
 }
 
 function getCriticalCpuTaskRetentionDecision(
