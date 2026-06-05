@@ -30202,10 +30202,14 @@ function getSpawnConstructionEnergyAvailableForWithdrawal(creep, source, energy,
 }
 function getConstructionEnergyAvailableAfterSpawnReservation(room, roomEnergyAvailable, constructionEnergyWithdrawn) {
   const reservation = getRoomSpawnEnergyReservationState(room);
-  if (!reservation.active) {
+  if (!reservation.active || isRoomSpawnExtensionEnergyAtCapacity(room, roomEnergyAvailable)) {
     return Number.POSITIVE_INFINITY;
   }
   return Math.max(0, roomEnergyAvailable - reservation.reservedEnergy - constructionEnergyWithdrawn);
+}
+function isRoomSpawnExtensionEnergyAtCapacity(room, roomEnergyAvailable) {
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable7(room);
+  return energyCapacityAvailable !== null && energyCapacityAvailable > 0 && roomEnergyAvailable >= energyCapacityAvailable;
 }
 function createBuilderEnergyAcquisitionCandidate(creep, source, energy, task) {
   const range = getRangeBetweenRoomObjects3(creep, source);
@@ -34869,10 +34873,14 @@ function getConstructionSpawnWithdrawEnergyAvailable(creep, target) {
 }
 function getConstructionEnergyAvailableAfterSpawnReservation2(room, roomEnergyAvailable, constructionEnergyWithdrawn) {
   const reservation = getRoomSpawnEnergyReservationState(room);
-  if (!reservation.active) {
+  if (!reservation.active || isRoomSpawnExtensionEnergyAtCapacity2(room, roomEnergyAvailable)) {
     return Number.POSITIVE_INFINITY;
   }
   return Math.max(0, roomEnergyAvailable - reservation.reservedEnergy - constructionEnergyWithdrawn);
+}
+function isRoomSpawnExtensionEnergyAtCapacity2(room, roomEnergyAvailable) {
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable8(room);
+  return energyCapacityAvailable !== null && energyCapacityAvailable > 0 && roomEnergyAvailable >= energyCapacityAvailable;
 }
 function createConstructionWithdrawReservationContext(creep) {
   var _a2, _b;

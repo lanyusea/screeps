@@ -5270,11 +5270,16 @@ function getConstructionEnergyAvailableAfterSpawnReservation(
   constructionEnergyWithdrawn: number
 ): number {
   const reservation = getRoomSpawnEnergyReservationState(room);
-  if (!reservation.active) {
+  if (!reservation.active || isRoomSpawnExtensionEnergyAtCapacity(room, roomEnergyAvailable)) {
     return Number.POSITIVE_INFINITY;
   }
 
   return Math.max(0, roomEnergyAvailable - reservation.reservedEnergy - constructionEnergyWithdrawn);
+}
+
+function isRoomSpawnExtensionEnergyAtCapacity(room: Room, roomEnergyAvailable: number): boolean {
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
+  return energyCapacityAvailable !== null && energyCapacityAvailable > 0 && roomEnergyAvailable >= energyCapacityAvailable;
 }
 
 function createBuilderEnergyAcquisitionCandidate(

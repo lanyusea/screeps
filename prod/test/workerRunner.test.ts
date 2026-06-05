@@ -1487,6 +1487,125 @@ describe('runWorker', () => {
     expect(withdraw).toHaveBeenCalledWith(spawn, RESOURCE_ENERGY, 23);
   });
 
+  it.each([
+    ['E29N55', 2_300],
+    ['E29N57', 1_800]
+  ])('withdraws construction-buffer spawn energy in full %s despite active spawn reservation', (roomName, energyCapacity) => {
+    const site = withRangeTo(
+      {
+        id: `${roomName}-road-site`,
+        my: true,
+        structureType: 'road',
+        progress: 0,
+        progressTotal: 5_000
+      } as ConstructionSite,
+      { spawn1: 1 }
+    );
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      spawning: null,
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 300 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0))
+      }
+    } as unknown as StructureSpawn;
+    const roomCreeps: Creep[] = [];
+    const room = {
+      name: roomName,
+      energyAvailable: energyCapacity,
+      energyCapacityAvailable: energyCapacity,
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (object: AnyOwnedStructure | Creep) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES) {
+          const structures = [spawn] as unknown as AnyOwnedStructure[];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_MY_CREEPS) {
+          return options?.filter ? roomCreeps.filter(options.filter) : roomCreeps;
+        }
+
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [site];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const withdraw = jest.fn().mockReturnValue(0);
+    const creep = {
+      name: 'Builder',
+      memory: { role: 'worker', colony: roomName },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+      },
+      room,
+      withdraw,
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === 'work' ? 1 : 0)),
+      moveTo: jest.fn(),
+      pos: {
+        getRangeTo: jest.fn((target: RoomObject) => (String((target as { id?: string }).id) === 'spawn1' ? 1 : 10))
+      }
+    } as unknown as Creep;
+    const recoveryWorker = {
+      name: 'RecoveryWorker',
+      memory: { role: 'worker', colony: roomName, task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room
+    } as unknown as Creep;
+    roomCreeps.push(creep, recoveryWorker);
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      economy: {
+        spawnEnergyReservation: {
+          updatedAt: 1_838_649,
+          rooms: {
+            [roomName]: {
+              bodyCost: energyCapacity,
+              creepName: `worker-${roomName}-next`,
+              reservedAt: 1_838_649,
+              reservedEnergy: energyCapacity,
+              role: 'worker',
+              roomName,
+              updatedAt: 1_838_649
+            }
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Builder: creep, RecoveryWorker: recoveryWorker },
+      rooms: { [roomName]: room },
+      time: 1_838_650,
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'spawn1') {
+          return spawn;
+        }
+
+        return id === `${roomName}-road-site` ? site : null;
+      })
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({
+      type: 'withdraw',
+      targetId: 'spawn1',
+      constructionSiteId: `${roomName}-road-site`
+    });
+    expect(withdraw).toHaveBeenCalledWith(spawn, RESOURCE_ENERGY, 50);
+  });
+
   it('signs an owned controller when controller management reports a missing signature', () => {
     const controller = {
       id: 'controller1',
