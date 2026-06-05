@@ -723,10 +723,16 @@ interface RuntimeWorkerEfficiencySummary {
   omittedSampleCount?: number;
 }
 
+type RuntimeWorkerLoadEfficiencyUnavailableReason =
+  | 'no_worker_creeps'
+  | 'optional_summary_suppressed_by_cpu'
+  | 'recent_worker_efficiency_sample_missing';
+
 interface RuntimeWorkerLoadEfficiencySummary {
   sampleCount: number;
-  tripEnergyMean: number;
-  tripEnergyMin: number;
+  tripEnergyMean: number | null;
+  tripEnergyMin: number | null;
+  unavailableReason?: RuntimeWorkerLoadEfficiencyUnavailableReason;
 }
 
 interface RuntimeBehaviorSummary {
@@ -1275,7 +1281,7 @@ function summarizeRoom(
     constructionScoring,
     ...(includeOptionalSummary ? summarizeRuntimeBehavior(colonyWorkers, colonyCreeps, tick) : {}),
     ...(includeStructureSnapshot ? { structures: summarizeStructures(colony, colonyWorkers) } : {}),
-    ...(includeOptionalSummary ? summarizeWorkerEfficiency(colonyWorkers, tick) : {}),
+    ...summarizeOptionalWorkerEfficiency(colonyWorkers, tick, includeOptionalSummary),
     ...(includeOptionalSummary ? summarizeRefillTelemetry(colonyWorkers, tick) : {}),
     ...summarizeSpawnCriticalRefill(colonyWorkers, tick),
     ...buildControllerSummary(colony.room),
@@ -2887,12 +2893,29 @@ function calculateRoadCoverageRatio(roadCount: number, pendingRoadSiteCount: num
   return roundRatio(roadCount, totalKnownRoadWork);
 }
 
+function summarizeOptionalWorkerEfficiency(
+  workers: Creep[],
+  tick: number,
+  includeOptionalSummary: boolean
+): {
+  workerEfficiency?: RuntimeWorkerEfficiencySummary;
+  workerLoadEfficiency: RuntimeWorkerLoadEfficiencySummary;
+} {
+  if (!includeOptionalSummary) {
+    return {
+      workerLoadEfficiency: summarizeUnavailableWorkerLoadEfficiency('optional_summary_suppressed_by_cpu')
+    };
+  }
+
+  return summarizeWorkerEfficiency(workers, tick);
+}
+
 function summarizeWorkerEfficiency(
   workers: Creep[],
   tick: number
 ): {
   workerEfficiency?: RuntimeWorkerEfficiencySummary;
-  workerLoadEfficiency?: RuntimeWorkerLoadEfficiencySummary;
+  workerLoadEfficiency: RuntimeWorkerLoadEfficiencySummary;
 } {
   const samples = workers
     .map((worker) => ({ creepName: getCreepName(worker), sample: worker.memory.workerEfficiency }))
@@ -2903,7 +2926,11 @@ function summarizeWorkerEfficiency(
     .sort(compareWorkerEfficiencySampleEntries);
 
   if (samples.length === 0) {
-    return {};
+    return {
+      workerLoadEfficiency: summarizeUnavailableWorkerLoadEfficiency(
+        workers.length === 0 ? 'no_worker_creeps' : 'recent_worker_efficiency_sample_missing'
+      )
+    };
   }
 
   const reportedSamples = samples.slice(0, MAX_WORKER_EFFICIENCY_SAMPLES).map(toRuntimeWorkerEfficiencySample);
@@ -2928,7 +2955,19 @@ function summarizeWorkerEfficiency(
         ? { omittedSampleCount: samples.length - MAX_WORKER_EFFICIENCY_SAMPLES }
         : {})
     },
-    ...(workerLoadEfficiency ? { workerLoadEfficiency } : {})
+    workerLoadEfficiency:
+      workerLoadEfficiency ?? summarizeUnavailableWorkerLoadEfficiency('recent_worker_efficiency_sample_missing')
+  };
+}
+
+function summarizeUnavailableWorkerLoadEfficiency(
+  unavailableReason: RuntimeWorkerLoadEfficiencyUnavailableReason
+): RuntimeWorkerLoadEfficiencySummary {
+  return {
+    sampleCount: 0,
+    tripEnergyMean: null,
+    tripEnergyMin: null,
+    unavailableReason
   };
 }
 

@@ -278,6 +278,12 @@ describe('runtime telemetry summaries', () => {
               creepDestroyedCount: 1
             }
           },
+          workerLoadEfficiency: {
+            sampleCount: 0,
+            tripEnergyMean: null,
+            tripEnergyMin: null,
+            unavailableReason: 'recent_worker_efficiency_sample_missing'
+          },
           constructionPriority: {
             candidates: [
               {
@@ -600,6 +606,12 @@ describe('runtime telemetry summaries', () => {
     expect(room.territoryExpansion).toBeUndefined();
     expect(room.behavior).toBeUndefined();
     expect(room.workerEfficiency).toBeUndefined();
+    expect(room.workerLoadEfficiency).toEqual({
+      sampleCount: 0,
+      tripEnergyMean: null,
+      tripEnergyMin: null,
+      unavailableReason: 'optional_summary_suppressed_by_cpu'
+    });
     expect(room.refillDeliveryTicks).toBeUndefined();
     expect(room.refillWorkerUtilization).toBeUndefined();
     expect(room.workerEnergyThroughput).toBeUndefined();
@@ -2736,6 +2748,33 @@ describe('runtime telemetry summaries', () => {
       storedEnergy: 0,
       workerCarriedEnergy: 0,
       harvestedThisTick: 0
+    });
+  });
+
+  it('reports why worker load efficiency has no recent samples', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    const worker = makeWorker(
+      {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'build', targetId: 'site-1' as Id<ConstructionSite> }
+      },
+      40,
+      'BuilderWithoutEfficiencySample'
+    );
+
+    emitRuntimeSummary([colony], [worker]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.taskCounts).toMatchObject({ build: 1 });
+    expect(room.workerAssignmentEvidenceAvailable).toBe(true);
+    expect(room.workerEfficiency).toBeUndefined();
+    expect(room.workerLoadEfficiency).toEqual({
+      sampleCount: 0,
+      tripEnergyMean: null,
+      tripEnergyMin: null,
+      unavailableReason: 'recent_worker_efficiency_sample_missing'
     });
   });
 
