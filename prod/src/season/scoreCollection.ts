@@ -30,6 +30,22 @@ interface SeasonScoreAssignedCollector {
   range: number;
 }
 
+export interface SeasonScoreCollectorSpawnDemand {
+  homeRoom: string;
+  targetRoom: string;
+  staleReason?: SeasonScoreCollectorStaleReason;
+}
+
+interface SeasonScoreCollectorAssignmentState {
+  creep: Creep;
+  memory: CreepSeasonScoreCollectorMemory;
+  staleReason?: SeasonScoreCollectorStaleReason;
+}
+
+type RoomPositionConstructor = new (x: number, y: number, roomName: string) => RoomPosition;
+
+export const SCORE_COLLECTOR_ROLE = 'scoreCollector';
+
 const SCORE_FIND_CONSTANT_GLOBALS: ScoreFindConstantGlobal[] = [
   'FIND_SCORE',
   'FIND_SCORE_ITEMS',
@@ -46,6 +62,175 @@ const SCORE_FALLBACK_ROOM_KEYS: SeasonScoreRoomKey[] = [
   'seasonScoreItems'
 ];
 const SCORE_COLLECTION_TRAVEL_BUFFER_TICKS = 1;
+const SCORE_COLLECTOR_MAX_CANDIDATE_ROOMS = 16;
+const SCORE_COLLECTOR_REPLACEMENT_TICKS_TO_LIVE = 100;
+const SCORE_COLLECTOR_STALE_TICKS = 100;
+const SCORE_COLLECTOR_ROOM_CENTER = 25;
+
+export function selectSeasonScoreCollectorSpawnDemand(
+  colony: { room: Pick<Room, 'name'> },
+  gameTime = getGameTime()
+): SeasonScoreCollectorSpawnDemand | null {
+  const homeRoom = normalizeRoomName(colony.room?.name);
+  if (!homeRoom) {
+    return null;
+  }
+
+  const activeAssignments = selectActiveScoreCollectorAssignments(homeRoom, gameTime);
+  if (!getRuntimeFeatureGates().isSeasonal) {
+    recordSeasonScoreCollectorsDiagnostic({
+      updatedAt: gameTime,
+      activeCount: activeAssignments.filter((assignment) => assignment.staleReason === undefined).length,
+      candidateRooms: [],
+      targetRooms: getEffectiveScoreCollectorTargetRooms(activeAssignments),
+      blocker: 'non_seasonal'
+    });
+    return null;
+  }
+
+  const candidateRooms = selectSeasonScoreCollectorCandidateRooms(homeRoom);
+  const effectiveTargetRooms = getEffectiveScoreCollectorTargetRooms(activeAssignments);
+  if (candidateRooms.length === 0) {
+    recordSeasonScoreCollectorsDiagnostic({
+      updatedAt: gameTime,
+      activeCount: effectiveTargetRooms.length,
+      candidateRooms,
+      targetRooms: effectiveTargetRooms,
+      blocker: 'no_candidate_rooms'
+    });
+    return null;
+  }
+
+  const assignmentsByTarget = groupScoreCollectorAssignmentsByTarget(activeAssignments);
+  for (const targetRoom of candidateRooms) {
+    const assignment = assignmentsByTarget.get(targetRoom);
+    if (!assignment) {
+      recordSeasonScoreCollectorsDiagnostic({
+        updatedAt: gameTime,
+        activeCount: effectiveTargetRooms.length,
+        candidateRooms,
+        targetRooms: effectiveTargetRooms,
+        nextSpawnTargetRoom: targetRoom
+      });
+      return { homeRoom, targetRoom };
+    }
+
+    if (assignment.staleReason) {
+      recordSeasonScoreCollectorsDiagnostic({
+        updatedAt: gameTime,
+        activeCount: effectiveTargetRooms.length,
+        candidateRooms,
+        targetRooms: effectiveTargetRooms,
+        nextSpawnTargetRoom: targetRoom,
+        staleTargetRoom: targetRoom,
+        staleReason: assignment.staleReason
+      });
+      return { homeRoom, targetRoom, staleReason: assignment.staleReason };
+    }
+  }
+
+  recordSeasonScoreCollectorsDiagnostic({
+    updatedAt: gameTime,
+    activeCount: effectiveTargetRooms.length,
+    candidateRooms,
+    targetRooms: effectiveTargetRooms,
+    blocker: 'all_targets_covered'
+  });
+  return null;
+}
+
+export function buildSeasonScoreCollectorMemory(
+  homeRoom: string,
+  targetRoom: string,
+  gameTime = getGameTime()
+): CreepMemory {
+  return {
+    role: SCORE_COLLECTOR_ROLE,
+    colony: homeRoom,
+    seasonScoreCollector: {
+      homeRoom,
+      targetRoom,
+      assignedAt: gameTime
+    }
+  };
+}
+
+export function recordSeasonScoreCollectorSpawnBlocker(
+  homeRoom: string,
+  blocker: SeasonScoreCollectorsDiagnosticsMemory['blocker'],
+  gameTime = getGameTime()
+): void {
+  if (!normalizeRoomName(homeRoom) || !blocker) {
+    return;
+  }
+
+  const activeAssignments = selectActiveScoreCollectorAssignments(homeRoom, gameTime);
+  recordSeasonScoreCollectorsDiagnostic({
+    updatedAt: gameTime,
+    activeCount: activeAssignments.filter((assignment) => assignment.staleReason === undefined).length,
+    candidateRooms: getRuntimeFeatureGates().isSeasonal ? selectSeasonScoreCollectorCandidateRooms(homeRoom) : [],
+    targetRooms: getEffectiveScoreCollectorTargetRooms(activeAssignments),
+    blocker
+  });
+}
+
+export function runScoreCollector(creep: Creep): void {
+  if (!getRuntimeFeatureGates().isSeasonal) {
+    delete creep.memory.task;
+    recordScoreCollectorCreepState(creep, {
+      state: 'blocked',
+      blocker: 'non_seasonal',
+      visibleScoreCount: 0
+    });
+    return;
+  }
+
+  const assignment = normalizeScoreCollectorMemory(creep.memory?.seasonScoreCollector, creep.memory?.colony);
+  if (!assignment) {
+    delete creep.memory.task;
+    recordScoreCollectorCreepState(creep, {
+      state: 'blocked',
+      blocker: 'missing_assignment',
+      visibleScoreCount: 0
+    });
+    return;
+  }
+
+  const scoreTask = selectSeasonScoreCollectionTask(creep);
+  if (scoreTask) {
+    creep.memory.task = scoreTask;
+    const scoreTarget = getGameObjectById(scoreTask.targetId);
+    if (scoreTarget) {
+      const moveResult = moveToScoreTarget(creep, scoreTarget);
+      recordScoreCollectorCreepState(creep, {
+        ...assignment,
+        state: moveResult === getErrNoPathCode() ? 'blocked' : 'collecting',
+        visibleScoreCount: getSeasonScoreCollectionVisibleCount(creep),
+        assignedScoreTargetId: String(scoreTask.targetId),
+        ...(moveResult === getErrNoPathCode() ? { blocker: 'target_unreachable' } : {})
+      });
+      return;
+    }
+  }
+
+  if (creep.memory.task?.type === 'collectScore') {
+    delete creep.memory.task;
+  }
+
+  const moveResult = moveTowardScoreCollectorTargetRoom(creep, assignment.targetRoom);
+  const state: SeasonScoreCollectorState =
+    moveResult === getErrNoPathCode()
+      ? 'blocked'
+      : creep.room?.name === assignment.targetRoom
+        ? 'holding'
+        : 'travelling';
+  recordScoreCollectorCreepState(creep, {
+    ...assignment,
+    state,
+    visibleScoreCount: getSeasonScoreCollectionVisibleCount(creep),
+    ...(moveResult === getErrNoPathCode() ? { blocker: 'target_unreachable' } : {})
+  });
+}
 
 export function selectSeasonScoreCollectionTask(
   creep: Creep
@@ -258,8 +443,323 @@ function compareScoreCollectionCandidates(
   );
 }
 
+function selectSeasonScoreCollectorCandidateRooms(homeRoom: string): string[] {
+  const rooms: string[] = [];
+  const seen = new Set<string>();
+  const addRoom = (roomName: unknown): void => {
+    const normalized = normalizeRoomName(roomName);
+    if (!normalized || seen.has(normalized) || !isScoreCollectorCandidateReachable(homeRoom, normalized)) {
+      return;
+    }
+
+    seen.add(normalized);
+    rooms.push(normalized);
+  };
+
+  addRoom(homeRoom);
+  for (const adjacentRoom of getAdjacentRoomNames(homeRoom)) {
+    addRoom(adjacentRoom);
+  }
+  for (const targetRoom of getTerritoryTargetRooms(homeRoom)) {
+    addRoom(targetRoom);
+  }
+  for (const targetRoom of getTerritoryIntentRooms(homeRoom)) {
+    addRoom(targetRoom);
+  }
+  for (const targetRoom of getTerritoryExpansionScoutRooms(homeRoom)) {
+    addRoom(targetRoom);
+  }
+  for (const targetRoom of getKnownScoutIntelRooms(homeRoom)) {
+    addRoom(targetRoom);
+  }
+
+  return rooms.slice(0, SCORE_COLLECTOR_MAX_CANDIDATE_ROOMS);
+}
+
+function selectActiveScoreCollectorAssignments(
+  homeRoom: string,
+  gameTime: number
+): SeasonScoreCollectorAssignmentState[] {
+  return getGameCreeps()
+    .filter((creep) => creep.memory?.role === SCORE_COLLECTOR_ROLE && creep.memory.colony === homeRoom)
+    .map((creep): SeasonScoreCollectorAssignmentState | null => {
+      const memory = normalizeScoreCollectorMemory(creep.memory?.seasonScoreCollector, creep.memory?.colony);
+      if (!memory) {
+        return null;
+      }
+
+      return {
+        creep,
+        memory,
+        ...getScoreCollectorAssignmentStaleReason(creep, memory, gameTime)
+      };
+    })
+    .filter((assignment): assignment is SeasonScoreCollectorAssignmentState => assignment !== null);
+}
+
+function getScoreCollectorAssignmentStaleReason(
+  creep: Creep,
+  memory: CreepSeasonScoreCollectorMemory,
+  gameTime: number
+): Pick<SeasonScoreCollectorAssignmentState, 'staleReason'> | Record<string, never> {
+  const ticksToLive = creep.ticksToLive;
+  if (
+    typeof ticksToLive === 'number' &&
+    Number.isFinite(ticksToLive) &&
+    ticksToLive <= SCORE_COLLECTOR_REPLACEMENT_TICKS_TO_LIVE
+  ) {
+    return { staleReason: 'collector_ttl_insufficient' };
+  }
+
+  if (memory.blocker === 'target_unreachable') {
+    return { staleReason: 'target_unreachable' };
+  }
+
+  if (
+    typeof memory.updatedAt === 'number' &&
+    Number.isFinite(memory.updatedAt) &&
+    gameTime >= memory.updatedAt &&
+    gameTime - memory.updatedAt > SCORE_COLLECTOR_STALE_TICKS
+  ) {
+    return { staleReason: 'collector_stale' };
+  }
+
+  return {};
+}
+
+function groupScoreCollectorAssignmentsByTarget(
+  assignments: SeasonScoreCollectorAssignmentState[]
+): Map<string, SeasonScoreCollectorAssignmentState> {
+  const byTarget = new Map<string, SeasonScoreCollectorAssignmentState>();
+  for (const assignment of assignments) {
+    const targetRoom = assignment.memory.targetRoom;
+    const existing = byTarget.get(targetRoom);
+    if (!existing || compareScoreCollectorAssignmentState(assignment, existing) < 0) {
+      byTarget.set(targetRoom, assignment);
+    }
+  }
+
+  return byTarget;
+}
+
+function compareScoreCollectorAssignmentState(
+  left: SeasonScoreCollectorAssignmentState,
+  right: SeasonScoreCollectorAssignmentState
+): number {
+  return (
+    Number(left.staleReason !== undefined) - Number(right.staleReason !== undefined) ||
+    String(left.creep.name ?? '').localeCompare(String(right.creep.name ?? ''))
+  );
+}
+
+function getEffectiveScoreCollectorTargetRooms(assignments: SeasonScoreCollectorAssignmentState[]): string[] {
+  return [
+    ...new Set(
+      assignments
+        .filter((assignment) => assignment.staleReason === undefined)
+        .map((assignment) => assignment.memory.targetRoom)
+    )
+  ].sort();
+}
+
+function getAdjacentRoomNames(homeRoom: string): string[] {
+  const describeExits = (globalThis as { Game?: Partial<Pick<Game, 'map'>> }).Game?.map?.describeExits;
+  if (typeof describeExits !== 'function') {
+    return [];
+  }
+
+  const exits = describeExits.call((globalThis as { Game?: Partial<Pick<Game, 'map'>> }).Game?.map, homeRoom);
+  if (!exits || typeof exits !== 'object') {
+    return [];
+  }
+
+  return Object.values(exits).filter((roomName): roomName is string => isNonEmptyString(roomName)).sort();
+}
+
+function getTerritoryTargetRooms(homeRoom: string): string[] {
+  const targets = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.targets;
+  if (!Array.isArray(targets)) {
+    return [];
+  }
+
+  return targets
+    .filter((target) => target.colony === homeRoom && target.enabled !== false)
+    .map((target) => target.roomName)
+    .filter(isNonEmptyString);
+}
+
+function getTerritoryIntentRooms(homeRoom: string): string[] {
+  const intents = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.intents;
+  if (!Array.isArray(intents)) {
+    return [];
+  }
+
+  return intents
+    .filter((intent) => intent.colony === homeRoom && intent.status !== 'completed' && intent.status !== 'inactive')
+    .map((intent) => intent.targetRoom)
+    .filter(isNonEmptyString);
+}
+
+function getTerritoryExpansionScoutRooms(homeRoom: string): string[] {
+  const targets = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.expansionScoutTargets;
+  if (!Array.isArray(targets)) {
+    return [];
+  }
+
+  return targets
+    .filter((target) => target.colony === homeRoom || target.nearestOwnedRoom === homeRoom)
+    .sort((left, right) =>
+      normalizeNonNegativeInteger(left.routeDistance) - normalizeNonNegativeInteger(right.routeDistance) ||
+      left.roomName.localeCompare(right.roomName)
+    )
+    .map((target) => target.roomName)
+    .filter(isNonEmptyString);
+}
+
+function getKnownScoutIntelRooms(homeRoom: string): string[] {
+  const scoutIntel = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.scoutIntel;
+  if (!scoutIntel) {
+    return [];
+  }
+
+  return Object.values(scoutIntel)
+    .filter((intel) => intel.colony === homeRoom || isKnownRouteDistanceReachable(homeRoom, intel.roomName))
+    .sort((left, right) =>
+      normalizeNonNegativeInteger(left.updatedAt) - normalizeNonNegativeInteger(right.updatedAt) ||
+      left.roomName.localeCompare(right.roomName)
+    )
+    .map((intel) => intel.roomName)
+    .filter(isNonEmptyString);
+}
+
+function isScoreCollectorCandidateReachable(homeRoom: string, targetRoom: string): boolean {
+  if (homeRoom === targetRoom) {
+    return true;
+  }
+
+  const routeDistance = getKnownRouteDistance(homeRoom, targetRoom);
+  return routeDistance !== null;
+}
+
+function isKnownRouteDistanceReachable(homeRoom: string, targetRoom: string): boolean {
+  return getKnownRouteDistance(homeRoom, targetRoom) !== null;
+}
+
+function getKnownRouteDistance(homeRoom: string, targetRoom: string): number | null | undefined {
+  const routeDistances = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.routeDistances;
+  if (!routeDistances) {
+    return undefined;
+  }
+
+  return routeDistances[`${homeRoom}>${targetRoom}`];
+}
+
+function normalizeScoreCollectorMemory(
+  memory: CreepSeasonScoreCollectorMemory | undefined,
+  fallbackHomeRoom: string | undefined
+): CreepSeasonScoreCollectorMemory | null {
+  if (!memory || !isNonEmptyString(memory.targetRoom)) {
+    return null;
+  }
+
+  const homeRoom = normalizeRoomName(memory.homeRoom) ?? normalizeRoomName(fallbackHomeRoom);
+  if (!homeRoom) {
+    return null;
+  }
+
+  return {
+    ...memory,
+    homeRoom,
+    targetRoom: memory.targetRoom,
+    assignedAt: normalizeNonNegativeInteger(memory.assignedAt)
+  };
+}
+
+function moveToScoreTarget(creep: Creep, target: RoomObject): ScreepsReturnCode {
+  if (typeof creep.moveTo !== 'function') {
+    return getErrNoPathCode();
+  }
+
+  return creep.moveTo(target, { range: 0 }) as ScreepsReturnCode;
+}
+
+function moveTowardScoreCollectorTargetRoom(creep: Creep, targetRoom: string): ScreepsReturnCode {
+  if (typeof creep.moveTo !== 'function') {
+    return getErrNoPathCode();
+  }
+
+  const RoomPositionCtor = (globalThis as { RoomPosition?: RoomPositionConstructor }).RoomPosition;
+  if (typeof RoomPositionCtor !== 'function') {
+    return getErrNoPathCode();
+  }
+
+  return creep.moveTo(
+    new RoomPositionCtor(SCORE_COLLECTOR_ROOM_CENTER, SCORE_COLLECTOR_ROOM_CENTER, targetRoom)
+  ) as ScreepsReturnCode;
+}
+
+function recordScoreCollectorCreepState(
+  creep: Creep,
+  nextState: Partial<CreepSeasonScoreCollectorMemory> & {
+    state: SeasonScoreCollectorState;
+    visibleScoreCount: number;
+  }
+): void {
+  const current = normalizeScoreCollectorMemory(creep.memory?.seasonScoreCollector, creep.memory?.colony);
+  const homeRoom = normalizeRoomName(nextState.homeRoom) ?? current?.homeRoom ?? normalizeRoomName(creep.memory?.colony);
+  const targetRoom = normalizeRoomName(nextState.targetRoom) ?? current?.targetRoom;
+  if (!homeRoom || !targetRoom) {
+    return;
+  }
+
+  creep.memory.seasonScoreCollector = {
+    homeRoom,
+    targetRoom,
+    assignedAt: normalizeNonNegativeInteger(nextState.assignedAt ?? current?.assignedAt ?? getGameTime()),
+    updatedAt: getGameTime(),
+    state: nextState.state,
+    visibleScoreCount: nextState.visibleScoreCount,
+    ...(nextState.assignedScoreTargetId ? { assignedScoreTargetId: nextState.assignedScoreTargetId } : {}),
+    ...(nextState.blocker ? { blocker: nextState.blocker } : {}),
+    ...(nextState.staleReason ? { staleReason: nextState.staleReason } : {})
+  };
+}
+
+function getSeasonScoreCollectionVisibleCount(creep: Creep): number {
+  return normalizeNonNegativeInteger(creep.memory?.seasonScoreCollection?.visibleCount ?? 0);
+}
+
+function getGameObjectById(id: Id<_HasId>): RoomObject | null {
+  const getObjectById = (globalThis as { Game?: Partial<Game> }).Game?.getObjectById;
+  if (typeof getObjectById !== 'function') {
+    return null;
+  }
+
+  return getObjectById.call((globalThis as { Game?: Partial<Game> }).Game, id) as RoomObject | null;
+}
+
+function recordSeasonScoreCollectorsDiagnostic(diagnostic: SeasonScoreCollectorsDiagnosticsMemory): void {
+  const memory = getWritableMemory();
+  if (!memory) {
+    return;
+  }
+
+  memory.seasonScoreCollectors = diagnostic;
+}
+
+function getWritableMemory(): Partial<Memory> | null {
+  const globalScope = globalThis as { Memory?: Partial<Memory> };
+  if (!globalScope.Memory) {
+    return null;
+  }
+
+  return globalScope.Memory;
+}
+
 function isEligibleSeasonScoreCollector(creep: Creep): boolean {
-  return creep.memory?.role === 'worker' || creep.memory?.role === 'hauler';
+  return creep.memory?.role === 'worker' ||
+    creep.memory?.role === 'hauler' ||
+    creep.memory?.role === SCORE_COLLECTOR_ROLE;
 }
 
 function findViableAssignedScoreCollector(
@@ -362,4 +862,21 @@ function clearSeasonScoreCollectionDiagnostic(creep: Creep): void {
   if (creep.memory) {
     delete creep.memory.seasonScoreCollection;
   }
+}
+
+function normalizeRoomName(value: unknown): string | null {
+  return isNonEmptyString(value) ? value : null;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function normalizeNonNegativeInteger(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+
+function getErrNoPathCode(): ScreepsReturnCode {
+  const errNoPath = (globalThis as { ERR_NO_PATH?: number }).ERR_NO_PATH;
+  return (typeof errNoPath === 'number' ? errNoPath : -2) as ScreepsReturnCode;
 }

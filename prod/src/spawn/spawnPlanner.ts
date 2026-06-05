@@ -82,6 +82,12 @@ import {
 } from '../territory/controllerManager';
 import { isLiveTransferCandidate } from '../economy/crossRoomHauler';
 import { UPGRADER_ROLE } from '../creeps/upgraderRunner';
+import {
+  buildSeasonScoreCollectorMemory,
+  recordSeasonScoreCollectorSpawnBlocker,
+  SCORE_COLLECTOR_ROLE,
+  selectSeasonScoreCollectorSpawnDemand
+} from '../season/scoreCollection';
 
 type SpawnPriorityTier =
   | 'emergencyBootstrap'
@@ -95,6 +101,7 @@ type SpawnPriorityTier =
   | 'territoryRemote'
   | 'controllerUpgradeDemand'
   | 'multiRoomControllerUpgrade'
+  | 'seasonScoreCollector'
   | 'controllerUpgradeSurplus';
 
 export type SpawnQueueRolePriority = 'critical' | 'high' | 'normal' | 'low';
@@ -239,7 +246,8 @@ const SPAWN_QUEUE: SpawnQueueDefinition[] = [
   { tier: 'localRefillSurvival', getPriority: getLocalRefillSurvivalSpawnQueuePriority },
   { tier: 'postClaimControllerSustain', getPriority: getPostClaimControllerSustainSpawnQueuePriority },
   { tier: 'controllerUpgradeDemand', getPriority: () => 'normal' },
-  { tier: 'multiRoomControllerUpgrade', getPriority: () => 'normal' }
+  { tier: 'multiRoomControllerUpgrade', getPriority: () => 'normal' },
+  { tier: 'seasonScoreCollector', getPriority: () => 'low' }
 ];
 
 export function planSpawn(
@@ -589,6 +597,8 @@ function planSpawnForPriorityTier(
       return planControllerUpgradeDemandSpawn(context);
     case 'multiRoomControllerUpgrade':
       return planMultiRoomControllerUpgradeSpawn(context);
+    case 'seasonScoreCollector':
+      return planSeasonScoreCollectorSpawn(context);
     case 'controllerUpgradeSurplus':
       return planControllerUpgradeSurplusSpawn(context);
   }
@@ -1548,6 +1558,69 @@ function getClosedPassiveScoutOnlyTargetRooms(context: SpawnPlanningContext): re
   return getPassiveScoutOnlyTargetRooms(context.colony.room.name).filter(
     (targetRoom) => !isPassiveScoutGateOpen(context.colony, targetRoom, context.gameTime)
   );
+}
+
+function planSeasonScoreCollectorSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  const blocker = getSeasonScoreCollectorSpawnSafetyBlocker(context);
+  if (blocker) {
+    if (blocker !== 'non_seasonal') {
+      recordSeasonScoreCollectorSpawnBlocker(context.colony.room.name, blocker, context.gameTime);
+    }
+    return null;
+  }
+
+  const demand = selectSeasonScoreCollectorSpawnDemand(context.colony, context.gameTime);
+  if (!demand) {
+    return null;
+  }
+
+  const spawn = context.colony.spawns.find((candidate) => !candidate.spawning);
+  if (!spawn) {
+    recordSeasonScoreCollectorSpawnBlocker(context.colony.room.name, 'spawn_unavailable', context.gameTime);
+    return null;
+  }
+
+  if (getSpawnEnergyBudget(context.colony) < TERRITORY_SCOUT_BODY_COST) {
+    recordSeasonScoreCollectorSpawnBlocker(context.colony.room.name, 'safety_priority', context.gameTime);
+    return null;
+  }
+
+  return {
+    spawn,
+    body: [...TERRITORY_SCOUT_BODY],
+    name: appendSpawnNameSuffix(
+      `${SCORE_COLLECTOR_ROLE}-${context.colony.room.name}-${demand.targetRoom}-${context.gameTime}`,
+      context.options
+    ),
+    memory: buildSeasonScoreCollectorMemory(context.colony.room.name, demand.targetRoom, context.gameTime)
+  };
+}
+
+function getSeasonScoreCollectorSpawnSafetyBlocker(
+  context: SpawnPlanningContext
+): SeasonScoreCollectorsDiagnosticsMemory['blocker'] | null {
+  if (context.options.workersOnly === true) {
+    return 'safety_priority';
+  }
+
+  if (
+    context.survival.mode === 'BOOTSTRAP' ||
+    context.survival.hostilePresence ||
+    context.survival.controllerDowngradeGuard ||
+    context.workerCapacity < context.workerTarget ||
+    context.workerCapacity < context.survival.survivalWorkerFloor
+  ) {
+    return 'safety_priority';
+  }
+
+  if (
+    context.colony.energyCapacityAvailable < TERRITORY_SCOUT_BODY_COST ||
+    context.colony.energyAvailable < TERRITORY_SCOUT_BODY_COST
+  ) {
+    return 'safety_priority';
+  }
+
+  return null;
 }
 
 function planControllerUpgradeSurplusSpawn(context: SpawnPlanningContext): SpawnRequest | null {

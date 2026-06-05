@@ -10,6 +10,8 @@ export interface RoleCounts {
   claimersByTargetRoomAction?: Partial<Record<TerritoryControlAction, Record<string, number>>>;
   scout?: number;
   scoutsByTargetRoom?: Record<string, number>;
+  scoreCollector?: number;
+  scoreCollectorsByTargetRoom?: Record<string, number>;
 }
 
 // Conservative worker pre-spawn window. A three-part worker takes 9 ticks to
@@ -58,6 +60,15 @@ export function countCreepsByRole(creeps: Creep[], colonyName: string): RoleCoun
           const scoutsByTargetRoom = counts.scoutsByTargetRoom ?? {};
           scoutsByTargetRoom[targetRoom] = (scoutsByTargetRoom[targetRoom] ?? 0) + 1;
           counts.scoutsByTargetRoom = scoutsByTargetRoom;
+        }
+      }
+      if (isColonyScoreCollector(creep, colonyName) && canSatisfyRoleCapacity(creep)) {
+        counts.scoreCollector = (counts.scoreCollector ?? 0) + 1;
+        const targetRoom = creep.memory.seasonScoreCollector?.targetRoom;
+        if (targetRoom) {
+          const scoreCollectorsByTargetRoom = counts.scoreCollectorsByTargetRoom ?? {};
+          scoreCollectorsByTargetRoom[targetRoom] = (scoreCollectorsByTargetRoom[targetRoom] ?? 0) + 1;
+          counts.scoreCollectorsByTargetRoom = scoreCollectorsByTargetRoom;
         }
       }
       return counts;
@@ -119,6 +130,10 @@ function isColonyClaimer(creep: Creep, colonyName: string): boolean {
 
 function isColonyScout(creep: Creep, colonyName: string): boolean {
   return creep.memory.colony === colonyName && creep.memory.role === 'scout';
+}
+
+function isColonyScoreCollector(creep: Creep, colonyName: string): boolean {
+  return creep.memory.colony === colonyName && creep.memory.role === 'scoreCollector';
 }
 
 function canSatisfyRoleCapacity(creep: Creep): boolean {

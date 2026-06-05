@@ -25,6 +25,7 @@ import {
 } from '../src/territory/autoClaim';
 import { RUNTIME_POLICY_PARAMETERS_GLOBAL } from '../src/strategy/runtimePolicyParameters';
 import { installRuntimeCurrentRoom } from './helpers/runtimeRoomConfig';
+import { SCORE_COLLECTOR_ROLE } from '../src/season/scoreCollection';
 
 describe('planSpawn', () => {
   const MID_RCL_WORKER_PATTERN: BodyPartConstant[] = ['work', 'work', 'carry', 'move', 'move'];
@@ -237,6 +238,67 @@ describe('planSpawn', () => {
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 3;
     (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 4;
   }
+
+  function setRuntimeShard(name: string): void {
+    const globalScope = globalThis as unknown as { Game?: Partial<Game> };
+    globalScope.Game = {
+      ...(globalScope.Game ?? {}),
+      creeps: globalScope.Game?.creeps ?? {},
+      shard: { name } as Game['shard']
+    };
+  }
+
+  it('plans Seasonal scoreCollector spawn demand when local safety work is covered', () => {
+    setRuntimeShard('shardSeason');
+    const { colony, spawn } = makeColony({
+      controller: makeController('controller1', 3),
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      sourceCount: 1
+    });
+
+    expect(planSpawn(colony, { worker: 3, sourceHarvester: 1, upgrader: 1 }, 168_500)).toEqual({
+      spawn,
+      body: ['move'],
+      name: `${SCORE_COLLECTOR_ROLE}-W1N1-W1N1-168500`,
+      memory: {
+        role: SCORE_COLLECTOR_ROLE,
+        colony: 'W1N1',
+        seasonScoreCollector: {
+          homeRoom: 'W1N1',
+          targetRoom: 'W1N1',
+          assignedAt: 168_500
+        }
+      }
+    });
+  });
+
+  it('does not plan scoreCollector spawn demand on persistent worlds', () => {
+    setRuntimeShard('shard3');
+    const { colony } = makeColony({
+      controller: makeController('controller1', 3),
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      sourceCount: 1
+    });
+
+    expect(planSpawn(colony, { worker: 3, sourceHarvester: 1, upgrader: 1 }, 168_501)).toBeNull();
+  });
+
+  it('keeps emergency worker recovery ahead of Seasonal scoreCollector spawn demand', () => {
+    setRuntimeShard('shardSeason');
+    const { colony } = makeColony({
+      controller: makeSafeOwnedController(3),
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      sourceCount: 1
+    });
+
+    const plan = planSpawn(colony, { worker: 0, sourceHarvester: 1 }, 168_502);
+
+    expect(plan?.memory.role).toBe('worker');
+    expect(plan?.memory.role).not.toBe(SCORE_COLLECTOR_ROLE);
+  });
 
   function makeTerritoryRoom(roomName: string, controller: StructureController, sourceCount = 0): Room {
     return {
