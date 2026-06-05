@@ -28505,7 +28505,14 @@ function canSpendWorkerEnergyOnConstructionSite(creep, site) {
 }
 function canSpendCreepEnergyOnConstructionSite(creep, site, priorityContext) {
   const carriedEnergy = getUsedEnergy2(creep);
-  return carriedEnergy > 0 && isMissingSpawnRecoveryConstructionSite(creep.room, site) || carriedEnergy > 0 && checkEnergyBufferForConstructionSpending(creep.room) || carriedEnergy > 0 && checkEnergyBufferForStoredConstructionSpending(creep.room) || carriedEnergy > 0 && isExtensionConstructionSite(site) && checkEnergyBufferForExtensionConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && !isExtensionConstructionSite(site) && isCapacityEnablingConstructionSite(site, priorityContext) && checkEnergyBufferForCapacityEnablingConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && canCompleteConstructionSiteWithCarriedEnergy(creep, site) || carriedEnergy > 0 && isLowWorkerThroughputRecoveryConstructionAllowed(creep, site) || carriedEnergy > 0 && hasMinimumWorkerSpawnEnergyForConstruction(creep.room) && isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext);
+  return carriedEnergy > 0 && isMissingSpawnRecoveryConstructionSite(creep.room, site) || carriedEnergy > 0 && checkEnergyBufferForConstructionSpending(creep.room) || carriedEnergy > 0 && checkEnergyBufferForStoredConstructionSpending(creep.room) || carriedEnergy > 0 && canSpendCarriedSurplusOnBoundedConstruction(creep, site) || carriedEnergy > 0 && isExtensionConstructionSite(site) && checkEnergyBufferForExtensionConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && !isExtensionConstructionSite(site) && isCapacityEnablingConstructionSite(site, priorityContext) && checkEnergyBufferForCapacityEnablingConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && canCompleteConstructionSiteWithCarriedEnergy(creep, site) || carriedEnergy > 0 && isLowWorkerThroughputRecoveryConstructionAllowed(creep, site) || carriedEnergy > 0 && hasMinimumWorkerSpawnEnergyForConstruction(creep.room) && isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext);
+}
+function canSpendCarriedSurplusOnBoundedConstruction(creep, site) {
+  const room = creep.room;
+  const controller = room.controller;
+  const survivalAssessment = getWorkerColonySurvivalAssessment(creep);
+  const roomEnergy = getRoomEnergyAvailable10(room);
+  return site.my !== false && (controller == null ? void 0 : controller.my) === true && roomEnergy !== null && roomEnergy >= MINIMUM_WORKER_SPAWN_ENERGY && !hasVisibleHostilePresence3(room) && !suppressesBootstrapNonCriticalWork(survivalAssessment) && !suppressesTerritoryWork(survivalAssessment) && !shouldGuardControllerDowngrade2(controller) && getActiveWorkParts2(creep) > 0 && hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep) && !hasOtherSameRoomBuildCoverageWorker(creep);
 }
 function isLowWorkerThroughputRecoveryConstructionAllowed(creep, site) {
   return site.my !== false && hasLowWorkerThroughputRecoveryPressure(creep);
