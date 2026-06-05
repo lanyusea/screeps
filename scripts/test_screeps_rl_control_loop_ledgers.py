@@ -568,6 +568,64 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
         self.assertNotIn("REWARD_DECISION_ID_NULL", anomaly_codes)
         self.assertIn("E1_GATE_STALE", anomaly_codes)
 
+    def test_training_ledger_rejects_stale_policy_reward_decision_for_new_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root, report_id = write_root_local2w_training_report_artifacts(root, trusted_gradient_update=True)
+            report_path = artifact_root / "rl-training" / f"{report_id}.json"
+            report_payload = read_json(report_path)
+            report_payload["anomalies"] = [{"severity": "P1", "code": "REWARD_DECISION_ID_NULL"}]
+            write_json(report_path, report_payload)
+
+            stale_reward_decision_id, stale_reward_decision_path = write_legacy_scorecard_reward_decision(
+                root,
+                artifact_root,
+                scorecard_id="rl-scorecard-old-candidate",
+                candidate_policy_id="old-candidate-policy",
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "20260604T000001Z-policy-advantage.json",
+                {
+                    "type": ledgers.POLICY_ADVANTAGE_TYPE,
+                    "createdAt": "2026-06-04T00:00:01Z",
+                    "candidatePolicyId": "old-candidate-policy",
+                    "baselinePolicyId": "incumbent",
+                    "onlineUtilityStatus": "UNPROVEN",
+                    "rewardDecisionId": stale_reward_decision_id,
+                    "rewardDecisionArtifactPath": stale_reward_decision_path,
+                    "scorecardId": "rl-scorecard-old-candidate",
+                    "metrics": {},
+                },
+            )
+            output = root / "out" / "training-ledger.json"
+
+            exit_code = ledgers.main(
+                [
+                    "training-ledger",
+                    "--repo-root",
+                    str(root),
+                    "--artifact-root",
+                    str(artifact_root),
+                    "--output",
+                    str(output),
+                    "--created-at",
+                    "2026-06-05T00:00:03Z",
+                    "--max-files-per-root",
+                    "4",
+                ],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+            payload = read_json(output)
+
+        anomaly_codes = {item["code"] for item in payload["anomalies"]}
+        self.assertEqual(exit_code, 0)
+        self.assertIsNone(payload["rewardDecisionId"])
+        self.assertIsNone(payload["rewardDecisionArtifactPath"])
+        self.assertIsNone(payload["trainingArtifacts"]["rewardDecisionId"])
+        self.assertIsNone(payload["metricsFields"]["rewardDecisionId"])
+        self.assertIn("REWARD_DECISION_ID_NULL", anomaly_codes)
+
     def test_policy_advantage_output_is_bounded_and_artifact_first(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

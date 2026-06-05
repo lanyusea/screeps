@@ -880,6 +880,28 @@ def load_reward_decision_record(path: Path) -> JsonObject | None:
     return record
 
 
+def reward_decision_record_matches_candidate(
+    record: JsonObject,
+    *,
+    scorecard_id: str | None,
+    candidate_policy_id: str | None,
+) -> bool:
+    candidate = candidate_policy_text(candidate_policy_id)
+    if candidate is None:
+        return False
+    record_candidate = candidate_policy_text(
+        record.get("candidatePolicyId"),
+        as_dict(record.get("validationEvidence")).get("candidatePolicyId"),
+    )
+    if record_candidate != candidate:
+        return False
+    record_scorecard_id = first_text_value(
+        record.get("scorecardId"),
+        as_dict(record.get("validationEvidence")).get("scorecardId"),
+    )
+    return scorecard_ids_match(scorecard_id, record_scorecard_id)
+
+
 def find_existing_scorecard_reward_decision(
     *,
     artifact_root: Path,
@@ -895,7 +917,15 @@ def find_existing_scorecard_reward_decision(
         expected_id = reward_decision_id_for_scorecard(scorecard_id, candidate)
         expected_path = reward_decision_path(artifact_root, expected_id)
         expected_record = load_reward_decision_record(expected_path)
-        if expected_record is not None and text_value(expected_record.get("rewardDecisionId")) == expected_id:
+        if (
+            expected_record is not None
+            and text_value(expected_record.get("rewardDecisionId")) == expected_id
+            and reward_decision_record_matches_candidate(
+                expected_record,
+                scorecard_id=scorecard_id,
+                candidate_policy_id=candidate,
+            )
+        ):
             return expected_id, repo_display_path(expected_path, repo_root)
 
     matches: list[tuple[datetime, str, str, Path]] = []
@@ -906,17 +936,11 @@ def find_existing_scorecard_reward_decision(
         record = load_reward_decision_record(path)
         if record is None:
             continue
-        record_candidate = candidate_policy_text(
-            record.get("candidatePolicyId"),
-            as_dict(record.get("validationEvidence")).get("candidatePolicyId"),
-        )
-        if record_candidate != candidate:
-            continue
-        record_scorecard_id = first_text_value(
-            record.get("scorecardId"),
-            as_dict(record.get("validationEvidence")).get("scorecardId"),
-        )
-        if not scorecard_ids_match(scorecard_id, record_scorecard_id):
+        if not reward_decision_record_matches_candidate(
+            record,
+            scorecard_id=scorecard_id,
+            candidate_policy_id=candidate,
+        ):
             continue
         reward_decision_id = text_value(record.get("rewardDecisionId"))
         if reward_decision_id is None:
@@ -932,6 +956,47 @@ def find_existing_scorecard_reward_decision(
     return reward_decision_id, repo_display_path(path, repo_root)
 
 
+def matching_carried_reward_decision_link(
+    *,
+    previous_policy: JsonObject | None,
+    training_payload: JsonObject | None,
+    scorecard_id: str | None,
+    candidate_policy_id: str | None,
+    artifact_root: Path,
+    repo_root: Path,
+) -> tuple[str | None, str | None]:
+    reward_decision_id = existing_reward_decision_id(previous_policy, training_payload)
+    if reward_decision_id is None:
+        return None, None
+
+    path_candidates = [
+        reward_decision_existing_path(
+            reward_decision_id=reward_decision_id,
+            existing_path=existing_reward_decision_artifact_path(previous_policy, training_payload),
+            artifact_root=artifact_root,
+            repo_root=repo_root,
+        ),
+        reward_decision_path(artifact_root, reward_decision_id),
+    ]
+    seen: set[str] = set()
+    for path in path_candidates:
+        path_key = path.as_posix()
+        if path_key in seen:
+            continue
+        seen.add(path_key)
+        record = load_reward_decision_record(path)
+        if record is None or text_value(record.get("rewardDecisionId")) != reward_decision_id:
+            continue
+        if not reward_decision_record_matches_candidate(
+            record,
+            scorecard_id=scorecard_id,
+            candidate_policy_id=candidate_policy_id,
+        ):
+            continue
+        return reward_decision_id, repo_display_path(path, repo_root)
+    return None, None
+
+
 def resolve_reward_decision_link(
     *,
     previous_policy: JsonObject | None,
@@ -941,18 +1006,21 @@ def resolve_reward_decision_link(
     artifact_root: Path,
     repo_root: Path,
 ) -> tuple[str | None, str | None]:
-    reward_decision_id = existing_reward_decision_id(previous_policy, training_payload)
-    reward_decision_artifact_path = existing_reward_decision_artifact_path(previous_policy, training_payload)
-    if reward_decision_id is not None:
-        if reward_decision_artifact_path is None:
-            path = reward_decision_path(artifact_root, reward_decision_id)
-            if path.exists():
-                reward_decision_artifact_path = repo_display_path(path, repo_root)
-        return reward_decision_id, reward_decision_artifact_path
+    scorecard_id = text_value(as_dict(scorecard).get("scorecardId"))
+    carried_id, carried_path = matching_carried_reward_decision_link(
+        previous_policy=previous_policy,
+        training_payload=training_payload,
+        scorecard_id=scorecard_id,
+        candidate_policy_id=candidate_policy_id,
+        artifact_root=artifact_root,
+        repo_root=repo_root,
+    )
+    if carried_id is not None:
+        return carried_id, carried_path
     return find_existing_scorecard_reward_decision(
         artifact_root=artifact_root,
         repo_root=repo_root,
-        scorecard_id=text_value(as_dict(scorecard).get("scorecardId")),
+        scorecard_id=scorecard_id,
         candidate_policy_id=candidate_policy_id,
     )
 
