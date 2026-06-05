@@ -272,6 +272,42 @@ def write_root_local2w_training_report_artifacts(
     return artifact_root, LOCAL2W_REPORT_ID
 
 
+def local2w_next_policy_id() -> str:
+    return f"{LOCAL2W_REPORT_ID}.next-policy"
+
+
+def local2w_scorecard_id() -> str:
+    return f"rl-scorecard-{LOCAL2W_REPORT_ID}-187e0c0e1786"
+
+
+def write_legacy_scorecard_reward_decision(
+    root: Path,
+    artifact_root: Path,
+    *,
+    scorecard_id: str,
+    candidate_policy_id: str,
+) -> tuple[str, str]:
+    legacy_scorecard_id = (
+        f"{scorecard_id} (selected best), also rl-scorecard-...-7f7682d0397f, "
+        "rl-scorecard-...-ed14bbc41bea (3 total)"
+    )
+    reward_decision_id = ledgers.reward_decision_id_for_scorecard(legacy_scorecard_id, candidate_policy_id)
+    path = artifact_root / "rl-control-loop" / "reward-decisions" / f"{reward_decision_id}.json"
+    write_json(
+        path,
+        {
+            "type": ledgers.REWARD_DECISION_RECORD_TYPE,
+            "schemaVersion": ledgers.SCHEMA_VERSION,
+            "rewardDecisionId": reward_decision_id,
+            "scorecardId": legacy_scorecard_id,
+            "candidatePolicyId": candidate_policy_id,
+            "createdAt": "2026-06-05T00:00:00Z",
+            "updatedAt": "2026-06-05T00:00:00Z",
+        },
+    )
+    return reward_decision_id, path.relative_to(root).as_posix()
+
+
 class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
     def test_training_ledger_writes_artifact_when_stdout_is_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -439,6 +475,99 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
         self.assertNotIn("TRAINING_LEDGER_MISSING", anomaly_codes)
         self.assertNotIn("activeRunner PID 1012127", payload["nextTrainingCapabilityAction"])
 
+    def test_training_ledger_propagates_existing_reward_decision_and_clears_null_anomaly(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root, report_id = write_root_local2w_training_report_artifacts(root, trusted_gradient_update=True)
+            candidate_policy_id = local2w_next_policy_id()
+            scorecard_id = local2w_scorecard_id()
+            reward_decision_id, reward_decision_path = write_legacy_scorecard_reward_decision(
+                root,
+                artifact_root,
+                scorecard_id=scorecard_id,
+                candidate_policy_id=candidate_policy_id,
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "20260605T000001Z-policy-advantage.json",
+                {
+                    "type": ledgers.POLICY_ADVANTAGE_TYPE,
+                    "createdAt": "2026-06-05T00:00:01Z",
+                    "candidatePolicyId": candidate_policy_id,
+                    "baselinePolicyId": "incumbent",
+                    "onlineUtilityStatus": "UNPROVEN",
+                    "rewardDecisionId": None,
+                    "rewardDecisionArtifactPath": None,
+                    "scorecardId": scorecard_id,
+                    "metrics": {},
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "20260605T000002Z-training-ledger.json",
+                {
+                    "type": ledgers.TRAINING_LEDGER_TYPE,
+                    "createdAt": "2026-06-05T00:00:02Z",
+                    "status": "RUN_VALIDATED",
+                    "trainingDidRun": True,
+                    "environmentExecution": {"started": 80, "completed": 80, "failed": 0, "successRate": 1.0},
+                    "iterationExecution": {
+                        "simulatorTicksRequested": 160000,
+                        "simulatorTicksRun": 160000,
+                        "episodesRun": 80,
+                        "candidateEvaluationIterations": 1,
+                        "policyUpdateIterations": 1,
+                    },
+                    "trainingArtifacts": {
+                        "trainingReportIds": [report_id],
+                        "candidatePolicyIds": [candidate_policy_id],
+                        "rewardDecisionId": None,
+                        "rewardDecisionArtifactPath": None,
+                    },
+                    "metricsFields": {
+                        "envCompleted": 80,
+                        "ticksRun": 160000,
+                        "episodes": 80,
+                        "policyUpdateIterations": 1,
+                        "trainingReportIds": [report_id],
+                        "candidatePolicyId": candidate_policy_id,
+                        "rewardDecisionId": None,
+                    },
+                    "anomalies": [
+                        {"severity": "P1", "code": "REWARD_DECISION_ID_NULL"},
+                        {"severity": "P2", "code": "E1_GATE_STALE"},
+                    ],
+                },
+            )
+            output = root / "out" / "training-ledger.json"
+
+            exit_code = ledgers.main(
+                [
+                    "training-ledger",
+                    "--repo-root",
+                    str(root),
+                    "--artifact-root",
+                    str(artifact_root),
+                    "--output",
+                    str(output),
+                    "--created-at",
+                    "2026-06-05T00:00:03Z",
+                    "--max-files-per-root",
+                    "4",
+                ],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+            payload = read_json(output)
+
+        anomaly_codes = {item["code"] for item in payload["anomalies"]}
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["rewardDecisionId"], reward_decision_id)
+        self.assertEqual(payload["rewardDecisionArtifactPath"], reward_decision_path)
+        self.assertEqual(payload["trainingArtifacts"]["rewardDecisionId"], reward_decision_id)
+        self.assertEqual(payload["trainingArtifacts"]["rewardDecisionArtifactPath"], reward_decision_path)
+        self.assertEqual(payload["metricsFields"]["rewardDecisionId"], reward_decision_id)
+        self.assertNotIn("REWARD_DECISION_ID_NULL", anomaly_codes)
+        self.assertIn("E1_GATE_STALE", anomaly_codes)
+
     def test_policy_advantage_output_is_bounded_and_artifact_first(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -549,6 +678,57 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
         self.assertEqual(payload["deployabilityStatus"], "BLOCKED")
         self.assertEqual(payload["metrics"]["territory"]["advantage"], "BLOCKED_NO_COMPUTE")
         self.assertEqual(payload["regressions"][0]["metric"], "territory")
+
+    def test_policy_advantage_consumes_existing_legacy_scorecard_reward_decision(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root, _report_id = write_root_local2w_training_report_artifacts(root, trusted_gradient_update=True)
+            candidate_policy_id = local2w_next_policy_id()
+            scorecard_id = local2w_scorecard_id()
+            reward_decision_id, reward_decision_path = write_legacy_scorecard_reward_decision(
+                root,
+                artifact_root,
+                scorecard_id=scorecard_id,
+                candidate_policy_id=candidate_policy_id,
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "20260605T000001Z-policy-advantage.json",
+                {
+                    "type": ledgers.POLICY_ADVANTAGE_TYPE,
+                    "createdAt": "2026-06-05T00:00:01Z",
+                    "candidatePolicyId": candidate_policy_id,
+                    "baselinePolicyId": "incumbent",
+                    "onlineUtilityStatus": "UNPROVEN",
+                    "rewardDecisionId": None,
+                    "rewardDecisionArtifactPath": None,
+                    "scorecardId": scorecard_id,
+                    "metrics": {},
+                },
+            )
+            output = root / "out" / "policy-advantage.json"
+
+            exit_code = ledgers.main(
+                [
+                    "policy-advantage",
+                    "--repo-root",
+                    str(root),
+                    "--artifact-root",
+                    str(artifact_root),
+                    "--output",
+                    str(output),
+                    "--created-at",
+                    "2026-06-05T00:00:02Z",
+                    "--max-files-per-root",
+                    "4",
+                ],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+            payload = read_json(output)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["rewardDecisionId"], reward_decision_id)
+        self.assertEqual(payload["rewardDecisionArtifactPath"], reward_decision_path)
 
     def test_policy_advantage_emits_reward_decision_for_trusted_selected_scorecard(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
