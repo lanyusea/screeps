@@ -49536,14 +49536,83 @@ function isRecord40(value) {
 }
 
 // src/creeps/claimerRunner.ts
+var ERR_NOT_IN_RANGE_CODE14 = -9;
 function runClaimer(creep, telemetryEvents = []) {
   if (runExpansionExecutorClaimer(creep, telemetryEvents)) {
+    recoverIdleNoTerritoryClaimer(creep);
     return;
   }
   if (runReservationExecutor(creep)) {
+    recoverIdleNoTerritoryClaimer(creep);
     return;
   }
   runTerritoryControllerCreep(creep, telemetryEvents);
+  recoverIdleNoTerritoryClaimer(creep);
+}
+function recoverIdleNoTerritoryClaimer(creep) {
+  if (creep.memory.role !== "claimer" || hasValidTerritoryAssignment(creep.memory.territory)) {
+    return;
+  }
+  if (creep.memory.territory !== void 0) {
+    delete creep.memory.territory;
+  }
+  if (runReservationExecutor(creep) && hasValidTerritoryAssignment(creep.memory.territory)) {
+    return;
+  }
+  recycleIdleClaimer(creep);
+}
+function recycleIdleClaimer(creep) {
+  const spawn = selectRecycleSpawn2(creep.memory.colony);
+  clearMoveMemory(creep);
+  if (spawn) {
+    if (typeof spawn.recycleCreep === "function") {
+      const result = spawn.recycleCreep(creep);
+      if (result === ERR_NOT_IN_RANGE_CODE14 && typeof creep.moveTo === "function") {
+        creep.moveTo(spawn);
+      }
+      return;
+    }
+    if (typeof creep.moveTo === "function") {
+      creep.moveTo(spawn);
+    }
+    return;
+  }
+  moveTowardHomeRoom2(creep);
+}
+function selectRecycleSpawn2(colony) {
+  var _a2, _b;
+  if (!isNonEmptyString43(colony)) {
+    return null;
+  }
+  const spawns = (_a2 = globalThis.Game) == null ? void 0 : _a2.spawns;
+  if (!spawns) {
+    return null;
+  }
+  return (_b = Object.values(spawns).find((spawn) => {
+    var _a3;
+    return spawn.my !== false && ((_a3 = spawn.room) == null ? void 0 : _a3.name) === colony;
+  })) != null ? _b : null;
+}
+function moveTowardHomeRoom2(creep) {
+  var _a2;
+  const homeRoom = creep.memory.colony;
+  if (!isNonEmptyString43(homeRoom) || ((_a2 = creep.room) == null ? void 0 : _a2.name) === homeRoom || typeof creep.moveTo !== "function") {
+    return;
+  }
+  const RoomPositionCtor = globalThis.RoomPosition;
+  if (typeof RoomPositionCtor !== "function") {
+    return;
+  }
+  creep.moveTo(new RoomPositionCtor(25, 25, homeRoom));
+}
+function clearMoveMemory(creep) {
+  delete creep.memory._move;
+}
+function hasValidTerritoryAssignment(assignment) {
+  return isNonEmptyString43(assignment == null ? void 0 : assignment.targetRoom) && (assignment.action === "claim" || assignment.action === "reserve" || assignment.action === "scout");
+}
+function isNonEmptyString43(value) {
+  return typeof value === "string" && value.length > 0;
 }
 
 // src/territory/reserveExecutor.ts
@@ -50290,11 +50359,11 @@ function ensureLocalWorkerColonyMemory(colonies, creeps) {
   }
   const colonyNames = new Set(colonies.map((colony) => colony.room.name));
   for (const creep of creeps) {
-    if (creep.memory.role !== "worker" || isNonEmptyString43(creep.memory.colony)) {
+    if (creep.memory.role !== "worker" || isNonEmptyString44(creep.memory.colony)) {
       continue;
     }
     const roomName = (_a2 = creep.room) == null ? void 0 : _a2.name;
-    if (isNonEmptyString43(roomName) && colonyNames.has(roomName) && isRoomLocalWorkerName2(creep, roomName)) {
+    if (isNonEmptyString44(roomName) && colonyNames.has(roomName) && isRoomLocalWorkerName2(creep, roomName)) {
       creep.memory.colony = roomName;
     }
   }
@@ -50302,7 +50371,7 @@ function ensureLocalWorkerColonyMemory(colonies, creeps) {
 function isRoomLocalWorkerName2(creep, roomName) {
   return typeof creep.name === "string" && creep.name.startsWith(`worker-${roomName}-`);
 }
-function isNonEmptyString43(value) {
+function isNonEmptyString44(value) {
   return typeof value === "string" && value.length > 0;
 }
 function orderCreepsForEconomyTaskPriority(creeps) {
@@ -51772,7 +51841,7 @@ function normalizeHistoricalReplay(rawReplay) {
   if (!isRecord42(rawReplay)) {
     return null;
   }
-  if (!isNonEmptyString44(rawReplay.replayId) || !isNonEmptyString44(rawReplay.room) || !isFiniteNumber15(rawReplay.startTick) || !isFiniteNumber15(rawReplay.endTick) || !isFiniteNumber15(rawReplay.finalScore) || !isRecord42(rawReplay.kpiHistory)) {
+  if (!isNonEmptyString45(rawReplay.replayId) || !isNonEmptyString45(rawReplay.room) || !isFiniteNumber15(rawReplay.startTick) || !isFiniteNumber15(rawReplay.endTick) || !isFiniteNumber15(rawReplay.finalScore) || !isRecord42(rawReplay.kpiHistory)) {
     return null;
   }
   const kpiHistory = Object.entries(rawReplay.kpiHistory).reduce(
@@ -51800,7 +51869,7 @@ function formatCorrelation(correlation) {
 function isRecord42(value) {
   return typeof value === "object" && value !== null;
 }
-function isNonEmptyString44(value) {
+function isNonEmptyString45(value) {
   return typeof value === "string" && value.length > 0;
 }
 function isFiniteNumber15(value) {

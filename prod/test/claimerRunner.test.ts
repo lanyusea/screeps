@@ -54,6 +54,179 @@ describe('runClaimer', () => {
     expect(creep.reserveController).not.toHaveBeenCalled();
   });
 
+  it('routes an idle no-territory claimer with stale movement memory home for recycling', () => {
+    const recycleCreep = jest.fn().mockReturnValue(-9);
+    const spawn = {
+      name: 'Spawn1',
+      my: true,
+      room: { name: 'E9S27' },
+      recycleCreep
+    } as unknown as StructureSpawn;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 65_008,
+      rooms: {
+        E9S27: { name: 'E9S27' } as Room,
+        E9S28: { name: 'E9S28' } as Room
+      },
+      spawns: { Spawn1: spawn },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+
+    const memory = {
+      role: 'claimer',
+      colony: 'E9S27',
+      _move: { dest: { x: 25, y: 25, room: 'E8S28' } }
+    } as CreepMemory & { _move?: unknown };
+    const creep = {
+      name: 'claimer-E9S27-E8S28-64695',
+      memory,
+      room: { name: 'E9S28' },
+      fatigue: 0,
+      body: [
+        { type: 'claim', hits: 100 },
+        { type: 'move', hits: 100 }
+      ],
+      getActiveBodyparts: jest.fn((part: BodyPartConstant) => (part === 'claim' ? 1 : 0)),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runClaimer(creep);
+
+    expect(recycleCreep).toHaveBeenCalledWith(creep);
+    expect(creep.moveTo).toHaveBeenCalledWith(spawn);
+    expect(memory._move).toBeUndefined();
+    expect(creep.memory.territory).toBeUndefined();
+  });
+
+  it('reuses a runnable reservation assignment before recycling an unassigned claimer', () => {
+    const controller = { id: 'controller2', my: false } as StructureController;
+    const recycleCreep = jest.fn();
+    const spawn = {
+      name: 'Spawn1',
+      my: true,
+      room: { name: 'W1N1' },
+      recycleCreep
+    } as unknown as StructureSpawn;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 601,
+      rooms: {
+        W1N1: {
+          name: 'W1N1',
+          energyAvailable: 650,
+          energyCapacityAvailable: 650,
+          controller: { my: true, owner: { username: 'me' }, level: 6 } as StructureController
+        } as Room,
+        W2N1: {
+          name: 'W2N1',
+          controller,
+          find: jest.fn().mockReturnValue([])
+        } as unknown as Room
+      },
+      spawns: { Spawn1: spawn },
+      getObjectById: jest.fn().mockReturnValue(controller)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            action: 'reserve',
+            createdBy: 'expansionPlanner',
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ]
+      }
+    };
+    const creep = {
+      name: 'Claimer1',
+      memory: { role: 'claimer', colony: 'W1N1' },
+      room: { name: 'W1N1' },
+      body: [
+        { type: 'claim', hits: 100 },
+        { type: 'move', hits: 100 }
+      ],
+      getActiveBodyparts: jest.fn((part: BodyPartConstant) => (part === 'claim' ? 1 : 0)),
+      reserveController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runClaimer(creep);
+
+    expect(creep.memory.territory).toEqual({
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      controllerId: 'controller2'
+    });
+    expect(creep.moveTo).toHaveBeenCalledWith(controller);
+    expect(creep.reserveController).not.toHaveBeenCalled();
+    expect(recycleCreep).not.toHaveBeenCalled();
+  });
+
+  it('keeps active reservation claimers on the controller path instead of recycling them as idle', () => {
+    const controller = { id: 'controller2', my: false } as StructureController;
+    const recycleCreep = jest.fn();
+    const spawn = {
+      name: 'Spawn1',
+      my: true,
+      room: { name: 'W1N1' },
+      recycleCreep
+    } as unknown as StructureSpawn;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 602,
+      rooms: {
+        W2N1: {
+          name: 'W2N1',
+          controller,
+          find: jest.fn().mockReturnValue([])
+        } as unknown as Room
+      },
+      spawns: { Spawn1: spawn },
+      getObjectById: jest.fn().mockReturnValue(controller)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: 601,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ]
+      }
+    };
+    const creep = {
+      name: 'Claimer1',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'reserve', controllerId: 'controller2' as Id<StructureController> }
+      },
+      room: { name: 'W2N1', controller },
+      body: [
+        { type: 'claim', hits: 100 },
+        { type: 'move', hits: 100 }
+      ],
+      getActiveBodyparts: jest.fn((part: BodyPartConstant) => (part === 'claim' ? 1 : 0)),
+      reserveController: jest.fn().mockReturnValue(-9),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runClaimer(creep);
+
+    expect(creep.reserveController).toHaveBeenCalledWith(controller);
+    expect(creep.moveTo).toHaveBeenCalledWith(controller);
+    expect(recycleCreep).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toEqual({
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      controllerId: 'controller2'
+    });
+  });
+
   it('routes recommended expansion claimers toward the visible target controller', () => {
     const colonyRoom = makeColonyRoom();
     const controller = { id: 'controller1', my: false } as StructureController;
@@ -225,7 +398,7 @@ describe('runClaimer', () => {
 
     expect(creep.claimController).toHaveBeenCalledWith(controller);
     expect(creep.signController).toHaveBeenCalledWith(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
-    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'W1N1' });
     expect(creep.memory.territory).toBeUndefined();
     expect(Memory.territory?.targets).toEqual([]);
     expect(Memory.territory?.intents).toEqual([]);
@@ -393,7 +566,7 @@ describe('runClaimer', () => {
 
       expect(creep.claimController).not.toHaveBeenCalled();
       expect(creep.signController).not.toHaveBeenCalled();
-      expect(creep.moveTo).not.toHaveBeenCalled();
+      expect(creep.moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'W1N1' });
       expect(creep.memory.territory).toBeUndefined();
       expect(Memory.territory?.targets).toEqual([]);
       expect(Memory.territory?.intents).toEqual([]);
