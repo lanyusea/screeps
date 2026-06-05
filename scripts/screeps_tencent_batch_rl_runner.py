@@ -3278,14 +3278,30 @@ def paid_failure_post_fix_validation_recovery_eligibility(
         result["reason"] = "a post-fix validation already completed"
         return result
     if recovery_class is None:
+        recovery_attempt_count = sum(
+            1 for attempt in prior_attempts if attempt.get("recoveryAttempt") is True
+        )
+        if recovery_attempt_count > 0:
+            result["reason"] = (
+                "post-fix validation recovery was already attempted"
+                if recovery_attempt_count == 1
+                else f"post-fix validation recovery was already attempted {recovery_attempt_count} times"
+            )
+            latest_recovery = next(
+                (attempt for attempt in prior_attempts if attempt.get("recoveryAttempt") is True),
+                None,
+            )
+            partial_progress = dict_value(
+                latest_recovery.get("partialSimulatorProgress") if latest_recovery else None
+            )
+            if partial_progress is not None:
+                result["latestRecoveryPartialSimulatorProgress"] = partial_progress
+            return result
         if len(prior_attempts) not in (1, 2):
             result["reason"] = (
                 "recovery requires one prior consumed post-fix validation attempt, or one timed-out "
                 "recovery attempt after a no-compute admission failure"
             )
-            return result
-        if any(attempt.get("recoveryAttempt") is True for attempt in prior_attempts):
-            result["reason"] = "post-fix validation recovery was already attempted"
             return result
         if paid_failure_post_fix_attempt_reached_compute_or_training(prior_attempt):
             result["reason"] = (
@@ -3628,6 +3644,13 @@ def paid_failure_post_fix_validation_attempt_from_summary(
     environments_run = scale_gates.non_negative_int(execution.get("environmentsRun"))
     remote_failure = dict_value(path_value(summary, "outputs", "remoteTrainingFailure"))
     remote_failure_class = text_value(remote_failure.get("failureClass")) if remote_failure else None
+    partial_progress = (
+        paid_failure_post_fix_partial_simulator_progress_summary(
+            dict_value(remote_failure.get("partialSimulatorProgress"))
+        )
+        if remote_failure
+        else None
+    )
     training_report = dict_value(path_value(summary, "outputs", "trainingReport"))
     execution_timeouts = dict_value(inputs.get("executionTimeouts")) or {}
     planned_batch_scale = dict_value(inputs.get("plannedBatchScale"))
@@ -3669,10 +3692,58 @@ def paid_failure_post_fix_validation_attempt_from_summary(
         "environmentsRun": environments_run,
         "remoteTrainingFailurePresent": remote_failure is not None,
         "remoteTrainingFailureClass": remote_failure_class,
+        "partialSimulatorProgress": partial_progress,
         "validationPlan": validation_plan,
     }
     attempt["validationSlotConsumed"] = paid_failure_post_fix_attempt_consumes_validation_slot(attempt)
     return attempt
+
+
+def paid_failure_post_fix_partial_simulator_progress_summary(
+    progress: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if progress is None:
+        return None
+    summary: dict[str, Any] = {}
+    for key in (
+        "runSummaryCount",
+        "completedEnvironmentRows",
+        "successfulEnvironmentRows",
+        "failedEnvironmentRows",
+        "ticksRun",
+    ):
+        value = scale_gates.non_negative_int(progress.get(key))
+        if value is not None:
+            summary[key] = value
+    wall_clock_seconds = numeric_value(progress.get("wallClockSeconds"))
+    if wall_clock_seconds is not None:
+        summary["wallClockSeconds"] = round(wall_clock_seconds, 3)
+
+    notable_runs: list[dict[str, Any]] = []
+    run_summaries = progress.get("runSummaries")
+    if isinstance(run_summaries, list):
+        for run_summary in run_summaries:
+            run = dict_value(run_summary)
+            if run is None:
+                continue
+            failed = scale_gates.non_negative_int(run.get("failed")) or 0
+            if run.get("ok") is True and failed == 0:
+                continue
+            notable_runs.append(
+                {
+                    "runId": text_value(run.get("runId")),
+                    "ok": run.get("ok") is True,
+                    "totalEnvironments": scale_gates.non_negative_int(run.get("totalEnvironments")),
+                    "successful": scale_gates.non_negative_int(run.get("successful")),
+                    "failed": failed,
+                    "ticksRun": scale_gates.non_negative_int(run.get("ticksRun")),
+                }
+            )
+            if len(notable_runs) >= 5:
+                break
+    if notable_runs:
+        summary["notableRunSummaries"] = notable_runs
+    return summary or None
 
 
 def paid_failure_post_fix_execution_context_complete(
@@ -3836,6 +3907,13 @@ def paid_failure_recurrence_next_action(
                 "validation signature; only launch a recovery with that signature"
             )
         run_id = text_value(prior.get("runId")) or "the prior post-fix validation"
+        recovery_reason = text_value(recovery.get("reason"))
+        if recovery_reason is not None:
+            return (
+                f"{base}; post-fix validation was already attempted in {run_id} without a completed report; "
+                f"{recovery_reason}; inspect collected partial diagnostics and do not launch another "
+                "paid rerun until a new bounded validation plan is selected"
+            )
         return (
             f"{base}; post-fix validation was already attempted in {run_id} without a completed report, "
             "so inspect that run and ship a local code/diagnostic fix before any further paid rerun"
