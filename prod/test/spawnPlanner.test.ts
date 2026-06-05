@@ -3536,6 +3536,157 @@ describe('planSpawn', () => {
     ]);
   });
 
+  it('spawns a Seasonal RCL3 reserver when a reserve intent duplicates a stale scout intent', () => {
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 11;
+    (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
+    (globalThis as unknown as { STRUCTURE_WALL: StructureConstant }).STRUCTURE_WALL = 'constructedWall';
+    const controllerId = '6a1c3660d05a7c237d18c27d' as Id<StructureController>;
+    const { colony, spawn } = makeColony({
+      roomName: 'E9S27',
+      sourceCount: 2,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      controller: {
+        id: 'controller-E9S27' as Id<StructureController>,
+        my: true,
+        level: 3,
+        ticksToDowngrade: 10_000,
+        owner: { username: 'player' },
+        pos: { x: 25, y: 25, roomName: 'E9S27' } as RoomPosition
+      } as StructureController,
+      ownedStructures: [
+        {
+          id: 'spawn1',
+          structureType: 'spawn',
+          my: true,
+          pos: { x: 17, y: 24, roomName: 'E9S27' }
+        } as AnyOwnedStructure,
+        {
+          id: 'spawn-rampart',
+          structureType: 'rampart',
+          my: true,
+          pos: { x: 17, y: 24, roomName: 'E9S27' }
+        } as AnyOwnedStructure,
+        {
+          id: 'tower1',
+          structureType: 'tower',
+          my: true,
+          pos: { x: 20, y: 20, roomName: 'E9S27' }
+        } as AnyOwnedStructure
+      ],
+      structures: [
+        {
+          id: 'spawn-wall-a',
+          structureType: 'constructedWall',
+          pos: { x: 16, y: 23, roomName: 'E9S27' }
+        } as AnyStructure,
+        {
+          id: 'spawn-wall-b',
+          structureType: 'constructedWall',
+          pos: { x: 18, y: 23, roomName: 'E9S27' }
+        } as AnyStructure,
+        {
+          id: 'spawn-wall-c',
+          structureType: 'constructedWall',
+          pos: { x: 16, y: 25, roomName: 'E9S27' }
+        } as AnyStructure,
+        {
+          id: 'spawn-wall-d',
+          structureType: 'constructedWall',
+          pos: { x: 18, y: 25, roomName: 'E9S27' }
+        } as AnyStructure
+      ]
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      rooms: {
+        E9S27: {
+          colonyStage: { mode: 'TERRITORY_READY', updatedAt: 52_397 },
+          cachedExpansionSelection: {
+            colony: 'E9S27',
+            targetRoom: 'E9S28',
+            status: 'planned',
+            reason: 'gclInsufficient'
+          }
+        }
+      },
+      territory: {
+        intents: [
+          {
+            colony: 'E9S27',
+            targetRoom: 'E9S28',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 52_272,
+            createdBy: 'occupationRecommendation',
+            controllerId
+          },
+          {
+            colony: 'E9S27',
+            targetRoom: 'E9S28',
+            action: 'scout',
+            status: 'planned',
+            updatedAt: 52_397,
+            controllerId
+          }
+        ],
+        expansionCandidates: [
+          {
+            colony: 'E9S27',
+            roomName: 'E9S28',
+            rank: 1,
+            score: 1_200,
+            evidenceStatus: 'sufficient',
+            visible: true,
+            updatedAt: 52_397,
+            adjacentToOwnedRoom: true,
+            scoutOnly: true,
+            recommendedAction: 'reserve',
+            routeDistance: 1,
+            controllerId,
+            sourceCount: 2,
+            hostileCreepCount: 0,
+            hostileStructureCount: 0
+          }
+        ]
+      },
+      runtime: { currentRoomName: 'E9S27' }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 52_398,
+      shard: { name: 'shardSeason', type: 'normal' } as Game['shard'],
+      cpu: { bucket: 10_000 } as Game['cpu'],
+      gcl: { level: 1 } as Game['gcl'],
+      map: {
+        describeExits: jest.fn((roomName: string) => (roomName === 'E9S27' ? { '3': 'E9S28' } : {})),
+        findRoute: jest.fn(() => [{ exit: 3, room: 'E9S28' }])
+      } as unknown as GameMap,
+      rooms: {
+        E9S27: colony.room,
+        E9S28: makeTerritoryRoom(
+          'E9S28',
+          { id: controllerId, my: false } as StructureController,
+          2
+        )
+      },
+      creeps: {}
+    };
+
+    expect(planSpawn(colony, { worker: 4, sourceHarvester: 1, claimer: 0, claimersByTargetRoom: {} }, 52_398)).toEqual({
+      spawn,
+      body: ['claim', 'move'],
+      name: 'claimer-E9S27-E9S28-52398',
+      memory: {
+        role: 'claimer',
+        colony: 'E9S27',
+        territory: {
+          targetRoom: 'E9S28',
+          action: 'reserve',
+          controllerId
+        }
+      }
+    });
+  });
+
   it('plans a claimer-role claimer for a claim-ready configured reserve target', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
