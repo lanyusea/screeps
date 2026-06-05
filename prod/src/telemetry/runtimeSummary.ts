@@ -435,6 +435,8 @@ interface RuntimeTerritoryExpansionProgressSummary {
   ownedRoomCount: number;
   roomCapacityStatus: AutonomousExpansionCapacitySummary['status'];
   roomLimitCapacity: number;
+  rclRoomLimitCapacity: number;
+  roomLimitBasis: AutonomousExpansionCapacitySummary['roomLimitBasis'];
   gclRoomCapacity?: number;
   activePipelineStateKey: string;
   activePipeline?: RuntimeTerritoryExpansionPipelineProgressSummary;
@@ -1662,6 +1664,8 @@ function buildTerritoryExpansionProgressSummary(
     ownedRoomCount: capacity.ownedRoomCount,
     roomCapacityStatus: capacity.status,
     roomLimitCapacity: capacity.roomLimitCapacity,
+    rclRoomLimitCapacity: capacity.rclRoomLimitCapacity,
+    roomLimitBasis: capacity.roomLimitBasis,
     ...(capacity.gclRoomCapacity !== undefined ? { gclRoomCapacity: capacity.gclRoomCapacity } : {}),
     activePipelineStateKey: getAutonomousExpansionPipelineStateKey(colonyName),
     ...(activePipeline ? { activePipeline } : {}),

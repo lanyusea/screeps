@@ -8359,6 +8359,27 @@ function maxRoomsForRcl(controllerLevel) {
   const rcl = Math.min(8, Math.max(1, Math.floor(controllerLevel)));
   return MAX_ROOM_COUNT_BY_RCL[rcl];
 }
+function getExpansionRoomLimitCapacity({
+  controllerLevel,
+  gclLevel
+}) {
+  const rclRoomLimitCapacity = maxRoomsForRcl(controllerLevel);
+  const gclRoomCapacity = normalizeGclClaimRoomCapacity(gclLevel);
+  if (gclRoomCapacity !== null && gclRoomCapacity > rclRoomLimitCapacity) {
+    return {
+      roomLimitCapacity: gclRoomCapacity,
+      rclRoomLimitCapacity,
+      roomLimitBasis: "gclCapacity",
+      gclRoomCapacity
+    };
+  }
+  return {
+    roomLimitCapacity: rclRoomLimitCapacity,
+    rclRoomLimitCapacity,
+    roomLimitBasis: "rclPolicy",
+    ...gclRoomCapacity !== null ? { gclRoomCapacity } : {}
+  };
+}
 function buildRuntimeExpansionCandidates(colony) {
   var _a2;
   const rooms = (_a2 = getGameRooms3()) != null ? _a2 : {};
@@ -8928,12 +8949,16 @@ function getExpansionPreconditions(input, candidate) {
   }
   const ownedRoomCount = getOwnedRoomCount(input);
   const gclRoomCapacity = getGclClaimRoomCapacity(input);
-  if (gclRoomCapacity !== null && ownedRoomCount >= gclRoomCapacity) {
+  const gclCapacityReached = gclRoomCapacity !== null && ownedRoomCount >= gclRoomCapacity;
+  if (gclCapacityReached) {
     preconditions.push(GCL_LIMIT_PRECONDITION);
   }
-  const maxRoomCount = maxRoomsForRcl(input.controllerLevel);
-  if (ownedRoomCount >= maxRoomCount) {
-    preconditions.push(`limit expansion to ${maxRoomCount} owned rooms for current controller level`);
+  const roomLimitCapacity = getExpansionRoomLimitCapacity({
+    controllerLevel: input.controllerLevel,
+    gclLevel: input.gclLevel
+  }).roomLimitCapacity;
+  if (!gclCapacityReached && ownedRoomCount >= roomLimitCapacity) {
+    preconditions.push(`limit expansion to ${roomLimitCapacity} owned rooms for current controller level`);
   }
   if (typeof input.ticksToDowngrade === "number" && input.ticksToDowngrade <= DOWNGRADE_GUARD_TICKS) {
     preconditions.push("stabilize home controller downgrade timer");
@@ -8969,7 +8994,9 @@ function isScoutOnlyRemoteEnergyBufferLow(input) {
   return input.energyAvailable - TERRITORY_CONTROLLER_BODY_COST < input.energyBufferThreshold;
 }
 function getGclClaimRoomCapacity(input) {
-  const level = input.gclLevel;
+  return normalizeGclClaimRoomCapacity(input.gclLevel);
+}
+function normalizeGclClaimRoomCapacity(level) {
   if (typeof level !== "number" || !Number.isFinite(level) || level <= 0) {
     return null;
   }
@@ -17024,12 +17051,17 @@ function getAutonomousExpansionCapacitySummary(colony) {
     colony.room.name,
     getControllerOwnerUsername8(colony.room.controller)
   );
-  const roomLimitCapacity = maxRoomsForRcl((_a2 = colony.room.controller) == null ? void 0 : _a2.level);
   const gclRoomCapacity = getGclLevel3();
-  const status = gclRoomCapacity !== null && ownedRoomCount >= gclRoomCapacity ? "gclInsufficient" : ownedRoomCount >= roomLimitCapacity ? "roomLimitReached" : "available";
+  const roomLimit = getExpansionRoomLimitCapacity({
+    controllerLevel: (_a2 = colony.room.controller) == null ? void 0 : _a2.level,
+    gclLevel: gclRoomCapacity
+  });
+  const status = gclRoomCapacity !== null && ownedRoomCount >= gclRoomCapacity ? "gclInsufficient" : ownedRoomCount >= roomLimit.roomLimitCapacity ? "roomLimitReached" : "available";
   return {
     ownedRoomCount,
-    roomLimitCapacity,
+    roomLimitCapacity: roomLimit.roomLimitCapacity,
+    rclRoomLimitCapacity: roomLimit.rclRoomLimitCapacity,
+    roomLimitBasis: roomLimit.roomLimitBasis,
     status,
     ...gclRoomCapacity !== null ? { gclRoomCapacity } : {}
   };
@@ -17719,7 +17751,10 @@ function getExpansionCapacitySkipReason(colony) {
   if (gclLevel !== null && ownedRoomCount >= gclLevel) {
     return "gclInsufficient";
   }
-  if (ownedRoomCount >= maxRoomsForRcl((_a2 = colony.room.controller) == null ? void 0 : _a2.level)) {
+  if (ownedRoomCount >= getExpansionRoomLimitCapacity({
+    controllerLevel: (_a2 = colony.room.controller) == null ? void 0 : _a2.level,
+    gclLevel
+  }).roomLimitCapacity) {
     return "roomLimitReached";
   }
   return null;
@@ -39576,6 +39611,8 @@ function buildTerritoryExpansionProgressSummary(colony, survival, territoryExpan
     ownedRoomCount: capacity.ownedRoomCount,
     roomCapacityStatus: capacity.status,
     roomLimitCapacity: capacity.roomLimitCapacity,
+    rclRoomLimitCapacity: capacity.rclRoomLimitCapacity,
+    roomLimitBasis: capacity.roomLimitBasis,
     ...capacity.gclRoomCapacity !== void 0 ? { gclRoomCapacity: capacity.gclRoomCapacity } : {},
     activePipelineStateKey: getAutonomousExpansionPipelineStateKey(colonyName),
     ...activePipeline ? { activePipeline } : {},
