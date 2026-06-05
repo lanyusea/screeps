@@ -353,6 +353,60 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('does not promote an explicit scout-only persisted scout intent into reserve control', () => {
+    const colony = makeSafeColony({
+      controller: { my: true, owner: { username: 'me' }, level: 6, ticksToDowngrade: 10_000 } as StructureController,
+      energyAvailable: 1_800,
+      energyCapacityAvailable: 1_800
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        expansionScoutTargets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            nearestOwnedRoom: 'W1N1',
+            nearestOwnedRoomDistance: 1,
+            routeDistance: 1,
+            adjacentToOwnedRoom: true,
+            scoutOnly: true
+          }
+        ],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'scout',
+            status: 'planned',
+            updatedAt: 509,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ]
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1', {
+          controller: { id: 'controller2' as Id<StructureController>, my: false } as StructureController,
+          sourceCount: 2
+        })
+      },
+      map: {
+        describeExits: jest.fn(() => ({ '3': 'W2N1' })),
+        findRoute: jest.fn(() => [{ exit: 3, room: 'W2N1' }])
+      } as unknown as GameMap
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, scout: 0, claimer: 0, claimersByTargetRoom: {} }, 3, 510)
+    ).toBeNull();
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(
+      (Memory.territory?.intents ?? []).filter((intent) => intent.action === 'claim' || intent.action === 'reserve')
+    ).toEqual([]);
+  });
+
   it('holds configured territory execution while an E29N55-like RCL3 room has no tower', () => {
     const globals = globalThis as unknown as {
       FIND_STRUCTURES: number;

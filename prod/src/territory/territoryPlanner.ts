@@ -2849,8 +2849,13 @@ function getAdjacentReserveCandidates(
       return [];
     }
 
+    const controlExcluded = isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(colonyName, roomName);
     const candidateState = getAdjacentReserveCandidateState(roomName, colonyOwnerUsername);
     if (candidateState === 'safe') {
+      if (controlExcluded) {
+        return [];
+      }
+
       const candidate = scoreTerritoryCandidate(
         {
           target,
@@ -3500,6 +3505,17 @@ function getRecommendedTerritoryIntentAction(
 ): TerritoryIntentAction {
   if (isAutoClaimApprovedTerritoryCandidate(candidate)) {
     return candidate.intentAction;
+  }
+
+  if (
+    candidate.source === 'occupationIntent' &&
+    candidate.intentAction === 'scout' &&
+    isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(
+      candidate.target.colony,
+      candidate.target.roomName
+    )
+  ) {
+    return 'scout';
   }
 
   if (blockReason !== null && isConfiguredScoutOnlyRemoteConversionTarget(candidate)) {

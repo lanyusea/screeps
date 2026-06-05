@@ -19653,8 +19653,12 @@ function getAdjacentReserveCandidates(colonyName, originRoomName, colonyOwnerUse
     if (roomName === colonyName || existingTargetRooms.has(roomName) || isKnownDeadZoneRoom(roomName) || isTerritoryTargetSuppressed(target, intents, gameTime) || isTerritoryRoomSuspendedForColony(intents, colonyName, roomName, gameTime) || isRecoveredTerritoryFollowUpAttemptCoolingDownForAction(intents, colonyName, roomName, "reserve", gameTime)) {
       return [];
     }
+    const controlExcluded = isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(colonyName, roomName);
     const candidateState = getAdjacentReserveCandidateState(roomName, colonyOwnerUsername);
     if (candidateState === "safe") {
+      if (controlExcluded) {
+        return [];
+      }
       const candidate = scoreTerritoryCandidate(
         {
           target,
@@ -20071,6 +20075,12 @@ function isSafeAdjacentControllerProgressCandidate(candidate, recommendation, in
 function getRecommendedTerritoryIntentAction(candidate, recommendation, roleCounts, blockReason = null) {
   if (isAutoClaimApprovedTerritoryCandidate(candidate)) {
     return candidate.intentAction;
+  }
+  if (candidate.source === "occupationIntent" && candidate.intentAction === "scout" && isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(
+    candidate.target.colony,
+    candidate.target.roomName
+  )) {
+    return "scout";
   }
   if (blockReason !== null && isConfiguredScoutOnlyRemoteConversionTarget(candidate)) {
     return "scout";
