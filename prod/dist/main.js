@@ -25957,6 +25957,7 @@ function getGameTick2() {
 // src/season/scoreCollection.ts
 var SCORE_COLLECTOR_ROLE = "scoreCollector";
 var SCORE_FIND_CONSTANT_GLOBALS = [
+  "FIND_SCORES",
   "FIND_SCORE",
   "FIND_SCORE_ITEMS",
   "FIND_SCORE_OBJECTS",
