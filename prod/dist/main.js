@@ -26696,6 +26696,10 @@ function selectCriticalCpuWorkerTask(creep) {
   if (emergencySpawnOrExtensionRefillTask) {
     return emergencySpawnOrExtensionRefillTask;
   }
+  const missingSpawnConstructionSite = selectMissingSpawnRecoveryConstructionSite(creep);
+  if (missingSpawnConstructionSite) {
+    return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: missingSpawnConstructionSite.id });
+  }
   const emergencyRampartRepairTarget = selectEmergencyOwnedRampartRepairTarget(creep);
   if (emergencyRampartRepairTarget) {
     return applyMinimumUsefulLoadPolicy(creep, {
@@ -26709,10 +26713,6 @@ function selectCriticalCpuWorkerTask(creep) {
       type: "repair",
       targetId: threatenedBarrierRepairTarget.id
     });
-  }
-  const missingSpawnConstructionSite = selectMissingSpawnRecoveryConstructionSite(creep);
-  if (missingSpawnConstructionSite) {
-    return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: missingSpawnConstructionSite.id });
   }
   const storedProtectedConstructionTask = selectStoredProtectedSourceContainerConstructionTask(creep);
   if (storedProtectedConstructionTask) {
@@ -31224,7 +31224,7 @@ function isCriticalOwnedSpawnRepairTarget(structure) {
   return isOwnedSpawnRepairTarget(structure) && !isWorkerRepairTargetComplete(structure) && getHitsRatio(structure) <= CRITICAL_SPAWN_REPAIR_HITS_RATIO;
 }
 function isEmergencyOwnedRampartRepairTarget(structure) {
-  return matchesStructureType18(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure) && !isWorkerRepairTargetComplete(structure) && structure.hits <= EMERGENCY_RAMPART_REPAIR_HITS_CEILING;
+  return matchesStructureType18(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure) && !isWorkerRepairTargetComplete(structure) && structure.hits < BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING;
 }
 function isActiveOwnedRampartRepairTarget(structure) {
   const repairCeiling = Math.min(structure.hitsMax, ACTIVE_RAMPART_REPAIR_HITS_CEILING);
@@ -33016,6 +33016,8 @@ function runWorker(creep) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptForWorkerEnergyCriticalTask(currentTask, energyCriticalTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (criticalCpuTaskRetention.forceSelectedTask) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptRepairTaskForCriticalCpuRepairPreemption(
     currentTask,
     criticalCpuTaskRetention.repairPreemptionTask
@@ -33250,15 +33252,36 @@ function getCriticalCpuRepairRetentionDecision(creep, task) {
     return { retain: false };
   }
   const preemptionTarget = selectCriticalCpuRepairPreemptionTarget(creep);
-  if (preemptionTarget !== null && String(preemptionTarget.id) !== String(task.targetId)) {
+  if (preemptionTarget !== null) {
     const repairPreemptionTask = {
       type: "repair",
       targetId: preemptionTarget.id
     };
+    const selectionContext = selectWorkerTaskContext(creep, task);
+    if (!isSameOptionalTask(selectionContext.selectedTask, repairPreemptionTask)) {
+      if (shouldCriticalCpuSelectedTaskPreemptRepairRetention(selectionContext.selectedTask)) {
+        return {
+          retain: false,
+          forceSelectedTask: true,
+          selectionContext
+        };
+      }
+      if (String(preemptionTarget.id) === String(task.targetId)) {
+        return { retain: true };
+      }
+      return {
+        retain: false,
+        repairPreemptionTask,
+        selectionContext: createSingleTaskSelectionContext(repairPreemptionTask)
+      };
+    }
+    if (String(preemptionTarget.id) === String(task.targetId)) {
+      return { retain: true };
+    }
     return {
       retain: false,
       repairPreemptionTask,
-      selectionContext: createSingleTaskSelectionContext(repairPreemptionTask)
+      selectionContext
     };
   }
   return { retain: true };
@@ -33270,6 +33293,9 @@ function createSingleTaskSelectionContext(task) {
     selectedTask: task,
     spawnReservationRefillTask: null
   };
+}
+function shouldCriticalCpuSelectedTaskPreemptRepairRetention(selectedTask) {
+  return (selectedTask == null ? void 0 : selectedTask.type) === "build" && isSpawnConstructionTaskTarget(getTaskTarget(selectedTask));
 }
 function shouldRetainCriticalCpuRepairTask(creep) {
   return getUsedTransferEnergy(creep) > 0 && !assessWorkerEnergyCriticalState(creep).active && !isControllerDowngradeGuardActive2(creep.room) && !shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep);
@@ -33354,9 +33380,9 @@ function selectCriticalCpuRepairPreemptionTarget(creep) {
   if (criticalSpawnRepairTarget) {
     return criticalSpawnRepairTarget;
   }
-  const emergencyRampartRepairTarget = visibleStructures.filter(isCriticalCpuEmergencyOwnedRampartRepairTarget).sort(compareCriticalCpuRepairPreemptionTargets)[0];
-  if (emergencyRampartRepairTarget) {
-    return emergencyRampartRepairTarget;
+  const nearFloorRampartRepairTarget = visibleStructures.filter(isCriticalCpuNearFloorOwnedRampartRepairTarget).sort(compareCriticalCpuRepairPreemptionTargets)[0];
+  if (nearFloorRampartRepairTarget) {
+    return nearFloorRampartRepairTarget;
   }
   if (((_a2 = creep.room.controller) == null ? void 0 : _a2.my) !== true || !isColonyRoomThreatened(creep.room.name)) {
     return null;
@@ -33374,8 +33400,8 @@ function findVisibleStructuresForCriticalCpuRepairPreemption(room) {
 function isCriticalCpuOwnedSpawnRepairTarget(structure) {
   return isCriticalCpuRepairStructureType(structure, "STRUCTURE_SPAWN", "spawn") && structure.my === true && !isWorkerRepairTargetComplete(structure) && getCriticalCpuRepairHitsRatio(structure) <= CRITICAL_SPAWN_REPAIR_HITS_RATIO;
 }
-function isCriticalCpuEmergencyOwnedRampartRepairTarget(structure) {
-  return isCriticalCpuOwnedRampart(structure) && !isWorkerRepairTargetComplete(structure) && structure.hits <= EMERGENCY_RAMPART_REPAIR_HITS_CEILING;
+function isCriticalCpuNearFloorOwnedRampartRepairTarget(structure) {
+  return isCriticalCpuOwnedRampart(structure) && !isWorkerRepairTargetComplete(structure) && structure.hits < BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING;
 }
 function isCriticalCpuThreatenedBarrierRepairTarget(structure) {
   return isCriticalCpuBarrierRepairTarget(structure) && !isWorkerRepairTargetComplete(structure);

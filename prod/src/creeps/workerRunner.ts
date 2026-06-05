@@ -116,6 +116,7 @@ interface WorkerTaskSelectionContext {
 
 interface CriticalCpuTaskRetentionDecision {
   retain: boolean;
+  forceSelectedTask?: boolean;
   repairPreemptionTask?: Extract<CreepTaskMemory, { type: 'repair' }>;
   retainedTask?: CreepTaskMemory;
   selectionContext?: WorkerTaskSelectionContext;
@@ -163,6 +164,8 @@ export function runWorker(creep: Creep): void {
   } else if (shouldPreemptForVisibleTerritoryControllerTask(currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptForWorkerEnergyCriticalTask(currentTask, energyCriticalTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (criticalCpuTaskRetention.forceSelectedTask) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (
     shouldPreemptRepairTaskForCriticalCpuRepairPreemption(
@@ -475,15 +478,40 @@ function getCriticalCpuRepairRetentionDecision(
   }
 
   const preemptionTarget = selectCriticalCpuRepairPreemptionTarget(creep);
-  if (preemptionTarget !== null && String(preemptionTarget.id) !== String(task.targetId)) {
+  if (preemptionTarget !== null) {
     const repairPreemptionTask: Extract<CreepTaskMemory, { type: 'repair' }> = {
       type: 'repair',
       targetId: preemptionTarget.id as Id<Structure>
     };
+    const selectionContext = selectWorkerTaskContext(creep, task);
+    if (!isSameOptionalTask(selectionContext.selectedTask, repairPreemptionTask)) {
+      if (shouldCriticalCpuSelectedTaskPreemptRepairRetention(selectionContext.selectedTask)) {
+        return {
+          retain: false,
+          forceSelectedTask: true,
+          selectionContext
+        };
+      }
+
+      if (String(preemptionTarget.id) === String(task.targetId)) {
+        return { retain: true };
+      }
+
+      return {
+        retain: false,
+        repairPreemptionTask,
+        selectionContext: createSingleTaskSelectionContext(repairPreemptionTask)
+      };
+    }
+
+    if (String(preemptionTarget.id) === String(task.targetId)) {
+      return { retain: true };
+    }
+
     return {
       retain: false,
       repairPreemptionTask,
-      selectionContext: createSingleTaskSelectionContext(repairPreemptionTask)
+      selectionContext
     };
   }
 
@@ -497,6 +525,10 @@ function createSingleTaskSelectionContext(task: CreepTaskMemory): WorkerTaskSele
     selectedTask: task,
     spawnReservationRefillTask: null
   };
+}
+
+function shouldCriticalCpuSelectedTaskPreemptRepairRetention(selectedTask: CreepTaskMemory | null): boolean {
+  return selectedTask?.type === 'build' && isSpawnConstructionTaskTarget(getTaskTarget(selectedTask));
 }
 
 function shouldRetainCriticalCpuRepairTask(creep: Creep): boolean {
@@ -660,11 +692,11 @@ function selectCriticalCpuRepairPreemptionTarget(creep: Creep): Structure | null
     return criticalSpawnRepairTarget;
   }
 
-  const emergencyRampartRepairTarget = visibleStructures
-    .filter(isCriticalCpuEmergencyOwnedRampartRepairTarget)
+  const nearFloorRampartRepairTarget = visibleStructures
+    .filter(isCriticalCpuNearFloorOwnedRampartRepairTarget)
     .sort(compareCriticalCpuRepairPreemptionTargets)[0];
-  if (emergencyRampartRepairTarget) {
-    return emergencyRampartRepairTarget;
+  if (nearFloorRampartRepairTarget) {
+    return nearFloorRampartRepairTarget;
   }
 
   if (creep.room.controller?.my !== true || !isColonyRoomThreatened(creep.room.name)) {
@@ -697,11 +729,11 @@ function isCriticalCpuOwnedSpawnRepairTarget(structure: AnyStructure): structure
   );
 }
 
-function isCriticalCpuEmergencyOwnedRampartRepairTarget(structure: AnyStructure): structure is StructureRampart {
+function isCriticalCpuNearFloorOwnedRampartRepairTarget(structure: AnyStructure): structure is StructureRampart {
   return (
     isCriticalCpuOwnedRampart(structure) &&
     !isWorkerRepairTargetComplete(structure) &&
-    structure.hits <= EMERGENCY_RAMPART_REPAIR_HITS_CEILING
+    structure.hits < BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING
   );
 }
 
