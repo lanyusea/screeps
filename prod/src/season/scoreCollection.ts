@@ -1,6 +1,7 @@
 import { getRuntimeFeatureGates } from '../runtime/featureGates';
 
 type ScoreFindConstantGlobal =
+  | 'FIND_SCORES'
   | 'FIND_SCORE'
   | 'FIND_SCORE_ITEMS'
   | 'FIND_SCORE_OBJECTS'
@@ -47,6 +48,7 @@ type RoomPositionConstructor = new (x: number, y: number, roomName: string) => R
 export const SCORE_COLLECTOR_ROLE = 'scoreCollector';
 
 const SCORE_FIND_CONSTANT_GLOBALS: ScoreFindConstantGlobal[] = [
+  'FIND_SCORES',
   'FIND_SCORE',
   'FIND_SCORE_ITEMS',
   'FIND_SCORE_OBJECTS',

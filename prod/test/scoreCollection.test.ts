@@ -9,6 +9,7 @@ describe('season scoreCollector swarm', () => {
   beforeEach(() => {
     (globalThis as unknown as { ERR_NO_PATH: number }).ERR_NO_PATH = -2;
     (globalThis as unknown as { FIND_SCORE: number }).FIND_SCORE = 42;
+    delete (globalThis as unknown as { FIND_SCORES?: number }).FIND_SCORES;
     (globalThis as unknown as { RoomPosition: new (x: number, y: number, roomName: string) => RoomPosition })
       .RoomPosition = class {
         public constructor(
@@ -150,6 +151,42 @@ describe('season scoreCollector swarm', () => {
       state: 'collecting',
       visibleScoreCount: 1,
       assignedScoreTargetId: 'score1'
+    });
+  });
+
+  it('detects documented Seasonal FIND_SCORES constant without singular aliases', () => {
+    delete (globalThis as unknown as { FIND_SCORE?: number }).FIND_SCORE;
+    (globalThis as unknown as { FIND_SCORES: number }).FIND_SCORES = 10031;
+    const score = makeScoreItem('scorePlural1', 'W1N1');
+    const roomFind = jest.fn((type: number) =>
+      type === (globalThis as unknown as { FIND_SCORES: number }).FIND_SCORES ? [score] : []
+    );
+    const room = {
+      name: 'W1N1',
+      find: roomFind
+    } as unknown as Room;
+    const moveTo = jest.fn().mockReturnValue(0);
+    const creep = {
+      name: 'ScoreCollectorPlural',
+      memory: makeScoreCollectorMemory('W1N1', 'W2N1', 100),
+      room,
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'scorePlural1' ? 2 : 50))
+      },
+      moveTo
+    } as unknown as Creep;
+    setGameCreeps({ ScoreCollectorPlural: creep });
+    setGameObjectsById([score]);
+
+    runScoreCollector(creep);
+
+    expect(roomFind).toHaveBeenCalledWith(10031);
+    expect(creep.memory.task).toEqual({ type: 'collectScore', targetId: 'scorePlural1' });
+    expect(moveTo).toHaveBeenCalledWith(score, { range: 0 });
+    expect(creep.memory.seasonScoreCollector).toMatchObject({
+      state: 'collecting',
+      visibleScoreCount: 1,
+      assignedScoreTargetId: 'scorePlural1'
     });
   });
 
