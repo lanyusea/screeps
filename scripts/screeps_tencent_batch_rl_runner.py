@@ -871,6 +871,31 @@ class Controller:
                 host_key_count=len(current_lines),
             )
 
+        find_result = self.find_worker_known_host()
+        if not find_result.ok:
+            return find_result
+        if find_result.status == "existing_known_host_entry":
+            host_key_count = max(find_result.host_key_count, 1)
+            self.record_step(
+                "prepare_worker_known_host",
+                started,
+                True,
+                None,
+                publicIp=self.public_ip,
+                knownHostsFile=str(known_hosts),
+                status="existing_known_host_keyscan_unavailable",
+                retryable=False,
+                keyscanStatus=scan_result.status,
+                keyscanRetryable=scan_result.retryable,
+                hostKeyCount=host_key_count,
+            )
+            self.mark_worker_known_host_prepared()
+            return KnownHostPrepareResult(
+                True,
+                "existing_known_host_keyscan_unavailable",
+                host_key_count=host_key_count,
+            )
+
         if not self.clear_worker_known_host():
             return KnownHostPrepareResult(
                 False,
@@ -933,6 +958,74 @@ class Controller:
             return KnownHostPrepareResult(True, status)
         reason = tail_text(sanitize_known_hosts_cleanup_text(cp.stderr or cp.stdout)) or scan_result.reason
         return KnownHostPrepareResult(False, status, retryable=retryable, reason=reason)
+
+    def find_worker_known_host(self) -> KnownHostPrepareResult:
+        if not self.public_ip:
+            return KnownHostPrepareResult(True, "skipped_no_public_ip")
+        known_hosts = self.known_hosts_path
+        cmd = ["ssh-keygen", "-F", self.public_ip, "-f", str(known_hosts)]
+        started = time.time()
+        try:
+            known_hosts.parent.mkdir(parents=True, exist_ok=True)
+            known_hosts.touch(exist_ok=True)
+            cp = subprocess.run(
+                cmd,
+                text=True,
+                capture_output=True,
+                cwd=str(REPO_ROOT),
+                timeout=KNOWN_HOSTS_CLEANUP_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as error:
+            stdout_raw = getattr(error, "stdout", None)
+            if stdout_raw is None:
+                stdout_raw = getattr(error, "output", None)
+            stderr_raw = getattr(error, "stderr", None)
+            stdout = decode_subprocess_text(stdout_raw)
+            stderr = decode_subprocess_text(stderr_raw)
+            stderr = "\n".join(part for part in (f"{type(error).__name__}: {error}", stderr) if part)
+            cp = subprocess.CompletedProcess(cmd, 124, stdout, stderr)
+        except OSError as error:
+            cp = subprocess.CompletedProcess(cmd, 127, "", f"{type(error).__name__}: {error}")
+
+        host_key_count = len(
+            HOST_KEY_BLOB_RE.findall("\n".join(part for part in (cp.stdout, cp.stderr) if part))
+        )
+        if cp.returncode == 0:
+            status = "existing_known_host_entry"
+        elif cp.returncode == 1:
+            status = "missing_known_host_entry"
+        else:
+            status = "host_key_unverified_existing_entry_blocked"
+        ok = cp.returncode in {0, 1}
+        self.record_step(
+            "find_worker_known_host",
+            started,
+            ok,
+            sanitized_known_hosts_completed_process(cp),
+            argv=redacted_argv(cmd),
+            publicIp=self.public_ip,
+            knownHostsFile=str(known_hosts),
+            status=status,
+            retryable=False,
+            hostKeyCount=host_key_count,
+        )
+        if ok:
+            return KnownHostPrepareResult(
+                True,
+                status,
+                host_key_count=max(host_key_count, 1) if cp.returncode == 0 else 0,
+            )
+        reason = tail_text(sanitize_known_hosts_cleanup_text(cp.stderr or cp.stdout)) or (
+            f"ssh-keygen -F exited {cp.returncode} while checking existing known_hosts entry"
+        )
+        return KnownHostPrepareResult(
+            False,
+            status,
+            retryable=False,
+            reason=reason,
+            host_key_count=host_key_count,
+        )
 
     def install_worker_known_host(self, scanned_lines: Sequence[str], *, had_plain_entry: bool) -> KnownHostPrepareResult:
         known_hosts = self.known_hosts_path
