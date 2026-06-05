@@ -19350,7 +19350,7 @@ function getPersistedTerritoryIntentCandidates(colony, colonyName, colonyOwnerUs
       colony,
       targetRoom: intent.targetRoom,
       territoryMemory
-    }) || !isVisibleTerritoryIntentActionable(intent.targetRoom, intent.action, intent.controllerId, colonyOwnerUsername)) {
+    }) || isTerritoryControlAction3(intent.action) && isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(colonyName, intent.targetRoom) || !isVisibleTerritoryIntentActionable(intent.targetRoom, intent.action, intent.controllerId, colonyOwnerUsername)) {
       return [];
     }
     const intentKey = `${intent.targetRoom}:${intent.action}`;
@@ -19667,8 +19667,12 @@ function getAdjacentReserveCandidates(colonyName, originRoomName, colonyOwnerUse
     if (roomName === colonyName || existingTargetRooms.has(roomName) || isKnownDeadZoneRoom(roomName) || isTerritoryTargetSuppressed(target, intents, gameTime) || isTerritoryRoomSuspendedForColony(intents, colonyName, roomName, gameTime) || isRecoveredTerritoryFollowUpAttemptCoolingDownForAction(intents, colonyName, roomName, "reserve", gameTime)) {
       return [];
     }
+    const controlExcluded = isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(colonyName, roomName);
     const candidateState = getAdjacentReserveCandidateState(roomName, colonyOwnerUsername);
     if (candidateState === "safe") {
+      if (controlExcluded) {
+        return [];
+      }
       const candidate = scoreTerritoryCandidate(
         {
           target,
@@ -20086,6 +20090,12 @@ function getRecommendedTerritoryIntentAction(candidate, recommendation, roleCoun
   if (isAutoClaimApprovedTerritoryCandidate(candidate)) {
     return candidate.intentAction;
   }
+  if (candidate.source === "occupationIntent" && candidate.intentAction === "scout" && isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(
+    candidate.target.colony,
+    candidate.target.roomName
+  )) {
+    return "scout";
+  }
   if (blockReason !== null && isConfiguredScoutOnlyRemoteConversionTarget(candidate)) {
     return "scout";
   }
@@ -20143,7 +20153,7 @@ function getScoutOnlyRemoteConversionBlockReason(colony, candidate, recommendati
   if (isCpuBucketBelowScoutOnlyRemoteFloor()) {
     return "cpuBucketLow";
   }
-  if (!isScoutOnlyRemoteEnergyBufferReady(colony)) {
+  if (candidate.source !== "occupationIntent" && !isScoutOnlyRemoteEnergyBufferReady(colony)) {
     return "energyBufferLow";
   }
   return null;
@@ -28898,7 +28908,14 @@ function canSpendWorkerEnergyOnConstructionSite(creep, site) {
 }
 function canSpendCreepEnergyOnConstructionSite(creep, site, priorityContext) {
   const carriedEnergy = getUsedEnergy2(creep);
-  return carriedEnergy > 0 && isMissingSpawnRecoveryConstructionSite(creep.room, site) || carriedEnergy > 0 && checkEnergyBufferForConstructionSpending(creep.room) || carriedEnergy > 0 && checkEnergyBufferForStoredConstructionSpending(creep.room) || carriedEnergy > 0 && isExtensionConstructionSite(site) && checkEnergyBufferForExtensionConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && !isExtensionConstructionSite(site) && isCapacityEnablingConstructionSite(site, priorityContext) && checkEnergyBufferForCapacityEnablingConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && canCompleteConstructionSiteWithCarriedEnergy(creep, site) || carriedEnergy > 0 && isLowWorkerThroughputRecoveryConstructionAllowed(creep, site) || carriedEnergy > 0 && hasMinimumWorkerSpawnEnergyForConstruction(creep.room) && isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext);
+  return carriedEnergy > 0 && isMissingSpawnRecoveryConstructionSite(creep.room, site) || carriedEnergy > 0 && checkEnergyBufferForConstructionSpending(creep.room) || carriedEnergy > 0 && checkEnergyBufferForStoredConstructionSpending(creep.room) || carriedEnergy > 0 && canSpendCarriedSurplusOnBoundedConstruction(creep, site) || carriedEnergy > 0 && isExtensionConstructionSite(site) && checkEnergyBufferForExtensionConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && !isExtensionConstructionSite(site) && isCapacityEnablingConstructionSite(site, priorityContext) && checkEnergyBufferForCapacityEnablingConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && canCompleteConstructionSiteWithCarriedEnergy(creep, site) || carriedEnergy > 0 && isLowWorkerThroughputRecoveryConstructionAllowed(creep, site) || carriedEnergy > 0 && hasMinimumWorkerSpawnEnergyForConstruction(creep.room) && isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext);
+}
+function canSpendCarriedSurplusOnBoundedConstruction(creep, site) {
+  const room = creep.room;
+  const controller = room.controller;
+  const survivalAssessment = getWorkerColonySurvivalAssessment(creep);
+  const roomEnergy = getRoomEnergyAvailable10(room);
+  return site.my !== false && (controller == null ? void 0 : controller.my) === true && roomEnergy !== null && roomEnergy >= MINIMUM_WORKER_SPAWN_ENERGY && !hasVisibleHostilePresence3(room) && !suppressesBootstrapNonCriticalWork(survivalAssessment) && !suppressesTerritoryWork(survivalAssessment) && !shouldGuardControllerDowngrade2(controller) && getActiveWorkParts2(creep) > 0 && hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep) && !hasOtherSameRoomBuildCoverageWorker(creep);
 }
 function isLowWorkerThroughputRecoveryConstructionAllowed(creep, site) {
   return site.my !== false && hasLowWorkerThroughputRecoveryPressure(creep);

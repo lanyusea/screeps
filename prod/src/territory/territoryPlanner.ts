@@ -44,7 +44,10 @@ import {
   isClaimPlanBlockedByHigherPriorityColony,
   pruneLowerPriorityDuplicateClaimPlans
 } from './multiRoomTerritory';
-import { isConfiguredExpansionScoutOnlyTarget } from './expansionConfig';
+import {
+  isConfiguredExpansionScoutOnlyTarget,
+  isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl
+} from './expansionConfig';
 import {
   AUTONOMOUS_TERRITORY_CONTROL_SUPPRESSION_REASON,
   isAutonomousTerritoryControlAllowedForColony,
@@ -2311,6 +2314,8 @@ function getPersistedTerritoryIntentCandidates(
           targetRoom: intent.targetRoom,
           territoryMemory
         })) ||
+      (isTerritoryControlAction(intent.action) &&
+        isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(colonyName, intent.targetRoom)) ||
       !isVisibleTerritoryIntentActionable(intent.targetRoom, intent.action, intent.controllerId, colonyOwnerUsername)
     ) {
       return [];
@@ -2844,8 +2849,13 @@ function getAdjacentReserveCandidates(
       return [];
     }
 
+    const controlExcluded = isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(colonyName, roomName);
     const candidateState = getAdjacentReserveCandidateState(roomName, colonyOwnerUsername);
     if (candidateState === 'safe') {
+      if (controlExcluded) {
+        return [];
+      }
+
       const candidate = scoreTerritoryCandidate(
         {
           target,
@@ -3497,6 +3507,17 @@ function getRecommendedTerritoryIntentAction(
     return candidate.intentAction;
   }
 
+  if (
+    candidate.source === 'occupationIntent' &&
+    candidate.intentAction === 'scout' &&
+    isConfiguredExpansionScoutOnlyTargetExcludedFromTerritoryControl(
+      candidate.target.colony,
+      candidate.target.roomName
+    )
+  ) {
+    return 'scout';
+  }
+
   if (blockReason !== null && isConfiguredScoutOnlyRemoteConversionTarget(candidate)) {
     return 'scout';
   }
@@ -3601,7 +3622,10 @@ function getScoutOnlyRemoteConversionBlockReason(
     return 'cpuBucketLow';
   }
 
-  if (!isScoutOnlyRemoteEnergyBufferReady(colony)) {
+  if (
+    candidate.source !== 'occupationIntent' &&
+    !isScoutOnlyRemoteEnergyBufferReady(colony)
+  ) {
     return 'energyBufferLow';
   }
 
