@@ -399,20 +399,6 @@ function selectCriticalCpuWorkerTask(creep: Creep): CreepTaskMemory | null {
     return applyMinimumUsefulLoadPolicy(creep, storedProtectedConstructionTask);
   }
 
-  const constructionSites = findConstructionSites(creep.room);
-  const constructionReservationContext =
-    constructionSites.length > 0
-      ? createConstructionReservationContext(creep.room)
-      : createEmptyConstructionReservationContext();
-  const boundedConstructionBacklogTask = selectBoundedConstructionBacklogTaskBeforeNonCriticalRefill(
-    creep,
-    constructionSites,
-    constructionReservationContext
-  );
-  if (boundedConstructionBacklogTask) {
-    return applyMinimumUsefulLoadPolicy(creep, boundedConstructionBacklogTask);
-  }
-
   if (spawnOrExtensionEnergySink) {
     return {
       type: 'transfer',
@@ -421,6 +407,23 @@ function selectCriticalCpuWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
+  const constructionSites = findConstructionSites(creep.room);
+  const constructionReservationContext =
+    constructionSites.length > 0
+      ? createConstructionReservationContext(creep.room)
+      : createEmptyConstructionReservationContext();
+  const boundedConstructionBacklogTask = priorityTowerEnergySink
+    ? selectBoundedConstructionBacklogTaskBeforeNonCriticalRefill(
+      creep,
+      constructionSites,
+      constructionReservationContext,
+      priorityTowerEnergySink
+    )
+    : null;
+  if (boundedConstructionBacklogTask) {
+    return applyMinimumUsefulLoadPolicy(creep, boundedConstructionBacklogTask);
+  }
+
   if (priorityTowerEnergySink) {
     return applyMinimumUsefulLoadPolicy(creep, {
       type: 'transfer',
@@ -4673,13 +4676,13 @@ function selectBoundedConstructionBacklogTaskBeforeNonCriticalRefill(
   creep: Creep,
   constructionSites: ConstructionSite[],
   constructionReservationContext: ConstructionReservationContext,
-  deferredRefillSink: FillableEnergySink | null = null
+  deferredRefillSink: FillableEnergySink
 ): Extract<CreepTaskMemory, { type: 'build' }> | null {
   if (hasVisibleHostilePresence(creep.room)) {
     return null;
   }
 
-  if (deferredRefillSink !== null && !isNonCriticalRefillSinkForConstructionBacklog(creep, deferredRefillSink)) {
+  if (!isNonCriticalRefillSinkForConstructionBacklog(creep, deferredRefillSink)) {
     return null;
   }
 
