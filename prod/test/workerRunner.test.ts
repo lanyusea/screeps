@@ -232,13 +232,13 @@ describe('runWorker', () => {
     expect(repair).toHaveBeenCalledWith(road);
   });
 
-  it('preempts retained critical CPU routine repair when an emergency rampart repair appears', () => {
+  it('preempts retained critical CPU routine repair when a near-floor owned rampart repair appears', () => {
     const road = { id: 'road1', structureType: 'road', hits: 1_000, hitsMax: 5_000 } as StructureRoad;
     const rampart = {
       id: 'rampart1',
       structureType: 'rampart',
       my: true,
-      hits: 1_000,
+      hits: 10_001,
       hitsMax: 100_000
     } as StructureRampart;
     const room = {

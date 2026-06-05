@@ -660,11 +660,11 @@ function selectCriticalCpuRepairPreemptionTarget(creep: Creep): Structure | null
     return criticalSpawnRepairTarget;
   }
 
-  const emergencyRampartRepairTarget = visibleStructures
-    .filter(isCriticalCpuEmergencyOwnedRampartRepairTarget)
+  const nearFloorRampartRepairTarget = visibleStructures
+    .filter(isCriticalCpuNearFloorOwnedRampartRepairTarget)
     .sort(compareCriticalCpuRepairPreemptionTargets)[0];
-  if (emergencyRampartRepairTarget) {
-    return emergencyRampartRepairTarget;
+  if (nearFloorRampartRepairTarget) {
+    return nearFloorRampartRepairTarget;
   }
 
   if (creep.room.controller?.my !== true || !isColonyRoomThreatened(creep.room.name)) {
@@ -697,11 +697,11 @@ function isCriticalCpuOwnedSpawnRepairTarget(structure: AnyStructure): structure
   );
 }
 
-function isCriticalCpuEmergencyOwnedRampartRepairTarget(structure: AnyStructure): structure is StructureRampart {
+function isCriticalCpuNearFloorOwnedRampartRepairTarget(structure: AnyStructure): structure is StructureRampart {
   return (
     isCriticalCpuOwnedRampart(structure) &&
     !isWorkerRepairTargetComplete(structure) &&
-    structure.hits <= EMERGENCY_RAMPART_REPAIR_HITS_CEILING
+    structure.hits < BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING
   );
 }
 
