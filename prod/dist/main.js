@@ -26171,9 +26171,6 @@ function getScoreCollectorAssignmentStaleReason(creep, memory, gameTime) {
   if (typeof ticksToLive === "number" && Number.isFinite(ticksToLive) && ticksToLive <= SCORE_COLLECTOR_REPLACEMENT_TICKS_TO_LIVE) {
     return { staleReason: "collector_ttl_insufficient" };
   }
-  if (memory.blocker === "target_unreachable") {
-    return { staleReason: "target_unreachable" };
-  }
   if (typeof memory.updatedAt === "number" && Number.isFinite(memory.updatedAt) && gameTime >= memory.updatedAt && gameTime - memory.updatedAt > SCORE_COLLECTOR_STALE_TICKS) {
     return { staleReason: "collector_stale" };
   }

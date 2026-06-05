@@ -115,10 +115,14 @@ describe('season scoreCollector swarm', () => {
     };
     setGameCreeps({ UnreachableCollector: unreachableCollector });
 
-    expect(selectSeasonScoreCollectorSpawnDemand(makeColonySnapshot('W1N1'), 202)).toMatchObject({
-      targetRoom: 'W1N1',
-      staleReason: 'target_unreachable'
+    expect(selectSeasonScoreCollectorSpawnDemand(makeColonySnapshot('W1N1'), 202)).toBeNull();
+    expect(Memory.seasonScoreCollectors).toMatchObject({
+      activeCount: 1,
+      blocker: 'all_targets_covered',
+      targetRooms: ['W1N1']
     });
+    expect(Memory.seasonScoreCollectors).not.toHaveProperty('nextSpawnTargetRoom');
+    expect(Memory.seasonScoreCollectors).not.toHaveProperty('staleReason');
   });
 
   it('runs to visible Score at exact range 0 before continuing its room assignment', () => {

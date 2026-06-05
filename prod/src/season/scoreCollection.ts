@@ -511,10 +511,6 @@ function getScoreCollectorAssignmentStaleReason(
     return { staleReason: 'collector_ttl_insufficient' };
   }
 
-  if (memory.blocker === 'target_unreachable') {
-    return { staleReason: 'target_unreachable' };
-  }
-
   if (
     typeof memory.updatedAt === 'number' &&
     Number.isFinite(memory.updatedAt) &&
