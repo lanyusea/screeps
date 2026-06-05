@@ -264,6 +264,348 @@ def latest_external_dashboard_artifact(
     )
 
 
+def first_int_value(*values: Any) -> int | None:
+    for value in values:
+        parsed = int_value(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def unique_text_values(values: Sequence[Any]) -> list[str]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if isinstance(value, list):
+            for item in unique_text_values(value):
+                if item in seen:
+                    continue
+                seen.add(item)
+                unique.append(item)
+            continue
+        text = text_value(value)
+        if text is None or text in seen:
+            continue
+        seen.add(text)
+        unique.append(text)
+    return unique
+
+
+def path_is_direct_child(path: Path, root: Path) -> bool:
+    try:
+        relative = path.resolve().relative_to(root.resolve())
+    except (OSError, ValueError):
+        return False
+    return len(relative.parts) == 1
+
+
+def root_training_report_id(path: Path, payload: JsonObject) -> str:
+    return (
+        text_value(payload.get("reportId"))
+        or text_value(payload.get("trainingReportId"))
+        or path.stem
+    )
+
+
+def root_training_report_timestamp(path: Path, payload: JsonObject) -> datetime:
+    for key in ("generatedAt", "completedAt", "finishedAt", "createdAt", "producedAt", "updatedAt", "timestamp"):
+        parsed = static_dashboard.parse_iso_datetime(payload.get(key))
+        if parsed is not None:
+            return parsed
+    return static_dashboard.artifact_timestamp(path, payload)
+
+
+def is_root_rl_training_report(path: Path, artifact_root: Path, payload: JsonObject) -> bool:
+    if not path_is_direct_child(path, artifact_root / "rl-training"):
+        return False
+    name = path.name.lower()
+    if name.endswith(".json") is False or "training-ledger" in name or "training-execution-ledger" in name:
+        return False
+    if is_bounded_producer_artifact(static_dashboard.LoadedArtifact(path=path, payload=payload, timestamp=static_dashboard.artifact_timestamp(path, payload))):
+        return False
+    if live_dashboard.failed_training_report_status(payload):
+        return False
+
+    type_text = str(payload.get("type") or "").lower()
+    if "training-report" in type_text and "ledger" not in type_text:
+        return True
+    if text_value(payload.get("reportId")) is None:
+        return False
+    return (
+        "policyUpdateIterations" in payload
+        or isinstance(payload.get("policyUpdate"), dict)
+        or isinstance(payload.get("variantResults"), list)
+        or isinstance(as_dict(payload.get("source")).get("simulatorRunIds"), list)
+    )
+
+
+def variant_result_rows(payload: JsonObject) -> list[JsonObject]:
+    return [item for item in as_list(payload.get("variantResults")) if isinstance(item, dict)]
+
+
+def sum_int_values(values: Sequence[Any]) -> int | None:
+    total = 0
+    found = False
+    for value in values:
+        parsed = int_value(value)
+        if parsed is None:
+            continue
+        found = True
+        total += parsed
+    return total if found else None
+
+
+def root_training_report_simulator_run_ids(payload: JsonObject) -> list[str]:
+    source = as_dict(payload.get("source"))
+    return unique_text_values(
+        [
+            as_list(source.get("simulatorRunIds")),
+            as_list(payload.get("simulatorRunIds")),
+        ]
+    )
+
+
+def root_training_report_completed_environments(payload: JsonObject) -> int:
+    rows = variant_result_rows(payload)
+    batch_scale = as_dict(payload.get("batchScale"))
+    source = as_dict(payload.get("source"))
+    simulator_run_ids = root_training_report_simulator_run_ids(payload)
+    sample_total = sum_int_values([row.get("sampleCount") for row in rows])
+    return (
+        first_int_value(
+            batch_scale.get("environmentRows"),
+            payload.get("completedEnvironmentRuns"),
+            payload.get("completedEnvironments"),
+            payload.get("environmentsCompleted"),
+            payload.get("environmentsRun"),
+            sample_total,
+            payload.get("artifactCount"),
+            source.get("simulatorRunCount"),
+            len(simulator_run_ids) if simulator_run_ids else None,
+        )
+        or 0
+    )
+
+
+def root_training_report_failed_environments(payload: JsonObject) -> int:
+    rows = variant_result_rows(payload)
+    explicit = first_int_value(
+        payload.get("failedEnvironmentRuns"),
+        payload.get("failedEnvironments"),
+        payload.get("environmentsFailed"),
+    )
+    if explicit is not None:
+        return explicit
+    return sum(1 for row in rows if row.get("ok") is False)
+
+
+def root_training_report_ticks(payload: JsonObject) -> int:
+    batch_scale = as_dict(payload.get("batchScale"))
+    simulation = as_dict(payload.get("simulation"))
+    ticks = first_int_value(
+        batch_scale.get("simulatorTicks"),
+        payload.get("simulatorTicksRun"),
+        payload.get("ticksRun"),
+        payload.get("totalTickRuns"),
+    )
+    if ticks is not None:
+        return ticks
+    per_run_ticks = int_value(simulation.get("ticks"))
+    repetitions = int_value(simulation.get("repetitions"))
+    variant_count = len(variant_result_rows(payload))
+    if per_run_ticks is not None and repetitions is not None and variant_count > 0:
+        return per_run_ticks * repetitions * variant_count
+    return 0
+
+
+def root_training_report_policy_updates(payload: JsonObject) -> int:
+    policy_update = as_dict(payload.get("policyUpdate"))
+    return first_int_value(payload.get("policyUpdateIterations"), policy_update.get("iterations")) or 0
+
+
+def root_training_report_candidate_policy_ids(payload: JsonObject) -> list[str]:
+    policy_update = as_dict(payload.get("policyUpdate"))
+    scorecard = as_dict(payload.get("candidateScorecard"))
+    return unique_text_values(
+        [
+            payload.get("policyUpdateCandidatePolicyId"),
+            payload.get("candidatePolicyId"),
+            as_dict(policy_update.get("nextCandidatePolicy")).get("candidatePolicyId"),
+            scorecard.get("candidateStrategyId"),
+            as_list(payload.get("candidateStrategyIds")),
+        ]
+    )
+
+
+def root_training_report_by_variant(payload: JsonObject) -> JsonObject:
+    variants: JsonObject = {}
+    for index, row in enumerate(variant_result_rows(payload)):
+        variant_id = (
+            text_value(row.get("variantId"))
+            or text_value(row.get("candidatePolicyId"))
+            or text_value(row.get("sourceStrategyId"))
+            or f"variant-{index + 1}"
+        )
+        runtime_injection = as_dict(row.get("runtimeParameterInjection")) or as_dict(row.get("parameterEvidence"))
+        variants[variant_id] = {
+            "ok": row.get("ok"),
+            "sampleCount": int_value(row.get("sampleCount")),
+            "rolloutStatus": row.get("rolloutStatus"),
+            "runtimeParameterConsumption": runtime_injection.get("runtimeParameterConsumption"),
+        }
+    return variants
+
+
+def normalize_root_training_report_payload(path: Path, payload: JsonObject) -> JsonObject:
+    report_id = root_training_report_id(path, payload)
+    completed = root_training_report_completed_environments(payload)
+    failed = root_training_report_failed_environments(payload)
+    ticks_run = root_training_report_ticks(payload)
+    policy_updates = root_training_report_policy_updates(payload)
+    simulator_run_ids = root_training_report_simulator_run_ids(payload)
+    candidate_policy_ids = root_training_report_candidate_policy_ids(payload)
+    batch_scale = as_dict(payload.get("batchScale"))
+    source = as_dict(payload.get("source"))
+    simulation = as_dict(payload.get("simulation"))
+
+    normalized = dict(payload)
+    normalized.setdefault("trainingDidRun", True)
+    normalized.setdefault("trainingReportId", report_id)
+    normalized.setdefault("trainingReportIds", [report_id])
+
+    environment = dict(as_dict(payload.get("environmentExecution")))
+    environment.setdefault("environmentCountRequested", completed + failed)
+    environment.setdefault("started", completed + failed)
+    environment.setdefault("completed", completed)
+    environment.setdefault("failed", failed)
+    environment.setdefault("byVariant", root_training_report_by_variant(payload))
+    if completed + failed > 0:
+        environment.setdefault("successRate", completed / (completed + failed))
+    environment.setdefault("mostRecentCompletedRun", report_id)
+    normalized["environmentExecution"] = environment
+
+    iteration = dict(as_dict(payload.get("iterationExecution")))
+    iteration.setdefault("simulatorTicksRequested", ticks_run)
+    iteration.setdefault("simulatorTicksRun", ticks_run)
+    iteration.setdefault("episodesRun", completed)
+    iteration.setdefault("candidateEvaluationIterations", len(variant_result_rows(payload)))
+    iteration.setdefault("policyUpdateIterations", policy_updates)
+    iteration.setdefault("wallClockSeconds", number_value(batch_scale.get("wallClockSeconds")))
+    iteration.setdefault(
+        "policyUpdateNote",
+        "root-level RL training report; policy promotion remains gated by report trust fields",
+    )
+    normalized["iterationExecution"] = iteration
+
+    artifacts = dict(as_dict(payload.get("trainingArtifacts")))
+    artifacts.setdefault("experimentCard", as_dict(payload.get("experimentCard")).get("cardId"))
+    artifacts.setdefault("experimentCardPath", source.get("experimentCardPath"))
+    artifacts.setdefault("simulatorRunIds", simulator_run_ids)
+    artifacts.setdefault("trainingReportIds", [report_id])
+    artifacts.setdefault("candidatePolicyIds", candidate_policy_ids)
+    artifacts.setdefault("latestTrainingReport", path)
+    artifacts.setdefault("policyUpdateArtifactPath", payload.get("policyUpdateArtifactPath"))
+    artifacts.setdefault("scorecardId", payload.get("scorecardId"))
+    artifacts.setdefault("scorecardArtifactPath", payload.get("scorecardArtifactPath"))
+    normalized["trainingArtifacts"] = artifacts
+
+    metrics_fields = dict(as_dict(payload.get("metricsFields")))
+    metrics_fields.setdefault("envRequested", completed + failed)
+    metrics_fields.setdefault("envStarted", completed + failed)
+    metrics_fields.setdefault("envCompleted", completed)
+    metrics_fields.setdefault("envFailed", failed)
+    metrics_fields.setdefault("ticksRequested", ticks_run)
+    metrics_fields.setdefault("ticksRun", ticks_run)
+    metrics_fields.setdefault("episodes", completed)
+    metrics_fields.setdefault("policyUpdateIterations", policy_updates)
+    metrics_fields.setdefault("trainingReportIds", [report_id])
+    metrics_fields.setdefault("candidatePolicyId", candidate_policy_ids[0] if candidate_policy_ids else None)
+    metrics_fields.setdefault("simulatorRunCount", first_int_value(source.get("simulatorRunCount"), len(simulator_run_ids)))
+    metrics_fields.setdefault("simulationTicksPerRun", int_value(simulation.get("ticks")))
+    normalized["metricsFields"] = metrics_fields
+    return normalized
+
+
+def normalize_training_evidence_payload(path: Path | None, artifact_root: Path, payload: JsonObject | None) -> JsonObject | None:
+    if payload is None or path is None:
+        return payload
+    if is_root_rl_training_report(path, artifact_root, payload):
+        return normalize_root_training_report_payload(path, payload)
+    return payload
+
+
+def latest_root_training_report_artifact(
+    artifact_root: Path,
+    repo_root: Path,
+    warnings: list[str],
+    *,
+    max_files_per_root: int,
+) -> tuple[static_dashboard.LoadedArtifact | None, JsonObject]:
+    root = artifact_root / "rl-training"
+    scan_limit = live_dashboard.artifact_evidence_candidate_scan_limit(max_files_per_root)
+    paths, discovered, truncated = live_dashboard.newest_matching_files_with_discovery_limit(
+        root,
+        ("*.json",),
+        discovery_limit=scan_limit,
+    )
+    scan: JsonObject = {
+        "root": repo_display_path(root, repo_root),
+        "patterns": ["*.json"],
+        "filesDiscovered": discovered,
+        "filesLoaded": 0,
+        "reportCandidates": 0,
+        "selected": None,
+        "fileLimit": scan_limit,
+        "truncated": truncated,
+    }
+    candidates: list[static_dashboard.LoadedArtifact] = []
+    for path in paths:
+        artifact = static_dashboard.load_artifact(path, warnings, repo_root)
+        if artifact is None:
+            continue
+        scan["filesLoaded"] = int(scan["filesLoaded"]) + 1
+        if not is_root_rl_training_report(artifact.path, artifact_root, artifact.payload):
+            continue
+        scan["reportCandidates"] = int(scan["reportCandidates"]) + 1
+        candidates.append(
+            static_dashboard.LoadedArtifact(
+                path=artifact.path,
+                payload=normalize_root_training_report_payload(artifact.path, artifact.payload),
+                timestamp=root_training_report_timestamp(artifact.path, artifact.payload),
+            )
+        )
+    if not candidates:
+        return None, scan
+    selected = max(candidates, key=lambda artifact: (artifact.timestamp, artifact.path.as_posix()))
+    scan["selected"] = repo_display_path(selected.path, repo_root)
+    return selected, scan
+
+
+def latest_training_evidence_artifact(
+    artifact_root: Path,
+    repo_root: Path,
+    warnings: list[str],
+    bounded_artifacts: Sequence[static_dashboard.LoadedArtifact],
+    *,
+    max_files_per_root: int,
+) -> tuple[static_dashboard.LoadedArtifact | None, JsonObject]:
+    candidates: list[static_dashboard.LoadedArtifact] = []
+    latest_training = latest_external_dashboard_artifact(bounded_artifacts, "training_ledger")
+    if latest_training is not None:
+        candidates.append(latest_training)
+    latest_report, report_scan = latest_root_training_report_artifact(
+        artifact_root,
+        repo_root,
+        warnings,
+        max_files_per_root=max_files_per_root,
+    )
+    if latest_report is not None:
+        candidates.append(latest_report)
+    if not candidates:
+        return None, report_scan
+    return max(candidates, key=lambda artifact: (artifact.timestamp, artifact.path.as_posix())), report_scan
+
+
 def dashboard_summary(repo_root: Path, artifact_root: Path, created_at: str, max_files_per_root: int) -> JsonObject:
     warnings: list[str] = []
     control_root = artifact_root / "rl-control-loop"
@@ -278,7 +620,13 @@ def dashboard_summary(repo_root: Path, artifact_root: Path, created_at: str, max
         warnings,
         repo_root,
     )
-    latest_training = latest_external_dashboard_artifact(bounded_artifacts, "training_ledger")
+    latest_training, root_training_report_scan = latest_training_evidence_artifact(
+        artifact_root,
+        repo_root,
+        warnings,
+        bounded_artifacts,
+        max_files_per_root=max_files_per_root,
+    )
     latest_policy = latest_external_dashboard_artifact(bounded_artifacts, "policy_advantage")
     latest_metrics = live_dashboard.latest_bounded_dashboard_artifact(bounded_artifacts, "metrics_observations")
     gate_infos, gate_scan = bounded_gate_infos(
@@ -316,7 +664,12 @@ def dashboard_summary(repo_root: Path, artifact_root: Path, created_at: str, max
         "training": training,
         "policy": policy,
         "cardSupply": training.get("cardSupply"),
-        "scan": {**source_scan, "gateScan": gate_scan, "mode": "bounded-control-loop-ledger-producer"},
+        "scan": {
+            **source_scan,
+            "gateScan": gate_scan,
+            "rootTrainingReportScan": root_training_report_scan,
+            "mode": "bounded-control-loop-ledger-producer",
+        },
     }
 
 
@@ -325,6 +678,11 @@ def output_path(out_dir: Path, created_at: str, suffix: str) -> Path:
 
 
 def latest_artifact_payload(dashboard: JsonObject, key: str, repo_root: Path) -> JsonObject | None:
+    path = latest_artifact_absolute_path(dashboard, key, repo_root)
+    return load_json(path)
+
+
+def latest_artifact_absolute_path(dashboard: JsonObject, key: str, repo_root: Path) -> Path | None:
     artifacts = as_dict(dashboard.get("artifacts"))
     raw_path = artifacts.get(key)
     if raw_path is None:
@@ -332,7 +690,7 @@ def latest_artifact_payload(dashboard: JsonObject, key: str, repo_root: Path) ->
     path = Path(raw_path)
     if not path.is_absolute():
         path = repo_root / path
-    return load_json(path)
+    return path
 
 
 def latest_artifact_path(dashboard: JsonObject, key: str, repo_root: Path) -> str | None:
@@ -370,6 +728,39 @@ def default_policy_metrics(policy: JsonObject) -> JsonObject:
     return categories
 
 
+def positive_policy_status(status: str) -> bool:
+    return status.upper() in {"ADVANTAGE", "APPROVED", "POSITIVE", "PROMOTABLE", "PROVEN", "ROLLOUT_APPROVED", "VALIDATED"}
+
+
+def policy_evidence_windows(
+    previous: JsonObject | None,
+    summary: JsonObject,
+    training: JsonObject,
+    repo_root: Path,
+) -> JsonObject:
+    previous_windows = as_dict((previous or {}).get("evidenceWindows"))
+    windows: JsonObject = dict(previous_windows) if previous_windows else {
+        "shadowReportIds": [],
+        "simulatorRunIds": [],
+        "trainingReportIds": [],
+        "historicalValidationIds": [],
+        "preOnlineWindow": None,
+        "postOnlineWindow": None,
+        "rolloutDecisionIds": [],
+        "latestTrainingLedger": latest_artifact_path(summary, "trainingLedger", repo_root),
+        "latestPolicyAdvantage": latest_artifact_path(summary, "policyAdvantage", repo_root),
+    }
+    windows["trainingReportIds"] = unique_text_values(
+        [
+            as_list(windows.get("trainingReportIds")),
+            training_report_ids_from_training(training),
+        ]
+    )
+    windows["latestTrainingLedger"] = latest_artifact_path(summary, "trainingLedger", repo_root)
+    windows["latestPolicyAdvantage"] = latest_artifact_path(summary, "policyAdvantage", repo_root)
+    return windows
+
+
 def training_status(training: JsonObject) -> str:
     if training.get("hasComputeEvidence") is True:
         return "RUN_VALIDATED"
@@ -381,6 +772,21 @@ def training_status(training: JsonObject) -> str:
 
 def training_did_run(training: JsonObject) -> bool:
     return bool(training.get("hasComputeEvidence") is True or training.get("trainingDidRun") is True)
+
+
+def training_report_ids_from_training(training: JsonObject) -> list[str]:
+    return unique_text_values(as_list(as_dict(training.get("identity")).get("report")))
+
+
+def training_online_deployment_blocker(training: JsonObject) -> str | None:
+    promotion_status = text_value(training.get("policyUpdatePromotionStatus"))
+    if training.get("trustedGradientUpdate") is False:
+        return "training report marks trustedGradientUpdate=false"
+    if training.get("gradientStable") is False:
+        return "training report marks gradientStable=false"
+    if promotion_status and promotion_status.lower().startswith("blocked"):
+        return f"policy update promotion gate is {promotion_status}"
+    return None
 
 
 def training_anomalies(dashboard: JsonObject, previous: JsonObject | None, repo_root: Path) -> list[JsonObject]:
@@ -421,6 +827,21 @@ def training_anomalies(dashboard: JsonObject, previous: JsonObject | None, repo_
     return anomalies[:12]
 
 
+def next_training_capability_action(previous: JsonObject | None, training: JsonObject, did_run: bool) -> str:
+    previous_action = text_value((previous or {}).get("nextTrainingCapabilityAction"))
+    if previous_action:
+        return previous_action
+    deployment_blocker = training_online_deployment_blocker(training)
+    if did_run and deployment_blocker:
+        return f"{deployment_blocker}; collect additional Loop A samples before online deployment."
+    if did_run:
+        return "Use the validated Loop A training evidence for bounded policy/steward evaluation."
+    return (
+        text_value(training.get("blocker"))
+        or "Run the bounded training ledger producer after fresh Loop A training evidence is available."
+    )
+
+
 def build_training_ledger(
     *,
     repo_root: Path,
@@ -430,7 +851,12 @@ def build_training_ledger(
     max_files_per_root: int,
 ) -> JsonObject:
     summary = dashboard_summary(repo_root, artifact_root, created_at, max_files_per_root)
-    previous = latest_artifact_payload(summary, "trainingLedger", repo_root)
+    training_path = latest_artifact_absolute_path(summary, "trainingLedger", repo_root)
+    previous = normalize_training_evidence_payload(
+        training_path,
+        artifact_root,
+        latest_artifact_payload(summary, "trainingLedger", repo_root),
+    )
     training = as_dict(summary.get("training"))
     gate = as_dict(summary.get("gate"))
     simulator = as_dict(summary.get("simulator"))
@@ -506,11 +932,7 @@ def build_training_ledger(
             "latestTrainingLedger": latest_artifact_path(summary, "trainingLedger", repo_root),
         },
         "anomalies": anomalies,
-        "nextTrainingCapabilityAction": (
-            text_value((previous or {}).get("nextTrainingCapabilityAction"))
-            or text_value(training.get("blocker"))
-            or "Run the bounded training ledger producer after fresh Loop A training evidence is available."
-        ),
+        "nextTrainingCapabilityAction": next_training_capability_action(previous, training, did_run),
         "metricsFields": {
             "dataGroups": metrics_fields.get("dataGroups", 1 if gate else 0),
             "samplesTraversed": metrics_fields.get("samplesTraversed", gate.get("sampleCount") or 0),
@@ -572,9 +994,23 @@ def build_policy_advantage(
     status = text_value(policy.get("status")) or "UNPROVEN"
     if status in {"N/A", "UNKNOWN"}:
         status = "UNPROVEN"
+    deployment_blocker = training_online_deployment_blocker(training)
+    if positive_policy_status(status) and deployment_blocker:
+        status = "BLOCKED"
     metrics = default_policy_metrics(policy)
     regressions = policy_regressions(metrics)
-    deployability = "READY_FOR_GATED_LIVE" if status in {"POSITIVE", "PROVEN", "VALIDATED"} and not regressions else "BLOCKED"
+    deployability = (
+        "READY_FOR_GATED_LIVE"
+        if positive_policy_status(status) and not regressions and not deployment_blocker
+        else "BLOCKED"
+    )
+    rollout_gate = field_from(previous, "rolloutGate", {"status": "BLOCKED", "reason": "online KPI evidence missing"})
+    if deployment_blocker:
+        rollout_gate = {
+            "status": "BLOCKED",
+            "reason": deployment_blocker,
+            "source": "training_report_gradient_gate",
+        }
 
     return {
         "type": POLICY_ADVANTAGE_TYPE,
@@ -592,23 +1028,9 @@ def build_policy_advantage(
         "onlineKpiDeltaSummary": field_from(previous, "onlineKpiDeltaSummary", "No bounded online KPI delta evidence was found."),
         "baselineWindow": field_from(previous, "baselineWindow", None),
         "validationWindow": field_from(previous, "validationWindow", None),
-        "rolloutGate": field_from(previous, "rolloutGate", {"status": "BLOCKED", "reason": "online KPI evidence missing"}),
+        "rolloutGate": rollout_gate,
         "rollbackCriteria": field_from(previous, "rollbackCriteria", {"reliabilityRegression": ">=2%", "officialMmoWritesAllowed": False}),
-        "evidenceWindows": field_from(
-            previous,
-            "evidenceWindows",
-            {
-                "shadowReportIds": [],
-                "simulatorRunIds": [],
-                "trainingReportIds": as_dict((previous or {}).get("trainingArtifacts")).get("trainingReportIds", []),
-                "historicalValidationIds": [],
-                "preOnlineWindow": None,
-                "postOnlineWindow": None,
-                "rolloutDecisionIds": [],
-                "latestTrainingLedger": latest_artifact_path(summary, "trainingLedger", repo_root),
-                "latestPolicyAdvantage": latest_artifact_path(summary, "policyAdvantage", repo_root),
-            },
-        ),
+        "evidenceWindows": policy_evidence_windows(previous, summary, training, repo_root),
         "metrics": metrics,
         "regressions": regressions,
         "trainingStrategyFeedback": field_from(
