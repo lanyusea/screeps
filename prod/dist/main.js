@@ -3506,8 +3506,8 @@ function getRoomName2(room) {
   return typeof room.name === "string" && room.name.length > 0 ? room.name : null;
 }
 function getColonyCreepTotal(roleCounts) {
-  var _a2, _b, _c, _d, _e;
-  return normalizeNonNegativeInteger3(roleCounts.worker) + normalizeNonNegativeInteger3((_a2 = roleCounts.sourceHarvester) != null ? _a2 : 0) + normalizeNonNegativeInteger3((_b = roleCounts.defender) != null ? _b : 0) + normalizeNonNegativeInteger3((_c = roleCounts.claimer) != null ? _c : 0) + normalizeNonNegativeInteger3((_d = roleCounts.scout) != null ? _d : 0) + normalizeNonNegativeInteger3((_e = roleCounts.scoreCollector) != null ? _e : 0);
+  var _a2, _b, _c, _d;
+  return normalizeNonNegativeInteger3(roleCounts.worker) + normalizeNonNegativeInteger3((_a2 = roleCounts.sourceHarvester) != null ? _a2 : 0) + normalizeNonNegativeInteger3((_b = roleCounts.defender) != null ? _b : 0) + normalizeNonNegativeInteger3((_c = roleCounts.claimer) != null ? _c : 0) + normalizeNonNegativeInteger3((_d = roleCounts.scout) != null ? _d : 0);
 }
 function getPersistedColonyStageMode(colony) {
   var _a2, _b;

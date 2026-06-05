@@ -551,8 +551,7 @@ function getColonyCreepTotal(roleCounts: RoleCounts): number {
     normalizeNonNegativeInteger(roleCounts.sourceHarvester ?? 0) +
     normalizeNonNegativeInteger(roleCounts.defender ?? 0) +
     normalizeNonNegativeInteger(roleCounts.claimer ?? 0) +
-    normalizeNonNegativeInteger(roleCounts.scout ?? 0) +
-    normalizeNonNegativeInteger(roleCounts.scoreCollector ?? 0);
+    normalizeNonNegativeInteger(roleCounts.scout ?? 0);
 }
 
 function getPersistedColonyStageMode(colony: ColonySnapshot): ColonyStage | undefined {

@@ -1,4 +1,5 @@
-import { assessColonySurvival } from '../src/colony/survivalMode';
+import type { ColonySnapshot } from '../src/colony/colonyRegistry';
+import { assessColonySnapshotSurvival, assessColonySurvival } from '../src/colony/survivalMode';
 
 describe('assessColonySurvival', () => {
   it('enters bootstrap with no workers', () => {
@@ -27,6 +28,27 @@ describe('assessColonySurvival', () => {
         controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
       }).mode
     ).toBe('BOOTSTRAP');
+  });
+
+  it('keeps scoreCollector-only rooms in bootstrap worker recovery', () => {
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
+    (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 3;
+    (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 4;
+
+    expect(
+      assessColonySnapshotSurvival(makeColonySnapshot(), {
+        worker: 0,
+        sourceHarvester: 0,
+        defender: 0,
+        claimer: 0,
+        scout: 0,
+        scoreCollector: 3
+      })
+    ).toMatchObject({
+      mode: 'BOOTSTRAP',
+      totalCreeps: 0,
+      suppressionReasons: ['bootstrapWorkerFloor']
+    });
   });
 
   it('uses local stable while the survival floor is met but territory gates are not', () => {
@@ -79,3 +101,37 @@ describe('assessColonySurvival', () => {
     });
   });
 });
+
+function makeColonySnapshot(): ColonySnapshot {
+  const source = { id: 'source1' } as Source;
+  const room = {
+    name: 'W1N1',
+    energyAvailable: 800,
+    energyCapacityAvailable: 800,
+    controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController,
+    find: jest.fn((type: number) => {
+      if (type === FIND_SOURCES) {
+        return [source];
+      }
+
+      if (type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+        return [];
+      }
+
+      return [];
+    })
+  } as unknown as Room;
+  const spawn = {
+    name: 'Spawn1',
+    room,
+    spawning: null
+  } as StructureSpawn;
+
+  return {
+    room,
+    spawns: [spawn],
+    energyAvailable: 800,
+    energyCapacityAvailable: 800,
+    spawnEnergyBudget: 800
+  };
+}
