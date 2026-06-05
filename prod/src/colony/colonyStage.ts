@@ -628,6 +628,8 @@ function countVisibleColonyRoles(room: Room, roomName: string): RoleCounts {
       roleCounts.claimer = normalizeNonNegativeInteger(roleCounts.claimer ?? 0) + 1;
     } else if (role === 'scout') {
       roleCounts.scout = normalizeNonNegativeInteger(roleCounts.scout ?? 0) + 1;
+    } else if (role === 'scoreCollector') {
+      roleCounts.scoreCollector = normalizeNonNegativeInteger(roleCounts.scoreCollector ?? 0) + 1;
     }
   }
 
