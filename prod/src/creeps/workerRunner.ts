@@ -30,7 +30,8 @@ import {
 import { getSpawnEnergyWithdrawalAmount, isSpawnEnergySource } from '../economy/spawnEnergyBuffer';
 import {
   getRoomSpawnEnergyReservationState,
-  selectSpawnEnergyReservationRefillTarget
+  selectSpawnEnergyReservationRefillTarget,
+  type SpawnEnergyReservationRefillTarget
 } from '../economy/spawnEnergyReservation';
 import { BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING } from '../defense/defensePlanner';
 import { findSourceContainer } from '../economy/sourceContainers';
@@ -867,12 +868,12 @@ function selectSpawnEnergyReservationRefillTask(
   currentTask: CreepTaskMemory | null | undefined,
   selectedTask: CreepTaskMemory | null
 ): Extract<CreepTaskMemory, { type: 'transfer' }> | null {
-  if (shouldDeferSpawnReservationRefillForProductiveWork(creep, selectedTask)) {
+  const target = selectSpawnEnergyReservationRefillTarget(creep);
+  if (!target) {
     return null;
   }
 
-  const target = selectSpawnEnergyReservationRefillTarget(creep);
-  if (!target) {
+  if (shouldDeferSpawnReservationRefillForProductiveWork(creep, selectedTask, target)) {
     return null;
   }
 
@@ -889,14 +890,126 @@ function selectSpawnEnergyReservationRefillTask(
 
 function shouldDeferSpawnReservationRefillForProductiveWork(
   creep: Creep,
-  selectedTask: CreepTaskMemory | null
+  selectedTask: CreepTaskMemory | null,
+  refillTarget: SpawnEnergyReservationRefillTarget | null = null
 ): boolean {
   return (
     (selectedTask?.type === 'build' || selectedTask?.type === 'repair') &&
     !hasActiveSpawningSpawn(creep.room) &&
     (hasHealthyRoomEnergyBuffer(creep.room) ||
-      hasSafeStoredEnergyForBoundedConstruction(creep, selectedTask))
+      hasSafeStoredEnergyForBoundedConstruction(creep, selectedTask) ||
+      hasOtherWorkerCoveringSpawnReservationRefill(creep, refillTarget))
   );
+}
+
+function hasOtherWorkerCoveringSpawnReservationRefill(
+  creep: Creep,
+  refillTarget: SpawnEnergyReservationRefillTarget | null
+): boolean {
+  if (refillTarget === null) {
+    return false;
+  }
+
+  const coverageNeed = getSpawnReservationRefillCoverageNeed(refillTarget);
+  if (coverageNeed <= 0) {
+    return true;
+  }
+
+  let coverageEnergy = 0;
+  for (const worker of getRoomOwnedCreeps(creep.room)) {
+    if (isSameCreep(worker, creep) || !isProductiveSameRoomWorker(worker, creep.room)) {
+      continue;
+    }
+
+    coverageEnergy += getSpawnReservationRefillCoverageEnergy(worker, refillTarget);
+    if (coverageEnergy >= coverageNeed) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function getSpawnReservationRefillCoverageNeed(
+  refillTarget: SpawnEnergyReservationRefillTarget
+): number {
+  const thresholdGap = Math.max(0, refillTarget.threshold - refillTarget.spawnEnergy);
+  return Math.min(
+    Math.max(0, refillTarget.unmetReservedEnergy),
+    getFreeTransferEnergyCapacity(refillTarget.spawn),
+    thresholdGap
+  );
+}
+
+function getSpawnReservationRefillCoverageEnergy(
+  worker: Creep,
+  refillTarget: SpawnEnergyReservationRefillTarget
+): number {
+  const task = worker.memory?.task;
+  const carriedEnergy = getUsedTransferEnergy(worker);
+  if (!task) {
+    return carriedEnergy;
+  }
+
+  if (task.type === 'transfer') {
+    return String(task.targetId) === String(refillTarget.spawn.id) ? carriedEnergy : 0;
+  }
+
+  if (!isEnergyAcquisitionTask(task) || isConstructionWithdrawReservationTask(task)) {
+    return 0;
+  }
+
+  return carriedEnergy + getSpawnReservationRefillAcquisitionEnergy(worker, task);
+}
+
+function getSpawnReservationRefillAcquisitionEnergy(
+  worker: Creep,
+  task: Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' }>
+): number {
+  const freeCapacity = getFreeTransferEnergyCapacity(worker);
+  if (freeCapacity <= 0) {
+    return 0;
+  }
+
+  const availableEnergy =
+    task.type === 'harvest'
+      ? getVisibleHarvestSourceEnergy(worker.room, String(task.targetId))
+      : task.type === 'pickup'
+        ? getVisibleDroppedEnergy(worker.room, String(task.targetId))
+        : getStoredEnergy(getTaskTarget(task));
+  return Math.min(freeCapacity, availableEnergy);
+}
+
+function getVisibleHarvestSourceEnergy(room: Room, targetId: string): number {
+  if (typeof FIND_SOURCES !== 'number' || typeof room.find !== 'function') {
+    return 0;
+  }
+
+  const source = (room.find(FIND_SOURCES) as Source[]).find((candidate) => String(candidate.id) === targetId);
+  if (!source) {
+    return 0;
+  }
+
+  return typeof source.energy === 'number' && Number.isFinite(source.energy)
+    ? Math.max(0, source.energy)
+    : Number.MAX_SAFE_INTEGER;
+}
+
+function getVisibleDroppedEnergy(room: Room, targetId: string): number {
+  if (typeof FIND_DROPPED_RESOURCES !== 'number' || typeof room.find !== 'function') {
+    return 0;
+  }
+
+  const resource = (room.find(FIND_DROPPED_RESOURCES) as Resource<ResourceConstant>[]).find(
+    (candidate) => String(candidate.id) === targetId
+  );
+  if (!resource || resource.resourceType !== RESOURCE_ENERGY) {
+    return 0;
+  }
+
+  return typeof resource.amount === 'number' && Number.isFinite(resource.amount)
+    ? Math.max(0, resource.amount)
+    : 0;
 }
 
 function hasSafeStoredEnergyForBoundedConstruction(
@@ -1917,7 +2030,11 @@ function shouldPreemptTransferTaskForConstructionBacklog(
     return false;
   }
 
-  if (!shouldDeferSpawnReservationRefillForProductiveWork(creep, selectedTask)) {
+  if (!shouldDeferSpawnReservationRefillForProductiveWork(
+    creep,
+    selectedTask,
+    selectSpawnEnergyReservationRefillTarget(creep)
+  )) {
     return false;
   }
 

@@ -22,6 +22,7 @@ import { OCCUPIED_CONTROLLER_SIGN_TEXT } from '../src/territory/controllerSignin
 import { TERRITORY_RESERVATION_RENEWAL_TICKS } from '../src/territory/territoryPlanner';
 import { LOW_CPU_BUCKET_THRESHOLD } from '../src/runtime/cpuBudget';
 import { installVisibleOwnedRcl6ColonyRoomDefault } from './helpers/territoryControlGate';
+import { selectSpawnEnergyReservationRefillTarget } from '../src/economy/spawnEnergyReservation';
 
 function withRangeTo<T extends { id: string }>(object: T, rangesByTargetId: Record<string, number>): T {
   return {
@@ -5840,6 +5841,291 @@ describe('runWorker', () => {
     expect(creep.memory.workerDispatchDiagnostic?.spawnReservationTask).toBeUndefined();
     expect(build).toHaveBeenCalledWith(site);
     expect(transfer).not.toHaveBeenCalled();
+  });
+
+  it('keeps construction ahead of spawn reservation refill when another worker is acquiring refill energy', () => {
+    const site = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 820,
+      progressTotal: 1_000,
+      pos: { x: 20, y: 23, roomName: 'E29N55' } as RoomPosition
+    } as ConstructionSite;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      spawning: null,
+      pos: { x: 17, y: 24, roomName: 'E29N55' } as RoomPosition,
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 250 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+      }
+    } as unknown as StructureSpawn;
+    const refillContainer = {
+      id: 'refill-container1',
+      structureType: 'container',
+      pos: { x: 18, y: 24, roomName: 'E29N55' } as RoomPosition,
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0)),
+        getFreeCapacity: jest.fn().mockReturnValue(1_900)
+      }
+    } as unknown as StructureContainer;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const roomCreeps: Creep[] = [];
+    const room = {
+      name: 'E29N55',
+      energyAvailable: 250,
+      energyCapacityAvailable: 2_300,
+      controller,
+      find: jest.fn(
+        (type: number, options?: { filter?: (object: AnyOwnedStructure | Creep) => boolean }) => {
+          if (type === FIND_MY_STRUCTURES) {
+            const structures = [spawn, refillContainer] as unknown as AnyOwnedStructure[];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          if (type === FIND_STRUCTURES) {
+            return [spawn, refillContainer];
+          }
+
+          if (type === FIND_MY_CREEPS) {
+            return options?.filter ? roomCreeps.filter(options.filter) : roomCreeps;
+          }
+
+          if (type === FIND_CONSTRUCTION_SITES) {
+            return [site];
+          }
+
+          return [];
+        }
+      )
+    } as unknown as Room;
+    const build = jest.fn().mockReturnValue(0);
+    const transfer = jest.fn();
+    const builder = {
+      name: 'Builder',
+      memory: { role: 'worker', colony: 'E29N55' },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'spawn1' ? 1 : 3))
+      },
+      room,
+      build,
+      transfer,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    const refillAcquirer = {
+      name: 'RefillAcquirer',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'withdraw', targetId: 'refill-container1' as Id<AnyStoreStructure> }
+      },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room
+    } as unknown as Creep;
+    roomCreeps.push(builder, refillAcquirer);
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      economy: {
+        spawnEnergyReservation: {
+          updatedAt: 1_867_899,
+          rooms: {
+            E29N55: {
+              bodyCost: 800,
+              creepName: 'worker-E29N55-next',
+              reservedAt: 1_867_899,
+              reservedEnergy: 800,
+              role: 'worker',
+              roomName: 'E29N55',
+              updatedAt: 1_867_899
+            }
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Builder: builder, RefillAcquirer: refillAcquirer },
+      rooms: { E29N55: room },
+      time: 1_867_900,
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'road-site1') {
+          return site;
+        }
+
+        if (id === 'spawn1') {
+          return spawn;
+        }
+
+        return id === 'refill-container1' ? refillContainer : null;
+      })
+    };
+
+    expect(selectSpawnEnergyReservationRefillTarget(builder)).toMatchObject({
+      spawn: { id: 'spawn1' },
+      spawnEnergy: 250,
+      threshold: 300,
+      unmetReservedEnergy: 550
+    });
+
+    runWorker(builder);
+
+    expect(builder.memory.task).toEqual({ type: 'build', targetId: 'road-site1' });
+    expect(builder.memory.workerDispatchDiagnostic).toMatchObject({
+      baseSelectedTask: 'build',
+      selectedTask: 'build',
+      assignedTask: 'build'
+    });
+    expect(builder.memory.workerDispatchDiagnostic?.spawnReservationTask).toBeUndefined();
+    expect(build).toHaveBeenCalledWith(site);
+    expect(transfer).not.toHaveBeenCalled();
+  });
+
+  it('keeps spawn reservation refill before construction when no other worker covers refill', () => {
+    const site = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 820,
+      progressTotal: 1_000,
+      pos: { x: 20, y: 23, roomName: 'E29N55' } as RoomPosition
+    } as ConstructionSite;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      spawning: null,
+      pos: { x: 17, y: 24, roomName: 'E29N55' } as RoomPosition,
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 250 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+      }
+    } as unknown as StructureSpawn;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const roomCreeps: Creep[] = [];
+    const room = {
+      name: 'E29N55',
+      energyAvailable: 250,
+      energyCapacityAvailable: 2_300,
+      controller,
+      find: jest.fn(
+        (type: number, options?: { filter?: (object: AnyOwnedStructure | Creep) => boolean }) => {
+          if (type === FIND_MY_STRUCTURES) {
+            const structures = [spawn] as unknown as AnyOwnedStructure[];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          if (type === FIND_STRUCTURES) {
+            return [spawn];
+          }
+
+          if (type === FIND_MY_CREEPS) {
+            return options?.filter ? roomCreeps.filter(options.filter) : roomCreeps;
+          }
+
+          if (type === FIND_CONSTRUCTION_SITES) {
+            return [site];
+          }
+
+          return [];
+        }
+      )
+    } as unknown as Room;
+    const build = jest.fn();
+    const transfer = jest.fn().mockReturnValue(0);
+    const builder = {
+      name: 'Builder',
+      memory: { role: 'worker', colony: 'E29N55' },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'spawn1' ? 1 : 3))
+      },
+      room,
+      build,
+      transfer,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    const idleWorker = {
+      name: 'IdleWorker',
+      memory: { role: 'worker', colony: 'E29N55' },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room
+    } as unknown as Creep;
+    roomCreeps.push(builder, idleWorker);
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      economy: {
+        spawnEnergyReservation: {
+          updatedAt: 1_867_900,
+          rooms: {
+            E29N55: {
+              bodyCost: 800,
+              creepName: 'worker-E29N55-next',
+              reservedAt: 1_867_900,
+              reservedEnergy: 800,
+              role: 'worker',
+              roomName: 'E29N55',
+              updatedAt: 1_867_900
+            }
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Builder: builder, IdleWorker: idleWorker },
+      rooms: { E29N55: room },
+      time: 1_867_901,
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'road-site1') {
+          return site;
+        }
+
+        return id === 'spawn1' ? spawn : null;
+      })
+    };
+
+    expect(selectSpawnEnergyReservationRefillTarget(builder)).toMatchObject({
+      spawn: { id: 'spawn1' },
+      spawnEnergy: 250,
+      threshold: 300,
+      unmetReservedEnergy: 550
+    });
+
+    runWorker(builder);
+
+    expect(builder.memory.task).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(builder.memory.workerDispatchDiagnostic).toMatchObject({
+      baseSelectedTask: 'build',
+      spawnReservationTask: 'transfer',
+      selectedTask: 'transfer',
+      assignedTask: 'transfer'
+    });
+    expect(transfer).toHaveBeenCalledWith(spawn, RESOURCE_ENERGY);
+    expect(build).not.toHaveBeenCalled();
   });
 
   it('assigns a post-deploy E29N57 builder while a stale spawn reserve signal is present', () => {

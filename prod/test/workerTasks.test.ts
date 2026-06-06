@@ -8902,6 +8902,147 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'road-site1' });
   });
 
+  it('lets a loaded E29N55 worker build when another worker is already acquiring refill energy', () => {
+    const site = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 820,
+      progressTotal: 1_000,
+      pos: makeRoomPosition(20, 23, 'E29N55')
+    } as ConstructionSite;
+    const fullSpawn = makeEnergySinkWithEnergy('spawn-full', 'spawn' as StructureConstant, 300, 0, {
+      my: true,
+      pos: makeRoomPosition(17, 24, 'E29N55')
+    }) as StructureSpawn;
+    const refillExtension = makeEnergySinkWithEnergy('extension-needs-energy', 'extension' as StructureConstant, 0, 50, {
+      my: true,
+      pos: makeRoomPosition(18, 24, 'E29N55')
+    }) as StructureExtension;
+    const storage = makeStoredEnergyStructure('storage-local', 'storage' as StructureConstant, 1_655, {
+      my: true,
+      pos: makeRoomPosition(18, 23, 'E29N55')
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N55',
+      constructionSites: [site],
+      controller,
+      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY - 50,
+      energyCapacityAvailable: 2_300,
+      myStructures: [fullSpawn as AnyOwnedStructure, refillExtension as AnyOwnedStructure],
+      structures: [fullSpawn as AnyStructure, refillExtension as AnyStructure, storage as AnyStructure]
+    });
+    const builder = {
+      name: 'worker-E29N55-loaded',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'transfer', targetId: 'extension-needs-energy' as Id<AnyStoreStructure> }
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'road-site1' ? 3 : 2))
+      },
+      room
+    } as unknown as Creep;
+    const refillAcquirer = {
+      name: 'worker-E29N55-refill-acquirer',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'withdraw', targetId: 'storage-local' as Id<AnyStoreStructure> }
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'storage-local' ? 1 : 5)) },
+      room
+    } as unknown as Creep;
+    recordSurvivalMode('LOCAL_STABLE', 1_865_811);
+    setGameCreeps({ Builder: builder, RefillAcquirer: refillAcquirer });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      ...((globalThis as unknown as { Game?: Partial<Game> }).Game ?? {}),
+      time: 1_865_811
+    };
+
+    expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'road-site1' });
+  });
+
+  it('keeps ordinary refill before construction when no worker covers the spawn floor', () => {
+    const site = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 820,
+      progressTotal: 1_000,
+      pos: makeRoomPosition(20, 23, 'E29N55')
+    } as ConstructionSite;
+    const refillExtension = makeEnergySinkWithEnergy('extension-needs-energy', 'extension' as StructureConstant, 0, 50, {
+      my: true,
+      pos: makeRoomPosition(18, 24, 'E29N55')
+    }) as StructureExtension;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N55',
+      constructionSites: [site],
+      controller,
+      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY - 50,
+      energyCapacityAvailable: 2_300,
+      myStructures: [refillExtension as AnyOwnedStructure],
+      structures: [refillExtension as AnyStructure]
+    });
+    const builder = {
+      name: 'worker-E29N55-loaded',
+      memory: { role: 'worker', colony: 'E29N55' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'road-site1' ? 3 : 2))
+      },
+      room
+    } as unknown as Creep;
+    const idleWorker = {
+      name: 'worker-E29N55-idle',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room
+    } as unknown as Creep;
+    recordSurvivalMode('LOCAL_STABLE', 1_865_812);
+    setGameCreeps({ Builder: builder, IdleWorker: idleWorker });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      ...((globalThis as unknown as { Game?: Partial<Game> }).Game ?? {}),
+      time: 1_865_812
+    };
+
+    expect(selectWorkerTask(builder)).toEqual({ type: 'transfer', targetId: 'extension-needs-energy' });
+  });
+
   it('keeps critical spawn refill before bootstrap storage backlog', () => {
     const site = {
       id: 'storage-site1',
