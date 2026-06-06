@@ -33780,7 +33780,7 @@ function applyWorkerAssignmentGapRecoveryTask(creep, currentTask, selectionConte
   return recoveryTask ? { ...selectionContext, selectedTask: recoveryTask } : selectionContext;
 }
 function selectWorkerAssignmentGapRecoveryTask(creep, currentTask, selectionContext) {
-  if (!isWorkerAssignmentGapRecoverySelection(currentTask, selectionContext.selectedTask)) {
+  if (!isWorkerAssignmentGapRecoverySelection(creep, currentTask, selectionContext.selectedTask)) {
     return null;
   }
   if (getUsedTransferEnergy(creep) <= 0 || getActiveWorkParts3(creep) <= 0 || !hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) || hasVisibleHostileCreeps2(creep.room) || currentTask && isDedicatedSourceContainerHarvestTask(creep, currentTask)) {
@@ -33799,11 +33799,15 @@ function selectWorkerAssignmentGapRecoveryTask(creep, currentTask, selectionCont
   }
   return recoveryTask;
 }
-function isWorkerAssignmentGapRecoverySelection(currentTask, selectedTask) {
+function isWorkerAssignmentGapRecoverySelection(creep, currentTask, selectedTask) {
   if (!currentTask && !selectedTask) {
     return true;
   }
-  return (currentTask === void 0 || currentTask === null || isEnergyAcquisitionTask2(currentTask) || currentTask.type === "transfer") && (selectedTask === null || isEnergyAcquisitionTask2(selectedTask) || selectedTask.type === "transfer");
+  const allowUpgradeRecovery = !isControllerDowngradeGuardActive2(creep.room);
+  return isWorkerAssignmentGapRecoveryTask(currentTask, allowUpgradeRecovery) && isWorkerAssignmentGapRecoveryTask(selectedTask, allowUpgradeRecovery);
+}
+function isWorkerAssignmentGapRecoveryTask(task, allowUpgradeRecovery) {
+  return task === void 0 || task === null || isEnergyAcquisitionTask2(task) || task.type === "transfer" || allowUpgradeRecovery && task.type === "upgrade";
 }
 function selectWorkerAssignmentGapRecoveryConstructionSite(creep) {
   var _a2, _b;
