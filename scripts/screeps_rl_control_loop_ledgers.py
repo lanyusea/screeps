@@ -907,10 +907,7 @@ def training_payload_for_evidence_windows(
         return root_training_payload
 
     training_candidate = training_evidence_candidate_policy_id(as_dict(training_payload))
-    root_candidate = training_evidence_candidate_policy_id(as_dict(root_training_payload))
     if not training_report_ids and training_candidate is None:
-        return root_training_payload
-    if training_candidate is not None and training_candidate == root_candidate:
         return root_training_payload
     return training_payload
 

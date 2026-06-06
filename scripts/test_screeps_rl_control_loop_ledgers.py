@@ -952,7 +952,7 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
         self.assertEqual(decision["scorecardId"], local2w_scorecard_id())
         self.assertEqual(decision["validationEvidence"]["trustedGradientUpdate"], True)
 
-    def test_policy_advantage_keeps_evidence_on_selected_ledger_report_when_latest_root_unrelated(self) -> None:
+    def test_policy_advantage_keeps_evidence_on_selected_ledger_report_when_latest_root_reuses_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             artifact_root, report_id = write_root_local2w_training_report_artifacts(
@@ -962,7 +962,7 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
             )
             candidate_policy_id = local2w_next_policy_id()
             unrelated_report_id = "unrelated-root-training-report-20260605T0030Z"
-            unrelated_candidate_policy_id = "construction-priority.pg.unrelated-seed.v1"
+            reused_candidate_policy_id = candidate_policy_id
             unrelated_scorecard_path = (
                 "runtime-artifacts/rl-training/candidate-scorecards/"
                 f"{unrelated_report_id}/rl-scorecard-{unrelated_report_id}.json"
@@ -981,8 +981,8 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
                     "source": {"simulatorRunCount": 1, "simulatorRunIds": [f"{unrelated_report_id}-r01"]},
                     "variantResults": [
                         {
-                            "variantId": unrelated_candidate_policy_id,
-                            "candidatePolicyId": unrelated_candidate_policy_id,
+                            "variantId": reused_candidate_policy_id,
+                            "candidatePolicyId": reused_candidate_policy_id,
                             "ok": True,
                             "sampleCount": 1,
                         },
@@ -991,10 +991,10 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
                     "trueGradient": True,
                     "trustedGradientUpdate": True,
                     "gradientStable": True,
-                    "policyUpdateCandidatePolicyId": unrelated_candidate_policy_id,
+                    "policyUpdateCandidatePolicyId": reused_candidate_policy_id,
                     "policyUpdate": {
                         "iterations": 1,
-                        "nextCandidatePolicy": {"candidatePolicyId": unrelated_candidate_policy_id},
+                        "nextCandidatePolicy": {"candidatePolicyId": reused_candidate_policy_id},
                     },
                     "scorecardId": f"rl-scorecard-{unrelated_report_id}",
                     "scorecardArtifactPath": unrelated_scorecard_path,
@@ -1003,7 +1003,7 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
                         "classification": "runtime_injected_candidate_scorecard_ready",
                         "scorecardId": f"rl-scorecard-{unrelated_report_id}",
                         "scorecardArtifactPath": unrelated_scorecard_path,
-                        "candidateStrategyId": unrelated_candidate_policy_id,
+                        "candidateStrategyId": reused_candidate_policy_id,
                         "baselineStrategyId": "construction-priority.pg.incumbent-seed.v1",
                         "validationScaleComputeBlocked": False,
                         "scorecardUsable": True,
@@ -1071,8 +1071,13 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
         self.assertEqual(payload["scorecardId"], local2w_scorecard_id())
         self.assertEqual(payload["evidenceWindows"]["trainingReportIds"], [report_id])
         self.assertEqual(decision["linkedTrainingRuns"], [report_id])
+        self.assertEqual(decision["validationEvidence"]["evidenceWindows"]["trainingReportIds"], [report_id])
         self.assertNotIn(unrelated_report_id, payload["evidenceWindows"]["trainingReportIds"])
         self.assertNotIn(unrelated_report_id, decision["linkedTrainingRuns"])
+        self.assertNotIn(
+            unrelated_report_id,
+            decision["validationEvidence"]["evidenceWindows"]["trainingReportIds"],
+        )
 
     def test_policy_advantage_scrubs_stale_reward_null_narrative_when_decision_recovered(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
