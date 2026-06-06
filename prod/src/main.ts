@@ -15,7 +15,8 @@ import {
 import {
   applyRuntimePolicyParametersToRegistry,
   createRuntimePolicyParameterConsumptionRecorder,
-  persistRuntimePolicyParameterConsumptionEvidence
+  persistRuntimePolicyParameterConsumptionEvidence,
+  type RuntimePolicyParameterConsumptionEvidence
 } from './strategy/runtimePolicyParameters';
 import { type RuntimeSummary, RUNTIME_SUMMARY_PREFIX } from './telemetry/runtimeSummary';
 import { getRuntimeCpuBudget } from './runtime/cpuBudget';
@@ -56,6 +57,7 @@ export function loop(): void {
     runtimePolicyParameterConsumption
   );
   let summary: RuntimeSummary | undefined;
+  let runtimePolicyParameterConsumptionEvidence: RuntimePolicyParameterConsumptionEvidence | undefined;
   try {
     summary = kernel.run({
       strategyRegistry: runtimePolicyParameters.registry,
@@ -71,10 +73,22 @@ export function loop(): void {
         : {})
     });
   } finally {
-    persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
+    runtimePolicyParameterConsumptionEvidence = runtimePolicyParameterConsumption.buildEvidence();
+    persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumptionEvidence);
   }
   if (!getRuntimeCpuBudget().degraded) {
-    strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
+    strategyRegistryState.entries = applyPendingRollbacks(strategyRegistryState.entries);
+    const monitoredFamilies = getRuntimeInfluencedStrategyFamilies(
+      runtimePolicyParameters.registry,
+      runtimePolicyParameterConsumptionEvidence
+    );
+    if (monitoredFamilies.length > 0) {
+      strategyRegistryState.entries = runStrategyRolloutMonitoring(
+        summary,
+        strategyRegistryState.entries,
+        monitoredFamilies
+      );
+    }
   }
 }
 
@@ -97,23 +111,32 @@ function recordAppliedRuntimePolicyParameterStrategies(
 
 function runStrategyRolloutMonitoring(
   summary: RuntimeSummary | undefined,
-  registry: StrategyRegistryEntry[]
+  registry: StrategyRegistryEntry[],
+  families: string[]
 ): StrategyRegistryEntry[] {
   let workingRegistry = applyPendingRollbacks(registry);
   if (!summary) {
     return workingRegistry;
   }
 
-  const families = getMonitoredFamilies(workingRegistry);
   const kpiWindow = buildKpiWindow(summary);
   for (const family of families) {
     appendWindow(recentKpiWindows, family, kpiWindow);
     ensureBaselineWindowForFamily(family);
   }
 
-  const regressionResult = checkKpiRegression(recentKpiWindows, baselineKpiWindows, strategyRolloutConfig);
+  const monitoredFamilySet = new Set(families);
+  const regressionResult = checkKpiRegression(
+    filterKpiWindowHistory(recentKpiWindows, monitoredFamilySet),
+    filterKpiWindowHistory(baselineKpiWindows, monitoredFamilySet),
+    strategyRolloutConfig
+  );
   if (regressionResult.regression) {
     for (const family of regressionResult.regressedFamilies) {
+      if (!monitoredFamilySet.has(family)) {
+        continue;
+      }
+
       const rollbackResult = executeRollback(family, workingRegistry, regressionResult.details);
       if (rollbackResult.disabledId && rollbackResult.rollbackToId) {
         console.log(
@@ -134,8 +157,40 @@ function runStrategyRolloutMonitoring(
   return workingRegistry;
 }
 
-function getMonitoredFamilies(registry: StrategyRegistryEntry[]): string[] {
-  return [...new Set(registry.map((entry) => entry.family))];
+function filterKpiWindowHistory(windows: KpiWindowHistory, families: Set<string>): KpiWindowHistory {
+  const filtered: KpiWindowHistory = {};
+  for (const family of families) {
+    const familyWindows = windows[family];
+    if (familyWindows) {
+      filtered[family] = familyWindows;
+    }
+  }
+
+  return filtered;
+}
+
+function getRuntimeInfluencedStrategyFamilies(
+  registry: StrategyRegistryEntry[],
+  evidence: RuntimePolicyParameterConsumptionEvidence | undefined
+): string[] {
+  if (evidence?.consumed !== true) {
+    return [];
+  }
+
+  const consumedFamilies = new Set<string>();
+  if (evidence.family && registry.some((entry) => entry.family === evidence.family)) {
+    consumedFamilies.add(evidence.family);
+  }
+
+  const consumedStrategyVariantId = evidence.consumedStrategyVariantId;
+  if (consumedStrategyVariantId) {
+    const consumedEntry = registry.find((entry) => entry.id === consumedStrategyVariantId);
+    if (consumedEntry) {
+      consumedFamilies.add(consumedEntry.family);
+    }
+  }
+
+  return [...consumedFamilies];
 }
 
 function buildKpiWindow(summary: RuntimeSummary): KpiWindow {
