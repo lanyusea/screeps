@@ -35,6 +35,17 @@ HISTORICAL_CONTEXT_ISSUES = [879, 893, 1589]
 REWARD_DECISION_SOURCE_ISSUE = 1690
 REWARD_DECISION_RELATED_ISSUES = [907, 924]
 REWARD_DECISION_PLACEHOLDER_CANDIDATE_IDS = {"NO_STABLE_CANDIDATE", "N/A", "UNKNOWN"}
+REWARD_DECISION_NULL_TEXT_MARKERS = (
+    "rewardDecisionId=null",
+    "rewardDecisionId is null",
+    "rewardDecisionId was null",
+    "currently null regression",
+    "RESTORE rewardDecisionId",
+    "latest ledger shows null",
+    "rewardDecisionId_null_regression",
+    "rewardDecisionId_missing",
+    "null value breaks downstream",
+)
 POLICY_METRIC_CATEGORIES = ("territory", "resources", "combat", "reliability", "logistics")
 
 JsonObject = dict[str, Any]
@@ -533,11 +544,125 @@ def normalize_root_training_report_payload(path: Path, payload: JsonObject) -> J
     return normalized
 
 
+def training_evidence_candidate_policy_id(payload: JsonObject) -> str | None:
+    policy_update = as_dict(payload.get("policyUpdate"))
+    artifacts = as_dict(payload.get("trainingArtifacts"))
+    metrics_fields = as_dict(payload.get("metricsFields"))
+    candidate_policy_ids = as_list(artifacts.get("candidatePolicyIds"))
+    return candidate_policy_text(
+        metrics_fields.get("candidatePolicyId"),
+        payload.get("policyUpdateCandidatePolicyId"),
+        payload.get("candidatePolicyId"),
+        as_dict(policy_update.get("nextCandidatePolicy")).get("candidatePolicyId"),
+        candidate_policy_ids[-1] if candidate_policy_ids else None,
+        as_dict(payload.get("candidateScorecard")).get("candidateStrategyId"),
+    )
+
+
+def referenced_training_report_ids(payload: JsonObject) -> list[str]:
+    artifacts = as_dict(payload.get("trainingArtifacts"))
+    metrics_fields = as_dict(payload.get("metricsFields"))
+    return unique_text_values(
+        [
+            payload.get("trainingReportId"),
+            as_list(payload.get("trainingReportIds")),
+            as_list(artifacts.get("trainingReportIds")),
+            as_list(metrics_fields.get("trainingReportIds")),
+        ]
+    )
+
+
+def root_training_report_path_for_id(artifact_root: Path, report_id: str) -> Path | None:
+    if "/" in report_id or "\\" in report_id:
+        return None
+    return artifact_root / "rl-training" / f"{report_id}.json"
+
+
+def referenced_root_training_report_payload(payload: JsonObject, artifact_root: Path) -> JsonObject | None:
+    payload_candidate = training_evidence_candidate_policy_id(payload)
+    for report_id in reversed(referenced_training_report_ids(payload)):
+        report_path = root_training_report_path_for_id(artifact_root, report_id)
+        if report_path is None:
+            continue
+        report_payload = load_json(report_path)
+        if report_payload is None or not is_root_rl_training_report(report_path, artifact_root, report_payload):
+            continue
+        normalized = normalize_root_training_report_payload(report_path, report_payload)
+        report_candidate = training_evidence_candidate_policy_id(normalized)
+        if payload_candidate is not None and report_candidate is not None and payload_candidate != report_candidate:
+            continue
+        return normalized
+    return None
+
+
+def fill_missing_mapping_values(target: JsonObject, source: JsonObject, keys: Sequence[str]) -> JsonObject:
+    merged = dict(target)
+    for key in keys:
+        source_value = source.get(key)
+        if source_value is None:
+            continue
+        target_value = merged.get(key)
+        if target_value is None or target_value == [] or target_value == {}:
+            merged[key] = source_value
+    return merged
+
+
+def enrich_training_ledger_from_referenced_report(payload: JsonObject, artifact_root: Path) -> JsonObject:
+    report_payload = referenced_root_training_report_payload(payload, artifact_root)
+    if report_payload is None:
+        return payload
+    enriched = fill_missing_mapping_values(
+        payload,
+        report_payload,
+        (
+            "policyUpdateCandidatePolicyId",
+            "policyUpdateArtifactPath",
+            "policyUpdate",
+            "policyUpdatePromotionGate",
+            "scorecardId",
+            "scorecardArtifactPath",
+            "candidateScorecard",
+            "candidateScorecards",
+            "trueGradient",
+            "gradientStable",
+            "trustedGradientUpdate",
+            "highVariance",
+        ),
+    )
+    enriched["trainingArtifacts"] = fill_missing_mapping_values(
+        as_dict(payload.get("trainingArtifacts")),
+        as_dict(report_payload.get("trainingArtifacts")),
+        (
+            "experimentCard",
+            "experimentCardPath",
+            "simulatorRunIds",
+            "trainingReportIds",
+            "candidatePolicyIds",
+            "latestTrainingReport",
+            "policyUpdateArtifactPath",
+            "scorecardId",
+            "scorecardArtifactPath",
+        ),
+    )
+    enriched["metricsFields"] = fill_missing_mapping_values(
+        as_dict(payload.get("metricsFields")),
+        as_dict(report_payload.get("metricsFields")),
+        (
+            "candidatePolicyId",
+            "simulatorRunCount",
+            "simulationTicksPerRun",
+        ),
+    )
+    return enriched
+
+
 def normalize_training_evidence_payload(path: Path | None, artifact_root: Path, payload: JsonObject | None) -> JsonObject | None:
     if payload is None or path is None:
         return payload
     if is_root_rl_training_report(path, artifact_root, payload):
         return normalize_root_training_report_payload(path, payload)
+    if payload.get("type") == TRAINING_LEDGER_TYPE:
+        return enrich_training_ledger_from_referenced_report(payload, artifact_root)
     return payload
 
 
@@ -599,7 +724,13 @@ def latest_training_evidence_artifact(
     candidates: list[static_dashboard.LoadedArtifact] = []
     latest_training = latest_external_dashboard_artifact(bounded_artifacts, "training_ledger")
     if latest_training is not None:
-        candidates.append(latest_training)
+        candidates.append(
+            static_dashboard.LoadedArtifact(
+                path=latest_training.path,
+                payload=normalize_training_evidence_payload(latest_training.path, artifact_root, latest_training.payload) or latest_training.payload,
+                timestamp=latest_training.timestamp,
+            )
+        )
     latest_report, report_scan = latest_root_training_report_artifact(
         artifact_root,
         repo_root,
@@ -741,6 +872,24 @@ def normalized_latest_training_payload(
         artifact_root,
         latest_artifact_payload(summary, "trainingLedger", repo_root),
     )
+
+
+def latest_root_training_report_payload_from_summary(
+    summary: JsonObject,
+    artifact_root: Path,
+    repo_root: Path,
+) -> JsonObject | None:
+    scan = as_dict(as_dict(summary.get("scan")).get("rootTrainingReportScan"))
+    selected = text_value(scan.get("selected"))
+    if selected is None:
+        return None
+    path = Path(selected)
+    if not path.is_absolute():
+        path = repo_root / path
+    payload = load_json(path)
+    if payload is None or not is_root_rl_training_report(path, artifact_root, payload):
+        return None
+    return normalize_root_training_report_payload(path, payload)
 
 
 def selected_scorecard_comparison(training_payload: JsonObject | None) -> JsonObject:
@@ -1380,6 +1529,7 @@ def policy_evidence_windows(
     summary: JsonObject,
     training: JsonObject,
     repo_root: Path,
+    training_payload: JsonObject | None = None,
 ) -> JsonObject:
     previous_windows = as_dict((previous or {}).get("evidenceWindows"))
     windows: JsonObject = dict(previous_windows) if previous_windows else {
@@ -1393,12 +1543,16 @@ def policy_evidence_windows(
         "latestTrainingLedger": latest_artifact_path(summary, "trainingLedger", repo_root),
         "latestPolicyAdvantage": latest_artifact_path(summary, "policyAdvantage", repo_root),
     }
-    windows["trainingReportIds"] = unique_text_values(
-        [
-            as_list(windows.get("trainingReportIds")),
-            training_report_ids_from_training(training),
-        ]
-    )
+    current_training_report_ids = referenced_training_report_ids(as_dict(training_payload))
+    if current_training_report_ids:
+        windows["trainingReportIds"] = current_training_report_ids
+    else:
+        windows["trainingReportIds"] = unique_text_values(
+            [
+                as_list(windows.get("trainingReportIds")),
+                training_report_ids_from_training(training),
+            ]
+        )
     windows["latestTrainingLedger"] = latest_artifact_path(summary, "trainingLedger", repo_root)
     windows["latestPolicyAdvantage"] = latest_artifact_path(summary, "policyAdvantage", repo_root)
     return windows
@@ -1688,6 +1842,111 @@ def policy_regressions(metrics: JsonObject) -> list[JsonObject]:
     return regressions[:8]
 
 
+def reward_decision_missing_regression(
+    *,
+    scorecard: JsonObject,
+    candidate_policy_id: str | None,
+    training_payload: JsonObject | None,
+) -> JsonObject:
+    payload = as_dict(training_payload)
+    artifacts = as_dict(payload.get("trainingArtifacts"))
+    scorecard_id = text_value(scorecard.get("scorecardId"))
+    candidate = candidate_policy_text(candidate_policy_id)
+    if candidate is None:
+        reason = "candidate policy id is missing or placeholder"
+    elif scorecard_id is None:
+        reason = "selected scorecard evidence is missing for the candidate policy"
+    else:
+        reason = "no matching reward decision could be carried or generated for the selected scorecard and candidate"
+    return {
+        "metric": "rewardDecisionId_missing",
+        "severity": "P0",
+        "delta": f"BLOCKED: rewardDecisionId is null because {reason}.",
+        "evidence": {
+            "candidatePolicyId": candidate,
+            "scorecardId": scorecard_id,
+            "scorecardArtifactPath": scorecard.get("scorecardArtifactPath"),
+            "trainingReportIds": referenced_training_report_ids(payload),
+            "policyUpdateArtifactPath": artifacts.get("policyUpdateArtifactPath"),
+            "rewardDecisionId": None,
+        },
+        "trainingFeedback": (
+            "Loop B requires a non-null rewardDecisionId before deployability can pass; "
+            "propagate an exact matching decision or preserve this blocker."
+        ),
+    }
+
+
+def reward_decision_null_text_present(value: Any) -> bool:
+    if isinstance(value, str):
+        return any(marker in value for marker in REWARD_DECISION_NULL_TEXT_MARKERS)
+    if isinstance(value, list):
+        return any(reward_decision_null_text_present(item) for item in value)
+    if isinstance(value, dict):
+        return any(reward_decision_null_text_present(item) for item in value.values())
+    return False
+
+
+def reward_decision_resolved_reference(reward_decision_id: str, reward_decision_artifact_path: str | None) -> str:
+    if reward_decision_artifact_path:
+        return f"rewardDecisionId {reward_decision_id} is available at {reward_decision_artifact_path}"
+    return f"rewardDecisionId {reward_decision_id} is available"
+
+
+def reward_decision_consistent_text(
+    value: Any,
+    *,
+    reward_decision_id: str | None,
+    reward_decision_artifact_path: str | None,
+    field: str,
+) -> Any:
+    if reward_decision_id is None or not isinstance(value, str) or not reward_decision_null_text_present(value):
+        return value
+    resolved = reward_decision_resolved_reference(reward_decision_id, reward_decision_artifact_path)
+    text = value
+    text = text.replace("rewardDecisionId propagated (currently null regression), ", "")
+    text = text.replace(
+        "RESTORE rewardDecisionId provenance \u2014 investigate why latest ledger shows null",
+        f"{resolved}; keep provenance guard active",
+    )
+    if not reward_decision_null_text_present(text):
+        return text
+    if field == "rolloutGate":
+        return (
+            f"BLOCKED. {resolved}; rollout still requires remaining non-reward gates, fresh validation evidence, "
+            "and explicit deployment authorization before any live promotion."
+        )
+    if field == "nextExperimentCardDelta":
+        return (
+            f"{resolved}; continue with remaining non-reward blockers: experiment card/local runner validation, "
+            "gate freshness, and guarded post-fix validation."
+        )
+    return (
+        f"{resolved}; no current missing reward decision blocker remains. Keep remaining rollout and training "
+        "blockers explicit before promotion."
+    )
+
+
+def reward_decision_consistent_training_feedback(
+    feedback: Any,
+    *,
+    reward_decision_id: str | None,
+    reward_decision_artifact_path: str | None,
+) -> Any:
+    if reward_decision_id is None or not isinstance(feedback, dict):
+        return feedback
+    updated = dict(feedback)
+    for key, value in list(updated.items()):
+        if reward_decision_null_text_present(value):
+            updated[key] = reward_decision_consistent_text(
+                value,
+                reward_decision_id=reward_decision_id,
+                reward_decision_artifact_path=reward_decision_artifact_path,
+                field=f"trainingStrategyFeedback.{key}",
+            )
+    return updated
+
+
 def build_policy_advantage(
     *,
     repo_root: Path,
@@ -1700,6 +1959,8 @@ def build_policy_advantage(
     summary = dashboard_summary(repo_root, artifact_root, created_at, max_files_per_root)
     previous = latest_artifact_payload(summary, "policyAdvantage", repo_root)
     training_payload = normalized_latest_training_payload(summary, artifact_root, repo_root)
+    root_training_payload = latest_root_training_report_payload_from_summary(summary, artifact_root, repo_root)
+    evidence_training_payload = root_training_payload or training_payload
     policy = as_dict(summary.get("policy"))
     training = as_dict(summary.get("training"))
     git = git_metadata(repo_root)
@@ -1743,7 +2004,13 @@ def build_policy_advantage(
         policy.get("baseline"),
         "incumbent",
     )
-    evidence_windows = policy_evidence_windows(previous, summary, training, repo_root)
+    evidence_windows = policy_evidence_windows(
+        previous,
+        summary,
+        training,
+        repo_root,
+        evidence_training_payload,
+    )
     carried_reward_decision_id = existing_reward_decision_id(previous, training_payload)
     reward_decision_id, reward_decision_artifact_path = emit_scorecard_reward_decision_if_missing(
         previous_policy=previous,
@@ -1762,6 +2029,53 @@ def build_policy_advantage(
         current_policy_advantage_path=current_policy_advantage_path,
     )
     emitted_reward_decision = carried_reward_decision_id is None and reward_decision_id is not None
+    if reward_decision_id is None:
+        missing_regression = reward_decision_missing_regression(
+            scorecard=scorecard,
+            candidate_policy_id=candidate_policy_id,
+            training_payload=training_payload,
+        )
+        if not any(as_dict(item).get("metric") == missing_regression["metric"] for item in regressions):
+            regressions.append(missing_regression)
+        deployability = "BLOCKED"
+        if str(as_dict(rollout_gate).get("status", "")).upper() not in {"BLOCKED", "HOLD"}:
+            rollout_gate = {
+                "status": "BLOCKED",
+                "reason": missing_regression["delta"],
+                "source": "reward_decision_generation",
+            }
+    else:
+        rollout_gate = reward_decision_consistent_text(
+            rollout_gate,
+            reward_decision_id=reward_decision_id,
+            reward_decision_artifact_path=reward_decision_artifact_path,
+            field="rolloutGate",
+        )
+    training_strategy_feedback = reward_decision_consistent_training_feedback(
+        field_from(
+            previous,
+            "trainingStrategyFeedback",
+            {
+                "rewardChanges": [],
+                "scenarioChanges": ["collect bounded online KPI evidence before promotion"],
+                "dataWeightingChanges": [],
+                "frameworkInstrumentationChanges": [] if training.get("hasComputeEvidence") else ["restore Loop A compute evidence"],
+                "candidateGenerationChanges": [],
+            },
+        ),
+        reward_decision_id=reward_decision_id,
+        reward_decision_artifact_path=reward_decision_artifact_path,
+    )
+    next_experiment_card_delta = reward_decision_consistent_text(
+        field_from(
+            previous,
+            "nextExperimentCardDelta",
+            "Produce a candidate with fresh Loop A compute evidence and a pre/post KPI measurement window.",
+        ),
+        reward_decision_id=reward_decision_id,
+        reward_decision_artifact_path=reward_decision_artifact_path,
+        field="nextExperimentCardDelta",
+    )
 
     return {
         "type": POLICY_ADVANTAGE_TYPE,
@@ -1789,22 +2103,8 @@ def build_policy_advantage(
         "evidenceWindows": evidence_windows,
         "metrics": metrics,
         "regressions": regressions,
-        "trainingStrategyFeedback": field_from(
-            previous,
-            "trainingStrategyFeedback",
-            {
-                "rewardChanges": [],
-                "scenarioChanges": ["collect bounded online KPI evidence before promotion"],
-                "dataWeightingChanges": [],
-                "frameworkInstrumentationChanges": [] if training.get("hasComputeEvidence") else ["restore Loop A compute evidence"],
-                "candidateGenerationChanges": [],
-            },
-        ),
-        "nextExperimentCardDelta": field_from(
-            previous,
-            "nextExperimentCardDelta",
-            "Produce a candidate with fresh Loop A compute evidence and a pre/post KPI measurement window.",
-        ),
+        "trainingStrategyFeedback": training_strategy_feedback,
+        "nextExperimentCardDelta": next_experiment_card_delta,
         "rewardDecisionId": reward_decision_id,
         "rewardDecisionArtifactPath": reward_decision_artifact_path,
         "scorecardId": scorecard.get("scorecardId"),
