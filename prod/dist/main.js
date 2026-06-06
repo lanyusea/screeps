@@ -25565,6 +25565,16 @@ var DEFAULT_SOURCE_ENERGY_CAPACITY = 3e3;
 var DEFAULT_SOURCE_REGEN_TICKS = 300;
 var SOURCE_HARVESTER_MIN_WORK_PARTS = 4;
 var MAX_CREEP_PARTS4 = 50;
+var DEFAULT_BODY_PART_COSTS = {
+  move: 50,
+  work: 100,
+  carry: 50,
+  attack: 80,
+  ranged_attack: 150,
+  heal: 250,
+  claim: 600,
+  tough: 10
+};
 var sourceHarvesterAssignmentCountCache = null;
 function buildSourceHarvesterBody(energyAvailable, options = {}) {
   const energyBudget = normalizeNonNegativeInteger11(energyAvailable);
@@ -25592,18 +25602,17 @@ function getSourceHarvesterAssignments(room, options = {}) {
   if (typeof FIND_SOURCES !== "number" || typeof room.find !== "function") {
     return [];
   }
-  return room.find(FIND_SOURCES).flatMap((source) => {
+  return room.find(FIND_SOURCES).map((source) => {
     const container = findSourceContainer(room, source);
-    return container ? [
-      {
-        assignment: {
-          roomName: room.name,
-          sourceId: source.id,
-          containerId: container.id
-        },
-        rangeFromOrigin: getSourceRangeFromOrigin(source, options.origin)
-      }
-    ] : [];
+    return {
+      assignment: {
+        roomName: room.name,
+        sourceId: source.id,
+        ...container ? { containerId: container.id } : {}
+      },
+      hasContainer: container !== null,
+      rangeFromOrigin: getSourceRangeFromOrigin(source, options.origin)
+    };
   }).sort(compareAssignmentCandidates).map((candidate) => candidate.assignment);
 }
 function runSourceHarvester(creep) {
@@ -25693,7 +25702,8 @@ function getSourceHarvesterBodyCost(workParts, carryParts, moveParts) {
   return workParts * bodyPartCosts.work + carryParts * bodyPartCosts.carry + moveParts * bodyPartCosts.move;
 }
 function getBodyPartCosts() {
-  return globalThis.BODYPART_COST;
+  var _a2;
+  return (_a2 = globalThis.BODYPART_COST) != null ? _a2 : DEFAULT_BODY_PART_COSTS;
 }
 function getDefaultSourceEnergyCapacity() {
   var _a2;
@@ -25822,6 +25832,9 @@ function getAssignedSource2(assignment) {
   return (_a2 = room.find(FIND_SOURCES).find((candidate) => String(candidate.id) === String(assignment.sourceId))) != null ? _a2 : null;
 }
 function getAssignedContainer(assignment) {
+  if (!assignment.containerId) {
+    return null;
+  }
   const container = getObjectById2(assignment.containerId);
   return container != null ? container : null;
 }
@@ -25829,11 +25842,14 @@ function normalizeSourceHarvesterMemory(value) {
   if (!isRecord23(value)) {
     return null;
   }
-  return isNonEmptyString21(value.roomName) && isNonEmptyString21(value.sourceId) && isNonEmptyString21(value.containerId) ? {
+  if (!isNonEmptyString21(value.roomName) || !isNonEmptyString21(value.sourceId)) {
+    return null;
+  }
+  return {
     roomName: value.roomName,
     sourceId: value.sourceId,
-    containerId: value.containerId
-  } : null;
+    ...isNonEmptyString21(value.containerId) ? { containerId: value.containerId } : {}
+  };
 }
 function moveTowardRoom2(creep, roomName) {
   var _a2;
@@ -25934,7 +25950,10 @@ function getSourceRangeFromOrigin(source, origin) {
   return getRangeBetweenPositions2(origin, sourcePosition);
 }
 function compareAssignmentCandidates(left, right) {
-  return left.rangeFromOrigin - right.rangeFromOrigin || compareAssignments(left.assignment, right.assignment);
+  return getAssignmentContainerRank(left) - getAssignmentContainerRank(right) || left.rangeFromOrigin - right.rangeFromOrigin || compareAssignments(left.assignment, right.assignment);
+}
+function getAssignmentContainerRank(candidate) {
+  return candidate.hasContainer ? 0 : 1;
 }
 function compareAssignments(left, right) {
   return left.roomName.localeCompare(right.roomName) || String(left.sourceId).localeCompare(String(right.sourceId));
@@ -35331,7 +35350,7 @@ function selectEnergyHaulingDeliveryTarget(room, origin, options = {}) {
 }
 function hasPriorityEnergyHaulingDeliveryDemand(room) {
   return findEnergyHaulingDeliveryTargets(room).some(
-    (target) => !isStorageStructure(target) && !isContainerStructure4(target) && getFreeEnergyCapacity11(target) > 0
+    (target) => isPriorityEnergyHaulingDeliveryTarget(room, target) && getFreeEnergyCapacity11(target) > 0
   );
 }
 function getEnergyHaulingBacklog(room, options = {}) {
@@ -35352,7 +35371,10 @@ function selectEnergyHaulerSpawnDemand(room, options = {}) {
   }
   const backlogThreshold = getEnergyHaulingBacklogThreshold(room, options);
   const backlogEnergy = getEnergyHaulingBacklog(room, options);
-  if (backlogEnergy <= backlogThreshold || !hasEnergyHaulingDeliveryCapacity(room)) {
+  const backlogDemand = backlogEnergy > backlogThreshold && hasEnergyHaulingDeliveryCapacity(room);
+  const durablePriorityRefillEnergy = hasPriorityEnergyHaulingDeliveryDemand(room) ? getDurablePriorityRefillEnergy(room, options) : 0;
+  const durablePriorityRefillDemand = durablePriorityRefillEnergy > getDurablePriorityRefillEnergyThreshold(options);
+  if (!backlogDemand && !durablePriorityRefillDemand) {
     return null;
   }
   const maxHaulers = getConfiguredPositiveInteger2(options.maxHaulers, DEFAULT_ENERGY_HAULING_MAX_HAULERS);
@@ -35362,7 +35384,7 @@ function selectEnergyHaulerSpawnDemand(room, options = {}) {
   }
   return {
     activeHaulers,
-    backlogEnergy,
+    backlogEnergy: backlogDemand ? Math.max(backlogEnergy, durablePriorityRefillEnergy) : durablePriorityRefillEnergy,
     maxHaulers,
     roomName: room.name
   };
@@ -35403,6 +35425,29 @@ function findEnergyHaulingBacklogSources(room) {
     (structure) => isContainerStructure4(structure) || isLinkStructure(structure) && isOwnedEnergyHaulingStructure(structure)
   );
 }
+function findDurablePriorityRefillSources(room) {
+  const candidates = [
+    ...findRoomStructures6(room),
+    room.storage,
+    room.terminal
+  ].filter((structure) => structure !== void 0);
+  const seen = /* @__PURE__ */ new Set();
+  const durableSources = [];
+  for (const structure of candidates) {
+    if (!isStorageStructure(structure) && !isTerminalStructure(structure) || !isOwnedEnergyHaulingStructure(structure)) {
+      continue;
+    }
+    const id = getObjectId11(structure);
+    if (id && seen.has(id)) {
+      continue;
+    }
+    if (id) {
+      seen.add(id);
+    }
+    durableSources.push(structure);
+  }
+  return durableSources;
+}
 function findEnergyHaulingDeliveryTargets(room) {
   return [
     ...includeRoomDurableStores(room, findOwnedStructures6(room)),
@@ -35413,6 +35458,19 @@ function findEnergyHaulingDeliveryTargets(room) {
 }
 function hasEnergyHaulingDeliveryCapacity(room) {
   return findEnergyHaulingDeliveryTargets(room).some((target) => getFreeEnergyCapacity11(target) > 0);
+}
+function getDurablePriorityRefillEnergy(room, options) {
+  const sourceThreshold = getDurablePriorityRefillEnergyThreshold(options);
+  return findDurablePriorityRefillSources(room).reduce((total, source) => {
+    const energy = getStoredEnergy18(source);
+    return energy > sourceThreshold ? total + energy : total;
+  }, 0);
+}
+function getDurablePriorityRefillEnergyThreshold(options) {
+  return getConfiguredEnergyThreshold(
+    options.sourceEnergyThreshold,
+    DEFAULT_ENERGY_HAULING_SOURCE_THRESHOLD
+  );
 }
 function getEnergyHaulingBacklogThreshold(room, options) {
   if (options.backlogEnergyThreshold !== void 0) {
@@ -35427,8 +35485,11 @@ function shouldUseEarlyRclControllerRunwayThreshold(room) {
 }
 function hasEarlyRclRunwayDeliveryCapacity(room) {
   return findEnergyHaulingDeliveryTargets(room).some(
-    (target) => getFreeEnergyCapacity11(target) > 0 && (isSpawnStructure3(target) || isExtensionStructure(target) || isTowerStructure2(target) || isControllerStagingContainer(room, target))
+    (target) => getFreeEnergyCapacity11(target) > 0 && isPriorityEnergyHaulingDeliveryTarget(room, target)
   );
+}
+function isPriorityEnergyHaulingDeliveryTarget(room, target) {
+  return isSpawnStructure3(target) || isExtensionStructure(target) || isTowerStructure2(target) || isControllerStagingContainer(room, target);
 }
 function hasDurableEnergyStore(room) {
   return Boolean(room.storage) || Boolean(room.terminal) || findOwnedStructures6(room).some((structure) => isStorageStructure(structure) || isTerminalStructure(structure));
@@ -38774,7 +38835,7 @@ function hasSpawnExtensionRefillDemand(colony) {
   return normalizeNonNegativeInteger16(colony.energyCapacityAvailable) > 0 && normalizeNonNegativeInteger16(colony.energyAvailable) < normalizeNonNegativeInteger16(colony.energyCapacityAvailable);
 }
 function planLocalEnergyHaulingSpawn(context) {
-  if (context.options.workersOnly || context.workerCapacity <= 0) {
+  if (context.options.workersOnly || context.survival.hostilePresence || context.survival.controllerDowngradeGuard || context.roleCounts.worker < getLocalSupportWorkerFloor(context)) {
     return null;
   }
   const demand = selectEnergyHaulerSpawnDemand(context.colony.room);
@@ -38815,7 +38876,7 @@ function planLocalSourceMiningSpawn(context) {
   if (context.options.workersOnly || context.survival.hostilePresence || context.survival.controllerDowngradeGuard || ((_a2 = context.colony.room.controller) == null ? void 0 : _a2.my) !== true || ((_b = context.colony.room.controller.level) != null ? _b : 0) < 2 || context.roleCounts.worker < LOCAL_SUPPORT_WORKER_FLOOR) {
     return null;
   }
-  const target = selectLocalSourceHarvesterSpawnTarget(context.colony);
+  const target = selectLocalSourceHarvesterSpawnTarget(context);
   if (!target) {
     return null;
   }
@@ -38845,16 +38906,19 @@ function planLocalSourceMiningSpawn(context) {
     }
   };
 }
-function selectLocalSourceHarvesterSpawnTarget(colony) {
-  var _a2;
+function selectLocalSourceHarvesterSpawnTarget(context) {
+  var _a2, _b;
+  const colony = context.colony;
   const idleSpawns = colony.spawns.filter((candidate) => !candidate.spawning);
   if (idleSpawns.length === 0) {
     return null;
   }
+  const sourceCount = getSourceCount(colony.room);
+  const allowMobileFallbackAssignments = context.survival.mode !== "BOOTSTRAP" && hasPriorityEnergyHaulingDeliveryDemand(colony.room) && normalizeNonNegativeInteger16((_a2 = context.roleCounts.sourceHarvester) != null ? _a2 : 0) < sourceCount;
   const sourcesById = new Map(getRoomSources(colony.room).map((source) => [String(source.id), source]));
   const candidates = idleSpawns.flatMap((spawn) => {
     const assignment = selectSourceHarvesterAssignment(colony.room, { origin: spawn.pos });
-    if (!assignment) {
+    if (!assignment || assignment.containerId === void 0 && !allowMobileFallbackAssignments) {
       return [];
     }
     const source = sourcesById.get(String(assignment.sourceId));
@@ -38867,7 +38931,7 @@ function selectLocalSourceHarvesterSpawnTarget(colony) {
       }
     ];
   });
-  return (_a2 = candidates.sort(compareLocalSourceHarvesterSpawnTargets)[0]) != null ? _a2 : null;
+  return (_b = candidates.sort(compareLocalSourceHarvesterSpawnTargets)[0]) != null ? _b : null;
 }
 function compareLocalSourceHarvesterSpawnTargets(left, right) {
   return left.sourceDistance - right.sourceDistance || String(left.spawn.name).localeCompare(String(right.spawn.name)) || String(left.assignment.sourceId).localeCompare(String(right.assignment.sourceId));

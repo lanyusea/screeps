@@ -38,6 +38,7 @@ import {
 import { buildScaledWorkerBody } from '../economy/worker-body-scaling';
 import {
   buildEnergyHaulerBody,
+  hasPriorityEnergyHaulingDeliveryDemand,
   selectEnergyHaulerSpawnDemand
 } from '../economy/energyHauling';
 import { getEnergyReservationScore } from '../economy/energyReservation';
@@ -674,7 +675,9 @@ function hasSpawnExtensionRefillDemand(colony: ColonySnapshot): boolean {
 function planLocalEnergyHaulingSpawn(context: SpawnPlanningContext): SpawnRequest | null {
   if (
     context.options.workersOnly ||
-    context.workerCapacity <= 0
+    context.survival.hostilePresence ||
+    context.survival.controllerDowngradeGuard ||
+    context.roleCounts.worker < getLocalSupportWorkerFloor(context)
   ) {
     return null;
   }
@@ -728,7 +731,7 @@ function planLocalSourceMiningSpawn(context: SpawnPlanningContext): SpawnRequest
     return null;
   }
 
-  const target = selectLocalSourceHarvesterSpawnTarget(context.colony);
+  const target = selectLocalSourceHarvesterSpawnTarget(context);
   if (!target) {
     return null;
   }
@@ -762,16 +765,22 @@ function planLocalSourceMiningSpawn(context: SpawnPlanningContext): SpawnRequest
   };
 }
 
-function selectLocalSourceHarvesterSpawnTarget(colony: ColonySnapshot): LocalSourceHarvesterSpawnTarget | null {
+function selectLocalSourceHarvesterSpawnTarget(context: SpawnPlanningContext): LocalSourceHarvesterSpawnTarget | null {
+  const colony = context.colony;
   const idleSpawns = colony.spawns.filter((candidate) => !candidate.spawning);
   if (idleSpawns.length === 0) {
     return null;
   }
 
+  const sourceCount = getSourceCount(colony.room);
+  const allowMobileFallbackAssignments =
+    context.survival.mode !== 'BOOTSTRAP' &&
+    hasPriorityEnergyHaulingDeliveryDemand(colony.room) &&
+    normalizeNonNegativeInteger(context.roleCounts.sourceHarvester ?? 0) < sourceCount;
   const sourcesById = new Map(getRoomSources(colony.room).map((source) => [String(source.id), source] as const));
   const candidates = idleSpawns.flatMap((spawn) => {
     const assignment = selectSourceHarvesterAssignment(colony.room, { origin: spawn.pos });
-    if (!assignment) {
+    if (!assignment || (assignment.containerId === undefined && !allowMobileFallbackAssignments)) {
       return [];
     }
 
