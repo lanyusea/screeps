@@ -1224,6 +1224,68 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
         self.assertEqual(decision["linkedTrainingRuns"], [report_id])
         self.assertIn("runtime-artifacts/rl-training/candidate-scorecards", decision["linkedArtifactPaths"]["scorecardArtifactPath"])
 
+    def test_policy_advantage_scrubs_emitted_decision_rollout_gate_from_stale_previous_null_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root, report_id = write_root_local2w_training_report_artifacts(
+                root,
+                include_positive_policy=True,
+                trusted_gradient_update=True,
+            )
+            candidate_policy_id = local2w_next_policy_id()
+            output = root / "out" / "policy-advantage.json"
+            write_json(
+                artifact_root / "rl-control-loop" / "20260604T230000Z-policy-advantage.json",
+                {
+                    "type": ledgers.POLICY_ADVANTAGE_TYPE,
+                    "createdAt": "2026-06-04T23:00:00Z",
+                    "candidatePolicyId": candidate_policy_id,
+                    "baselinePolicyId": "incumbent",
+                    "onlineUtilityStatus": "PROVEN",
+                    "metrics": {
+                        "territory": {"advantage": "advantage", "candidateValue": 2, "baselineValue": 1, "delta": 1},
+                        "resources": {"advantage": "tie", "candidateValue": 1, "baselineValue": 1, "delta": 0},
+                    },
+                    "regressions": [],
+                    "evidenceWindows": {"trainingReportIds": [report_id]},
+                    "rolloutGate": {
+                        "status": "BLOCKED",
+                        "reason": "rewardDecisionId is null; preserve the previous blocker until provenance is restored.",
+                        "source": "reward_decision_generation",
+                    },
+                },
+            )
+
+            exit_code = ledgers.main(
+                [
+                    "policy-advantage",
+                    "--repo-root",
+                    str(root),
+                    "--artifact-root",
+                    str(artifact_root),
+                    "--output",
+                    str(output),
+                    "--created-at",
+                    "2026-06-05T00:00:01Z",
+                    "--max-files-per-root",
+                    "4",
+                ],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+            payload = read_json(output)
+            decision = read_json(root / payload["rewardDecisionArtifactPath"])
+
+        decision_rollout_gate = decision["validationEvidence"]["rolloutGate"]
+        gate_text = json.dumps(decision_rollout_gate, sort_keys=True)
+        self.assertEqual(exit_code, 0)
+        self.assertIsNotNone(payload["rewardDecisionId"])
+        self.assertEqual(decision["rewardDecisionId"], payload["rewardDecisionId"])
+        self.assertEqual(payload["rolloutGate"], decision_rollout_gate)
+        self.assertIn(f"rewardDecisionId {payload['rewardDecisionId']} is available", decision_rollout_gate["reason"])
+        for marker in ledgers.REWARD_DECISION_NULL_TEXT_MARKERS:
+            self.assertNotIn(marker, gate_text)
+
     def test_policy_advantage_keeps_untrusted_root_training_report_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

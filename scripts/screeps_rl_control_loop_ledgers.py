@@ -1490,8 +1490,15 @@ def emit_scorecard_reward_decision_if_missing(
             artifact_root=artifact_root,
             repo_root=repo_root,
         )
+    reward_decision_artifact_path = repo_display_path(path, repo_root)
+    decision_rollout_gate = reward_decision_consistent_text(
+        rollout_gate,
+        reward_decision_id=reward_decision_id,
+        reward_decision_artifact_path=reward_decision_artifact_path,
+        field="rolloutGate",
+    )
     linked_artifact_paths: JsonObject = {
-        "rewardDecisionArtifactPath": repo_display_path(path, repo_root),
+        "rewardDecisionArtifactPath": reward_decision_artifact_path,
         "policyAdvantageArtifactPath": repo_display_path(current_policy_advantage_path, repo_root) if current_policy_advantage_path else None,
         "trainingLedgerPath": repo_display_path(as_dict(training).get("latestPath"), repo_root),
         "scorecardArtifactPath": scorecard.get("scorecardArtifactPath"),
@@ -1510,13 +1517,13 @@ def emit_scorecard_reward_decision_if_missing(
             training=training,
             evidence_windows=evidence_windows,
             linked_artifact_paths=linked_artifact_paths,
-            rollout_gate=rollout_gate,
+            rollout_gate=decision_rollout_gate,
             deployability_status=deployability_status,
             online_utility_status=online_utility_status,
         ),
         created_at,
     )
-    return reward_decision_id, repo_display_path(path, repo_root)
+    return reward_decision_id, reward_decision_artifact_path
 
 
 def metric_list_to_category_map(metrics: Sequence[Any]) -> JsonObject:
