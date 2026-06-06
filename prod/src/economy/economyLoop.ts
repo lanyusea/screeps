@@ -39,6 +39,7 @@ import type { StrategyRegistryEntry } from '../strategy/strategyRegistry';
 import { getRuntimeFeatureGates, type RuntimeFeatureGates } from '../runtime/featureGates';
 import {
   getRuntimeCpuBudget,
+  shouldRunConstructionCpuWork,
   shouldRunOptionalCpuRoomWork,
   shouldRunOptionalCpuWork,
   shouldShedNonessentialCpuWork,
@@ -217,6 +218,15 @@ export function runEconomy(
     if (shedNonessentialCpuWork) {
       survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
       if (!shouldRunShedCpuColonyPlanning(colony, roleCounts, survivalAssessment)) {
+        if (shouldRunConstructionCpuWork(roomCpuBudget)) {
+          runClaimedRoomConstructionForCpuBudget(
+            colony,
+            creeps,
+            options,
+            postClaimBootstrapFocusRoomName,
+            false
+          );
+        }
         continue;
       }
     }
@@ -248,23 +258,13 @@ export function runEconomy(
       { focusRoomName: postClaimBootstrapFocusRoomName }
     );
     if (shouldRunConstructionPlanning(roomCpuBudget, runOptionalRoomWork, survivalAssessment)) {
-      refreshPostClaimDefenseConstruction(colony, { focusRoomName: postClaimBootstrapFocusRoomName });
-    }
-    const constructionOptions = {
-      respectRoomEnergyBuffer: true,
-      creeps,
-      strategyRegistry: options.strategyRegistry,
-      runtimeStrategyConstructionEnabled: options.runtimeStrategyConstructionEnabled,
-      onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
-    };
-    if (shouldRunConstructionPlanning(roomCpuBudget, runOptionalRoomWork, survivalAssessment)) {
-      if (postClaimBootstrapRefresh.deferred === true) {
-        planDeferredClaimedRoomCapacityConstruction(colony, constructionOptions);
-      } else {
-        planClaimedRoomConstruction(colony, {
-          ...constructionOptions
-        });
-      }
+      runClaimedRoomConstructionForCpuBudget(
+        colony,
+        creeps,
+        options,
+        postClaimBootstrapFocusRoomName,
+        postClaimBootstrapRefresh.deferred === true
+      );
     }
     if (survivalAssessment.mode === 'TERRITORY_READY' && shouldRunTerritoryPlanning(roomCpuBudget, runOptionalRoomWork)) {
       refreshRemoteMiningSetup(colony, Game.time, { focusRoomName: postClaimBootstrapFocusRoomName });
@@ -553,6 +553,30 @@ function shouldRunShedCpuColonyPlanning(
   return isColonyRoomThreatened(colony.room.name, Game.time);
 }
 
+function runClaimedRoomConstructionForCpuBudget(
+  colony: ColonySnapshot,
+  creeps: Creep[],
+  options: EconomyRuntimeOptions,
+  postClaimBootstrapFocusRoomName: string | null,
+  deferred: boolean
+): void {
+  refreshPostClaimDefenseConstruction(colony, { focusRoomName: postClaimBootstrapFocusRoomName });
+  const constructionOptions = {
+    respectRoomEnergyBuffer: true,
+    creeps,
+    strategyRegistry: options.strategyRegistry,
+    runtimeStrategyConstructionEnabled: options.runtimeStrategyConstructionEnabled,
+    onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
+  };
+
+  if (deferred) {
+    planDeferredClaimedRoomCapacityConstruction(colony, constructionOptions);
+    return;
+  }
+
+  planClaimedRoomConstruction(colony, constructionOptions);
+}
+
 function isDowngradeGuardControllerCreep(creep: Creep): boolean {
   if (creep.memory?.controllerUpgrade?.priority === 'downgradeGuard') {
     return true;
@@ -675,6 +699,10 @@ function shouldRunConstructionPlanning(
 
   if (cpuBudget.critical) {
     return false;
+  }
+
+  if (shouldRunConstructionCpuWork(cpuBudget)) {
+    return true;
   }
 
   return (

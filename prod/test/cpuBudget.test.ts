@@ -5,6 +5,7 @@ import {
   isRuntimeCpuBucketCritical,
   isRuntimeCpuBucketLow,
   resetRuntimeCpuTelemetryForTesting,
+  shouldRunConstructionCpuWork,
   shouldRunOptionalCpuWork,
   shouldRunOptionalCpuRoomWork,
   shouldShedNonessentialCpuWork,
@@ -158,6 +159,7 @@ describe('runtime CPU budget policy', () => {
     expect(shouldRunOptionalCpuWork(budget, 'economy-global-optional')).toBe(false);
     expect(shouldRunOptionalCpuRoomWork(budget, 'E29N55')).toBe(false);
     expect(shouldShedNonessentialCpuWork(budget)).toBe(true);
+    expect(shouldRunConstructionCpuWork(budget)).toBe(false);
   });
 
   it('keeps optional work paused through the observed postdeploy recovery buckets', () => {
@@ -194,6 +196,7 @@ describe('runtime CPU budget policy', () => {
       expect(shouldRunOptionalCpuWork(budget, 'economy-global-optional')).toBe(false);
       expect(shouldRunOptionalCpuRoomWork(budget, 'E29N55')).toBe(false);
       expect(shouldShedNonessentialCpuWork(budget)).toBe(true);
+      expect(shouldRunConstructionCpuWork(budget)).toBe(false);
     }
   });
 
@@ -290,7 +293,7 @@ describe('runtime CPU budget policy', () => {
     });
   });
 
-  it('sheds optional work once the current tick exceeds its CPU limit', () => {
+  it('sheds optional work but preserves construction work once the current tick exceeds its CPU limit', () => {
     const budget = buildRuntimeCpuBudget({
       tick: 222,
       used: 71,
@@ -309,6 +312,7 @@ describe('runtime CPU budget policy', () => {
     expect(shouldRunOptionalCpuWork(budget, 'economy-global-optional')).toBe(false);
     expect(shouldRunOptionalCpuRoomWork(budget, 'E29N55')).toBe(false);
     expect(shouldShedNonessentialCpuWork(budget)).toBe(true);
+    expect(shouldRunConstructionCpuWork(budget)).toBe(true);
   });
 
   it('refreshes CPU used samples during the same game tick', () => {
