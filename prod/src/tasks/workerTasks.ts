@@ -911,6 +911,7 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
   const bootstrapCriticalRepairTarget =
     bootstrapNonCriticalWorkSuppressed &&
     isWorkerInColonyRoom(creep) &&
+    !shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) &&
     !shouldKeepSpawnExtensionRefillBeforeBootstrapExtension(creep, spawnOrExtensionEnergySink)
       ? selectCriticalInfrastructureRepairTarget(creep)
       : null;
@@ -930,6 +931,7 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
   );
   if (
     bootstrapStorageConstructionSite &&
+    !shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) &&
     !shouldKeepSpawnExtensionRefillBeforeBootstrapExtension(creep, spawnOrExtensionEnergySink)
   ) {
     return applyMinimumUsefulLoadPolicy(creep, {

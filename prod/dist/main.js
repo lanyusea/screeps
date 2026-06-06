@@ -27431,7 +27431,7 @@ function selectHeuristicWorkerTask(creep) {
       targetId: bootstrapExtensionConstructionSite.id
     });
   }
-  const bootstrapCriticalRepairTarget = bootstrapNonCriticalWorkSuppressed && isWorkerInColonyRoom(creep) && !shouldKeepSpawnExtensionRefillBeforeBootstrapExtension(creep, spawnOrExtensionEnergySink) ? selectCriticalInfrastructureRepairTarget(creep) : null;
+  const bootstrapCriticalRepairTarget = bootstrapNonCriticalWorkSuppressed && isWorkerInColonyRoom(creep) && !shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) && !shouldKeepSpawnExtensionRefillBeforeBootstrapExtension(creep, spawnOrExtensionEnergySink) ? selectCriticalInfrastructureRepairTarget(creep) : null;
   if (bootstrapCriticalRepairTarget) {
     return applyMinimumUsefulLoadPolicy(creep, {
       type: "repair",
@@ -27445,7 +27445,7 @@ function selectHeuristicWorkerTask(creep) {
     survivalAssessment,
     controller
   );
-  if (bootstrapStorageConstructionSite && !shouldKeepSpawnExtensionRefillBeforeBootstrapExtension(creep, spawnOrExtensionEnergySink)) {
+  if (bootstrapStorageConstructionSite && !shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) && !shouldKeepSpawnExtensionRefillBeforeBootstrapExtension(creep, spawnOrExtensionEnergySink)) {
     return applyMinimumUsefulLoadPolicy(creep, {
       type: "build",
       targetId: bootstrapStorageConstructionSite.id
