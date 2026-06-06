@@ -10,6 +10,8 @@ describe('runHauler', () => {
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 1;
     (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 2;
     (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 3;
+    (globalThis as unknown as { FIND_DROPPED_RESOURCES: number }).FIND_DROPPED_RESOURCES = 4;
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 5;
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
@@ -46,6 +48,25 @@ describe('runHauler', () => {
     expect(creep.memory.task).toEqual({ type: 'withdraw', targetId: 'container1' });
     expect(creep.withdraw).toHaveBeenCalledWith(container, RESOURCE_ENERGY);
     expect(creep.moveTo).toHaveBeenCalledWith(container, { reusePath: 20, ignoreRoads: false });
+  });
+
+  it('picks up dropped energy near the assigned remote source without a container', () => {
+    const source = makeSource('source1', 10, 10);
+    const droppedEnergy = makeDroppedEnergy('drop1', 700, 10, 10);
+    const remoteRoom = makeRoom('W2N1', true, [], [], [], [droppedEnergy], [source]);
+    const creep = makeHauler(remoteRoom, 0, null);
+    creep.pickup = jest.fn().mockReturnValue(ERR_NOT_IN_RANGE_CODE);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { W2N1: remoteRoom },
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : null))
+    };
+
+    runHauler(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'pickup', targetId: 'drop1' });
+    expect(creep.pickup).toHaveBeenCalledWith(droppedEnergy);
+    expect(creep.moveTo).toHaveBeenCalledWith(droppedEnergy, { reusePath: 20, ignoreRoads: false });
+    expect(creep.withdraw).not.toHaveBeenCalled();
   });
 
   it('withdraws from the richest visible remote container or storage source', () => {
@@ -174,6 +195,21 @@ describe('runHauler', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: { W1N1: homeRoom },
       getObjectById: jest.fn((id: string) => (id === 'spawn1' ? spawn : id === 'storage1' ? storage : null))
+    };
+
+    runHauler(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(creep.transfer).toHaveBeenCalledWith(spawn, RESOURCE_ENERGY);
+  });
+
+  it('delivers carried remote energy without a container assignment', () => {
+    const spawn = makeStoreStructure('spawn1', STRUCTURE_SPAWN, 100, 200);
+    const homeRoom = makeRoom('W1N1', true, [spawn], []);
+    const creep = makeHauler(homeRoom, 100, null);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { W1N1: homeRoom },
+      getObjectById: jest.fn((id: string) => (id === 'spawn1' ? spawn : null))
     };
 
     runHauler(creep);
@@ -364,7 +400,11 @@ describe('runHauler', () => {
   });
 });
 
-function makeHauler(room: Room, carriedEnergy: number): Creep {
+function makeHauler(
+  room: Room,
+  carriedEnergy: number,
+  containerId: Id<StructureContainer> | null = 'container1' as Id<StructureContainer>
+): Creep {
   return {
     memory: {
       role: 'hauler',
@@ -373,15 +413,17 @@ function makeHauler(room: Room, carriedEnergy: number): Creep {
         homeRoom: 'W1N1',
         targetRoom: 'W2N1',
         sourceId: 'source1' as Id<Source>,
-        containerId: 'container1' as Id<StructureContainer>
+        ...(containerId === null ? {} : { containerId })
       }
     },
+    pos: makeRoomPosition(10, 11, room.name),
     room,
     store: {
       getUsedCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? carriedEnergy : 0))
     },
     withdraw: jest.fn().mockReturnValue(OK_CODE),
     transfer: jest.fn().mockReturnValue(OK_CODE),
+    pickup: jest.fn().mockReturnValue(OK_CODE),
     moveTo: jest.fn()
   } as unknown as Creep;
 }
@@ -416,7 +458,9 @@ function makeRoom(
   owned: boolean,
   structures: AnyOwnedStructure[],
   hostiles: Creep[],
-  roomStructures: Structure[] = []
+  roomStructures: Structure[] = [],
+  droppedResources: Resource<ResourceConstant>[] = [],
+  sources: Source[] = []
 ): Room {
   return {
     name: roomName,
@@ -434,9 +478,39 @@ function makeRoom(
         return roomStructures;
       }
 
+      if (type === FIND_DROPPED_RESOURCES) {
+        return droppedResources;
+      }
+
+      if (type === FIND_SOURCES) {
+        return sources;
+      }
+
       return [];
     })
   } as unknown as Room;
+}
+
+function makeSource(id: string, x: number, y: number, roomName = 'W2N1'): Source {
+  return {
+    id,
+    pos: makeRoomPosition(x, y, roomName)
+  } as unknown as Source;
+}
+
+function makeDroppedEnergy(
+  id: string,
+  amount: number,
+  x: number,
+  y: number,
+  roomName = 'W2N1'
+): Resource<ResourceConstant> {
+  return {
+    id,
+    amount,
+    resourceType: RESOURCE_ENERGY,
+    pos: makeRoomPosition(x, y, roomName)
+  } as unknown as Resource<ResourceConstant>;
 }
 
 function makeScoreItem(id: string, x: number, y: number, roomName = 'W1N1'): RoomObject & { id: string; score: number; scoreType: string } {

@@ -58,6 +58,7 @@ describe('planSpawn', () => {
     (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 2;
     (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 5;
     (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 6;
+    (globalThis as unknown as { FIND_DROPPED_RESOURCES: number }).FIND_DROPPED_RESOURCES = 7;
     (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 10;
     (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
@@ -378,6 +379,21 @@ describe('planSpawn', () => {
     } as unknown as StructureContainer;
   }
 
+  function makeDroppedEnergy(
+    id: string,
+    amount: number,
+    x = 10,
+    y = 10,
+    roomName = 'W2N1'
+  ): Resource<ResourceConstant> {
+    return {
+      id,
+      amount,
+      resourceType: RESOURCE_ENERGY,
+      pos: makeRoomPosition(x, y, roomName)
+    } as unknown as Resource<ResourceConstant>;
+  }
+
   function makeEnergyHaulingStructure(
     id: string,
     structureType: StructureConstant,
@@ -406,12 +422,14 @@ describe('planSpawn', () => {
     roomName = 'W2N1',
     source = makeRemoteSource(`${roomName}-source0`, 10, 10, roomName),
     container = makeRemoteContainer(`${roomName}-container0`, 0, 10, 11, roomName),
-    controller = { id: `${roomName}-controller`, my: true, level: 1 } as StructureController
+    controller = { id: `${roomName}-controller`, my: true, level: 1 } as StructureController,
+    droppedResources = []
   }: {
     roomName?: string;
     source?: Source;
     container?: StructureContainer | null;
     controller?: StructureController;
+    droppedResources?: Resource<ResourceConstant>[];
   } = {}): Room {
     return {
       name: roomName,
@@ -429,6 +447,10 @@ describe('planSpawn', () => {
           return findMockCreepsInRoom(roomName);
         }
 
+        if (type === FIND_DROPPED_RESOURCES) {
+          return droppedResources;
+        }
+
         return [];
       })
     } as unknown as Room;
@@ -443,6 +465,48 @@ describe('planSpawn', () => {
       updatedAt: 501,
       workerTarget: 1,
       controllerId: `${targetRoom}-controller` as Id<StructureController>
+    };
+  }
+
+  function makeRemoteMiningMemory(
+    targetRoom = 'W2N1',
+    {
+      colony = 'W1N1',
+      sourceId = `${targetRoom}-source0`,
+      containerId = `${targetRoom}-container0`,
+      status = containerId === null ? 'containerPending' : 'containerReady',
+      containerBuilt = containerId !== null,
+      containerSitePending = containerId === null,
+      energyAvailable = 0,
+      energyFlowing = false
+    }: {
+      colony?: string;
+      sourceId?: string;
+      containerId?: string | null;
+      status?: TerritoryRemoteMiningStatus;
+      containerBuilt?: boolean;
+      containerSitePending?: boolean;
+      energyAvailable?: number;
+      energyFlowing?: boolean;
+    } = {}
+  ): TerritoryRemoteMiningRoomMemory {
+    return {
+      colony,
+      roomName: targetRoom,
+      status,
+      updatedAt: 501,
+      sources: {
+        [sourceId]: {
+          sourceId,
+          ...(containerId === null ? {} : { containerId }),
+          containerBuilt,
+          containerSitePending,
+          harvesterAssigned: false,
+          haulerAssigned: false,
+          energyAvailable,
+          energyFlowing
+        }
+      }
     };
   }
 
@@ -469,7 +533,7 @@ describe('planSpawn', () => {
     };
   }
 
-  function makeRemoteHarvester(sourceId = 'W2N1-source0', containerId = 'W2N1-container0'): Creep {
+  function makeRemoteHarvester(sourceId = 'W2N1-source0', containerId: string | null = 'W2N1-container0'): Creep {
     return {
       memory: {
         role: 'remoteHarvester',
@@ -478,7 +542,24 @@ describe('planSpawn', () => {
           homeRoom: 'W1N1',
           targetRoom: 'W2N1',
           sourceId: sourceId as Id<Source>,
-          containerId: containerId as Id<StructureContainer>
+          ...(containerId === null ? {} : { containerId: containerId as Id<StructureContainer> })
+        }
+      },
+      room: { name: 'W2N1' } as Room,
+      ticksToLive: 1_000
+    } as Creep;
+  }
+
+  function makeRemoteHauler(sourceId = 'W2N1-source0', containerId: string | null = 'W2N1-container0'): Creep {
+    return {
+      memory: {
+        role: 'hauler',
+        colony: 'W1N1',
+        remoteHauler: {
+          homeRoom: 'W1N1',
+          targetRoom: 'W2N1',
+          sourceId: sourceId as Id<Source>,
+          ...(containerId === null ? {} : { containerId: containerId as Id<StructureContainer> })
         }
       },
       room: { name: 'W2N1' } as Room,
@@ -2318,7 +2399,9 @@ describe('planSpawn', () => {
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
-        postClaimBootstraps: { W2N1: makeSatisfiedPostClaimRemoteMemory() }
+        remoteMining: {
+          'W1N1:W2N1': makeRemoteMiningMemory()
+        }
       }
     };
 
@@ -2560,7 +2643,13 @@ describe('planSpawn', () => {
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
-        postClaimBootstraps: { W2N1: makeSatisfiedPostClaimRemoteMemory() }
+        remoteMining: {
+          'W1N1:W2N1': makeRemoteMiningMemory('W2N1', {
+            containerId: null,
+            containerBuilt: false,
+            containerSitePending: true
+          })
+        }
       }
     };
 
@@ -2615,6 +2704,15 @@ describe('planSpawn', () => {
             colony: 'E17S59',
             controllerId: 'controller-e17s58' as Id<StructureController>
           }
+        },
+        remoteMining: {
+          'E17S59:E17S58': makeRemoteMiningMemory('E17S58', {
+            colony: 'E17S59',
+            sourceId: 'e17s58-source-a',
+            containerId: null,
+            containerBuilt: false,
+            containerSitePending: true
+          })
         },
         scoutIntel: {
           'E17S59>E18S59': makeFreshScoutIntel('E17S59', 'E18S59', 814),
@@ -2675,6 +2773,15 @@ describe('planSpawn', () => {
             controllerId: 'controller-e18s59' as Id<StructureController>
           }
         },
+        remoteMining: {
+          'E17S59:E18S59': makeRemoteMiningMemory('E18S59', {
+            colony: 'E17S59',
+            sourceId: 'e18s59-source-a',
+            containerId: null,
+            containerBuilt: false,
+            containerSitePending: true
+          })
+        },
         scoutIntel: {
           'E17S59>E18S59': makeFreshScoutIntel('E17S59', 'E18S59', 837),
           'E17S59>E17S60': makeFreshScoutIntel('E17S59', 'E17S60', 837)
@@ -2698,12 +2805,12 @@ describe('planSpawn', () => {
     });
   });
 
-  it('spawns a remote harvester for a reserve-only room while an owner hold suppresses claiming', () => {
+  it('spawns a remote harvester for a reserve-only room without claim intent pressure', () => {
     const { colony, spawn } = makeColony({
       roomName: 'E9S27',
-      energyAvailable: 650,
-      energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController(6)
+      energyAvailable: 1300,
+      energyCapacityAvailable: 1300,
+      controller: makeSafeOwnedController(4)
     });
     const source = makeRemoteSource('e9s28-source-a', 10, 10, 'E9S28');
     const remoteRoom = makeRemoteEconomyRoom({
@@ -2726,21 +2833,9 @@ describe('planSpawn', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
         targets: [
-          { colony: 'E9S27', roomName: 'E9S28', action: 'claim' },
           { colony: 'E9S27', roomName: 'E9S28', action: 'reserve' }
         ],
         intents: [
-          {
-            colony: 'E9S27',
-            targetRoom: 'E9S28',
-            action: 'claim',
-            status: 'suppressed',
-            updatedAt: 1_000,
-            suspended: {
-              reason: 'owner_reserve_only',
-              updatedAt: 1_000
-            } as unknown as TerritoryIntentSuspensionMemory
-          },
           {
             colony: 'E9S27',
             targetRoom: 'E9S28',
@@ -2812,7 +2907,9 @@ describe('planSpawn', () => {
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
-        postClaimBootstraps: { W2N1: makeSatisfiedPostClaimRemoteMemory() }
+        remoteMining: {
+          'W1N1:W2N1': makeRemoteMiningMemory()
+        }
       }
     };
 
@@ -2850,6 +2947,86 @@ describe('planSpawn', () => {
     });
   });
 
+  it('dispatches one remote hauler for dropped energy near a pending remote source without a container', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController(),
+      ownedStructures: [makeRemoteHaulerStorageSink('storage1')]
+    });
+    const source = makeRemoteSource('W2N1-source0');
+    const lowDroppedEnergyRoom = makeRemoteEconomyRoom({
+      source,
+      container: null,
+      droppedResources: [makeDroppedEnergy('drop-low', 500)]
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 510,
+      rooms: { W1N1: colony.room, W2N1: lowDroppedEnergyRoom },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        RemoteHarvester: makeRemoteHarvester('W2N1-source0', null)
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        remoteMining: {
+          'W1N1:W2N1': makeRemoteMiningMemory('W2N1', {
+            containerId: null,
+            containerBuilt: false,
+            containerSitePending: true
+          })
+        }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 4 }, 511)).toBeNull();
+
+    const highDroppedEnergyRoom = makeRemoteEconomyRoom({
+      source,
+      container: null,
+      droppedResources: [makeDroppedEnergy('drop-high', 700)]
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 511,
+      rooms: { W1N1: colony.room, W2N1: highDroppedEnergyRoom },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        RemoteHarvester: makeRemoteHarvester('W2N1-source0', null)
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+
+    expect(planSpawn(colony, { worker: 4 }, 512)).toEqual({
+      spawn,
+      body: ['carry', 'move', 'carry', 'move', 'carry', 'move', 'carry', 'move', 'carry', 'move', 'carry', 'move'],
+      name: 'hauler-W1N1-W2N1-W2N1-source0-512',
+      memory: {
+        role: 'hauler',
+        colony: 'W1N1',
+        remoteHauler: {
+          homeRoom: 'W1N1',
+          targetRoom: 'W2N1',
+          sourceId: 'W2N1-source0'
+        }
+      }
+    });
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 512,
+      rooms: { W1N1: colony.room, W2N1: highDroppedEnergyRoom },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        RemoteHarvester: makeRemoteHarvester('W2N1-source0', null),
+        RemoteHauler: makeRemoteHauler('W2N1-source0', null)
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+
+    expect(planSpawn(colony, { worker: 4 }, 513)).toBeNull();
+  });
+
   it('waits on remote haulers when the home colony has no known delivery demand', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
@@ -2871,7 +3048,9 @@ describe('planSpawn', () => {
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
-        postClaimBootstraps: { W2N1: makeSatisfiedPostClaimRemoteMemory() }
+        remoteMining: {
+          'W1N1:W2N1': makeRemoteMiningMemory()
+        }
       }
     };
 
@@ -2894,7 +3073,9 @@ describe('planSpawn', () => {
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
-        postClaimBootstraps: { W2N1: makeSatisfiedPostClaimRemoteMemory() },
+        remoteMining: {
+          'W1N1:W2N1': makeRemoteMiningMemory()
+        },
         intents: [
           {
             colony: 'W1N1',
@@ -2932,7 +3113,9 @@ describe('planSpawn', () => {
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
-        postClaimBootstraps: { W2N1: makeSatisfiedPostClaimRemoteMemory() }
+        remoteMining: {
+          'W1N1:W2N1': makeRemoteMiningMemory()
+        }
       }
     };
 

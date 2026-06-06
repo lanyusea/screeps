@@ -1436,7 +1436,7 @@ function planRemoteEconomySpawn(context: SpawnPlanningContext): SpawnRequest | n
     spawn,
     body,
     name: appendSpawnNameSuffix(
-      `${HAULER_ROLE}-${context.colony.room.name}-${remoteHaulerAssignment.targetRoom}-${remoteHaulerAssignment.containerId}-${context.gameTime}`,
+      `${HAULER_ROLE}-${context.colony.room.name}-${remoteHaulerAssignment.targetRoom}-${remoteHaulerAssignment.containerId ?? remoteHaulerAssignment.sourceId}-${context.gameTime}`,
       context.options
     ),
     memory: {
