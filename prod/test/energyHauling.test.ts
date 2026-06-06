@@ -113,6 +113,68 @@ describe('energy hauling priority system', () => {
     expect(selectEnergyHaulerSpawnDemand(room, { backlogEnergyThreshold: 700, maxHaulers: 2 })).toBeNull();
   });
 
+  it('reports bounded spawn demand from durable energy when priority refill targets are empty', () => {
+    const storage = makeStoreStructure('storage1', STRUCTURE_STORAGE, 1_000, 9_000, 10, 10);
+    const terminal = makeStoreStructure('terminal1', STRUCTURE_TERMINAL, 600, 9_400, 11, 10);
+    const emptySpawn = makeStoreStructure('spawn1', STRUCTURE_SPAWN, 0, 300, 17, 24);
+    const emptyTower = makeStoreStructure('tower1', STRUCTURE_TOWER, 0, 1_000, 18, 24);
+    const room = makeRoom([storage, terminal], [emptySpawn, emptyTower, storage, terminal], {
+      controller: { my: true, level: 5 } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {}
+    };
+
+    expect(getEnergyHaulingBacklog(room)).toBe(0);
+    expect(selectEnergyHaulerSpawnDemand(room, { maxHaulers: 2 })).toEqual({
+      activeHaulers: 0,
+      backlogEnergy: 1_600,
+      maxHaulers: 2,
+      roomName: 'W1N1'
+    });
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {
+        Hauler1: makeHauler('W1N1', 1_000),
+        Hauler2: makeHauler('W1N1', 1_000)
+      }
+    };
+
+    expect(selectEnergyHaulerSpawnDemand(room, { maxHaulers: 2 })).toBeNull();
+  });
+
+  it('uses durable energy to refill a controller staging target without container backlog', () => {
+    const storage = makeStoreStructure('storage1', STRUCTURE_STORAGE, 1_000, 9_000, 10, 10);
+    const controllerContainer = makeStoreStructure('controller-stage', STRUCTURE_CONTAINER, 0, 2_000, 24, 25);
+    const room = makeRoom([storage, controllerContainer], [storage], {
+      controller: { my: true, level: 5, pos: makePosition(25, 25) } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {}
+    };
+
+    expect(getEnergyHaulingBacklog(room)).toBe(0);
+    expect(selectEnergyHaulerSpawnDemand(room)).toEqual({
+      activeHaulers: 0,
+      backlogEnergy: 1_000,
+      maxHaulers: 2,
+      roomName: 'W1N1'
+    });
+  });
+
+  it('does not spawn durable-energy haulers without priority delivery demand', () => {
+    const storage = makeStoreStructure('storage1', STRUCTURE_STORAGE, 1_000, 9_000, 10, 10);
+    const fullSpawn = makeStoreStructure('spawn-full', STRUCTURE_SPAWN, 300, 0, 17, 24);
+    const room = makeRoom([storage], [fullSpawn, storage], {
+      controller: { my: true, level: 5 } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {}
+    };
+
+    expect(selectEnergyHaulerSpawnDemand(room)).toBeNull();
+  });
+
   it('reports early RCL controller runway demand below the default backlog threshold', () => {
     const sourceContainer = makeStoreStructure('source-container', STRUCTURE_CONTAINER, 300, 1_700, 10, 10);
     const controllerContainer = makeStoreStructure('controller-stage', STRUCTURE_CONTAINER, 0, 2_000, 24, 25);

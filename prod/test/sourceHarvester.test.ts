@@ -35,7 +35,7 @@ describe('sourceHarvester', () => {
     delete (globalThis as { Game?: Partial<Game> }).Game;
   });
 
-  it('selects only sources with built source-adjacent containers', () => {
+  it('prefers built source-adjacent containers before mobile fallback sources', () => {
     const sourceWithContainer = makeSource('source1', 10, 10);
     const sourceWithoutContainer = makeSource('source2', 20, 20);
     const container = makeContainer('container1', 10, 11);
@@ -48,6 +48,19 @@ describe('sourceHarvester', () => {
       roomName: 'W1N1',
       sourceId: 'source1',
       containerId: 'container1'
+    });
+  });
+
+  it('selects a visible owned-room source for mobile fallback when no container exists', () => {
+    const source = makeSource('source1', 10, 10);
+    const room = makeRoom({
+      sources: [source],
+      structures: []
+    });
+
+    expect(selectSourceHarvesterAssignment(room)).toEqual({
+      roomName: 'W1N1',
+      sourceId: 'source1'
     });
   });
 
@@ -98,6 +111,35 @@ describe('sourceHarvester', () => {
       roomName: 'W1N1',
       sourceId: 'source2',
       containerId: 'container2'
+    });
+  });
+
+  it('skips mobile fallback source assignments already held by active source harvesters', () => {
+    const firstSource = makeSource('source1', 10, 10);
+    const secondSource = makeSource('source2', 20, 20);
+    const room = makeRoom({
+      sources: [firstSource, secondSource],
+      structures: []
+    });
+    (globalThis as { Game?: Partial<Game> }).Game = {
+      time: 102,
+      creeps: {
+        Harvester1: {
+          memory: {
+            role: 'sourceHarvester',
+            colony: 'W1N1',
+            sourceHarvester: {
+              roomName: 'W1N1',
+              sourceId: 'source1' as Id<Source>
+            }
+          }
+        } as Creep
+      }
+    };
+
+    expect(selectSourceHarvesterAssignment(room)).toEqual({
+      roomName: 'W1N1',
+      sourceId: 'source2'
     });
   });
 
@@ -170,6 +212,23 @@ describe('sourceHarvester', () => {
       freeEnergy: 50,
       ranges: { source1: 1 }
     });
+    installGame(room, { source });
+
+    runSourceHarvester(creep);
+
+    expect(creep.harvest).toHaveBeenCalledWith(source);
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('accepts no-container source harvester memory for mobile fallback harvesting', () => {
+    const source = makeSource('source1', 10, 10);
+    const room = makeRoom({ sources: [source], structures: [] });
+    const creep = makeSourceHarvester(room, {
+      usedEnergy: 0,
+      freeEnergy: 50,
+      ranges: { source1: 1 }
+    });
+    delete (creep.memory.sourceHarvester as Partial<CreepSourceHarvesterMemory>).containerId;
     installGame(room, { source });
 
     runSourceHarvester(creep);

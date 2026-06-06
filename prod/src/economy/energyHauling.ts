@@ -5,6 +5,7 @@ import { isControllerStagingContainer, isSpawnStagingContainer } from './staging
 type EnergyHaulingSource = StructureContainer | StructureLink | StructureStorage | StructureTerminal;
 type EnergyHaulingDeliveryTarget = StructureSpawn | StructureExtension | StructureTower | StructureStorage | StructureContainer;
 type EnergyHaulingBacklogSource = StructureContainer | StructureLink;
+type EnergyHaulingDurableSource = StructureStorage | StructureTerminal;
 type EnergyHaulingStructureConstantGlobal =
   | 'STRUCTURE_CONTAINER'
   | 'STRUCTURE_EXTENSION'
@@ -98,7 +99,7 @@ export function selectEnergyHaulingDeliveryTarget(
 
 export function hasPriorityEnergyHaulingDeliveryDemand(room: Room): boolean {
   return findEnergyHaulingDeliveryTargets(room).some(
-    (target) => !isStorageStructure(target) && !isContainerStructure(target) && getFreeEnergyCapacity(target) > 0
+    (target) => isPriorityEnergyHaulingDeliveryTarget(room, target) && getFreeEnergyCapacity(target) > 0
   );
 }
 
@@ -128,7 +129,12 @@ export function selectEnergyHaulerSpawnDemand(
 
   const backlogThreshold = getEnergyHaulingBacklogThreshold(room, options);
   const backlogEnergy = getEnergyHaulingBacklog(room, options);
-  if (backlogEnergy <= backlogThreshold || !hasEnergyHaulingDeliveryCapacity(room)) {
+  const backlogDemand = backlogEnergy > backlogThreshold && hasEnergyHaulingDeliveryCapacity(room);
+  const durablePriorityRefillEnergy = hasPriorityEnergyHaulingDeliveryDemand(room)
+    ? getDurablePriorityRefillEnergy(room, options)
+    : 0;
+  const durablePriorityRefillDemand = durablePriorityRefillEnergy > getDurablePriorityRefillEnergyThreshold(options);
+  if (!backlogDemand && !durablePriorityRefillDemand) {
     return null;
   }
 
@@ -140,7 +146,7 @@ export function selectEnergyHaulerSpawnDemand(
 
   return {
     activeHaulers,
-    backlogEnergy,
+    backlogEnergy: backlogDemand ? Math.max(backlogEnergy, durablePriorityRefillEnergy) : durablePriorityRefillEnergy,
     maxHaulers,
     roomName: room.name
   };
@@ -196,6 +202,37 @@ function findEnergyHaulingBacklogSources(room: Room): EnergyHaulingBacklogSource
   );
 }
 
+function findDurablePriorityRefillSources(room: Room): EnergyHaulingDurableSource[] {
+  const candidates = [
+    ...findRoomStructures(room),
+    room.storage as StructureStorage | undefined,
+    room.terminal as StructureTerminal | undefined
+  ].filter((structure): structure is Structure => structure !== undefined);
+  const seen = new Set<string>();
+  const durableSources: EnergyHaulingDurableSource[] = [];
+
+  for (const structure of candidates) {
+    if (
+      (!isStorageStructure(structure) && !isTerminalStructure(structure)) ||
+      !isOwnedEnergyHaulingStructure(structure)
+    ) {
+      continue;
+    }
+
+    const id = getObjectId(structure);
+    if (id && seen.has(id)) {
+      continue;
+    }
+
+    if (id) {
+      seen.add(id);
+    }
+    durableSources.push(structure);
+  }
+
+  return durableSources;
+}
+
 function findEnergyHaulingDeliveryTargets(room: Room): EnergyHaulingDeliveryTarget[] {
   return [
     ...includeRoomDurableStores(room, findOwnedStructures(room)),
@@ -212,6 +249,21 @@ function findEnergyHaulingDeliveryTargets(room: Room): EnergyHaulingDeliveryTarg
 
 function hasEnergyHaulingDeliveryCapacity(room: Room): boolean {
   return findEnergyHaulingDeliveryTargets(room).some((target) => getFreeEnergyCapacity(target) > 0);
+}
+
+function getDurablePriorityRefillEnergy(room: Room, options: EnergyHaulingOptions): number {
+  const sourceThreshold = getDurablePriorityRefillEnergyThreshold(options);
+  return findDurablePriorityRefillSources(room).reduce((total, source) => {
+    const energy = getStoredEnergy(source);
+    return energy > sourceThreshold ? total + energy : total;
+  }, 0);
+}
+
+function getDurablePriorityRefillEnergyThreshold(options: EnergyHaulingOptions): number {
+  return getConfiguredEnergyThreshold(
+    options.sourceEnergyThreshold,
+    DEFAULT_ENERGY_HAULING_SOURCE_THRESHOLD
+  );
 }
 
 function getEnergyHaulingBacklogThreshold(room: Room, options: EnergyHaulingOptions): number {
@@ -241,10 +293,19 @@ function hasEarlyRclRunwayDeliveryCapacity(room: Room): boolean {
   return findEnergyHaulingDeliveryTargets(room).some(
     (target) =>
       getFreeEnergyCapacity(target) > 0 &&
-      (isSpawnStructure(target) ||
-        isExtensionStructure(target) ||
-        isTowerStructure(target) ||
-        isControllerStagingContainer(room, target))
+      isPriorityEnergyHaulingDeliveryTarget(room, target)
+  );
+}
+
+function isPriorityEnergyHaulingDeliveryTarget(
+  room: Room,
+  target: EnergyHaulingDeliveryTarget
+): boolean {
+  return (
+    isSpawnStructure(target) ||
+    isExtensionStructure(target) ||
+    isTowerStructure(target) ||
+    isControllerStagingContainer(room, target as AnyStructure)
   );
 }
 
