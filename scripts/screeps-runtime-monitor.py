@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
+import binascii
 import errno
+import gzip
 import html
 import json
 import math
@@ -25,6 +28,7 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
+import zlib
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -5214,6 +5218,16 @@ def decode_user_memory_data(payload: Any) -> dict[str, Any] | None:
     stripped = data.strip()
     if not stripped or stripped == "null":
         return {}
+    if stripped.startswith("gz:"):
+        encoded = stripped[3:].strip()
+        if not encoded:
+            return None
+        try:
+            stripped = gzip.decompress(base64.b64decode(encoded, validate=True)).decode("utf-8").strip()
+        except (binascii.Error, EOFError, OSError, UnicodeDecodeError, zlib.error):
+            return None
+        if not stripped or stripped == "null":
+            return {}
     try:
         decoded = json.loads(stripped)
     except json.JSONDecodeError:
