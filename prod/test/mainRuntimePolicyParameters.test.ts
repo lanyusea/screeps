@@ -377,6 +377,69 @@ describe('main runtime policy parameter consumption', () => {
     const recentWindows = checkKpiRegression.mock.calls[0][0];
     expect(Object.keys(recentWindows)).toEqual(['construction-priority']);
   });
+
+  it('does not execute stale rollback checks for an unconsumed family', () => {
+    installScreepsGlobals();
+    installRegressionBaselines();
+    const run = jest.fn((options: KernelRunOptions = {}) => {
+      const strategyId =
+        (globalThis as unknown as { Game: Partial<Game> }).Game.time === 20
+          ? 'construction-priority.incumbent.v1'
+          : 'expansion-remote.incumbent.v1';
+      const entry = options.strategyRegistry?.find((candidate) => candidate.id === strategyId);
+      if (entry) {
+        options.onStrategyRegistryRuntimeUse?.(entry);
+      }
+
+      return makeRuntimeSummary((globalThis as unknown as { Game: Partial<Game> }).Game.time);
+    });
+    jest.doMock('../src/rl/kpiRolloutMonitor', () => {
+      const actual = jest.requireActual<typeof import('../src/rl/kpiRolloutMonitor')>(
+        '../src/rl/kpiRolloutMonitor'
+      );
+      return {
+        ...actual,
+        DEFAULT_KPI_ROLLOUT_MONITOR_CONFIG: {
+          ...actual.DEFAULT_KPI_ROLLOUT_MONITOR_CONFIG,
+          minWindowSize: 1
+        }
+      };
+    });
+    mockKernel(run);
+    let main: typeof import('../src/main') | undefined;
+    jest.isolateModules(() => {
+      main = jest.requireActual<typeof import('../src/main')>('../src/main');
+    });
+
+    installRuntimePolicyPayload();
+    main?.loop();
+    expect(Memory.strategyRollback?.['construction-priority']).toMatchObject({
+      disabledId: 'construction-priority.territory-shadow.v1',
+      rollbackToId: 'construction-priority.incumbent.v1',
+      timestamp: 20
+    });
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game.time = 21;
+    installExpansionRuntimePolicyPayload();
+    main?.loop();
+    expect(Memory.strategyRollbackHistory).toBeUndefined();
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game.time = 22;
+    installExpansionRuntimePolicyPayload();
+    main?.loop();
+
+    expect(run).toHaveBeenCalledTimes(3);
+    expect(Memory.strategyRollbackHistory).toEqual([
+      {
+        family: 'expansion-remote-candidate',
+        disabledId: 'expansion-remote.territory-shadow.v1',
+        rollbackToId: 'expansion-remote.incumbent.v1',
+        timestamp: 22,
+        reason: expect.stringContaining('expansion-remote-candidate:territory')
+      }
+    ]);
+    expect(Memory.strategyRollbackHistory?.[0]?.reason).not.toContain('construction-priority');
+  });
 });
 
 function mockKernel(run: jest.Mock<RuntimeSummary, [KernelRunOptions?]>): void {
@@ -424,10 +487,50 @@ function installRuntimePolicyPayload(overrides: Record<string, unknown> = {}): v
   };
 }
 
-function makeRuntimeSummary(): RuntimeSummary {
+function installExpansionRuntimePolicyPayload(): void {
+  installRuntimePolicyPayload({
+    strategyVariantId: 'expansion-remote.incumbent.v1',
+    candidatePolicyId: 'expansion-remote.incumbent.v1',
+    sourceStrategyId: 'expansion-remote.incumbent.v1',
+    family: 'expansion-remote-candidate',
+    parameters: {
+      baseScoreWeight: 1,
+      territorySignalWeight: 31,
+      resourceSignalWeight: 4,
+      killSignalWeight: 2,
+      riskPenalty: 10
+    },
+    parametersSha256: 'expansion-runtime-use-sha'
+  });
+}
+
+function installRegressionBaselines(): void {
+  Memory.kpiBaseline = {
+    'construction-priority': {
+      timestamp: 1,
+      metrics: {
+        reliability: 1,
+        territory: 1_000,
+        resources: 0,
+        kills: 0
+      }
+    },
+    'expansion-remote-candidate': {
+      timestamp: 1,
+      metrics: {
+        reliability: 1,
+        territory: 1_000,
+        resources: 0,
+        kills: 0
+      }
+    }
+  };
+}
+
+function makeRuntimeSummary(tick = 20): RuntimeSummary {
   return {
     type: 'runtime-summary',
-    tick: 20,
+    tick,
     rooms: []
   };
 }

@@ -125,9 +125,18 @@ function runStrategyRolloutMonitoring(
     ensureBaselineWindowForFamily(family);
   }
 
-  const regressionResult = checkKpiRegression(recentKpiWindows, baselineKpiWindows, strategyRolloutConfig);
+  const monitoredFamilySet = new Set(families);
+  const regressionResult = checkKpiRegression(
+    filterKpiWindowHistory(recentKpiWindows, monitoredFamilySet),
+    filterKpiWindowHistory(baselineKpiWindows, monitoredFamilySet),
+    strategyRolloutConfig
+  );
   if (regressionResult.regression) {
     for (const family of regressionResult.regressedFamilies) {
+      if (!monitoredFamilySet.has(family)) {
+        continue;
+      }
+
       const rollbackResult = executeRollback(family, workingRegistry, regressionResult.details);
       if (rollbackResult.disabledId && rollbackResult.rollbackToId) {
         console.log(
@@ -146,6 +155,18 @@ function runStrategyRolloutMonitoring(
 
   workingRegistry = applyPendingRollbacks(workingRegistry);
   return workingRegistry;
+}
+
+function filterKpiWindowHistory(windows: KpiWindowHistory, families: Set<string>): KpiWindowHistory {
+  const filtered: KpiWindowHistory = {};
+  for (const family of families) {
+    const familyWindows = windows[family];
+    if (familyWindows) {
+      filtered[family] = familyWindows;
+    }
+  }
+
+  return filtered;
 }
 
 function getRuntimeInfluencedStrategyFamilies(
