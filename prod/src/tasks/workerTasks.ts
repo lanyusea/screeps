@@ -5444,7 +5444,10 @@ function createUnreservedBuilderStoredEnergyAcquisitionCandidate(
       return null;
     }
 
-    return createBuilderEnergyAcquisitionCandidate(creep, source, energy, task);
+    return createBuilderEnergyAcquisitionCandidate(creep, source, energy, {
+      ...task,
+      constructionSiteId: constructionSite.id
+    });
   }
 
   if (isSpawnEnergySource(source)) {
@@ -5468,7 +5471,10 @@ function createUnreservedBuilderStoredEnergyAcquisitionCandidate(
     creep,
     source,
     energy,
-    task,
+    {
+      ...task,
+      constructionSiteId: constructionSite.id
+    },
     reservationContext,
     minimumEnergy
   );

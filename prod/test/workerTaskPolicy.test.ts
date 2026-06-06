@@ -184,6 +184,41 @@ describe('worker energy-critical policy', () => {
     });
   });
 
+  it('replaces retained spawn withdraw when no spawn-buffer energy is withdrawable', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getUsedCapacity: jest.fn().mockReturnValue(300) }
+    } as unknown as StructureSpawn;
+    const room = makeEnergyCriticalRoom({
+      controller: makeController(),
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      sources: [source],
+      structures: [spawn as unknown as AnyStructure]
+    });
+    const currentTask = { type: 'withdraw', targetId: spawn.id as Id<AnyStoreStructure> } as const;
+    const selectedTask = { type: 'harvest', targetId: source.id as Id<Source> } as const;
+    const creep = makeEnergyCriticalWorker(room, {
+      carriedEnergy: 0,
+      freeCapacity: 50,
+      task: currentTask
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 203,
+      creeps: {},
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'spawn1') {
+          return spawn;
+        }
+
+        return id === 'source1' ? source : null;
+      })
+    };
+
+    expect(selectWorkerEnergyCriticalTask(creep, currentTask, selectedTask)).toEqual(selectedTask);
+  });
+
   it('keeps storage-critical mode active through its hysteresis band without withdrawing from storage', () => {
     const source = { id: 'source1', energy: 300 } as Source;
     let storageEnergy = 499;
@@ -262,6 +297,45 @@ describe('worker energy-critical policy', () => {
       type: 'harvest',
       targetId: 'source1'
     });
+  });
+
+  it('yields storage-critical acquisition to construction-scoped container energy', () => {
+    const storage = makeStorage('storage1', () => 499);
+    const container = {
+      id: 'container1',
+      structureType: 'container',
+      store: { getUsedCapacity: jest.fn().mockReturnValue(755) }
+    } as unknown as StructureContainer;
+    const room = makeEnergyCriticalRoom({
+      controller: makeController(),
+      energyAvailable: WORKER_ENERGY_CRITICAL_SPAWN_EXIT_THRESHOLD,
+      storage,
+      structures: [storage as unknown as AnyStructure, container as unknown as AnyStructure]
+    });
+    const currentTask = { type: 'withdraw', targetId: container.id as Id<AnyStoreStructure> } as const;
+    const selectedTask = {
+      type: 'withdraw',
+      targetId: container.id as Id<AnyStoreStructure>,
+      constructionSiteId: 'road-site1' as Id<ConstructionSite>
+    } as const;
+    const creep = makeEnergyCriticalWorker(room, {
+      carriedEnergy: 0,
+      freeCapacity: 50,
+      task: currentTask
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 204,
+      creeps: {},
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'storage1') {
+          return storage;
+        }
+
+        return id === 'container1' ? container : null;
+      })
+    };
+
+    expect(selectWorkerEnergyCriticalTask(creep, currentTask, selectedTask)).toBeNull();
   });
 
   it('does not assign pre-harvest while spawn energy is critical', () => {

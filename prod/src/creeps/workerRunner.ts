@@ -2307,7 +2307,20 @@ function isDowngradeGuardUpgradeTask(
 }
 
 function isSameTask(left: CreepTaskMemory, right: CreepTaskMemory): boolean {
-  return left.type === right.type && left.targetId === right.targetId;
+  if (left.type !== right.type || left.targetId !== right.targetId) {
+    return false;
+  }
+
+  if (left.type === 'withdraw' && right.type === 'withdraw') {
+    return getWithdrawConstructionSiteId(left) === getWithdrawConstructionSiteId(right);
+  }
+
+  return true;
+}
+
+function getWithdrawConstructionSiteId(task: Extract<CreepTaskMemory, { type: 'withdraw' }>): string {
+  const constructionSiteId = task.constructionSiteId;
+  return typeof constructionSiteId === 'string' ? constructionSiteId : '';
 }
 
 function isEnergySpendingTask(task: CreepTaskMemory): task is Extract<

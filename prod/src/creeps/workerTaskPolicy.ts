@@ -4,6 +4,7 @@ import {
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
   selectWorkerEnergyCriticalAcquisitionTask
 } from '../tasks/workerTasks';
+import { getSpawnEnergyWithdrawalAmount, isSpawnEnergySource } from '../economy/spawnEnergyBuffer';
 
 export const WORKER_ENERGY_CRITICAL_SPAWN_EXIT_THRESHOLD =
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD + 100;
@@ -50,17 +51,38 @@ export function selectWorkerEnergyCriticalTask(
   const freeCapacity = getFreeEnergyCapacity(creep);
   const shouldPreemptStorageWithdrawal =
     avoidStorageWithdrawal && freeCapacity > 0 && isRoomStorageWithdrawTask(creep, currentTask);
+  const shouldYieldToConstructionAcquisition =
+    freeCapacity > 0 && shouldYieldStorageCriticalAcquisitionToConstructionBacklog(assessment, selectedTask);
+  const shouldPreemptCurrentAcquisition =
+    isEnergyAcquisitionTask(currentTask) &&
+    freeCapacity > 0 &&
+    !shouldPreemptStorageWithdrawal &&
+    !canRetainEnergyCriticalAcquisitionTask(creep, currentTask);
 
   if (isEnergyAcquisitionTask(currentTask) && freeCapacity > 0 && !shouldPreemptStorageWithdrawal) {
-    return currentTask;
+    if (shouldYieldToConstructionAcquisition && !isSameTask(currentTask, selectedTask)) {
+      return null;
+    }
+
+    if (!shouldPreemptCurrentAcquisition) {
+      return currentTask;
+    }
   }
 
-  if (!shouldPreemptStorageWithdrawal && !shouldReassignWorkerTaskForEnergyCriticalState(creep, currentTask)) {
+  if (
+    !shouldPreemptStorageWithdrawal &&
+    !shouldPreemptCurrentAcquisition &&
+    !shouldReassignWorkerTaskForEnergyCriticalState(creep, currentTask)
+  ) {
     return null;
   }
 
   const carriedEnergy = getCarriedEnergy(creep);
   if (freeCapacity > 0) {
+    if (shouldYieldToConstructionAcquisition) {
+      return null;
+    }
+
     const acquisitionTask = selectWorkerEnergyCriticalAcquisitionTask(creep, {
       avoidStorageWithdrawal
     });
@@ -264,6 +286,19 @@ function isStorageCritical(assessment: WorkerEnergyCriticalAssessment): boolean 
   return assessment.reason === 'storage' || assessment.reason === 'spawnAndStorage';
 }
 
+function shouldYieldStorageCriticalAcquisitionToConstructionBacklog(
+  assessment: WorkerEnergyCriticalAssessment,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  return assessment.reason === 'storage' && isConstructionEnergyAcquisitionTask(selectedTask);
+}
+
+function isConstructionEnergyAcquisitionTask(
+  task: CreepTaskMemory | null
+): task is Extract<CreepTaskMemory, { type: 'withdraw' }> {
+  return task?.type === 'withdraw' && typeof task.constructionSiteId === 'string' && task.constructionSiteId.length > 0;
+}
+
 function isRoomStorageWithdrawTask(
   creep: Creep,
   task: CreepTaskMemory | null | undefined
@@ -274,6 +309,60 @@ function isRoomStorageWithdrawTask(
 
   const storage = getRoomStorage(creep.room);
   return Boolean(storage && String(task.targetId) === String(storage.id));
+}
+
+function canRetainEnergyCriticalAcquisitionTask(
+  creep: Creep,
+  task: Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' }>
+): boolean {
+  switch (task.type) {
+    case 'harvest':
+      return canRetainEnergyCriticalHarvestTask(task);
+    case 'pickup':
+      return canRetainEnergyCriticalPickupTask(task);
+    case 'withdraw':
+      return canRetainEnergyCriticalWithdrawTask(creep, task);
+  }
+}
+
+function canRetainEnergyCriticalHarvestTask(task: Extract<CreepTaskMemory, { type: 'harvest' }>): boolean {
+  const source = getGameObjectById<Source>(String(task.targetId));
+  if (!source) {
+    return false;
+  }
+
+  const energy = (source as Partial<Source>).energy;
+  return typeof energy !== 'number' || energy > 0;
+}
+
+function canRetainEnergyCriticalPickupTask(task: Extract<CreepTaskMemory, { type: 'pickup' }>): boolean {
+  const resource = getGameObjectById<Resource<ResourceConstant>>(String(task.targetId));
+  if (!resource) {
+    return false;
+  }
+
+  const amount = (resource as Partial<Resource<ResourceConstant>>).amount;
+  return typeof amount !== 'number' || amount > 0;
+}
+
+function canRetainEnergyCriticalWithdrawTask(
+  creep: Creep,
+  task: Extract<CreepTaskMemory, { type: 'withdraw' }>
+): boolean {
+  const target = getGameObjectById<AnyStoreStructure>(String(task.targetId));
+  if (!target) {
+    return false;
+  }
+
+  const storedEnergy = getStoredEnergy(target) ?? 0;
+  if (storedEnergy <= 0) {
+    return false;
+  }
+
+  return (
+    !isSpawnEnergySource(target) ||
+    getSpawnEnergyWithdrawalAmount(creep.room, target, getFreeEnergyCapacity(creep)) > 0
+  );
 }
 
 function getEnergyCriticalReason(spawnActive: boolean, storageActive: boolean): EnergyCriticalReason | null {
@@ -336,7 +425,20 @@ function getStoredEnergy(target: { store?: StoreDefinition }): number | null {
 }
 
 function isSameTask(left: CreepTaskMemory | null | undefined, right: CreepTaskMemory | null | undefined): boolean {
-  return Boolean(left && right && left.type === right.type && left.targetId === right.targetId);
+  if (!left || !right || left.type !== right.type || left.targetId !== right.targetId) {
+    return false;
+  }
+
+  if (left.type === 'withdraw' && right.type === 'withdraw') {
+    return getWithdrawConstructionSiteId(left) === getWithdrawConstructionSiteId(right);
+  }
+
+  return true;
+}
+
+function getWithdrawConstructionSiteId(task: Extract<CreepTaskMemory, { type: 'withdraw' }>): string {
+  const constructionSiteId = task.constructionSiteId;
+  return typeof constructionSiteId === 'string' ? constructionSiteId : '';
 }
 
 function getGameObjectById<T>(id: string): T | null {

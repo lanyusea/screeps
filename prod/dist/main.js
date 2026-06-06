@@ -30325,7 +30325,10 @@ function createUnreservedBuilderStoredEnergyAcquisitionCandidate(creep, source, 
     if (!isConstructionPreBufferExtensionSource(creep, source) || energy < CONSTRUCTION_PREBUFFER_MIN_STORED_ENERGY) {
       return null;
     }
-    return createBuilderEnergyAcquisitionCandidate(creep, source, energy, task);
+    return createBuilderEnergyAcquisitionCandidate(creep, source, energy, {
+      ...task,
+      constructionSiteId: constructionSite.id
+    });
   }
   if (isSpawnEnergySource(source)) {
     const constructionEnergy = getSpawnConstructionEnergyAvailableForWithdrawal(
@@ -30346,7 +30349,10 @@ function createUnreservedBuilderStoredEnergyAcquisitionCandidate(creep, source, 
     creep,
     source,
     energy,
-    task,
+    {
+      ...task,
+      constructionSiteId: constructionSite.id
+    },
     reservationContext,
     minimumEnergy
   );
@@ -33066,14 +33072,24 @@ function selectWorkerEnergyCriticalTask(creep, currentTask, selectedTask) {
   const avoidStorageWithdrawal = isStorageCritical(assessment);
   const freeCapacity = getFreeEnergyCapacity9(creep);
   const shouldPreemptStorageWithdrawal = avoidStorageWithdrawal && freeCapacity > 0 && isRoomStorageWithdrawTask(creep, currentTask);
+  const shouldYieldToConstructionAcquisition = freeCapacity > 0 && shouldYieldStorageCriticalAcquisitionToConstructionBacklog(assessment, selectedTask);
+  const shouldPreemptCurrentAcquisition = isEnergyAcquisitionTask(currentTask) && freeCapacity > 0 && !shouldPreemptStorageWithdrawal && !canRetainEnergyCriticalAcquisitionTask(creep, currentTask);
   if (isEnergyAcquisitionTask(currentTask) && freeCapacity > 0 && !shouldPreemptStorageWithdrawal) {
-    return currentTask;
+    if (shouldYieldToConstructionAcquisition && !isSameTask(currentTask, selectedTask)) {
+      return null;
+    }
+    if (!shouldPreemptCurrentAcquisition) {
+      return currentTask;
+    }
   }
-  if (!shouldPreemptStorageWithdrawal && !shouldReassignWorkerTaskForEnergyCriticalState(creep, currentTask)) {
+  if (!shouldPreemptStorageWithdrawal && !shouldPreemptCurrentAcquisition && !shouldReassignWorkerTaskForEnergyCriticalState(creep, currentTask)) {
     return null;
   }
   const carriedEnergy = getCarriedEnergy3(creep);
   if (freeCapacity > 0) {
+    if (shouldYieldToConstructionAcquisition) {
+      return null;
+    }
     const acquisitionTask = selectWorkerEnergyCriticalAcquisitionTask(creep, {
       avoidStorageWithdrawal
     });
@@ -33220,12 +33236,56 @@ function selectStorageEnergyCriticalDeliveryTask(creep, carriedEnergy) {
 function isStorageCritical(assessment) {
   return assessment.reason === "storage" || assessment.reason === "spawnAndStorage";
 }
+function shouldYieldStorageCriticalAcquisitionToConstructionBacklog(assessment, selectedTask) {
+  return assessment.reason === "storage" && isConstructionEnergyAcquisitionTask(selectedTask);
+}
+function isConstructionEnergyAcquisitionTask(task) {
+  return (task == null ? void 0 : task.type) === "withdraw" && typeof task.constructionSiteId === "string" && task.constructionSiteId.length > 0;
+}
 function isRoomStorageWithdrawTask(creep, task) {
   if ((task == null ? void 0 : task.type) !== "withdraw") {
     return false;
   }
   const storage = getRoomStorage3(creep.room);
   return Boolean(storage && String(task.targetId) === String(storage.id));
+}
+function canRetainEnergyCriticalAcquisitionTask(creep, task) {
+  switch (task.type) {
+    case "harvest":
+      return canRetainEnergyCriticalHarvestTask(task);
+    case "pickup":
+      return canRetainEnergyCriticalPickupTask(task);
+    case "withdraw":
+      return canRetainEnergyCriticalWithdrawTask(creep, task);
+  }
+}
+function canRetainEnergyCriticalHarvestTask(task) {
+  const source = getGameObjectById4(String(task.targetId));
+  if (!source) {
+    return false;
+  }
+  const energy = source.energy;
+  return typeof energy !== "number" || energy > 0;
+}
+function canRetainEnergyCriticalPickupTask(task) {
+  const resource = getGameObjectById4(String(task.targetId));
+  if (!resource) {
+    return false;
+  }
+  const amount = resource.amount;
+  return typeof amount !== "number" || amount > 0;
+}
+function canRetainEnergyCriticalWithdrawTask(creep, task) {
+  var _a2;
+  const target = getGameObjectById4(String(task.targetId));
+  if (!target) {
+    return false;
+  }
+  const storedEnergy = (_a2 = getStoredEnergy16(target)) != null ? _a2 : 0;
+  if (storedEnergy <= 0) {
+    return false;
+  }
+  return !isSpawnEnergySource(target) || getSpawnEnergyWithdrawalAmount(creep.room, target, getFreeEnergyCapacity9(creep)) > 0;
 }
 function getEnergyCriticalReason(spawnActive, storageActive) {
   if (spawnActive && storageActive) {
@@ -33272,7 +33332,17 @@ function getStoredEnergy16(target) {
   return typeof storedEnergy === "number" && Number.isFinite(storedEnergy) ? Math.max(0, storedEnergy) : null;
 }
 function isSameTask(left, right) {
-  return Boolean(left && right && left.type === right.type && left.targetId === right.targetId);
+  if (!left || !right || left.type !== right.type || left.targetId !== right.targetId) {
+    return false;
+  }
+  if (left.type === "withdraw" && right.type === "withdraw") {
+    return getWithdrawConstructionSiteId(left) === getWithdrawConstructionSiteId(right);
+  }
+  return true;
+}
+function getWithdrawConstructionSiteId(task) {
+  const constructionSiteId = task.constructionSiteId;
+  return typeof constructionSiteId === "string" ? constructionSiteId : "";
 }
 function getGameObjectById4(id) {
   var _a2;
@@ -34918,7 +34988,17 @@ function isDowngradeGuardUpgradeTask(creep, task) {
   return typeof ticksToDowngrade === "number" && ticksToDowngrade <= CONTROLLER_DOWNGRADE_GUARD_TICKS;
 }
 function isSameTask2(left, right) {
-  return left.type === right.type && left.targetId === right.targetId;
+  if (left.type !== right.type || left.targetId !== right.targetId) {
+    return false;
+  }
+  if (left.type === "withdraw" && right.type === "withdraw") {
+    return getWithdrawConstructionSiteId2(left) === getWithdrawConstructionSiteId2(right);
+  }
+  return true;
+}
+function getWithdrawConstructionSiteId2(task) {
+  const constructionSiteId = task.constructionSiteId;
+  return typeof constructionSiteId === "string" ? constructionSiteId : "";
 }
 function isEnergySpendingTask(task) {
   return task.type === "build" || task.type === "repair" || task.type === "upgrade";
