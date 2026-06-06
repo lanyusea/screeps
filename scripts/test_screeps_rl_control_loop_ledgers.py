@@ -568,6 +568,96 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
         self.assertNotIn("REWARD_DECISION_ID_NULL", anomaly_codes)
         self.assertIn("E1_GATE_STALE", anomaly_codes)
 
+    def test_training_ledger_clears_stale_e1_anomaly_when_selected_full_gate_is_fresh(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            output = root / "out" / "training-ledger.json"
+            write_json(
+                artifact_root / "rl-dataset-gates" / "e1-gate-20260605T191602Z" / "gate_report.json",
+                {
+                    "type": "screeps-rl-dataset-evaluation-gate",
+                    "createdAt": "2026-06-05T19:16:02Z",
+                    "ok": True,
+                    "gateId": "e1-gate-20260605T191602Z",
+                    "dataset": {"runId": "rl-fresh-full-e1", "sampleCount": 200},
+                    "datasetGate": {"status": "pass", "sampleCount": 200},
+                    "quality_checks": {"status": "pass", "samples_accepted": 200, "samples_rejected": 0},
+                    "blockingReasons": [],
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "20260605T223000Z-training-ledger.json",
+                {
+                    "type": ledgers.TRAINING_LEDGER_TYPE,
+                    "createdAt": "2026-06-05T22:30:00Z",
+                    "status": "RUN_VALIDATED",
+                    "trainingDidRun": True,
+                    "e1Gate": {
+                        "gateId": "e1-gate-20260603T045100Z",
+                        "ok": True,
+                        "datasetRunId": "rl-stale-full-e1",
+                        "sampleCount": 200,
+                    },
+                    "environmentExecution": {"started": 80, "completed": 80, "failed": 0, "successRate": 1.0},
+                    "iterationExecution": {
+                        "simulatorTicksRequested": 160000,
+                        "simulatorTicksRun": 160000,
+                        "episodesRun": 80,
+                        "candidateEvaluationIterations": 1,
+                        "policyUpdateIterations": 1,
+                    },
+                    "trainingArtifacts": {
+                        "trainingReportIds": ["training-report-current"],
+                        "candidatePolicyIds": ["candidate-current"],
+                    },
+                    "metricsFields": {
+                        "envCompleted": 80,
+                        "ticksRun": 160000,
+                        "episodes": 80,
+                        "policyUpdateIterations": 1,
+                        "trainingReportIds": ["training-report-current"],
+                        "candidatePolicyId": "candidate-current",
+                    },
+                    "anomalies": [
+                        {
+                            "severity": "P2",
+                            "code": "E1_GATE_STALE",
+                            "evidence": "latest full E1 gate is e1-gate-20260603T045100Z",
+                            "evidencePaths": [
+                                "runtime-artifacts/rl-dataset-gates/e1-gate-20260603T045100Z/gate_report.json",
+                            ],
+                        },
+                    ],
+                },
+            )
+
+            exit_code = ledgers.main(
+                [
+                    "training-ledger",
+                    "--repo-root",
+                    str(root),
+                    "--artifact-root",
+                    str(artifact_root),
+                    "--output",
+                    str(output),
+                    "--created-at",
+                    "2026-06-05T22:31:00Z",
+                    "--max-files-per-root",
+                    "8",
+                ],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+            payload = read_json(output)
+
+        anomaly_codes = {item["code"] for item in payload["anomalies"]}
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["e1Gate"]["gateId"], "e1-gate-20260605T191602Z")
+        self.assertTrue(payload["e1Gate"]["ok"])
+        self.assertEqual(payload["e1Gate"]["sampleCount"], 200)
+        self.assertNotIn("E1_GATE_STALE", anomaly_codes)
+
     def test_training_ledger_rejects_stale_policy_reward_decision_for_new_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
