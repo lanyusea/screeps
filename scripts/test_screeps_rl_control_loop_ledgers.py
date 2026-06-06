@@ -1158,6 +1158,42 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
             decision["validationEvidence"]["evidenceWindows"]["trainingReportIds"],
         )
 
+    def test_policy_evidence_windows_keeps_identityless_ledger_when_root_unmatched(self) -> None:
+        selected_ledger = {
+            "type": ledgers.TRAINING_LEDGER_TYPE,
+            "status": "RUN_VALIDATED",
+            "trainingDidRun": True,
+            "trainingArtifacts": {"scorecardCount": 1},
+            "metricsFields": {"envCompleted": 80},
+        }
+        latest_root_report = {
+            "type": "screeps-rl-training-report",
+            "trainingArtifacts": {"trainingReportIds": ["unrelated-root-report"]},
+            "metricsFields": {
+                "trainingReportIds": ["unrelated-root-report"],
+                "candidatePolicyId": "unrelated-candidate",
+            },
+        }
+        summary = {
+            "artifacts": {
+                "trainingLedger": "runtime-artifacts/rl-control-loop/selected-training-ledger.json",
+                "policyAdvantage": "runtime-artifacts/rl-control-loop/policy-advantage.json",
+            }
+        }
+
+        evidence_payload = ledgers.training_payload_for_evidence_windows(selected_ledger, latest_root_report)
+        windows = ledgers.policy_evidence_windows(
+            None,
+            summary,
+            {"identity": {"report": ["selected-dashboard-report"]}},
+            Path("/repo"),
+            evidence_payload,
+        )
+
+        self.assertIs(evidence_payload, selected_ledger)
+        self.assertEqual(windows["trainingReportIds"], ["selected-dashboard-report"])
+        self.assertNotIn("unrelated-root-report", windows["trainingReportIds"])
+
     def test_policy_advantage_scrubs_stale_reward_null_narrative_when_decision_recovered(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

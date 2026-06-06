@@ -947,13 +947,18 @@ def training_payload_for_evidence_windows(
     if root_training_payload is None:
         return training_payload
 
-    training_report_ids = set(referenced_training_report_ids(as_dict(training_payload)))
+    training_payload_dict = as_dict(training_payload)
+    training_report_ids = set(referenced_training_report_ids(training_payload_dict))
     root_report_ids = set(referenced_training_report_ids(as_dict(root_training_payload)))
     if training_report_ids and root_report_ids and training_report_ids.intersection(root_report_ids):
         return root_training_payload
 
-    training_candidate = training_evidence_candidate_policy_id(as_dict(training_payload))
-    if not training_report_ids and training_candidate is None:
+    training_candidate = training_evidence_candidate_policy_id(training_payload_dict)
+    if (
+        training_payload_dict.get("type") != TRAINING_LEDGER_TYPE
+        and not training_report_ids
+        and training_candidate is None
+    ):
         return root_training_payload
     return training_payload
 
