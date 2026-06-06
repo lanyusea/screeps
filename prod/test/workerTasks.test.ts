@@ -8602,6 +8602,351 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toBeNull();
   });
 
+  it('assigns E29N56 bootstrap storage backlog before ordinary refill when stored construction energy is safe', () => {
+    const site = {
+      id: 'storage-site1',
+      my: true,
+      structureType: 'storage',
+      progress: 10_563,
+      progressTotal: 30_000,
+      pos: makeRoomPosition(18, 24, 'E29N56')
+    } as ConstructionSite;
+    const spawn = makeEnergySinkWithEnergy('spawn-needs-energy', 'spawn' as StructureConstant, 250, 50, {
+      my: true,
+      pos: makeRoomPosition(17, 24, 'E29N56')
+    }) as StructureSpawn;
+    const storage = makeStoredEnergyStructure('storage-built', 'storage' as StructureConstant, 1_816, {
+      my: true,
+      pos: makeRoomPosition(18, 23, 'E29N56')
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 3_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N56',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 250,
+      energyCapacityAvailable: 1_300,
+      myStructures: [spawn as AnyOwnedStructure],
+      structures: [spawn as AnyStructure, storage as AnyStructure]
+    });
+    const builder = {
+      name: 'worker-E29N56-1857320',
+      memory: {
+        role: 'worker',
+        colony: 'E29N56',
+        task: { type: 'transfer', targetId: 'spawn-needs-energy' as Id<AnyStoreStructure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 82 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 18 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'storage-site1' ? 4 : 2))
+      },
+      room
+    } as unknown as Creep;
+    const refiller = {
+      name: 'RefillCoverage',
+      memory: {
+        role: 'worker',
+        colony: 'E29N56',
+        task: { type: 'transfer', targetId: 'spawn-needs-energy' as Id<AnyStoreStructure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0))
+      },
+      room
+    } as unknown as Creep;
+    const assessment = assessColonySurvival({
+      roomName: 'E29N56',
+      totalCreeps: 10,
+      workerCapacity: 4,
+      workerTarget: 4,
+      energyAvailable: 250,
+      energyCapacityAvailable: 1_300,
+      defenseFloorReady: true,
+      controller: { my: true, level: 4, ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 3_000 },
+      hostileCreepCount: 0
+    });
+    expect(assessment.mode).toBe('BOOTSTRAP');
+    recordColonySurvivalAssessment('E29N56', assessment, 1_857_841);
+    setGameCreeps({ Builder: builder, RefillCoverage: refiller });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      ...((globalThis as unknown as { Game?: Partial<Game> }).Game ?? {}),
+      time: 1_857_841
+    };
+
+    expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'storage-site1' });
+  });
+
+  it('keeps critical spawn refill before bootstrap storage backlog', () => {
+    const site = {
+      id: 'storage-site1',
+      my: true,
+      structureType: 'storage',
+      progress: 10_563,
+      progressTotal: 30_000,
+      pos: makeRoomPosition(18, 24, 'E29N56')
+    } as ConstructionSite;
+    const criticalSpawn = makeEnergySinkWithEnergy(
+      'spawn-critical',
+      'spawn' as StructureConstant,
+      CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      101,
+      { my: true, pos: makeRoomPosition(17, 24, 'E29N56') }
+    ) as StructureSpawn;
+    const storage = makeStoredEnergyStructure('storage-built', 'storage' as StructureConstant, 1_816, {
+      my: true,
+      pos: makeRoomPosition(18, 23, 'E29N56')
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 3_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N56',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 250,
+      energyCapacityAvailable: 1_300,
+      myStructures: [criticalSpawn as AnyOwnedStructure],
+      structures: [criticalSpawn as AnyStructure, storage as AnyStructure]
+    });
+    const creep = {
+      name: 'worker-E29N56-1857320',
+      memory: { role: 'worker', colony: 'E29N56' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(82) },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'storage-site1' ? 4 : 2)) },
+      room
+    } as unknown as Creep;
+    const assessment = assessColonySurvival({
+      roomName: 'E29N56',
+      totalCreeps: 10,
+      workerCapacity: 4,
+      workerTarget: 4,
+      energyAvailable: 250,
+      energyCapacityAvailable: 1_300,
+      defenseFloorReady: true,
+      controller: { my: true, level: 4, ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 3_000 },
+      hostileCreepCount: 0
+    });
+    expect(assessment.mode).toBe('BOOTSTRAP');
+    recordColonySurvivalAssessment('E29N56', assessment, 1_857_841);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      ...((globalThis as unknown as { Game?: Partial<Game> }).Game ?? {}),
+      time: 1_857_841
+    };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-critical' });
+  });
+
+  it('keeps near-term spawn refill reserve before bootstrap storage backlog', () => {
+    const site = {
+      id: 'storage-site1',
+      my: true,
+      structureType: 'storage',
+      progress: 10_563,
+      progressTotal: 30_000,
+      pos: makeRoomPosition(18, 24, 'E29N56')
+    } as ConstructionSite;
+    const spawn = makeEnergySinkWithEnergy('spawn-needs-energy', 'spawn' as StructureConstant, 250, 50, {
+      my: true,
+      pos: makeRoomPosition(17, 24, 'E29N56')
+    }) as StructureSpawn;
+    const storage = makeStoredEnergyStructure('storage-built', 'storage' as StructureConstant, 1_816, {
+      my: true,
+      pos: makeRoomPosition(18, 23, 'E29N56')
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 3_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N56',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 250,
+      energyCapacityAvailable: 1_300,
+      myStructures: [spawn as AnyOwnedStructure],
+      structures: [spawn as AnyStructure, storage as AnyStructure]
+    });
+    const creep = {
+      name: 'worker-E29N56-1857320',
+      memory: { role: 'worker', colony: 'E29N56' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(82) },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'storage-site1' ? 4 : 2)) },
+      room
+    } as unknown as Creep;
+    const assessment = assessColonySurvival({
+      roomName: 'E29N56',
+      totalCreeps: 10,
+      workerCapacity: 4,
+      workerTarget: 4,
+      energyAvailable: 250,
+      energyCapacityAvailable: 1_300,
+      defenseFloorReady: true,
+      controller: { my: true, level: 4, ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 3_000 },
+      hostileCreepCount: 0
+    });
+    expect(assessment.mode).toBe('BOOTSTRAP');
+    recordColonySurvivalAssessment('E29N56', assessment, 1_857_841);
+    setGameCreeps({ Builder: creep });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      ...((globalThis as unknown as { Game?: Partial<Game> }).Game ?? {}),
+      time: 1_857_841
+    };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-needs-energy' });
+  });
+
+  it('keeps critical repair before bootstrap storage backlog', () => {
+    const site = {
+      id: 'storage-site1',
+      my: true,
+      structureType: 'storage',
+      progress: 10_563,
+      progressTotal: 30_000,
+      pos: makeRoomPosition(18, 24, 'E29N56')
+    } as ConstructionSite;
+    const spawn = makeEnergySinkWithEnergy('spawn-needs-energy', 'spawn' as StructureConstant, 250, 50, {
+      my: true,
+      pos: makeRoomPosition(17, 24, 'E29N56')
+    }) as StructureSpawn;
+    const storage = makeStoredEnergyStructure('storage-built', 'storage' as StructureConstant, 1_816, {
+      my: true,
+      pos: makeRoomPosition(18, 23, 'E29N56')
+    });
+    const criticalContainer = makeStoredEnergyContainerWithCapacity('critical-container1', 500, 2_000, {
+      hits: 800,
+      hitsMax: 2_000,
+      pos: makeRoomPosition(20, 24, 'E29N56')
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 3_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N56',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 250,
+      energyCapacityAvailable: 1_300,
+      myStructures: [spawn as AnyOwnedStructure],
+      structures: [spawn as AnyStructure, storage as AnyStructure, criticalContainer as AnyStructure]
+    });
+    const creep = {
+      name: 'worker-E29N56-1857320',
+      memory: { role: 'worker', colony: 'E29N56' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(82) },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'critical-container1': 2,
+            'storage-site1': 4,
+            'spawn-needs-energy': 2
+          };
+          return ranges[String(target.id)] ?? 10;
+        })
+      },
+      room
+    } as unknown as Creep;
+    const refiller = makeRefillReserveWorker(room, 'RefillCoverage', 100, 1);
+    const assessment = assessColonySurvival({
+      roomName: 'E29N56',
+      totalCreeps: 10,
+      workerCapacity: 4,
+      workerTarget: 4,
+      energyAvailable: 250,
+      energyCapacityAvailable: 1_300,
+      defenseFloorReady: true,
+      controller: { my: true, level: 4, ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 3_000 },
+      hostileCreepCount: 0
+    });
+    expect(assessment.mode).toBe('BOOTSTRAP');
+    recordColonySurvivalAssessment('E29N56', assessment, 1_857_841);
+    setGameCreeps({ Repairer: creep, RefillCoverage: refiller });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      ...((globalThis as unknown as { Game?: Partial<Game> }).Game ?? {}),
+      time: 1_857_841
+    };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'critical-container1' });
+  });
+
+  it('keeps near-term spawn refill reserve before bootstrap critical repair', () => {
+    const spawn = makeEnergySinkWithEnergy('spawn-needs-energy', 'spawn' as StructureConstant, 250, 50, {
+      my: true,
+      pos: makeRoomPosition(17, 24, 'E29N56')
+    }) as StructureSpawn;
+    const criticalContainer = makeStoredEnergyContainerWithCapacity('critical-container1', 500, 2_000, {
+      hits: 800,
+      hitsMax: 2_000,
+      pos: makeRoomPosition(20, 24, 'E29N56')
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 3_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N56',
+      controller,
+      energyAvailable: 250,
+      energyCapacityAvailable: 1_300,
+      myStructures: [spawn as AnyOwnedStructure],
+      structures: [spawn as AnyStructure, criticalContainer as AnyStructure]
+    });
+    const creep = {
+      name: 'worker-E29N56-1857320',
+      memory: { role: 'worker', colony: 'E29N56' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(82) },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'critical-container1': 2,
+            'spawn-needs-energy': 2
+          };
+          return ranges[String(target.id)] ?? 10;
+        })
+      },
+      room
+    } as unknown as Creep;
+    const assessment = assessColonySurvival({
+      roomName: 'E29N56',
+      totalCreeps: 10,
+      workerCapacity: 4,
+      workerTarget: 4,
+      energyAvailable: 250,
+      energyCapacityAvailable: 1_300,
+      defenseFloorReady: true,
+      controller: { my: true, level: 4, ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 3_000 },
+      hostileCreepCount: 0
+    });
+    expect(assessment.mode).toBe('BOOTSTRAP');
+    recordColonySurvivalAssessment('E29N56', assessment, 1_857_841);
+    setGameCreeps({ Repairer: creep });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      ...((globalThis as unknown as { Game?: Partial<Game> }).Game ?? {}),
+      time: 1_857_841
+    };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-needs-energy' });
+  });
+
   it('allows home critical infrastructure repair during bootstrap', () => {
     recordSurvivalMode('BOOTSTRAP');
     const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0, {
@@ -12612,6 +12957,60 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'container-critical' });
   });
 
+  it('keeps healthy-buffer construction behind critical container repair without live same-target coverage', () => {
+    const site = {
+      id: 'storage-site1',
+      my: true,
+      structureType: 'storage',
+      progress: 6_846,
+      progressTotal: 30_000
+    } as ConstructionSite;
+    const criticalContainer = makeStructure(
+      'container-critical',
+      'container' as StructureConstant,
+      900,
+      2_000
+    );
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 3_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [site],
+      controller,
+      energyAvailable: 500,
+      energyCapacityAvailable: 1_300,
+      structures: [criticalContainer]
+    });
+    const creep = {
+      name: 'LoadedBuilder',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 58 : 0))
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === 'work' ? 1 : 0)),
+      room
+    } as unknown as Creep;
+    const emptyStaleRepairer = {
+      name: 'EmptyStaleRepairer',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'repair', targetId: 'container-critical' as Id<Structure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0))
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === 'work' ? 1 : 0)),
+      room
+    } as unknown as Creep;
+    setGameCreeps({ LoadedBuilder: creep, EmptyStaleRepairer: emptyStaleRepairer });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'container-critical' });
+  });
+
   it('keeps carried spawn recovery ahead of near-floor rampart repair under critical CPU bucket pressure', () => {
     const spawnSite = {
       id: 'spawn-site1',
@@ -13428,6 +13827,74 @@ describe('selectWorkerTask', () => {
     };
 
     expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'container-site1' });
+  });
+
+  it('routes E29N56 storage construction before covered critical container repair when stored surplus is safe', () => {
+    const site = {
+      id: 'storage-site1',
+      my: true,
+      structureType: 'storage',
+      progress: 6_846,
+      progressTotal: 30_000
+    } as ConstructionSite;
+    const damagedContainer = makeStoredEnergyContainerWithCapacity('critical-container1', 2_188, 2_500, {
+      hits: 900,
+      hitsMax: 2_000
+    });
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 50);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 3_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N56',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 300,
+      energyCapacityAvailable: 1_300,
+      myStructures: [spawn as AnyOwnedStructure],
+      structures: [damagedContainer as AnyStructure]
+    });
+    const builder = {
+      name: 'BuilderCandidate',
+      memory: { role: 'worker', colony: 'E29N56' },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 58 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 42 : 0))
+      },
+      room
+    } as unknown as Creep;
+    const repairer = {
+      name: 'RepairCoverage',
+      memory: {
+        role: 'worker',
+        colony: 'E29N56',
+        task: { type: 'repair', targetId: 'critical-container1' as Id<Structure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 85 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 15 : 0))
+      },
+      room
+    } as unknown as Creep;
+    const assessment = assessColonySurvival({
+      roomName: 'E29N56',
+      totalCreeps: 10,
+      workerCapacity: 3,
+      workerTarget: 4,
+      energyAvailable: 300,
+      energyCapacityAvailable: 1_300,
+      defenseFloorReady: true,
+      controller: { my: true, level: 4, ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 3_000 },
+      hostileCreepCount: 0
+    });
+    expect(assessment.mode).toBe('LOCAL_STABLE');
+    recordColonySurvivalAssessment('E29N56', assessment, 1_854_806);
+    setGameCreeps({ BuilderCandidate: builder, RepairCoverage: repairer });
+
+    expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'storage-site1' });
   });
 
   it('reserves a loaded worker for construction when healthy energy and idle workers leave build coverage empty', () => {
