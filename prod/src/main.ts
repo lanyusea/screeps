@@ -15,7 +15,8 @@ import {
 import {
   applyRuntimePolicyParametersToRegistry,
   createRuntimePolicyParameterConsumptionRecorder,
-  persistRuntimePolicyParameterConsumptionEvidence
+  persistRuntimePolicyParameterConsumptionEvidence,
+  type RuntimePolicyParameterConsumptionEvidence
 } from './strategy/runtimePolicyParameters';
 import { type RuntimeSummary, RUNTIME_SUMMARY_PREFIX } from './telemetry/runtimeSummary';
 import { getRuntimeCpuBudget } from './runtime/cpuBudget';
@@ -56,6 +57,7 @@ export function loop(): void {
     runtimePolicyParameterConsumption
   );
   let summary: RuntimeSummary | undefined;
+  let runtimePolicyParameterConsumptionEvidence: RuntimePolicyParameterConsumptionEvidence | undefined;
   try {
     summary = kernel.run({
       strategyRegistry: runtimePolicyParameters.registry,
@@ -71,10 +73,22 @@ export function loop(): void {
         : {})
     });
   } finally {
-    persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
+    runtimePolicyParameterConsumptionEvidence = runtimePolicyParameterConsumption.buildEvidence();
+    persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumptionEvidence);
   }
   if (!getRuntimeCpuBudget().degraded) {
-    strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
+    strategyRegistryState.entries = applyPendingRollbacks(strategyRegistryState.entries);
+    const monitoredFamilies = getRuntimeInfluencedStrategyFamilies(
+      runtimePolicyParameters.registry,
+      runtimePolicyParameterConsumptionEvidence
+    );
+    if (monitoredFamilies.length > 0) {
+      strategyRegistryState.entries = runStrategyRolloutMonitoring(
+        summary,
+        strategyRegistryState.entries,
+        monitoredFamilies
+      );
+    }
   }
 }
 
@@ -97,14 +111,14 @@ function recordAppliedRuntimePolicyParameterStrategies(
 
 function runStrategyRolloutMonitoring(
   summary: RuntimeSummary | undefined,
-  registry: StrategyRegistryEntry[]
+  registry: StrategyRegistryEntry[],
+  families: string[]
 ): StrategyRegistryEntry[] {
   let workingRegistry = applyPendingRollbacks(registry);
   if (!summary) {
     return workingRegistry;
   }
 
-  const families = getMonitoredFamilies(workingRegistry);
   const kpiWindow = buildKpiWindow(summary);
   for (const family of families) {
     appendWindow(recentKpiWindows, family, kpiWindow);
@@ -134,8 +148,20 @@ function runStrategyRolloutMonitoring(
   return workingRegistry;
 }
 
-function getMonitoredFamilies(registry: StrategyRegistryEntry[]): string[] {
-  return [...new Set(registry.map((entry) => entry.family))];
+function getRuntimeInfluencedStrategyFamilies(
+  registry: StrategyRegistryEntry[],
+  evidence: RuntimePolicyParameterConsumptionEvidence | undefined
+): string[] {
+  if (evidence?.consumed !== true) {
+    return [];
+  }
+
+  const appliedStrategyIds = new Set(evidence.appliedStrategyIds);
+  return [
+    ...new Set(
+      registry.flatMap((entry) => (appliedStrategyIds.has(entry.id) ? [entry.family] : []))
+    )
+  ];
 }
 
 function buildKpiWindow(summary: RuntimeSummary): KpiWindow {

@@ -52386,6 +52386,7 @@ function loop() {
     runtimePolicyParameterConsumption
   );
   let summary;
+  let runtimePolicyParameterConsumptionEvidence;
   try {
     summary = kernel.run({
       strategyRegistry: runtimePolicyParameters.registry,
@@ -52397,10 +52398,22 @@ function loop() {
       } : {}
     });
   } finally {
-    persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
+    runtimePolicyParameterConsumptionEvidence = runtimePolicyParameterConsumption.buildEvidence();
+    persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumptionEvidence);
   }
   if (!getRuntimeCpuBudget().degraded) {
-    strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
+    strategyRegistryState.entries = applyPendingRollbacks(strategyRegistryState.entries);
+    const monitoredFamilies = getRuntimeInfluencedStrategyFamilies(
+      runtimePolicyParameters.registry,
+      runtimePolicyParameterConsumptionEvidence
+    );
+    if (monitoredFamilies.length > 0) {
+      strategyRegistryState.entries = runStrategyRolloutMonitoring(
+        summary,
+        strategyRegistryState.entries,
+        monitoredFamilies
+      );
+    }
   }
 }
 function recordAppliedRuntimePolicyParameterStrategies(registry, appliedStrategyIds, runtimePolicyParameterConsumption) {
@@ -52414,12 +52427,11 @@ function recordAppliedRuntimePolicyParameterStrategies(registry, appliedStrategy
     }
   }
 }
-function runStrategyRolloutMonitoring(summary, registry) {
+function runStrategyRolloutMonitoring(summary, registry, families) {
   let workingRegistry = applyPendingRollbacks(registry);
   if (!summary) {
     return workingRegistry;
   }
-  const families = getMonitoredFamilies(workingRegistry);
   const kpiWindow = buildKpiWindow(summary);
   for (const family of families) {
     appendWindow(recentKpiWindows, family, kpiWindow);
@@ -52446,8 +52458,16 @@ function runStrategyRolloutMonitoring(summary, registry) {
   workingRegistry = applyPendingRollbacks(workingRegistry);
   return workingRegistry;
 }
-function getMonitoredFamilies(registry) {
-  return [...new Set(registry.map((entry) => entry.family))];
+function getRuntimeInfluencedStrategyFamilies(registry, evidence) {
+  if ((evidence == null ? void 0 : evidence.consumed) !== true) {
+    return [];
+  }
+  const appliedStrategyIds = new Set(evidence.appliedStrategyIds);
+  return [
+    ...new Set(
+      registry.flatMap((entry) => appliedStrategyIds.has(entry.id) ? [entry.family] : [])
+    )
+  ];
 }
 function buildKpiWindow(summary) {
   const artifacts = parseStrategyEvaluationArtifacts(summary);

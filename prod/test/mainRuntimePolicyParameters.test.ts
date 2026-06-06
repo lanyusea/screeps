@@ -1,4 +1,5 @@
 import type { KernelRunOptions } from '../src/kernel/Kernel';
+import type { KpiRegressionResult, KpiWindowHistory } from '../src/rl/kpiRolloutMonitor';
 import type { StrategyRegistryEntry } from '../src/strategy/strategyRegistry';
 import { DEFAULT_STRATEGY_REGISTRY } from '../src/strategy/strategyRegistry';
 import {
@@ -21,6 +22,7 @@ describe('main runtime policy parameter consumption', () => {
     jest.resetModules();
     jest.dontMock('../src/kernel/Kernel');
     jest.dontMock('../src/rl/kpiRolloutMonitor');
+    jest.dontMock('../src/rl/strategyRollback');
     jest.dontMock('../src/strategy/runtimePolicyParameters');
     delete (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL];
     delete (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL];
@@ -281,12 +283,7 @@ describe('main runtime policy parameter consumption', () => {
       getUsed();
       return makeRuntimeSummary();
     });
-    const checkKpiRegression = jest.fn(() => ({
-      regression: false,
-      regressedFamilies: [],
-      details: '',
-      metrics: {}
-    }));
+    const checkKpiRegression = makeCheckKpiRegressionMock();
     jest.doMock('../src/rl/kpiRolloutMonitor', () => {
       const actual = jest.requireActual<typeof import('../src/rl/kpiRolloutMonitor')>(
         '../src/rl/kpiRolloutMonitor'
@@ -308,11 +305,92 @@ describe('main runtime policy parameter consumption', () => {
     expect(getUsed).toHaveBeenCalledTimes(2);
     expect(checkKpiRegression).not.toHaveBeenCalled();
   });
+
+  it('does not monitor passive shadow strategies when no runtime policy was consumed', () => {
+    installScreepsGlobals();
+    const run = jest.fn((_options: KernelRunOptions = {}) => makeRuntimeSummary());
+    const checkKpiRegression = makeCheckKpiRegressionMock();
+    const applyPendingRollbacks = jest.fn((registry: StrategyRegistryEntry[]) => registry);
+    jest.doMock('../src/rl/strategyRollback', () => {
+      const actual = jest.requireActual<typeof import('../src/rl/strategyRollback')>(
+        '../src/rl/strategyRollback'
+      );
+      return {
+        ...actual,
+        applyPendingRollbacks
+      };
+    });
+    jest.doMock('../src/rl/kpiRolloutMonitor', () => {
+      const actual = jest.requireActual<typeof import('../src/rl/kpiRolloutMonitor')>(
+        '../src/rl/kpiRolloutMonitor'
+      );
+      return {
+        ...actual,
+        checkKpiRegression
+      };
+    });
+    mockKernel(run);
+    let main: typeof import('../src/main') | undefined;
+    jest.isolateModules(() => {
+      main = jest.requireActual<typeof import('../src/main')>('../src/main');
+    });
+
+    main?.loop();
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(applyPendingRollbacks).toHaveBeenCalledTimes(1);
+    expect(checkKpiRegression).not.toHaveBeenCalled();
+  });
+
+  it('monitors only the strategy family whose runtime policy was consumed', () => {
+    installScreepsGlobals();
+    const run = jest.fn((options: KernelRunOptions = {}) => {
+      const entry = options.strategyRegistry?.find(
+        (candidate) => candidate.id === 'construction-priority.incumbent.v1'
+      );
+      if (entry) {
+        options.onStrategyRegistryRuntimeUse?.(entry);
+      }
+      return makeRuntimeSummary();
+    });
+    const checkKpiRegression = makeCheckKpiRegressionMock();
+    jest.doMock('../src/rl/kpiRolloutMonitor', () => {
+      const actual = jest.requireActual<typeof import('../src/rl/kpiRolloutMonitor')>(
+        '../src/rl/kpiRolloutMonitor'
+      );
+      return {
+        ...actual,
+        checkKpiRegression
+      };
+    });
+    mockKernel(run);
+    let main: typeof import('../src/main') | undefined;
+    jest.isolateModules(() => {
+      main = jest.requireActual<typeof import('../src/main')>('../src/main');
+    });
+
+    installRuntimePolicyPayload();
+    main?.loop();
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(checkKpiRegression).toHaveBeenCalledTimes(1);
+    const recentWindows = checkKpiRegression.mock.calls[0][0];
+    expect(Object.keys(recentWindows)).toEqual(['construction-priority']);
+  });
 });
 
 function mockKernel(run: jest.Mock<RuntimeSummary, [KernelRunOptions?]>): void {
   jest.doMock('../src/kernel/Kernel', () => ({
     Kernel: jest.fn().mockImplementation(() => ({ run }))
+  }));
+}
+
+function makeCheckKpiRegressionMock(): jest.Mock<KpiRegressionResult, [KpiWindowHistory, KpiWindowHistory]> {
+  return jest.fn((_recentWindows: KpiWindowHistory, _baselineWindows: KpiWindowHistory) => ({
+    regression: false,
+    regressedFamilies: [],
+    details: '',
+    metrics: {}
   }));
 }
 
