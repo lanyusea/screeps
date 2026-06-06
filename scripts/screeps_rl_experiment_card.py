@@ -3288,11 +3288,8 @@ def main(
                 label="repetitions",
                 allow_below_default=degraded_local_fallback_profile,
             )
-            requested_workers = args.workers
-            if requested_workers is None and simulation_scale_environments is not None:
-                requested_workers = simulation_scale_environments
             simulation_workers = loop_a_local_fallback_value(
-                requested_workers,
+                args.workers,
                 default=LOOP_A_LOCAL_FALLBACK_WORKERS,
                 maximum=LOOP_A_LOCAL_FALLBACK_MAX_WORKERS,
                 label="workers",
