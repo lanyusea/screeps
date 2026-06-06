@@ -892,6 +892,29 @@ def latest_root_training_report_payload_from_summary(
     return normalize_root_training_report_payload(path, payload)
 
 
+def training_payload_for_evidence_windows(
+    training_payload: JsonObject | None,
+    root_training_payload: JsonObject | None,
+) -> JsonObject | None:
+    if training_payload is None:
+        return root_training_payload
+    if root_training_payload is None:
+        return training_payload
+
+    training_report_ids = set(referenced_training_report_ids(as_dict(training_payload)))
+    root_report_ids = set(referenced_training_report_ids(as_dict(root_training_payload)))
+    if training_report_ids and root_report_ids and training_report_ids.intersection(root_report_ids):
+        return root_training_payload
+
+    training_candidate = training_evidence_candidate_policy_id(as_dict(training_payload))
+    root_candidate = training_evidence_candidate_policy_id(as_dict(root_training_payload))
+    if not training_report_ids and training_candidate is None:
+        return root_training_payload
+    if training_candidate is not None and training_candidate == root_candidate:
+        return root_training_payload
+    return training_payload
+
+
 def selected_scorecard_comparison(training_payload: JsonObject | None) -> JsonObject:
     payload = as_dict(training_payload)
     scorecard_set = as_dict(payload.get("candidateScorecards"))
@@ -1982,7 +2005,7 @@ def build_policy_advantage(
     previous = latest_artifact_payload(summary, "policyAdvantage", repo_root)
     training_payload = normalized_latest_training_payload(summary, artifact_root, repo_root)
     root_training_payload = latest_root_training_report_payload_from_summary(summary, artifact_root, repo_root)
-    evidence_training_payload = root_training_payload or training_payload
+    evidence_training_payload = training_payload_for_evidence_windows(training_payload, root_training_payload)
     policy = as_dict(summary.get("policy"))
     training = as_dict(summary.get("training"))
     git = git_metadata(repo_root)
