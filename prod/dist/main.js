@@ -35592,6 +35592,7 @@ var ERR_NOT_ENOUGH_RESOURCES_CODE3 = -6;
 var ERR_NOT_IN_RANGE_CODE7 = -9;
 var DEFAULT_REMOTE_ROOM_DISTANCE = 1;
 var CRITICAL_ROAD_MOVE_COST = 1;
+var REMOTE_SOURCE_DROPPED_ENERGY_RANGE = 1;
 function selectRemoteHarvesterAssignment(homeRoom) {
   var _a2;
   return (_a2 = getRemoteSourceAssignments(homeRoom).find(
@@ -35626,7 +35627,7 @@ function isRemoteOperationSuspended(homeRoom, targetRoom) {
   return hasSafeRouteAvoidingDeadZones(homeRoom, targetRoom) === false;
 }
 function runRemoteHarvester(creep) {
-  var _a2, _b, _c, _d, _e;
+  var _a2, _b, _c, _d, _e, _f;
   const assignment = normalizeRemoteHarvesterMemory((_a2 = creep.memory) == null ? void 0 : _a2.remoteHarvester);
   if (!assignment) {
     return;
@@ -35648,18 +35649,26 @@ function runRemoteHarvester(creep) {
   }
   const source = getAssignedSource3(assignment);
   const container = getAssignedContainer2(assignment);
-  if (!container) {
-    delete creep.memory.task;
-    if (getCarriedEnergy5(creep) > 0) {
+  if (!source) {
+    if (!container && getCarriedEnergy5(creep) > 0) {
+      delete creep.memory.task;
       (_d = creep.drop) == null ? void 0 : _d.call(creep, getEnergyResource19());
       return;
     }
-  }
-  if (!source) {
     if (container) {
       moveTo3(creep, container, assignment);
     }
     return;
+  }
+  if (!container) {
+    delete creep.memory.task;
+    if (getCarriedEnergy5(creep) > 0) {
+      if (buildAssignedSourceContainerSite(creep, source, assignment)) {
+        return;
+      }
+      (_e = creep.drop) == null ? void 0 : _e.call(creep, getEnergyResource19());
+      return;
+    }
   }
   if (!isInRangeTo2(creep, source, 1)) {
     moveTo3(creep, container != null ? container : source, assignment);
@@ -35675,7 +35684,7 @@ function runRemoteHarvester(creep) {
     transferToContainer(creep, container, assignment);
     return;
   }
-  const result = (_e = creep.harvest) == null ? void 0 : _e.call(creep, source);
+  const result = (_f = creep.harvest) == null ? void 0 : _f.call(creep, source);
   if (container && (result === getErrFullCode2() || result === getErrNotEnoughResourcesCode2()) && getCarriedEnergy5(creep) > 0) {
     transferToContainer(creep, container, assignment);
   }
@@ -35716,6 +35725,7 @@ function getRemoteSourceAssignmentsInRoom(homeRoom, room) {
   return room.find(FIND_SOURCES).map((source) => {
     const container = findSourceContainer(room, source);
     const containerEnergy = container ? getStoredEnergy19(container) : 0;
+    const droppedEnergy = container ? 0 : getDroppedEnergyNearSource(room, source);
     const containerCapacity = container ? getStoreEnergyCapacity(container) : null;
     const containerFillRatio = container ? getContainerEnergyFillRatio(container, containerEnergy) : null;
     return {
@@ -35724,17 +35734,31 @@ function getRemoteSourceAssignmentsInRoom(homeRoom, room) {
       sourceId: source.id,
       ...container ? { containerId: container.id } : {},
       ...containerCapacity === null ? {} : { containerCapacity },
-      containerEnergy,
+      containerEnergy: container ? containerEnergy : droppedEnergy,
       ...containerFillRatio === null ? {} : { containerFillRatio },
       routeDistance: estimateRemoteRoomDistance(homeRoom, room.name)
     };
   });
 }
+function findDroppedEnergyNearSource(room, source) {
+  if (typeof FIND_DROPPED_RESOURCES !== "number" || typeof (room == null ? void 0 : room.find) !== "function") {
+    return [];
+  }
+  const sourcePosition = getRoomObjectPosition(source);
+  if (!sourcePosition) {
+    return [];
+  }
+  const droppedResources = room.find(FIND_DROPPED_RESOURCES);
+  if (!Array.isArray(droppedResources)) {
+    return [];
+  }
+  return droppedResources.filter(isDroppedEnergy2).filter((resource) => {
+    const resourcePosition = getRoomObjectPosition(resource);
+    return resourcePosition !== null && (typeof resourcePosition.roomName !== "string" || typeof sourcePosition.roomName !== "string" || resourcePosition.roomName === sourcePosition.roomName) && getRangeBetweenPositions2(sourcePosition, resourcePosition) <= REMOTE_SOURCE_DROPPED_ENERGY_RANGE;
+  }).sort(compareDroppedEnergyForPickup);
+}
 function getRemoteSourceRoomRecords(homeRoom) {
-  return uniqueRemoteSourceRoomRecords([
-    ...getRemoteMiningRecords(homeRoom),
-    ...getRemoteBootstrapRecords(homeRoom)
-  ]).sort(compareRemoteSourceRoomRecords);
+  return uniqueRemoteSourceRoomRecords(getRemoteMiningRecords(homeRoom)).sort(compareRemoteSourceRoomRecords);
 }
 function getRemoteMiningRecords(homeRoom) {
   var _a2, _b;
@@ -35745,50 +35769,24 @@ function getRemoteMiningRecords(homeRoom) {
   return Object.values(records).filter((record) => isRemoteMiningRecord(record, homeRoom)).map((record) => ({
     colony: record.colony,
     roomName: record.roomName,
-    order: record.updatedAt,
-    source: "remoteMining"
+    order: record.updatedAt
   }));
 }
 function isRemoteMiningRecord(record, homeRoom) {
   return isRecord24(record) && record.colony === homeRoom && isNonEmptyString24(record.roomName) && record.roomName !== homeRoom && (record.status === "containerPending" || record.status === "containerReady" || record.status === "active");
 }
-function getRemoteBootstrapRecords(homeRoom) {
-  var _a2, _b;
-  const records = (_b = (_a2 = globalThis.Memory) == null ? void 0 : _a2.territory) == null ? void 0 : _b.postClaimBootstraps;
-  if (!isRecord24(records)) {
-    return [];
-  }
-  return Object.values(records).filter((record) => isRemoteBootstrapRecord(record, homeRoom)).sort(compareRemoteBootstrapRecords).map((record) => ({
-    colony: record.colony,
-    roomName: record.roomName,
-    order: record.claimedAt,
-    source: "postClaimBootstrap"
-  }));
-}
-function isRemoteBootstrapRecord(record, homeRoom) {
-  return isRecord24(record) && record.colony === homeRoom && isNonEmptyString24(record.roomName) && record.roomName !== homeRoom && (record.status === "detected" || record.status === "spawnSitePending" || record.status === "spawnSiteBlocked" || record.status === "spawningWorkers" || record.status === "ready");
-}
-function compareRemoteBootstrapRecords(left, right) {
-  return left.claimedAt - right.claimedAt || left.roomName.localeCompare(right.roomName);
-}
 function uniqueRemoteSourceRoomRecords(records) {
   const byRoom = /* @__PURE__ */ new Map();
   for (const record of records) {
     const existing = byRoom.get(record.roomName);
-    if (!existing || compareRemoteSourceRoomRecordSource(record, existing) < 0) {
+    if (!existing || compareRemoteSourceRoomRecords(record, existing) < 0) {
       byRoom.set(record.roomName, record);
     }
   }
   return [...byRoom.values()];
 }
 function compareRemoteSourceRoomRecords(left, right) {
-  return left.order - right.order || compareRemoteSourceRoomRecordSource(left, right) || left.roomName.localeCompare(right.roomName);
-}
-function compareRemoteSourceRoomRecordSource(left, right) {
-  return getRemoteSourceRoomRecordSourceRank(left.source) - getRemoteSourceRoomRecordSourceRank(right.source);
-}
-function getRemoteSourceRoomRecordSourceRank(source) {
-  return source === "postClaimBootstrap" ? 0 : 1;
+  return left.order - right.order || left.roomName.localeCompare(right.roomName);
 }
 function compareRemoteSourceAssignments(left, right) {
   return left.targetRoom.localeCompare(right.targetRoom) || String(left.sourceId).localeCompare(String(right.sourceId));
@@ -35878,6 +35876,24 @@ function transferToContainer(creep, container, assignment) {
     moveTo3(creep, container, assignment);
   }
 }
+function buildAssignedSourceContainerSite(creep, source, assignment) {
+  if (typeof creep.build !== "function") {
+    return false;
+  }
+  const site = creep.room ? findSourceContainerConstructionSite(creep.room, source) : null;
+  if (!site) {
+    return false;
+  }
+  creep.memory.task = {
+    type: "build",
+    targetId: site.id
+  };
+  const result = creep.build(site);
+  if (result === getErrNotInRangeCode3()) {
+    moveTo3(creep, site, assignment);
+  }
+  return true;
+}
 function moveTo3(creep, target, assignment) {
   var _a2;
   (_a2 = creep.moveTo) == null ? void 0 : _a2.call(creep, target, getRemoteMoveOpts(assignment));
@@ -35952,6 +35968,15 @@ function getStoredEnergy19(target) {
   }
   const storedEnergy = store == null ? void 0 : store[getEnergyResource19()];
   return typeof storedEnergy === "number" && Number.isFinite(storedEnergy) ? Math.max(0, storedEnergy) : 0;
+}
+function getDroppedEnergyNearSource(room, source) {
+  return findDroppedEnergyNearSource(room, source).reduce((total, resource) => total + resource.amount, 0);
+}
+function isDroppedEnergy2(resource) {
+  return resource.resourceType === getEnergyResource19() && resource.amount > 0;
+}
+function compareDroppedEnergyForPickup(left, right) {
+  return right.amount - left.amount || String(left.id).localeCompare(String(right.id));
 }
 function getEnergyResource19() {
   var _a2;
@@ -36079,10 +36104,7 @@ function selectRemoteHaulerAssignment(homeRoom) {
   if (!hasRemoteHaulerDeliveryDemand(homeRoom)) {
     return null;
   }
-  return (_a2 = getRemoteSourceAssignments(homeRoom).filter(hasRemoteContainerAssignment).filter((assignment) => assignment.containerEnergy > REMOTE_HAULER_DISPATCH_ENERGY_THRESHOLD).filter((assignment) => countRemoteHaulersForContainer(assignment) < MAX_REMOTE_HAULERS_PER_CONTAINER).sort(compareRemoteHaulerAssignments)[0]) != null ? _a2 : null;
-}
-function hasRemoteContainerAssignment(assignment) {
-  return isNonEmptyString25(assignment.containerId);
+  return (_a2 = getRemoteSourceAssignments(homeRoom).filter((assignment) => assignment.containerEnergy > REMOTE_HAULER_DISPATCH_ENERGY_THRESHOLD).filter((assignment) => countRemoteHaulersForAssignment(assignment) < MAX_REMOTE_HAULERS_PER_CONTAINER).sort(compareRemoteHaulerAssignments)[0]) != null ? _a2 : null;
 }
 function hasRemoteHaulerDeliveryDemand(homeRoom) {
   const room = getVisibleRoom11(homeRoom);
@@ -36322,15 +36344,17 @@ function collectRemoteEnergy(creep, assignment) {
   const assignedContainer = getAssignedContainer3(assignment);
   if (((_a2 = creep.room) == null ? void 0 : _a2.name) !== assignment.targetRoom) {
     delete creep.memory.task;
-    moveTowardRoom4(creep, assignment.targetRoom, assignedContainer);
+    moveTowardRoom4(creep, assignment.targetRoom, assignedContainer != null ? assignedContainer : getAssignedSource4(assignment), assignment);
+    return;
+  }
+  if (!assignedContainer) {
+    collectRemoteDroppedEnergy(creep, assignment);
     return;
   }
   const source = selectRemoteHaulerEnergySource(creep, assignedContainer);
   if (!source) {
     delete creep.memory.task;
-    if (assignedContainer) {
-      moveTo4(creep, assignedContainer);
-    }
+    moveTo4(creep, assignedContainer);
     return;
   }
   const task = {
@@ -36386,11 +36410,11 @@ function getRemoteHaulerAssignmentFillRatio(assignment) {
   const capacity = assignment.containerCapacity;
   return typeof capacity === "number" && Number.isFinite(capacity) && capacity > 0 ? Math.max(0, Math.min(1, assignment.containerEnergy / capacity)) : null;
 }
-function countRemoteHaulersForContainer(assignment) {
+function countRemoteHaulersForAssignment(assignment) {
   return getRemoteOperationCreeps2(assignment.homeRoom, assignment.targetRoom).filter(
     (creep) => {
-      var _a2, _b, _c, _d;
-      return ((_a2 = creep.memory) == null ? void 0 : _a2.role) === HAULER_ROLE && canSatisfyRemoteCreepCapacity2(creep) && ((_b = creep.memory.remoteHauler) == null ? void 0 : _b.homeRoom) === assignment.homeRoom && ((_c = creep.memory.remoteHauler) == null ? void 0 : _c.targetRoom) === assignment.targetRoom && String((_d = creep.memory.remoteHauler) == null ? void 0 : _d.containerId) === String(assignment.containerId);
+      var _a2, _b, _c, _d, _e;
+      return ((_a2 = creep.memory) == null ? void 0 : _a2.role) === HAULER_ROLE && canSatisfyRemoteCreepCapacity2(creep) && ((_b = creep.memory.remoteHauler) == null ? void 0 : _b.homeRoom) === assignment.homeRoom && ((_c = creep.memory.remoteHauler) == null ? void 0 : _c.targetRoom) === assignment.targetRoom && (isNonEmptyString25(assignment.containerId) ? String((_d = creep.memory.remoteHauler) == null ? void 0 : _d.containerId) === String(assignment.containerId) : String((_e = creep.memory.remoteHauler) == null ? void 0 : _e.sourceId) === String(assignment.sourceId));
     }
   ).length;
 }
@@ -36401,15 +36425,60 @@ function normalizeRemoteHaulerMemory(value) {
   if (!isRecord25(value)) {
     return null;
   }
-  return isNonEmptyString25(value.homeRoom) && isNonEmptyString25(value.targetRoom) && isNonEmptyString25(value.sourceId) && isNonEmptyString25(value.containerId) ? {
+  return isNonEmptyString25(value.homeRoom) && isNonEmptyString25(value.targetRoom) && isNonEmptyString25(value.sourceId) && (value.containerId == null || isNonEmptyString25(value.containerId)) ? {
     homeRoom: value.homeRoom,
     targetRoom: value.targetRoom,
     sourceId: value.sourceId,
-    containerId: value.containerId
+    ...isNonEmptyString25(value.containerId) ? { containerId: value.containerId } : {}
   } : null;
 }
 function getAssignedContainer3(assignment) {
-  return getObjectById4(assignment.containerId);
+  return isNonEmptyString25(assignment.containerId) ? getObjectById4(assignment.containerId) : null;
+}
+function getAssignedSource4(assignment) {
+  var _a2;
+  const source = getObjectById4(assignment.sourceId);
+  if (source) {
+    return source;
+  }
+  const room = getVisibleRoom11(assignment.targetRoom);
+  if (!room || typeof FIND_SOURCES !== "number" || typeof room.find !== "function") {
+    return null;
+  }
+  return (_a2 = room.find(FIND_SOURCES).find((candidate) => String(candidate.id) === String(assignment.sourceId))) != null ? _a2 : null;
+}
+function collectRemoteDroppedEnergy(creep, assignment) {
+  var _a2;
+  const source = getAssignedSource4(assignment);
+  if (!source) {
+    delete creep.memory.task;
+    moveTowardRoom4(creep, assignment.targetRoom, void 0, assignment);
+    return;
+  }
+  const droppedEnergy = selectDroppedEnergyNearSource(creep.room, source, creep);
+  if (!droppedEnergy) {
+    delete creep.memory.task;
+    moveTo4(creep, source);
+    return;
+  }
+  const task = {
+    type: "pickup",
+    targetId: droppedEnergy.id
+  };
+  creep.memory.task = task;
+  const result = (_a2 = creep.pickup) == null ? void 0 : _a2.call(creep, droppedEnergy);
+  if (result === OK_CODE14) {
+    recordCreepBehaviorEnergyAcquisition(creep, "pickedUp");
+  }
+  if (result === getErrNotInRangeCode4()) {
+    moveTo4(creep, droppedEnergy);
+  }
+}
+function selectDroppedEnergyNearSource(room, source, creep) {
+  var _a2;
+  return (_a2 = findDroppedEnergyNearSource(room, source).sort(
+    (left, right) => right.amount - left.amount || getRangeToRoomObject6(creep, left) - getRangeToRoomObject6(creep, right) || String(left.id).localeCompare(String(right.id))
+  )[0]) != null ? _a2 : null;
 }
 function selectRemoteHaulerEnergySource(creep, assignedContainer) {
   var _a2;
@@ -39067,6 +39136,7 @@ function selectPostClaimControllerDefensePlan(colony) {
   return null;
 }
 function planRemoteEconomySpawn(context) {
+  var _a2;
   if (context.options.workersOnly || context.survival.mode !== "TERRITORY_READY" || context.workerCapacity < context.workerTarget || context.colony.energyAvailable < context.colony.energyCapacityAvailable) {
     return null;
   }
@@ -39120,7 +39190,7 @@ function planRemoteEconomySpawn(context) {
     spawn,
     body,
     name: appendSpawnNameSuffix(
-      `${HAULER_ROLE}-${context.colony.room.name}-${remoteHaulerAssignment.targetRoom}-${remoteHaulerAssignment.containerId}-${context.gameTime}`,
+      `${HAULER_ROLE}-${context.colony.room.name}-${remoteHaulerAssignment.targetRoom}-${(_a2 = remoteHaulerAssignment.containerId) != null ? _a2 : remoteHaulerAssignment.sourceId}-${context.gameTime}`,
       context.options
     ),
     memory: {
@@ -40144,10 +40214,10 @@ function hasDroppedEnergyDecayingAtSource(room, source) {
   const droppedResources = (_a2 = findRoomObjects28(room, "FIND_DROPPED_RESOURCES")) != null ? _a2 : [];
   return droppedResources.some((resource) => {
     const resourcePosition = getRoomObjectPosition(resource);
-    return resourcePosition !== null && isDroppedEnergy2(resource) && isSameRoomPosition(resourcePosition, room.name) && getRangeBetweenPositions2(sourcePosition, resourcePosition) <= 1;
+    return resourcePosition !== null && isDroppedEnergy3(resource) && isSameRoomPosition(resourcePosition, room.name) && getRangeBetweenPositions2(sourcePosition, resourcePosition) <= 1;
   });
 }
-function isDroppedEnergy2(resource) {
+function isDroppedEnergy3(resource) {
   const amount = resource.amount;
   const ticksToDecay = resource.ticksToDecay;
   return resource.resourceType === getEnergyResource23() && typeof amount === "number" && Number.isFinite(amount) && amount > 0 && (typeof ticksToDecay !== "number" || ticksToDecay > 0);

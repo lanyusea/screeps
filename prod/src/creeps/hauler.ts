@@ -12,10 +12,10 @@ import { selectSeasonScoreCollectionTask } from '../season/scoreCollection';
 import { recordCreepBehaviorEnergyAcquisition } from '../telemetry/behaviorTelemetry';
 import {
   getRemoteSourceAssignments,
+  findDroppedEnergyNearSource,
   moveTowardRoom,
   REMOTE_CREEP_REPLACEMENT_TICKS,
   shouldRetreatFromRemote,
-  type RemoteContainerAssignment,
   type RemoteSourceAssignment
 } from './remoteHarvester';
 import { buildRemoteHaulerBody } from '../spawn/bodyBuilder';
@@ -72,22 +72,17 @@ const SCORE_COLLECTOR_FALLBACK_ROOM_KEYS: SeasonScoreCollectorRoomKey[] = [
 
 export { buildRemoteHaulerBody };
 
-export function selectRemoteHaulerAssignment(homeRoom: string): RemoteContainerAssignment | null {
+export function selectRemoteHaulerAssignment(homeRoom: string): RemoteSourceAssignment | null {
   if (!hasRemoteHaulerDeliveryDemand(homeRoom)) {
     return null;
   }
 
   return (
     getRemoteSourceAssignments(homeRoom)
-      .filter(hasRemoteContainerAssignment)
       .filter((assignment) => assignment.containerEnergy > REMOTE_HAULER_DISPATCH_ENERGY_THRESHOLD)
-      .filter((assignment) => countRemoteHaulersForContainer(assignment) < MAX_REMOTE_HAULERS_PER_CONTAINER)
+      .filter((assignment) => countRemoteHaulersForAssignment(assignment) < MAX_REMOTE_HAULERS_PER_CONTAINER)
       .sort(compareRemoteHaulerAssignments)[0] ?? null
   );
-}
-
-function hasRemoteContainerAssignment(assignment: RemoteSourceAssignment): assignment is RemoteContainerAssignment {
-  return isNonEmptyString(assignment.containerId);
 }
 
 function hasRemoteHaulerDeliveryDemand(homeRoom: string): boolean {
@@ -393,16 +388,19 @@ function collectRemoteEnergy(creep: Creep, assignment: CreepRemoteHaulerMemory):
   const assignedContainer = getAssignedContainer(assignment);
   if (creep.room?.name !== assignment.targetRoom) {
     delete creep.memory.task;
-    moveTowardRoom(creep, assignment.targetRoom, assignedContainer);
+    moveTowardRoom(creep, assignment.targetRoom, assignedContainer ?? getAssignedSource(assignment), assignment);
+    return;
+  }
+
+  if (!assignedContainer) {
+    collectRemoteDroppedEnergy(creep, assignment);
     return;
   }
 
   const source = selectRemoteHaulerEnergySource(creep, assignedContainer);
   if (!source) {
     delete creep.memory.task;
-    if (assignedContainer) {
-      moveTo(creep, assignedContainer);
-    }
+    moveTo(creep, assignedContainer);
     return;
   }
 
@@ -478,14 +476,16 @@ function getRemoteHaulerAssignmentFillRatio(assignment: RemoteSourceAssignment):
     : null;
 }
 
-function countRemoteHaulersForContainer(assignment: RemoteSourceAssignment): number {
+function countRemoteHaulersForAssignment(assignment: RemoteSourceAssignment): number {
   return getRemoteOperationCreeps(assignment.homeRoom, assignment.targetRoom).filter(
     (creep) =>
       creep.memory?.role === HAULER_ROLE &&
       canSatisfyRemoteCreepCapacity(creep) &&
       creep.memory.remoteHauler?.homeRoom === assignment.homeRoom &&
       creep.memory.remoteHauler?.targetRoom === assignment.targetRoom &&
-      String(creep.memory.remoteHauler?.containerId) === String(assignment.containerId)
+      (isNonEmptyString(assignment.containerId)
+        ? String(creep.memory.remoteHauler?.containerId) === String(assignment.containerId)
+        : String(creep.memory.remoteHauler?.sourceId) === String(assignment.sourceId))
   ).length;
 }
 
@@ -501,18 +501,79 @@ function normalizeRemoteHaulerMemory(value: unknown): CreepRemoteHaulerMemory | 
   return isNonEmptyString(value.homeRoom) &&
     isNonEmptyString(value.targetRoom) &&
     isNonEmptyString(value.sourceId) &&
-    isNonEmptyString(value.containerId)
+    (value.containerId == null || isNonEmptyString(value.containerId))
     ? {
         homeRoom: value.homeRoom,
         targetRoom: value.targetRoom,
         sourceId: value.sourceId as Id<Source>,
-        containerId: value.containerId as Id<StructureContainer>
+        ...(isNonEmptyString(value.containerId) ? { containerId: value.containerId as Id<StructureContainer> } : {})
       }
     : null;
 }
 
 function getAssignedContainer(assignment: CreepRemoteHaulerMemory): StructureContainer | null {
-  return getObjectById<StructureContainer>(assignment.containerId);
+  return isNonEmptyString(assignment.containerId) ? getObjectById<StructureContainer>(assignment.containerId) : null;
+}
+
+function getAssignedSource(assignment: CreepRemoteHaulerMemory): Source | null {
+  const source = getObjectById<Source>(assignment.sourceId);
+  if (source) {
+    return source;
+  }
+
+  const room = getVisibleRoom(assignment.targetRoom);
+  if (!room || typeof FIND_SOURCES !== 'number' || typeof room.find !== 'function') {
+    return null;
+  }
+
+  return (
+    (room.find(FIND_SOURCES) as Source[]).find((candidate) => String(candidate.id) === String(assignment.sourceId)) ??
+    null
+  );
+}
+
+function collectRemoteDroppedEnergy(creep: Creep, assignment: CreepRemoteHaulerMemory): void {
+  const source = getAssignedSource(assignment);
+  if (!source) {
+    delete creep.memory.task;
+    moveTowardRoom(creep, assignment.targetRoom, undefined, assignment);
+    return;
+  }
+
+  const droppedEnergy = selectDroppedEnergyNearSource(creep.room, source, creep);
+  if (!droppedEnergy) {
+    delete creep.memory.task;
+    moveTo(creep, source);
+    return;
+  }
+
+  const task: Extract<CreepTaskMemory, { type: 'pickup' }> = {
+    type: 'pickup',
+    targetId: droppedEnergy.id
+  };
+  creep.memory.task = task;
+  const result = creep.pickup?.(droppedEnergy);
+  if (result === OK_CODE) {
+    recordCreepBehaviorEnergyAcquisition(creep, 'pickedUp');
+  }
+  if (result === getErrNotInRangeCode()) {
+    moveTo(creep, droppedEnergy);
+  }
+}
+
+function selectDroppedEnergyNearSource(
+  room: Room | undefined,
+  source: Source,
+  creep: Creep
+): Resource<ResourceConstant> | null {
+  return (
+    findDroppedEnergyNearSource(room, source).sort(
+      (left, right) =>
+        right.amount - left.amount ||
+        getRangeToRoomObject(creep, left) - getRangeToRoomObject(creep, right) ||
+        String(left.id).localeCompare(String(right.id))
+    )[0] ?? null
+  );
 }
 
 function selectRemoteHaulerEnergySource(
