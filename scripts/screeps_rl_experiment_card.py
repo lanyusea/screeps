@@ -108,7 +108,9 @@ POLICY_GRADIENT_WORKER_CONCURRENCY_ERROR = (
 LOOP_A_LOCAL_FALLBACK_TICKS = POLICY_GRADIENT_MIN_SIMULATION_TICKS
 LOOP_A_LOCAL_FALLBACK_MAX_TICKS = 5000
 LOOP_A_LOCAL_FALLBACK_REPETITIONS = POLICY_GRADIENT_SIMULATION_REPETITIONS
-LOOP_A_LOCAL_FALLBACK_WORKERS = 5
+LOOP_A_CARD_SUPPLY_DEFAULT_WORKERS = 5
+LOOP_A_LOCAL_FALLBACK_WORKERS = 1
+LOOP_A_LOCAL_FALLBACK_MAX_WORKERS = 5
 DEGRADED_E1_GATE_MIN_ACCEPTANCE_RATE = 0.95
 E1_CURRENT_GATE_FULL_ACCEPTANCE_ABS_TOL = 1e-9
 E1_GATE_FRESHNESS_HOURS = 36.0
@@ -923,7 +925,7 @@ def build_card(
         simulation_repetitions if simulation_repetitions is not None else default_repetitions,
         "simulation.repetitions",
     )
-    default_workers = LOOP_A_LOCAL_FALLBACK_WORKERS if loop_a_card_supply else DEFAULT_SIMULATION_WORKERS
+    default_workers = LOOP_A_CARD_SUPPLY_DEFAULT_WORKERS if loop_a_card_supply else DEFAULT_SIMULATION_WORKERS
     workers = require_positive_int(
         simulation_workers if simulation_workers is not None else default_workers,
         "simulation.workers",
@@ -3106,8 +3108,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Write a standalone Loop A local-fallback experiment_card.json from an accepted "
-            "dataset gate. Implies policy_gradient card supply and defaults to 5 workers, "
-            f"20 repetitions, and {POLICY_GRADIENT_MIN_SIMULATION_TICKS} ticks."
+            "dataset gate. Implies policy_gradient card supply and defaults to 1 host-sized "
+            f"worker, 20 repetitions, and {POLICY_GRADIENT_MIN_SIMULATION_TICKS} ticks."
         ),
     )
     parser.add_argument(
@@ -3286,18 +3288,20 @@ def main(
                 label="repetitions",
                 allow_below_default=degraded_local_fallback_profile,
             )
+            requested_workers = args.workers
+            if requested_workers is None and simulation_scale_environments is not None:
+                requested_workers = simulation_scale_environments
             simulation_workers = loop_a_local_fallback_value(
-                args.workers,
+                requested_workers,
                 default=LOOP_A_LOCAL_FALLBACK_WORKERS,
-                maximum=LOOP_A_LOCAL_FALLBACK_WORKERS,
+                maximum=LOOP_A_LOCAL_FALLBACK_MAX_WORKERS,
                 label="workers",
                 allow_below_default=degraded_local_fallback_profile,
             )
-            if degraded_local_fallback_profile:
-                if simulation_scale_environments is None:
-                    simulation_scale_environments = simulation_workers
-                if simulation_min_concurrent_environments is None:
-                    simulation_min_concurrent_environments = simulation_scale_environments
+            if simulation_scale_environments is None:
+                simulation_scale_environments = simulation_workers
+            if simulation_min_concurrent_environments is None:
+                simulation_min_concurrent_environments = simulation_scale_environments
         scenario_id, require_multi_tier_scenario = resolve_cli_scenario_request(args)
         card = build_card(
             dataset_run_id=dataset_run_id,
