@@ -204,7 +204,7 @@ declare global {
   interface CreepSourceHarvesterMemory {
     roomName: string;
     sourceId: Id<Source>;
-    containerId: Id<StructureContainer>;
+    containerId?: Id<StructureContainer>;
   }
 
   interface CreepRemoteHarvesterMemory {

@@ -13,6 +13,16 @@ const DEFAULT_SOURCE_ENERGY_CAPACITY = 3_000;
 const DEFAULT_SOURCE_REGEN_TICKS = 300;
 const SOURCE_HARVESTER_MIN_WORK_PARTS = 4;
 const MAX_CREEP_PARTS = 50;
+const DEFAULT_BODY_PART_COSTS: Record<BodyPartConstant, number> = {
+  move: 50,
+  work: 100,
+  carry: 50,
+  attack: 80,
+  ranged_attack: 150,
+  heal: 250,
+  claim: 600,
+  tough: 10
+};
 
 type MobileFallbackEnergySink = StructureSpawn | StructureExtension | StructureTower;
 
@@ -25,7 +35,7 @@ interface SourceHarvesterAssignmentCountCache {
 export interface SourceHarvesterAssignment {
   roomName: string;
   sourceId: Id<Source>;
-  containerId: Id<StructureContainer>;
+  containerId?: Id<StructureContainer>;
 }
 
 export interface SourceHarvesterAssignmentSelectionOptions {
@@ -40,6 +50,7 @@ export interface SourceHarvesterBodyOptions {
 
 interface SourceHarvesterAssignmentCandidate {
   assignment: SourceHarvesterAssignment;
+  hasContainer: boolean;
   rangeFromOrigin: number;
 }
 
@@ -88,20 +99,17 @@ export function getSourceHarvesterAssignments(
   }
 
   return (room.find(FIND_SOURCES) as Source[])
-    .flatMap((source) => {
+    .map((source) => {
       const container = findSourceContainer(room, source);
-      return container
-        ? [
-            {
-              assignment: {
-                roomName: room.name,
-                sourceId: source.id,
-                containerId: container.id
-              },
-              rangeFromOrigin: getSourceRangeFromOrigin(source, options.origin)
-            }
-          ]
-        : [];
+      return {
+        assignment: {
+          roomName: room.name,
+          sourceId: source.id,
+          ...(container ? { containerId: container.id } : {})
+        },
+        hasContainer: container !== null,
+        rangeFromOrigin: getSourceRangeFromOrigin(source, options.origin)
+      };
     })
     .sort(compareAssignmentCandidates)
     .map((candidate) => candidate.assignment);
@@ -225,7 +233,10 @@ function getSourceHarvesterBodyCost(workParts: number, carryParts: number, moveP
 }
 
 function getBodyPartCosts(): Record<BodyPartConstant, number> {
-  return (globalThis as unknown as { BODYPART_COST: Record<BodyPartConstant, number> }).BODYPART_COST;
+  return (
+    (globalThis as unknown as { BODYPART_COST?: Record<BodyPartConstant, number> }).BODYPART_COST ??
+    DEFAULT_BODY_PART_COSTS
+  );
 }
 
 function getDefaultSourceEnergyCapacity(): number {
@@ -422,6 +433,10 @@ function getAssignedSource(assignment: SourceHarvesterAssignment): Source | null
 }
 
 function getAssignedContainer(assignment: SourceHarvesterAssignment): StructureContainer | null {
+  if (!assignment.containerId) {
+    return null;
+  }
+
   const container = getObjectById<StructureContainer>(assignment.containerId);
   return container ?? null;
 }
@@ -431,15 +446,17 @@ function normalizeSourceHarvesterMemory(value: unknown): SourceHarvesterAssignme
     return null;
   }
 
-  return isNonEmptyString(value.roomName) &&
-    isNonEmptyString(value.sourceId) &&
-    isNonEmptyString(value.containerId)
-    ? {
-        roomName: value.roomName,
-        sourceId: value.sourceId as Id<Source>,
-        containerId: value.containerId as Id<StructureContainer>
-      }
-    : null;
+  if (!isNonEmptyString(value.roomName) || !isNonEmptyString(value.sourceId)) {
+    return null;
+  }
+
+  return {
+    roomName: value.roomName,
+    sourceId: value.sourceId as Id<Source>,
+    ...(isNonEmptyString(value.containerId)
+      ? { containerId: value.containerId as Id<StructureContainer> }
+      : {})
+  };
 }
 
 function moveTowardRoom(creep: Creep, roomName: string): void {
@@ -571,7 +588,15 @@ function compareAssignmentCandidates(
   left: SourceHarvesterAssignmentCandidate,
   right: SourceHarvesterAssignmentCandidate
 ): number {
-  return left.rangeFromOrigin - right.rangeFromOrigin || compareAssignments(left.assignment, right.assignment);
+  return (
+    getAssignmentContainerRank(left) - getAssignmentContainerRank(right) ||
+    left.rangeFromOrigin - right.rangeFromOrigin ||
+    compareAssignments(left.assignment, right.assignment)
+  );
+}
+
+function getAssignmentContainerRank(candidate: SourceHarvesterAssignmentCandidate): number {
+  return candidate.hasContainer ? 0 : 1;
 }
 
 function compareAssignments(left: SourceHarvesterAssignment, right: SourceHarvesterAssignment): number {
