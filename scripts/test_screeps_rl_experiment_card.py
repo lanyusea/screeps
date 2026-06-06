@@ -873,9 +873,13 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(Path(generated["simulation"]["map_source_file"]), card_helper.MULTI_TIER_SIMULATION_MAP_SOURCE_FILE)
 
         config = runner.simulation_config_from_card(generated)
-        self.assertEqual(config.workers, 5)
+        self.assertEqual(config.workers, 1)
         self.assertEqual(config.repetitions, 20)
         self.assertEqual(config.ticks, card_helper.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
+        self.assertEqual(config.scale_environments, 1)
+        self.assertEqual(config.min_concurrent_environments, 1)
+        self.assertEqual(generated["simulation"]["scale_environments"], 1)
+        self.assertEqual(generated["simulation"]["min_concurrent_environments"], 1)
 
         supply = generated["card_supply"]
         self.assertEqual(generated["status"], "shadow")
@@ -981,6 +985,55 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(generated["simulation"]["min_concurrent_environments"], 2)
         self.assertEqual(generated["card_supply"]["state"], "available")
         self.assertTrue(generated["card_supply"]["available_for_training"])
+
+    def test_degraded_loop_a_local_fallback_keeps_default_workers_when_scale_is_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            gate_root = root / "gates"
+            gate_id = "gate-20260522T183117Z"
+            dataset_run_id = "rl-local-scale-default-worker"
+            gate_path = gate_root / gate_id / "gate_report.json"
+            output_path = root / "runtime-artifacts" / "rl-experiment-cards" / "experiment_card.json"
+            self.write_current_accepted_gate(gate_path, gate_id=gate_id, dataset_run_id=dataset_run_id)
+            stdout = io.StringIO()
+
+            with mock.patch.object(card_helper, "utc_now_iso", return_value="2026-05-22T21:20:47Z"):
+                exit_code = card_helper.main(
+                    [
+                        "--loop-a-local-fallback",
+                        "--from-latest-accepted-dataset",
+                        "--degraded-local-fallback-profile",
+                        "--dataset-gate-root",
+                        str(gate_root),
+                        "--code-commit",
+                        "7" * 40,
+                        "--created-at",
+                        "2026-05-22T21:21:00Z",
+                        "--scale-environments",
+                        "5",
+                        "--min-concurrent-environments",
+                        "1",
+                        "--output",
+                        str(output_path),
+                    ],
+                    stdout=stdout,
+                    stderr=io.StringIO(),
+                    repo_root=REPO_ROOT,
+                )
+            summary = json.loads(stdout.getvalue())
+            generated = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(summary["loop_a_local_fallback"])
+        card_helper.validate_card(generated)
+        runner.validate_experiment_card(generated)
+        config = runner.simulation_config_from_card(generated)
+        self.assertEqual(config.workers, 1)
+        self.assertEqual(config.scale_environments, 5)
+        self.assertEqual(config.min_concurrent_environments, 1)
+        self.assertEqual(generated["simulation"]["workers"], 1)
+        self.assertEqual(generated["simulation"]["scale_environments"], 5)
+        self.assertEqual(generated["simulation"]["min_concurrent_environments"], 1)
 
     def test_loop_a_local_fallback_rejects_explicit_single_room_scenario(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1388,6 +1441,14 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(generated["source_gate"]["gate_id"], gate_id)
         self.assertEqual(generated["training_approach"], "policy_gradient")
         self.assertEqual(generated["status"], "shadow")
+        config = runner.simulation_config_from_card(generated)
+        self.assertEqual(config.workers, 1)
+        self.assertEqual(config.scale_environments, 1)
+        self.assertEqual(config.min_concurrent_environments, 1)
+        self.assertEqual(config.repetitions, 20)
+        self.assertEqual(config.ticks, card_helper.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
+        self.assertEqual(generated["simulation"]["scale_environments"], 1)
+        self.assertEqual(generated["simulation"]["min_concurrent_environments"], 1)
         self.assertFalse(generated["liveEffect"])
         self.assertFalse(generated["officialMmoWrites"])
         self.assertFalse(generated["officialMmoWritesAllowed"])
