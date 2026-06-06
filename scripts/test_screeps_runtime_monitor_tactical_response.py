@@ -3386,9 +3386,12 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
                     _token: str,
                     path: str,
                     params: dict[str, object] | None = None,
+                    *,
+                    timeout_seconds: float = monitor.ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS,
                 ) -> object:
                     self.assertEqual(path, "/api/user/memory")
                     calls.append(dict(params or {}))
+                    self.assertEqual(timeout_seconds, monitor.CREEP_MEMORY_REQUEST_TIMEOUT_SECONDS)
                     return {"ok": ok_value, "error": "auth failed token=secret-token"}
 
                 with mock.patch.object(monitor, "get_json", side_effect=fake_get_json):
@@ -3400,6 +3403,61 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
                 self.assertIn(f"shardX creep memory unavailable: user memory API returned {expected_status}", warnings[0])
                 self.assertIn("auth failed", warnings[0])
                 self.assertNotIn("secret-token", warnings[0])
+
+    def test_fetch_creep_memories_uses_dedicated_timeout_budget(self) -> None:
+        ref = monitor.RoomRef(shard="shardX", room="E29N55")
+        ctx = monitor.RuntimeContext(
+            base_http="https://screeps.com",
+            token="secret-token",
+            default_shard="shardX",
+            default_room="E29N55",
+            owner=None,
+            owner_id=None,
+            state_file=Path("/tmp/state.json"),
+            cache_dir=Path("/tmp/cache"),
+            debounce_seconds=300,
+            collection_attempts=1,
+            collection_retry_delay_seconds=0,
+        )
+        warnings: list[str] = []
+        calls: list[dict[str, object]] = []
+        timeouts: list[float] = []
+        monotonic_values = iter([100.0, 100.0, 102.25, 104.75, 105.25])
+
+        def fake_monotonic() -> float:
+            return next(monotonic_values)
+
+        def fake_get_json(
+            _base_http: str,
+            _token: str,
+            path: str,
+            params: dict[str, object] | None = None,
+            *,
+            timeout_seconds: float = monitor.ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS,
+        ) -> object:
+            self.assertEqual(path, "/api/user/memory")
+            calls.append(dict(params or {}))
+            timeouts.append(timeout_seconds)
+            raise TimeoutError("slow user memory")
+
+        with mock.patch.object(monitor.time, "monotonic", side_effect=fake_monotonic):
+            with mock.patch.object(monitor, "get_json", side_effect=fake_get_json):
+                memories = monitor.fetch_creep_memories_by_shard(ctx, [ref], warnings)
+
+        self.assertEqual(memories, {"shardX": {}})
+        self.assertEqual(
+            calls,
+            [
+                {"path": "creeps", "shard": "shardX"},
+                {"path": "creeps"},
+                {"shard": "shardX"},
+            ],
+        )
+        self.assertEqual(timeouts[:2], [monitor.CREEP_MEMORY_REQUEST_TIMEOUT_SECONDS] * 2)
+        self.assertAlmostEqual(timeouts[2], 0.25)
+        self.assertTrue(all(timeout < monitor.ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS for timeout in timeouts))
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("shardX creep memory unavailable: creep memory fetch timed out after 5s", warnings[0])
 
     def test_collect_snapshots_merges_redacted_creep_memory_assignment_evidence(self) -> None:
         ref = monitor.RoomRef(shard="shardX", room="E29N55")
@@ -3448,9 +3506,17 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
                 },
             }
 
-        def fake_get_json(_base_http: str, _token: str, path: str, params: dict[str, object] | None = None) -> object:
+        def fake_get_json(
+            _base_http: str,
+            _token: str,
+            path: str,
+            params: dict[str, object] | None = None,
+            *,
+            timeout_seconds: float = monitor.ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS,
+        ) -> object:
             self.assertEqual(path, "/api/user/memory")
             self.assertEqual(params, {"path": "creeps", "shard": "shardX"})
+            self.assertEqual(timeout_seconds, monitor.CREEP_MEMORY_REQUEST_TIMEOUT_SECONDS)
             return {
                 "ok": 1,
                 "data": json.dumps(

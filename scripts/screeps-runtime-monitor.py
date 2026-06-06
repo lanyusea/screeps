@@ -43,6 +43,8 @@ DEFAULT_DEBOUNCE_SECONDS = 300
 DEFAULT_COLLECTION_ATTEMPTS = 3
 DEFAULT_COLLECTION_RETRY_DELAY_SECONDS = 5
 ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS = 25.0
+CREEP_MEMORY_REQUEST_TIMEOUT_SECONDS = 2.0
+CREEP_MEMORY_COLLECTION_TIMEOUT_SECONDS_PER_SHARD = 5.0
 ALERT_COLLECTION_DISCOVERY_REQUEST_COUNT = 2
 ALERT_COLLECTION_INITIAL_ROOM_REQUEST_COUNT = 1
 ALERT_COLLECTION_FALLBACK_REQUEST_COUNT_PER_ATTEMPT = 2
@@ -876,7 +878,14 @@ def context_from_env(world_profile: str | None = None) -> RuntimeContext:
     )
 
 
-def get_json(base_http: str, token: str, path: str, params: dict[str, Any] | None = None) -> Any:
+def get_json(
+    base_http: str,
+    token: str,
+    path: str,
+    params: dict[str, Any] | None = None,
+    *,
+    timeout_seconds: float = ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS,
+) -> Any:
     url = base_http + path
     if params:
         url += "?" + urllib.parse.urlencode(params)
@@ -887,7 +896,7 @@ def get_json(base_http: str, token: str, path: str, params: dict[str, Any] | Non
             "User-Agent": "screeps-runtime-monitor/1.0",
         },
     )
-    with urllib.request.urlopen(request, timeout=ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS) as response:
+    with urllib.request.urlopen(request, timeout=max(0.001, float(timeout_seconds))) as response:
         return json.load(response)
 
 
@@ -5211,17 +5220,36 @@ def user_memory_creep_map(payload: Any, path_requested: bool) -> dict[str, Any] 
     return None
 
 
-def fetch_creep_memory_map_for_shard(ctx: RuntimeContext, shard: str) -> dict[str, Any]:
+def fetch_creep_memory_map_for_shard(
+    ctx: RuntimeContext,
+    shard: str,
+    *,
+    timeout_budget_seconds: float = CREEP_MEMORY_COLLECTION_TIMEOUT_SECONDS_PER_SHARD,
+    request_timeout_seconds: float = CREEP_MEMORY_REQUEST_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
     requests = (
         ({"path": "creeps", "shard": shard}, True),
         ({"path": "creeps"}, True),
         ({"shard": shard}, False),
         ({}, False),
     )
+    timeout_budget = max(0.0, float(timeout_budget_seconds))
+    request_timeout_cap = max(0.001, float(request_timeout_seconds))
+    deadline = time.monotonic() + timeout_budget
     last_error: Exception | None = None
     for params, path_requested in requests:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            last_error = TimeoutError(f"creep memory fetch timed out after {timeout_budget:g}s")
+            break
         try:
-            payload = get_json(ctx.base_http, ctx.token, "/api/user/memory", params)
+            payload = get_json(
+                ctx.base_http,
+                ctx.token,
+                "/api/user/memory",
+                params,
+                timeout_seconds=min(request_timeout_cap, remaining),
+            )
             api_error = user_memory_api_error(payload, [ctx.token])
             if api_error is not None:
                 raise RuntimeError(api_error)
