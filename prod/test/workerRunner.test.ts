@@ -7065,6 +7065,132 @@ describe('runWorker', () => {
     }
   });
 
+  it('recovers construction assignment from retained controller progress when stored energy can cover construction', () => {
+    const site = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 1_429,
+      progressTotal: 5_000,
+      pos: { x: 22, y: 21, roomName: 'E29N57' } as RoomPosition
+    } as ConstructionSite;
+    const storage = {
+      id: 'storage1',
+      structureType: 'storage',
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 2_438 : 0)),
+        getFreeCapacity: jest.fn().mockReturnValue(10_000)
+      }
+    } as unknown as StructureStorage;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const roomCreeps: Creep[] = [];
+    const room = {
+      name: 'E29N57',
+      energyAvailable: 650,
+      energyCapacityAvailable: 1_800,
+      controller,
+      storage,
+      find: jest.fn(
+        (type: number, options?: { filter?: (object: AnyOwnedStructure | Creep) => boolean }) => {
+          if (type === FIND_MY_STRUCTURES) {
+            const structures = [storage] as unknown as AnyOwnedStructure[];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          if (type === FIND_STRUCTURES) {
+            return [storage];
+          }
+
+          if (type === FIND_MY_CREEPS) {
+            return options?.filter ? roomCreeps.filter(options.filter) : roomCreeps;
+          }
+
+          if (type === FIND_CONSTRUCTION_SITES) {
+            return [site];
+          }
+
+          if (type === FIND_HOSTILE_CREEPS) {
+            return [];
+          }
+
+          return [];
+        }
+      )
+    } as unknown as Room;
+    const build = jest.fn().mockReturnValue(0);
+    const upgradeController = jest.fn();
+    const selectedUpgradeTask = { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } as const;
+    const creep = {
+      name: 'LoadedUpgrader',
+      memory: {
+        role: 'worker',
+        colony: 'E29N57',
+        task: selectedUpgradeTask
+      },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 97 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 3 : 0))
+      },
+      pos: {
+        getRangeTo: jest.fn((target: RoomObject) => (String((target as { id?: string }).id) === 'road-site1' ? 3 : 12))
+      },
+      room,
+      build,
+      upgradeController,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    const recoveryWorker = {
+      name: 'RecoveryWorker',
+      memory: { role: 'worker', colony: 'E29N57' },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room
+    } as unknown as Creep;
+    roomCreeps.push(creep, recoveryWorker);
+    const selectWorkerTask = jest.spyOn(workerTasks, 'selectWorkerTask').mockReturnValue(selectedUpgradeTask);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { LoadedUpgrader: creep, RecoveryWorker: recoveryWorker },
+      rooms: { E29N57: room },
+      time: 1_871_982,
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'road-site1') {
+          return site;
+        }
+
+        if (id === 'controller1') {
+          return controller;
+        }
+
+        return id === 'storage1' ? storage : null;
+      })
+    };
+
+    try {
+      runWorker(creep);
+
+      expect(creep.memory.task).toEqual({ type: 'build', targetId: 'road-site1' });
+      expect(creep.memory.workerDispatchDiagnostic).toMatchObject({
+        currentTask: 'upgrade',
+        baseSelectedTask: 'upgrade',
+        selectedTask: 'build',
+        assignedTask: 'build'
+      });
+      expect(build).toHaveBeenCalledWith(site);
+      expect(upgradeController).not.toHaveBeenCalled();
+    } finally {
+      selectWorkerTask.mockRestore();
+    }
+  });
+
   it('recovers construction assignment from retained noncritical extension refill selection', () => {
     const site = {
       id: 'road-site1',

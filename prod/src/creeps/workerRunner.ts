@@ -464,7 +464,7 @@ function selectWorkerAssignmentGapRecoveryTask(
   currentTask: CreepTaskMemory | null | undefined,
   selectionContext: WorkerTaskSelectionContext
 ): Extract<CreepTaskMemory, { type: 'build' }> | null {
-  if (!isWorkerAssignmentGapRecoverySelection(currentTask, selectionContext.selectedTask)) {
+  if (!isWorkerAssignmentGapRecoverySelection(creep, currentTask, selectionContext.selectedTask)) {
     return null;
   }
 
@@ -501,6 +501,7 @@ function selectWorkerAssignmentGapRecoveryTask(
 }
 
 function isWorkerAssignmentGapRecoverySelection(
+  creep: Creep,
   currentTask: CreepTaskMemory | null | undefined,
   selectedTask: CreepTaskMemory | null
 ): boolean {
@@ -508,9 +509,21 @@ function isWorkerAssignmentGapRecoverySelection(
     return true;
   }
 
+  const allowUpgradeRecovery = !isControllerDowngradeGuardActive(creep.room);
+  return isWorkerAssignmentGapRecoveryTask(currentTask, allowUpgradeRecovery) &&
+    isWorkerAssignmentGapRecoveryTask(selectedTask, allowUpgradeRecovery);
+}
+
+function isWorkerAssignmentGapRecoveryTask(
+  task: CreepTaskMemory | null | undefined,
+  allowUpgradeRecovery: boolean
+): boolean {
   return (
-    (currentTask === undefined || currentTask === null || isEnergyAcquisitionTask(currentTask) || currentTask.type === 'transfer') &&
-    (selectedTask === null || isEnergyAcquisitionTask(selectedTask) || selectedTask.type === 'transfer')
+    task === undefined ||
+    task === null ||
+    isEnergyAcquisitionTask(task) ||
+    task.type === 'transfer' ||
+    (allowUpgradeRecovery && task.type === 'upgrade')
   );
 }
 
