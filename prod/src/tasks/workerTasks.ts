@@ -4612,7 +4612,7 @@ function selectNearFullConstructionBacklogTaskBeforeCriticalRepair(
   getShouldYieldSpawnReservationToConstructionBacklog: () => boolean
 ): Extract<CreepTaskMemory, { type: 'build' }> | null {
   if (
-    !isRoomEnergyFullOrCoveredByCarriedEnergy(creep.room, getUsedEnergy(creep)) ||
+    !hasSafeSurplusConstructionBacklogBeforeCriticalRepair(creep) ||
     !getShouldYieldSpawnReservationToConstructionBacklog() ||
     shouldUpgradeForRcl3DefenseUnlock(creep, creep.room.controller)
   ) {
@@ -4628,6 +4628,18 @@ function selectNearFullConstructionBacklogTaskBeforeCriticalRepair(
     { priorityContext: constructionPriorityContext }
   );
   return constructionSite ? { type: 'build', targetId: constructionSite.id } : null;
+}
+
+function hasSafeSurplusConstructionBacklogBeforeCriticalRepair(creep: Creep): boolean {
+  const carriedEnergy = getUsedEnergy(creep);
+  if (isRoomEnergyFullOrCoveredByCarriedEnergy(creep.room, carriedEnergy)) {
+    return true;
+  }
+
+  return (
+    carriedEnergy > 0 &&
+    (hasHealthyRoomEnergyBuffer(creep.room) || checkEnergyBufferForStoredConstructionSpending(creep.room))
+  );
 }
 
 function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(

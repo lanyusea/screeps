@@ -596,7 +596,10 @@ function isProtectedRepairTargetForConstructionBacklog(creep: Creep, target: unk
     return isRoomThreatened(creep);
   }
 
-  return isBuildPreemptionCriticalRoadOrContainerRepairTarget(target);
+  return (
+    isBuildPreemptionCriticalRoadOrContainerRepairTarget(target) &&
+    !hasOtherSameRoomRepairAssignmentForTarget(creep, target)
+  );
 }
 
 function isRepairPreemptionStructure(target: unknown): target is Structure {
@@ -636,6 +639,22 @@ function isBuildPreemptionCriticalRoadOrContainerRepairTarget(structure: Structu
       isBuildPreemptionRepairStructureType(structure, 'STRUCTURE_CONTAINER', 'container')) &&
     getCriticalCpuRepairHitsRatio(structure) <= CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO
   );
+}
+
+function hasOtherSameRoomRepairAssignmentForTarget(creep: Creep, target: Structure): boolean {
+  const targetId = getObjectId(target);
+  if (targetId.length === 0) {
+    return false;
+  }
+
+  return getRoomOwnedCreeps(creep.room).some((worker) => {
+    if (isSameCreep(worker, creep) || !isProductiveSameRoomWorker(worker, creep.room)) {
+      return false;
+    }
+
+    const task = worker.memory?.task as Partial<CreepTaskMemory> | undefined;
+    return task?.type === 'repair' && String(task.targetId) === targetId;
+  });
 }
 
 function isBuildPreemptionRepairStructureType(

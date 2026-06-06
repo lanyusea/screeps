@@ -29822,7 +29822,7 @@ function selectReadyFollowUpProductiveEnergySinkTask(creep, capacityConstruction
   return criticalRoadConstructionSite ? { type: "build", targetId: criticalRoadConstructionSite.id } : null;
 }
 function selectNearFullConstructionBacklogTaskBeforeCriticalRepair(creep, constructionSites, constructionReservationContext, getShouldYieldSpawnReservationToConstructionBacklog) {
-  if (!isRoomEnergyFullOrCoveredByCarriedEnergy(creep.room, getUsedEnergy2(creep)) || !getShouldYieldSpawnReservationToConstructionBacklog() || shouldUpgradeForRcl3DefenseUnlock(creep, creep.room.controller)) {
+  if (!hasSafeSurplusConstructionBacklogBeforeCriticalRepair(creep) || !getShouldYieldSpawnReservationToConstructionBacklog() || shouldUpgradeForRcl3DefenseUnlock(creep, creep.room.controller)) {
     return null;
   }
   const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
@@ -29834,6 +29834,13 @@ function selectNearFullConstructionBacklogTaskBeforeCriticalRepair(creep, constr
     { priorityContext: constructionPriorityContext }
   );
   return constructionSite ? { type: "build", targetId: constructionSite.id } : null;
+}
+function hasSafeSurplusConstructionBacklogBeforeCriticalRepair(creep) {
+  const carriedEnergy = getUsedEnergy2(creep);
+  if (isRoomEnergyFullOrCoveredByCarriedEnergy(creep.room, carriedEnergy)) {
+    return true;
+  }
+  return carriedEnergy > 0 && (hasHealthyRoomEnergyBuffer(creep.room) || checkEnergyBufferForStoredConstructionSpending(creep.room));
 }
 function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(creep, spawnOrExtensionEnergySink, constructionSites, constructionReservationContext, getShouldYieldSpawnReservationToConstructionBacklog) {
   const deferForHealthyBuffer = shouldDeferIdleSpawnExtensionRefillForHealthyBuffer(
@@ -33698,7 +33705,7 @@ function isProtectedRepairTargetForConstructionBacklog(creep, target) {
     }
     return isRoomThreatened(creep);
   }
-  return isBuildPreemptionCriticalRoadOrContainerRepairTarget(target);
+  return isBuildPreemptionCriticalRoadOrContainerRepairTarget(target) && !hasOtherSameRoomRepairAssignmentForTarget(creep, target);
 }
 function isRepairPreemptionStructure(target) {
   const structure = target;
@@ -33715,6 +33722,20 @@ function isBuildPreemptionOwnedRampart(structure) {
 }
 function isBuildPreemptionCriticalRoadOrContainerRepairTarget(structure) {
   return (isBuildPreemptionRepairStructureType(structure, "STRUCTURE_ROAD", "road") || isBuildPreemptionRepairStructureType(structure, "STRUCTURE_CONTAINER", "container")) && getCriticalCpuRepairHitsRatio(structure) <= CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO;
+}
+function hasOtherSameRoomRepairAssignmentForTarget(creep, target) {
+  const targetId = getObjectId10(target);
+  if (targetId.length === 0) {
+    return false;
+  }
+  return getRoomOwnedCreeps2(creep.room).some((worker) => {
+    var _a2;
+    if (isSameCreep3(worker, creep) || !isProductiveSameRoomWorker2(worker, creep.room)) {
+      return false;
+    }
+    const task = (_a2 = worker.memory) == null ? void 0 : _a2.task;
+    return (task == null ? void 0 : task.type) === "repair" && String(task.targetId) === targetId;
+  });
 }
 function isBuildPreemptionRepairStructureType(structure, globalConstantName, fallback) {
   const globalConstant = globalThis[globalConstantName];
