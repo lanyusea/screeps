@@ -1,11 +1,13 @@
-import { runRemoteHarvester } from '../src/creeps/remoteHarvester';
+import { getRemoteSourceAssignments, runRemoteHarvester } from '../src/creeps/remoteHarvester';
 
 const OK_CODE = 0 as ScreepsReturnCode;
 
 describe('runRemoteHarvester', () => {
   beforeEach(() => {
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 1;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 2;
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
     (globalThis as unknown as { ERR_NOT_IN_RANGE: ScreepsReturnCode }).ERR_NOT_IN_RANGE = -9 as ScreepsReturnCode;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
   });
@@ -33,6 +35,29 @@ describe('runRemoteHarvester', () => {
 
     expect(creep.transfer).toHaveBeenCalledWith(container, RESOURCE_ENERGY);
     expect(creep.harvest).not.toHaveBeenCalled();
+  });
+
+  it('does not select remote assignments directly from post-claim bootstrap memory', () => {
+    const remoteRoom = makeRoom('W2N1', false, [], undefined, { sources: [makeSource('source1')] });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { W2N1: remoteRoom }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'spawnSitePending',
+            claimedAt: 500,
+            updatedAt: 501,
+            workerTarget: 1
+          }
+        }
+      }
+    };
+
+    expect(getRemoteSourceAssignments('W1N1')).toEqual([]);
   });
 
   it('retreats home when the assigned remote room is hostile owned', () => {
@@ -77,6 +102,32 @@ describe('runRemoteHarvester', () => {
     expect(creep.harvest).toHaveBeenCalledWith(source);
     expect(creep.transfer).not.toHaveBeenCalled();
     expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('builds an adjacent source container site before dropping carried remote energy', () => {
+    const source = makeSource('source1');
+    const containerSite = makeContainerConstructionSite('container-site1', { x: 10, y: 11, roomName: 'W2N1' });
+    const remoteRoom = makeRoom('W2N1', true, [], undefined, {
+      sources: [source],
+      constructionSites: [containerSite]
+    });
+    const creep = makeRemoteHarvester(remoteRoom, {
+      usedEnergy: 50,
+      freeEnergy: 0,
+      range: 1,
+      containerId: null
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { W2N1: remoteRoom },
+      getObjectById: jest.fn((id: string) => (id === source.id ? source : null))
+    };
+
+    runRemoteHarvester(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'container-site1' });
+    expect(creep.build).toHaveBeenCalledWith(containerSite);
+    expect(creep.drop).not.toHaveBeenCalled();
+    expect(creep.harvest).not.toHaveBeenCalled();
   });
 
   it('harvests in neutral assigned remote rooms', () => {
@@ -233,6 +284,8 @@ function makeRemoteHarvester(
     },
     harvest: jest.fn().mockReturnValue(OK_CODE),
     transfer: jest.fn().mockReturnValue(OK_CODE),
+    build: jest.fn().mockReturnValue(OK_CODE),
+    drop: jest.fn().mockReturnValue(OK_CODE),
     moveTo: jest.fn()
   } as unknown as Creep;
 }
@@ -294,4 +347,15 @@ function makeContainer(id: string): StructureContainer {
       getUsedCapacity: jest.fn().mockReturnValue(0)
     }
   } as unknown as StructureContainer;
+}
+
+function makeContainerConstructionSite(
+  id: string,
+  pos: { x: number; y: number; roomName: string }
+): ConstructionSite {
+  return {
+    id,
+    structureType: 'container',
+    pos
+  } as unknown as ConstructionSite;
 }
