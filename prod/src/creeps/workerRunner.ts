@@ -150,8 +150,13 @@ export function runWorker(creep: Creep): void {
     return;
   }
 
-  const selectionContext =
+  const initialSelectionContext =
     criticalCpuTaskRetention.selectionContext ?? selectWorkerTaskContext(creep, currentTask);
+  const selectionContext = applyWorkerAssignmentGapRecoveryTask(
+    creep,
+    currentTask,
+    initialSelectionContext
+  );
   const { baseSelectedTask, energyCriticalTask, selectedTask, spawnReservationRefillTask } =
     selectionContext;
   let taskAssignedThisTick = false;
@@ -190,6 +195,8 @@ export function runWorker(creep: Creep): void {
   } else if (shouldPreemptEnergyAcquisitionTaskForSpawnReservationRefill(currentTask, spawnReservationRefillTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForNearFullConstruction(creep, currentTask, selectedTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPreemptEnergyAcquisitionTaskForProductiveBacklog(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
@@ -441,6 +448,154 @@ function selectWorkerTaskContext(
     selectedTask,
     spawnReservationRefillTask
   };
+}
+
+function applyWorkerAssignmentGapRecoveryTask(
+  creep: Creep,
+  currentTask: CreepTaskMemory | null | undefined,
+  selectionContext: WorkerTaskSelectionContext
+): WorkerTaskSelectionContext {
+  const recoveryTask = selectWorkerAssignmentGapRecoveryTask(creep, currentTask, selectionContext);
+  return recoveryTask ? { ...selectionContext, selectedTask: recoveryTask } : selectionContext;
+}
+
+function selectWorkerAssignmentGapRecoveryTask(
+  creep: Creep,
+  currentTask: CreepTaskMemory | null | undefined,
+  selectionContext: WorkerTaskSelectionContext
+): Extract<CreepTaskMemory, { type: 'build' }> | null {
+  if (!isWorkerAssignmentGapRecoverySelection(currentTask, selectionContext.selectedTask)) {
+    return null;
+  }
+
+  if (
+    getUsedTransferEnergy(creep) <= 0 ||
+    getActiveWorkParts(creep) <= 0 ||
+    !hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) ||
+    hasVisibleHostileCreeps(creep.room) ||
+    (currentTask && isDedicatedSourceContainerHarvestTask(creep, currentTask))
+  ) {
+    return null;
+  }
+
+  const constructionSite = selectWorkerAssignmentGapRecoveryConstructionSite(creep);
+  if (!constructionSite) {
+    return null;
+  }
+
+  const recoveryTask: Extract<CreepTaskMemory, { type: 'build' }> = {
+    type: 'build',
+    targetId: constructionSite.id
+  };
+  if (
+    !canExecuteTask(creep, recoveryTask) ||
+    isCriticalSpawnRefillTask(currentTask) ||
+    isCriticalSpawnRefillTask(selectionContext.selectedTask) ||
+    !shouldAllowAssignmentGapRecoveryBuildWorker(creep, currentTask, selectionContext.selectedTask) ||
+    !hasSafeAssignmentGapRecoveryConstructionEnergy(creep, recoveryTask)
+  ) {
+    return null;
+  }
+
+  return recoveryTask;
+}
+
+function isWorkerAssignmentGapRecoverySelection(
+  currentTask: CreepTaskMemory | null | undefined,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  if (!currentTask && !selectedTask) {
+    return true;
+  }
+
+  return (
+    (currentTask === undefined || currentTask === null || isEnergyAcquisitionTask(currentTask) || currentTask.type === 'transfer') &&
+    (selectedTask === null || isEnergyAcquisitionTask(selectedTask) || selectedTask.type === 'transfer')
+  );
+}
+
+function selectWorkerAssignmentGapRecoveryConstructionSite(creep: Creep): ConstructionSite | null {
+  if (typeof FIND_CONSTRUCTION_SITES !== 'number' || typeof creep.room?.find !== 'function') {
+    return null;
+  }
+
+  const sites = creep.room.find(FIND_CONSTRUCTION_SITES) as ConstructionSite[];
+  return (
+    sites
+      .filter((site) => site.my !== false)
+      .filter((site) => !isBuildTargetSuppressedForWorker(creep, site))
+      .filter((site) => canSpendWorkerEnergyOnConstructionSite(creep, site))
+      .sort((left, right) => compareRoomObjectsByRangeAndId(creep, left, right))[0] ?? null
+  );
+}
+
+function shouldAllowAssignmentGapRecoveryBuildWorker(
+  creep: Creep,
+  currentTask: CreepTaskMemory | null | undefined,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  if (!hasOtherSameRoomBuildAssignment(creep)) {
+    return true;
+  }
+
+  return !currentTask && selectedTask === null && getFreeTransferEnergyCapacity(creep) <= 0;
+}
+
+function hasSafeAssignmentGapRecoveryConstructionEnergy(
+  creep: Creep,
+  recoveryTask: Extract<CreepTaskMemory, { type: 'build' }>
+): boolean {
+  const spawnReservationTarget = selectSpawnEnergyReservationRefillTarget(creep);
+  if (spawnReservationTarget) {
+    return shouldDeferSpawnReservationRefillForProductiveWork(creep, recoveryTask, spawnReservationTarget);
+  }
+
+  return (
+    !hasActiveSpawningSpawn(creep.room) &&
+    (hasHealthyRoomEnergyBuffer(creep.room) || hasStoredEnergyForAssignmentGapRecoveryConstruction(creep.room))
+  );
+}
+
+function hasStoredEnergyForAssignmentGapRecoveryConstruction(room: Room): boolean {
+  const energyAvailable = getRoomEnergyAvailable(room);
+  return (
+    energyAvailable !== null &&
+    energyAvailable >= MINIMUM_WORKER_SPAWN_ENERGY &&
+    getRoomStoredEnergyAvailableForConstruction(room) >= CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY
+  );
+}
+
+function isCriticalSpawnRefillTask(task: CreepTaskMemory | null | undefined): boolean {
+  return task?.type === 'transfer' && getTransferSinkPriority(getTaskTarget(task)) >= 3;
+}
+
+function isBuildTargetSuppressedForWorker(creep: Creep, site: ConstructionSite): boolean {
+  const blockedBuildTarget = creep.memory?.blockedBuildTarget;
+  if (!blockedBuildTarget) {
+    return false;
+  }
+
+  const tick = getGameTick();
+  if (blockedBuildTarget.until <= tick) {
+    delete creep.memory.blockedBuildTarget;
+    return false;
+  }
+
+  return String(blockedBuildTarget.targetId) === String(site.id);
+}
+
+function hasVisibleHostileCreeps(room: Room): boolean {
+  const findHostileCreeps = (globalThis as unknown as { FIND_HOSTILE_CREEPS?: number }).FIND_HOSTILE_CREEPS;
+  if (typeof findHostileCreeps !== 'number' || typeof room?.find !== 'function') {
+    return false;
+  }
+
+  try {
+    const findRoomObjects = room.find as unknown as (type: number) => unknown[];
+    return findRoomObjects(findHostileCreeps).length > 0;
+  } catch {
+    return false;
+  }
 }
 
 function getCriticalCpuTaskRetentionDecision(
@@ -1781,6 +1936,38 @@ function shouldPreemptEnergyAcquisitionTaskForNearFullConstruction(
     !isSameTask(task, selectedTask) &&
     shouldYieldStorageCriticalAcquisitionToNearFullConstruction(creep, task, selectedTask)
   );
+}
+
+function shouldPreemptEnergyAcquisitionTaskForProductiveBacklog(
+  creep: Creep,
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  if (
+    !isEnergyAcquisitionTask(task) ||
+    selectedTask === null ||
+    isSameTask(task, selectedTask) ||
+    !canExecuteTask(creep, selectedTask) ||
+    getUsedTransferEnergy(creep) <= 0
+  ) {
+    return false;
+  }
+
+  if (isDedicatedSourceContainerHarvestTask(creep, task)) {
+    return false;
+  }
+
+  if (selectedTask.type === 'build') {
+    const constructionSite = getTaskTarget(selectedTask) as ConstructionSite | null;
+    return Boolean(constructionSite && canSpendWorkerEnergyOnConstructionSite(creep, constructionSite));
+  }
+
+  if (selectedTask.type === 'repair') {
+    const repairTarget = getTaskTarget(selectedTask);
+    return isRepairPreemptionStructure(repairTarget) && !isWorkerRepairTargetComplete(repairTarget);
+  }
+
+  return false;
 }
 
 function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(
