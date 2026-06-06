@@ -1377,7 +1377,10 @@ function executeAssignedTask(
 
   const execution = executeTask(creep, task, target);
   recordTaskBehavior(creep, task, execution);
-  if (shouldImmediatelyReselectAfterTaskResult(task, execution.result)) {
+  if (
+    shouldImmediatelyReselectAfterTaskResult(task, execution.result) ||
+    shouldImmediatelyReselectAfterEmptySpendingTaskResult(creep, task)
+  ) {
     delete creep.memory.task;
     const nextTask = assignNextTask(creep);
     if (
@@ -1405,6 +1408,14 @@ function shouldImmediatelyReselectAfterTaskResult(task: CreepTaskMemory, result:
   }
 
   return isEnergyAcquisitionTask(task) && isUnavailableEnergyAcquisitionResult(result);
+}
+
+function shouldImmediatelyReselectAfterEmptySpendingTaskResult(
+  creep: Creep,
+  task: CreepTaskMemory
+): boolean {
+  const usedEnergy = getObservedUsedTransferEnergy(creep);
+  return isEnergySpendingMovementTask(task) && usedEnergy !== null && usedEnergy <= 0;
 }
 
 function isUnavailableEnergyAcquisitionResult(result: ScreepsReturnCode): boolean {
@@ -1956,6 +1967,12 @@ function isLowLoadReturnTask(
   return task.type === 'transfer' || task.type === 'build' || task.type === 'repair' || task.type === 'upgrade';
 }
 
+function isEnergySpendingMovementTask(
+  task: CreepTaskMemory
+): task is Extract<CreepTaskMemory, { type: 'transfer' | 'build' | 'repair' | 'upgrade' }> {
+  return task.type === 'transfer' || task.type === 'build' || task.type === 'repair' || task.type === 'upgrade';
+}
+
 function isRecoverableEnergyTask(
   task: CreepTaskMemory | null
 ): task is Extract<CreepTaskMemory, { type: 'pickup' | 'withdraw' }> {
@@ -2145,6 +2162,11 @@ function getFreeTransferEnergyCapacity(target: unknown): number {
 function getUsedTransferEnergy(creep: Creep): number {
   const usedCapacity = creep.store?.getUsedCapacity?.(RESOURCE_ENERGY);
   return typeof usedCapacity === 'number' && Number.isFinite(usedCapacity) ? Math.max(0, usedCapacity) : 0;
+}
+
+function getObservedUsedTransferEnergy(creep: Creep): number | null {
+  const usedCapacity = creep.store?.getUsedCapacity?.(RESOURCE_ENERGY);
+  return typeof usedCapacity === 'number' && Number.isFinite(usedCapacity) ? Math.max(0, usedCapacity) : null;
 }
 
 function isSameRoomWorkerWithEnergy(creep: Creep, room: Room): boolean {

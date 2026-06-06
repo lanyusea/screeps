@@ -3254,6 +3254,40 @@ describe('runWorker', () => {
     expect(moveTo).toHaveBeenCalledWith(site, { range: 3, ignoreCreeps: true });
   });
 
+  it('reselects acquisition instead of moving when a spending task leaves the worker empty', () => {
+    const site = { id: 'site1' } as ConstructionSite;
+    const source = { id: 'source1', energy: 300 } as Source;
+    let carriedEnergy = 50;
+    const build = jest.fn(() => {
+      carriedEnergy = 0;
+      return ERR_NOT_IN_RANGE;
+    });
+    const harvest = jest.fn().mockReturnValue(0);
+    const moveTo = jest.fn();
+    const getObjectById = jest.fn((id: string) => (id === 'source1' ? source : site));
+    const creep = {
+      memory: { task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> } },
+      store: {
+        getUsedCapacity: jest.fn(() => carriedEnergy),
+        getFreeCapacity: jest.fn(() => 50 - carriedEnergy)
+      },
+      room: { find: jest.fn((type: number) => (type === FIND_SOURCES ? [source] : [])) },
+      build,
+      harvest,
+      moveTo
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById
+    };
+
+    runWorker(creep);
+
+    expect(build).toHaveBeenCalledWith(site);
+    expect(moveTo).not.toHaveBeenCalledWith(site, { range: 3, ignoreCreeps: true });
+    expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(harvest).toHaveBeenCalledWith(source);
+  });
+
   it('suppresses an existing build target when movement cannot find a path', () => {
     const site = { id: 'site1' } as ConstructionSite;
     const build = jest.fn().mockReturnValue(-9);
@@ -8630,20 +8664,63 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
-  it('switches from spending tasks when creep is empty', () => {
+  it.each([
+    {
+      action: 'transfer',
+      task: { type: 'transfer', targetId: 'stale-transfer' as Id<AnyStoreStructure> },
+      staleTarget: { id: 'stale-transfer', store: { getFreeCapacity: jest.fn().mockReturnValue(50) } },
+      actionMockName: 'transfer'
+    },
+    {
+      action: 'build',
+      task: { type: 'build', targetId: 'stale-site' as Id<ConstructionSite> },
+      staleTarget: { id: 'stale-site' },
+      actionMockName: 'build'
+    },
+    {
+      action: 'repair',
+      task: { type: 'repair', targetId: 'stale-road' as Id<Structure> },
+      staleTarget: { id: 'stale-road', hits: 1_000, hitsMax: 5_000 },
+      actionMockName: 'repair'
+    },
+    {
+      action: 'upgrade',
+      task: { type: 'upgrade', targetId: 'stale-controller' as Id<StructureController> },
+      staleTarget: { id: 'stale-controller', my: true },
+      actionMockName: 'upgradeController'
+    }
+  ] satisfies Array<{
+    action: string;
+    task: CreepTaskMemory;
+    staleTarget: unknown;
+    actionMockName: 'transfer' | 'build' | 'repair' | 'upgradeController';
+  }>)('switches from stale $action when creep is empty', ({ task, staleTarget, actionMockName }) => {
     const source = { id: 'source1' } as Source;
+    const harvest = jest.fn().mockReturnValue(0);
     const creep = {
-      memory: { task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } },
+      memory: { task },
       store: {
         getUsedCapacity: jest.fn().mockReturnValue(0),
         getFreeCapacity: jest.fn().mockReturnValue(50)
       },
-      room: { find: jest.fn().mockReturnValue([source]) }
+      room: { find: jest.fn((type: number) => (type === FIND_SOURCES ? [source] : [])) },
+      harvest,
+      transfer: jest.fn(),
+      build: jest.fn(),
+      repair: jest.fn(),
+      upgradeController: jest.fn(),
+      moveTo: jest.fn()
     } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : staleTarget)) as unknown as Game['getObjectById']
+    };
 
     runWorker(creep);
 
     expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(harvest).toHaveBeenCalledWith(source);
+    expect((creep[actionMockName] as jest.Mock)).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalledWith(staleTarget, expect.anything());
   });
 
   it('transfers energy to transfer targets', () => {

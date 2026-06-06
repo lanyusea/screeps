@@ -34181,7 +34181,7 @@ function executeAssignedTask(creep, selectedTask, immediateReselectExecutions = 
   }
   const execution = executeTask(creep, task, target);
   recordTaskBehavior(creep, task, execution);
-  if (shouldImmediatelyReselectAfterTaskResult(task, execution.result)) {
+  if (shouldImmediatelyReselectAfterTaskResult(task, execution.result) || shouldImmediatelyReselectAfterEmptySpendingTaskResult(creep, task)) {
     delete creep.memory.task;
     const nextTask = assignNextTask(creep);
     if (nextTask && !isSameTask2(task, nextTask) && immediateReselectExecutions < MAX_IMMEDIATE_RESELECT_EXECUTIONS) {
@@ -34202,6 +34202,10 @@ function shouldImmediatelyReselectAfterTaskResult(task, result) {
     return result === ERR_FULL_CODE5;
   }
   return isEnergyAcquisitionTask2(task) && isUnavailableEnergyAcquisitionResult(result);
+}
+function shouldImmediatelyReselectAfterEmptySpendingTaskResult(creep, task) {
+  const usedEnergy = getObservedUsedTransferEnergy(creep);
+  return isEnergySpendingMovementTask(task) && usedEnergy !== null && usedEnergy <= 0;
 }
 function isUnavailableEnergyAcquisitionResult(result) {
   return result === ERR_NOT_ENOUGH_RESOURCES_CODE2 || result === ERR_INVALID_TARGET_CODE3;
@@ -34527,6 +34531,9 @@ function isEnergyAcquisitionTask2(task) {
 function isLowLoadReturnTask(task) {
   return task.type === "transfer" || task.type === "build" || task.type === "repair" || task.type === "upgrade";
 }
+function isEnergySpendingMovementTask(task) {
+  return task.type === "transfer" || task.type === "build" || task.type === "repair" || task.type === "upgrade";
+}
 function isRecoverableEnergyTask(task) {
   return (task == null ? void 0 : task.type) === "pickup" || (task == null ? void 0 : task.type) === "withdraw";
 }
@@ -34651,6 +34658,11 @@ function getUsedTransferEnergy(creep) {
   var _a2, _b;
   const usedCapacity = (_b = (_a2 = creep.store) == null ? void 0 : _a2.getUsedCapacity) == null ? void 0 : _b.call(_a2, RESOURCE_ENERGY);
   return typeof usedCapacity === "number" && Number.isFinite(usedCapacity) ? Math.max(0, usedCapacity) : 0;
+}
+function getObservedUsedTransferEnergy(creep) {
+  var _a2, _b;
+  const usedCapacity = (_b = (_a2 = creep.store) == null ? void 0 : _a2.getUsedCapacity) == null ? void 0 : _b.call(_a2, RESOURCE_ENERGY);
+  return typeof usedCapacity === "number" && Number.isFinite(usedCapacity) ? Math.max(0, usedCapacity) : null;
 }
 function isSameRoomWorkerWithEnergy2(creep, room) {
   var _a2;
@@ -36112,6 +36124,7 @@ function hasRemoteHaulerDeliveryDemand(homeRoom) {
 }
 function runHauler(creep) {
   var _a2, _b, _c, _d;
+  clearEmptyEnergyTransferTask(creep);
   const assignment = normalizeRemoteHaulerMemory((_a2 = creep.memory) == null ? void 0 : _a2.remoteHauler);
   if (!assignment && ((_b = creep.memory) == null ? void 0 : _b.remoteHauler) !== void 0) {
     return;
@@ -36335,6 +36348,9 @@ function deliverLocalEnergy(creep) {
   };
   creep.memory.task = task;
   const result = (_a2 = creep.transfer) == null ? void 0 : _a2.call(creep, target, getEnergyResource20());
+  if (shouldClearEmptyEnergyTransferTaskAfterResult(creep, result)) {
+    return;
+  }
   if (result === getErrNotInRangeCode4()) {
     moveTo4(creep, target);
   }
@@ -36389,9 +36405,28 @@ function deliverEnergy2(creep, assignment) {
     return;
   }
   const result = (_b = creep.transfer) == null ? void 0 : _b.call(creep, target, getEnergyResource20());
+  if (shouldClearEmptyEnergyTransferTaskAfterResult(creep, result)) {
+    return;
+  }
   if (result === getErrNotInRangeCode4()) {
     moveTo4(creep, target);
   }
+}
+function clearEmptyEnergyTransferTask(creep) {
+  var _a2;
+  if (((_a2 = creep.memory.task) == null ? void 0 : _a2.type) === "transfer" && getCarriedEnergy6(creep) <= 0) {
+    delete creep.memory.task;
+  }
+}
+function shouldClearEmptyEnergyTransferTaskAfterResult(creep, result) {
+  if (getCarriedEnergy6(creep) > 0) {
+    return false;
+  }
+  if (result === OK_CODE14 || result === ERR_NOT_ENOUGH_RESOURCES_CODE4 || result === ERR_INVALID_TARGET_CODE4 || result === getErrNotInRangeCode4()) {
+    delete creep.memory.task;
+    return true;
+  }
+  return false;
 }
 function compareRemoteHaulerAssignments(left, right) {
   return compareRemoteHaulerAssignmentOverflowRisk(left, right) || right.containerEnergy - left.containerEnergy || left.targetRoom.localeCompare(right.targetRoom) || String(left.sourceId).localeCompare(String(right.sourceId));
