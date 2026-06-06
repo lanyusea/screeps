@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
+import binascii
 import errno
+import gzip
 import html
 import json
 import math
@@ -25,6 +28,7 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
+import zlib
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -43,6 +47,8 @@ DEFAULT_DEBOUNCE_SECONDS = 300
 DEFAULT_COLLECTION_ATTEMPTS = 3
 DEFAULT_COLLECTION_RETRY_DELAY_SECONDS = 5
 ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS = 25.0
+CREEP_MEMORY_REQUEST_TIMEOUT_SECONDS = 2.0
+CREEP_MEMORY_COLLECTION_TIMEOUT_SECONDS_PER_SHARD = 5.0
 ALERT_COLLECTION_DISCOVERY_REQUEST_COUNT = 2
 ALERT_COLLECTION_INITIAL_ROOM_REQUEST_COUNT = 1
 ALERT_COLLECTION_FALLBACK_REQUEST_COUNT_PER_ATTEMPT = 2
@@ -65,6 +71,11 @@ def alert_collection_timeout_budget_seconds(
         request_count * ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS
         + rooms * max(0, attempts - 1) * retry_delay_seconds
     )
+
+
+def creep_memory_collection_timeout_budget_seconds(shard_count: int = 1) -> float:
+    shards = max(1, int(shard_count))
+    return shards * CREEP_MEMORY_COLLECTION_TIMEOUT_SECONDS_PER_SHARD
 
 
 DEFAULT_ALERT_TIMEOUT_SECONDS = alert_collection_timeout_budget_seconds()
@@ -108,7 +119,11 @@ RUNTIME_SUMMARY_CAPTURE_HISTORY_METADATA_KEY = "__runtimeSummaryCaptureHistory"
 RUNTIME_SUMMARY_SOURCE_METADATA_KEY = "__runtimeSummarySource"
 RUNTIME_SUMMARY_CPU_METADATA_KEY = "__runtimeSummaryCpu"
 MONITOR_RUNTIME_SUMMARY_SOURCE = "screeps-runtime-monitor"
-ASSIGNED_WORKER_TASK_NAMES = ("harvest", "transfer", "build", "repair", "upgrade")
+ASSIGNED_WORKER_TASK_NAMES = ("harvest", "pickup", "withdraw", "transfer", "build", "repair", "upgrade")
+WORKER_TASK_COUNT_NAMES = ("harvest", "transfer", "build", "repair", "upgrade")
+MAX_CREEP_MEMORY_ASSIGNMENT_EVIDENCE_PER_ROOM = 12
+MAX_CREEP_MEMORY_ASSIGNMENT_STRING_LENGTH = 96
+MAX_WORKER_ASSIGNMENT_BLOCKED_WORKERS = 12
 BUILD_BLOCKED_REASON_PATHS = (
     ("buildBlockedReason",),
     ("resources", "productiveEnergy", "buildBlockedReason"),
@@ -160,6 +175,29 @@ WORKER_ASSIGNMENT_BLOCKED_WORKER_NUMBER_FIELDS = (
     "carriedEnergy",
     "dispatchTick",
     "freeCapacity",
+)
+SAFE_CREEP_MEMORY_ASSIGNMENT_STRING_FIELDS = ("role", "colony")
+SAFE_CREEP_TASK_STRING_FIELDS = (
+    "type",
+    "targetId",
+    "sourceId",
+    "resourceType",
+    "constructionSiteId",
+    "controllerId",
+)
+SAFE_WORKER_DISPATCH_DIAGNOSTIC_STRING_FIELDS = (
+    "reason",
+    "currentTargetId",
+    "selectedTask",
+    "selectedTargetId",
+    "baseSelectedTask",
+    "baseSelectedTargetId",
+    "energyCriticalTask",
+    "energyCriticalTargetId",
+    "spawnReservationTask",
+    "spawnReservationTargetId",
+    "assignedTask",
+    "assignedTargetId",
 )
 ENERGY_BUFFER_UNHEALTHY_KIND = "energy_buffer_unhealthy"
 ENERGY_BUFFER_UNHEALTHY_REQUIRED_CONSECUTIVE = 2
@@ -672,6 +710,7 @@ class RoomSummaryMetrics:
     owned_creep_objects: list[dict[str, Any]]
     task_counts: dict[str, int]
     worker_assignment_evidence_available: bool
+    worker_assignment_evidence: dict[str, Any]
     worker_assignment_evidence_unavailable_reason: str | None
     construction_sites: list[dict[str, Any]]
     pending_build_progress: int | float
@@ -848,7 +887,14 @@ def context_from_env(world_profile: str | None = None) -> RuntimeContext:
     )
 
 
-def get_json(base_http: str, token: str, path: str, params: dict[str, Any] | None = None) -> Any:
+def get_json(
+    base_http: str,
+    token: str,
+    path: str,
+    params: dict[str, Any] | None = None,
+    *,
+    timeout_seconds: float = ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS,
+) -> Any:
     url = base_http + path
     if params:
         url += "?" + urllib.parse.urlencode(params)
@@ -859,7 +905,7 @@ def get_json(base_http: str, token: str, path: str, params: dict[str, Any] | Non
             "User-Agent": "screeps-runtime-monitor/1.0",
         },
     )
-    with urllib.request.urlopen(request, timeout=ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS) as response:
+    with urllib.request.urlopen(request, timeout=max(0.001, float(timeout_seconds))) as response:
         return json.load(response)
 
 
@@ -955,15 +1001,23 @@ def discover_owned_rooms(ctx: RuntimeContext, forced_room: RoomRef | None) -> tu
     return [fallback], overview, warnings, [fallback]
 
 
-def alert_collection_room_count(ctx: RuntimeContext, room_arg: str | None) -> int:
+def alert_collection_room_and_shard_count(ctx: RuntimeContext, room_arg: str | None) -> tuple[int, int]:
     forced_room = parse_room_arg(room_arg, ctx.default_shard)
     if forced_room:
-        return 1
+        return 1, 1
     try:
         overview = get_json(ctx.base_http, ctx.token, "/api/user/overview")
     except Exception:  # noqa: BLE001 - default timeout must still exist when discovery is unavailable
-        return 1
-    return max(1, len(overview_room_refs(overview)))
+        return 1, 1
+    refs = overview_room_refs(overview)
+    if not refs:
+        return 1, 1
+    return len(refs), max(1, len({ref.shard for ref in refs}))
+
+
+def alert_collection_room_count(ctx: RuntimeContext, room_arg: str | None) -> int:
+    room_count, _shard_count = alert_collection_room_and_shard_count(ctx, room_arg)
+    return room_count
 
 
 def terrain_cache_path(cache_dir: Path, ref: RoomRef) -> Path:
@@ -1096,6 +1150,7 @@ def collect_snapshots(ctx: RuntimeContext, room_arg: str | None) -> tuple[list[R
     refs, overview, warnings, overview_refs = discover_owned_rooms(ctx, forced_room)
     configured_owner, configured_owner_id = user_identity(ctx, warnings)
     configured_owner = configured_owner or overview_username(overview)
+    creep_memories_by_shard = fetch_creep_memories_by_shard(ctx, refs, warnings)
     snapshots: list[RoomSnapshot] = []
 
     for ref in refs:
@@ -1115,6 +1170,12 @@ def collect_snapshots(ctx: RuntimeContext, room_arg: str | None) -> tuple[list[R
                     event = fetch_room_event_http(ctx, ref)
                 objects = normalize_objects(event.get("objects"))
                 owner = infer_owner(objects, configured_owner, configured_owner_id)
+                objects = attach_safe_creep_memory_to_owned_creeps(
+                    objects,
+                    creep_memories_by_shard.get(ref.shard, {}),
+                    owner,
+                    configured_owner_id,
+                )
                 tick = event.get("gameTime") or event.get("time") or gametime_from_overview(overview, ref.shard)
                 snapshots.append(
                     RoomSnapshot(
@@ -4349,6 +4410,7 @@ def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, 
         "expected_owner_id": snapshot.expected_owner_id,
         "taskCounts": metrics.task_counts,
         "workerAssignmentEvidenceAvailable": metrics.worker_assignment_evidence_available,
+        "workerAssignmentEvidence": metrics.worker_assignment_evidence,
         **assignment_evidence_unavailable_fields,
         "pendingBuildProgress": metrics.pending_build_progress,
         "buildCarriedEnergy": metrics.build_carried_energy,
@@ -5095,7 +5157,8 @@ def worker_load_efficiency(
 
 
 def worker_task_counts(owned_creeps: list[dict[str, Any]]) -> dict[str, int]:
-    counts = {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0}
+    counts = {task_name: 0 for task_name in WORKER_TASK_COUNT_NAMES}
+    counts["none"] = 0
     for creep in owned_creeps:
         if not is_worker_creep(creep):
             continue
@@ -5111,6 +5174,222 @@ def string_value(value: Any) -> str | None:
     if isinstance(value, str) and value:
         return value
     return None
+
+
+def safe_assignment_string(value: Any) -> str | None:
+    text = string_value(value)
+    if text is None:
+        return None
+    redacted = redact_secrets(text, [])
+    if len(redacted) <= MAX_CREEP_MEMORY_ASSIGNMENT_STRING_LENGTH:
+        return redacted
+    if MAX_CREEP_MEMORY_ASSIGNMENT_STRING_LENGTH <= 3:
+        return redacted[:MAX_CREEP_MEMORY_ASSIGNMENT_STRING_LENGTH]
+    return redacted[: MAX_CREEP_MEMORY_ASSIGNMENT_STRING_LENGTH - 3] + "..."
+
+
+def user_memory_api_error(payload: Any, secrets: list[str] | None = None) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    ok = payload.get("ok")
+    if ok not in (0, False):
+        return None
+    status = "ok=false" if ok is False else "ok=0"
+    for key in ("error", "message", "err"):
+        detail = string_value(payload.get(key))
+        if detail is not None:
+            redacted = redact_secrets(detail, secrets or [])
+            return f"user memory API returned {status}: {short_text(redacted, 120)}"
+    return f"user memory API returned {status}"
+
+
+def decode_user_memory_data(payload: Any) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("ok") in (0, False):
+        return None
+    data = payload.get("data")
+    if data is None:
+        return payload
+    if isinstance(data, dict):
+        return data
+    if not isinstance(data, str):
+        return None
+    stripped = data.strip()
+    if not stripped or stripped == "null":
+        return {}
+    if stripped.startswith("gz:"):
+        encoded = stripped[3:].strip()
+        if not encoded:
+            return None
+        try:
+            stripped = gzip.decompress(base64.b64decode(encoded, validate=True)).decode("utf-8").strip()
+        except (binascii.Error, EOFError, OSError, UnicodeDecodeError, zlib.error):
+            return None
+        if not stripped or stripped == "null":
+            return {}
+    try:
+        decoded = json.loads(stripped)
+    except json.JSONDecodeError:
+        return None
+    return decoded if isinstance(decoded, dict) else None
+
+
+def user_memory_creep_map(payload: Any, path_requested: bool) -> dict[str, Any] | None:
+    decoded = decode_user_memory_data(payload)
+    if decoded is None:
+        return None
+    creeps = decoded.get("creeps")
+    if isinstance(creeps, dict):
+        return creeps
+    if path_requested:
+        return decoded
+    return None
+
+
+def fetch_creep_memory_map_for_shard(
+    ctx: RuntimeContext,
+    shard: str,
+    *,
+    timeout_budget_seconds: float = CREEP_MEMORY_COLLECTION_TIMEOUT_SECONDS_PER_SHARD,
+    request_timeout_seconds: float = CREEP_MEMORY_REQUEST_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    requests = (
+        ({"path": "creeps", "shard": shard}, True),
+        ({"path": "creeps"}, True),
+        ({"shard": shard}, False),
+        ({}, False),
+    )
+    timeout_budget = max(0.0, float(timeout_budget_seconds))
+    request_timeout_cap = max(0.001, float(request_timeout_seconds))
+    deadline = time.monotonic() + timeout_budget
+    last_error: Exception | None = None
+    for params, path_requested in requests:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            last_error = TimeoutError(f"creep memory fetch timed out after {timeout_budget:g}s")
+            break
+        try:
+            payload = get_json(
+                ctx.base_http,
+                ctx.token,
+                "/api/user/memory",
+                params,
+                timeout_seconds=min(request_timeout_cap, remaining),
+            )
+            api_error = user_memory_api_error(payload, [ctx.token])
+            if api_error is not None:
+                raise RuntimeError(api_error)
+        except Exception as exc:  # noqa: BLE001 - caller reports one sanitized warning per shard
+            last_error = exc
+            continue
+        creep_map = user_memory_creep_map(payload, path_requested)
+        if creep_map is not None:
+            return creep_map
+    if last_error is not None:
+        raise last_error
+    return {}
+
+
+def fetch_creep_memories_by_shard(
+    ctx: RuntimeContext,
+    refs: list[RoomRef],
+    warnings: list[str],
+    *,
+    timeout_budget_seconds_per_shard: float = CREEP_MEMORY_COLLECTION_TIMEOUT_SECONDS_PER_SHARD,
+    request_timeout_seconds: float = CREEP_MEMORY_REQUEST_TIMEOUT_SECONDS,
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for shard in sorted({ref.shard for ref in refs}):
+        try:
+            result[shard] = fetch_creep_memory_map_for_shard(
+                ctx,
+                shard,
+                timeout_budget_seconds=timeout_budget_seconds_per_shard,
+                request_timeout_seconds=request_timeout_seconds,
+            )
+        except Exception as exc:  # noqa: BLE001 - runtime summary can still explain missing creep memory
+            warnings.append(
+                f"{shard} creep memory unavailable: {short_text(redact_secrets(str(exc), [ctx.token]), 140)}"
+            )
+            result[shard] = {}
+    return result
+
+
+def sanitize_task_memory(value: Any) -> dict[str, Any] | str | None:
+    if isinstance(value, str):
+        return safe_assignment_string(value)
+    if not isinstance(value, dict):
+        return None
+    result: dict[str, Any] = {}
+    for key in SAFE_CREEP_TASK_STRING_FIELDS:
+        field_value = safe_assignment_string(value.get(key))
+        if field_value is not None:
+            result[key] = field_value
+    return result or None
+
+
+def sanitize_worker_dispatch_diagnostic_memory(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    result: dict[str, Any] = {}
+    for key in SAFE_WORKER_DISPATCH_DIAGNOSTIC_STRING_FIELDS:
+        field_value = safe_assignment_string(value.get(key))
+        if field_value is not None:
+            result[key] = field_value
+    tick = number_value(value.get("tick"))
+    if tick is not None:
+        result["tick"] = tick
+    return result or None
+
+
+def sanitize_creep_assignment_memory(value: Any) -> dict[str, Any]:
+    memory = as_dict(value)
+    result: dict[str, Any] = {}
+    for key in SAFE_CREEP_MEMORY_ASSIGNMENT_STRING_FIELDS:
+        field_value = safe_assignment_string(memory.get(key))
+        if field_value is not None:
+            result[key] = field_value
+    task = sanitize_task_memory(memory.get("task"))
+    if task is not None:
+        result["task"] = task
+    diagnostic = sanitize_worker_dispatch_diagnostic_memory(memory.get("workerDispatchDiagnostic"))
+    if diagnostic is not None:
+        result["workerDispatchDiagnostic"] = diagnostic
+    return result
+
+
+def attach_safe_creep_memory_to_owned_creeps(
+    objects: dict[str, dict[str, Any]],
+    creep_memories: dict[str, Any],
+    owner_username: str | None,
+    owner_id: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    if not creep_memories:
+        return objects
+
+    result: dict[str, dict[str, Any]] = {}
+    changed = False
+    for object_id, obj in objects.items():
+        if not isinstance(obj, dict) or obj.get("type") != "creep":
+            result[object_id] = obj
+            continue
+        name = string_value(obj.get("name"))
+        if name is None or not is_owned_object(obj, owner_username, owner_id):
+            result[object_id] = obj
+            continue
+        safe_memory = sanitize_creep_assignment_memory(creep_memories.get(name))
+        if not safe_memory:
+            result[object_id] = obj
+            continue
+        merged = dict(as_dict(obj.get("memory")))
+        merged.update(safe_memory)
+        updated = dict(obj)
+        updated["memory"] = merged
+        result[object_id] = updated
+        changed = True
+
+    return result if changed else objects
 
 
 def explicit_worker_assignment_blocked_detail(source: dict[str, Any]) -> str | None:
@@ -5132,7 +5411,7 @@ def sanitized_worker_assignment_blocked_worker(value: Any) -> dict[str, Any] | N
 
     result: dict[str, Any] = {}
     for key in WORKER_ASSIGNMENT_BLOCKED_WORKER_STRING_FIELDS:
-        field_value = string_value(value.get(key))
+        field_value = safe_assignment_string(value.get(key))
         if field_value is not None:
             result[key] = field_value
     for key in WORKER_ASSIGNMENT_BLOCKED_WORKER_NUMBER_FIELDS:
@@ -5154,7 +5433,10 @@ def explicit_worker_assignment_blocked_workers(source: dict[str, Any]) -> list[d
             continue
         workers = [
             worker
-            for worker in (sanitized_worker_assignment_blocked_worker(item) for item in value)
+            for worker in (
+                sanitized_worker_assignment_blocked_worker(item)
+                for item in value[:MAX_WORKER_ASSIGNMENT_BLOCKED_WORKERS]
+            )
             if worker is not None
         ]
         return workers
@@ -5185,6 +5467,81 @@ def creep_task_type(creep: dict[str, Any]) -> str | None:
         if task_type is not None:
             return task_type
     return None
+
+
+def worker_assignment_task_is_productive(task_type: str | None) -> bool:
+    return task_type is not None and task_type.strip().lower() in ASSIGNED_WORKER_TASK_NAMES
+
+
+def creep_task_field(creep: dict[str, Any], key: str) -> str | None:
+    task = creep_memory(creep).get("task")
+    if not isinstance(task, dict):
+        return None
+    return safe_assignment_string(task.get(key))
+
+
+def creep_assignment_evidence_candidate(creep: dict[str, Any]) -> bool:
+    return creep_has_assignment_evidence(creep) or creep_name_looks_like_worker(creep)
+
+
+def worker_assignment_creep_evidence(creep: dict[str, Any], snapshot_tick: int | str | None) -> dict[str, Any]:
+    task_type = creep_task_type(creep)
+    memory = creep_memory(creep)
+    role = creep_role(creep)
+    task_target_id = creep_task_field(creep, "targetId")
+    task_source_id = creep_task_field(creep, "sourceId")
+    task_construction_site_id = creep_task_field(creep, "constructionSiteId")
+    evidence: dict[str, Any] = {
+        **({"name": creep_name(creep)} if creep_name(creep) else {}),
+        "memoryAvailable": bool(memory),
+        **({"role": safe_assignment_string(role)} if role else {}),
+        **({"task": safe_assignment_string(task_type)} if task_type else {}),
+        **({"taskTargetId": task_target_id} if task_target_id else {}),
+        **({"taskSourceId": task_source_id} if task_source_id else {}),
+        **({"taskConstructionSiteId": task_construction_site_id} if task_construction_site_id else {}),
+        "carriedEnergy": carried_energy(creep),
+        "freeCapacity": creep_free_energy_capacity(creep),
+    }
+    evidence.update(worker_dispatch_diagnostic_fields(creep, snapshot_tick))
+    return evidence
+
+
+def worker_assignment_evidence_summary(
+    owned_creeps: list[dict[str, Any]],
+    tick: int | str | None,
+    assignment_evidence_available: bool,
+    unavailable_reason: str | None,
+) -> dict[str, Any]:
+    workers = [creep for creep in owned_creeps if is_worker_creep(creep)]
+    assigned_task_count = sum(1 for worker in workers if creep_task_type(worker) is not None)
+    productive_assignment_count = sum(
+        1 for worker in workers if worker_assignment_task_is_productive(creep_task_type(worker))
+    )
+    candidates = sorted(
+        [creep for creep in owned_creeps if creep_assignment_evidence_candidate(creep)],
+        key=lambda creep: (creep_name(creep) or "", creep_task_type(creep) or ""),
+    )
+    samples = [
+        worker_assignment_creep_evidence(creep, tick)
+        for creep in candidates[:MAX_CREEP_MEMORY_ASSIGNMENT_EVIDENCE_PER_ROOM]
+    ]
+    evidence: dict[str, Any] = {
+        "source": MONITOR_RUNTIME_SUMMARY_SOURCE,
+        "available": assignment_evidence_available,
+        **({"unavailableReason": unavailable_reason} if unavailable_reason is not None else {}),
+        **({"tick": tick} if isinstance(tick, int) else {}),
+        "visibleCreepCount": len(owned_creeps),
+        "workerCount": len(workers),
+        "assignedTaskCount": assigned_task_count,
+        "productiveAssignmentCount": productive_assignment_count,
+        "unassignedWorkerCount": max(0, len(workers) - assigned_task_count),
+        "sampleLimit": MAX_CREEP_MEMORY_ASSIGNMENT_EVIDENCE_PER_ROOM,
+        "sampleCount": len(samples),
+        "sampleTruncated": len(candidates) > MAX_CREEP_MEMORY_ASSIGNMENT_EVIDENCE_PER_ROOM,
+    }
+    if samples:
+        evidence["creepSamples"] = samples
+    return evidence
 
 
 def creep_free_energy_capacity(creep: dict[str, Any]) -> int | float:
@@ -5303,21 +5660,27 @@ def worker_dispatch_diagnostic_fields(
     ):
         return {}
 
-    return {
-        **({"dispatchReason": diagnostic.get("reason")} if string_value(diagnostic.get("reason")) else {}),
-        **({"dispatchTick": diagnostic_tick} if diagnostic_tick is not None else {}),
-        **({"dispatchCurrentTargetId": diagnostic.get("currentTargetId")} if string_value(diagnostic.get("currentTargetId")) else {}),
-        **({"dispatchSelectedTask": diagnostic.get("selectedTask")} if string_value(diagnostic.get("selectedTask")) else {}),
-        **({"dispatchSelectedTargetId": diagnostic.get("selectedTargetId")} if string_value(diagnostic.get("selectedTargetId")) else {}),
-        **({"dispatchBaseSelectedTask": diagnostic.get("baseSelectedTask")} if string_value(diagnostic.get("baseSelectedTask")) else {}),
-        **({"dispatchBaseSelectedTargetId": diagnostic.get("baseSelectedTargetId")} if string_value(diagnostic.get("baseSelectedTargetId")) else {}),
-        **({"dispatchEnergyCriticalTask": diagnostic.get("energyCriticalTask")} if string_value(diagnostic.get("energyCriticalTask")) else {}),
-        **({"dispatchEnergyCriticalTargetId": diagnostic.get("energyCriticalTargetId")} if string_value(diagnostic.get("energyCriticalTargetId")) else {}),
-        **({"dispatchSpawnReservationTask": diagnostic.get("spawnReservationTask")} if string_value(diagnostic.get("spawnReservationTask")) else {}),
-        **({"dispatchSpawnReservationTargetId": diagnostic.get("spawnReservationTargetId")} if string_value(diagnostic.get("spawnReservationTargetId")) else {}),
-        **({"dispatchAssignedTask": diagnostic.get("assignedTask")} if string_value(diagnostic.get("assignedTask")) else {}),
-        **({"dispatchAssignedTargetId": diagnostic.get("assignedTargetId")} if string_value(diagnostic.get("assignedTargetId")) else {}),
-    }
+    result: dict[str, Any] = {}
+    for source_key, target_key in (
+        ("reason", "dispatchReason"),
+        ("currentTargetId", "dispatchCurrentTargetId"),
+        ("selectedTask", "dispatchSelectedTask"),
+        ("selectedTargetId", "dispatchSelectedTargetId"),
+        ("baseSelectedTask", "dispatchBaseSelectedTask"),
+        ("baseSelectedTargetId", "dispatchBaseSelectedTargetId"),
+        ("energyCriticalTask", "dispatchEnergyCriticalTask"),
+        ("energyCriticalTargetId", "dispatchEnergyCriticalTargetId"),
+        ("spawnReservationTask", "dispatchSpawnReservationTask"),
+        ("spawnReservationTargetId", "dispatchSpawnReservationTargetId"),
+        ("assignedTask", "dispatchAssignedTask"),
+        ("assignedTargetId", "dispatchAssignedTargetId"),
+    ):
+        field_value = safe_assignment_string(diagnostic.get(source_key))
+        if field_value is not None:
+            result[target_key] = field_value
+    if diagnostic_tick is not None:
+        result["dispatchTick"] = diagnostic_tick
+    return result
 
 
 def worker_assignment_blocked_workers_from_creeps(
@@ -5326,7 +5689,10 @@ def worker_assignment_blocked_workers_from_creeps(
 ) -> list[dict[str, Any]]:
     workers = [creep for creep in metrics.owned_creep_objects if is_worker_creep(creep)]
     result: list[dict[str, Any]] = []
-    for worker in sorted(workers, key=lambda creep: (creep_task_type(creep) or "", creep_name(creep) or "")):
+    for worker in sorted(
+        workers,
+        key=lambda creep: (creep_task_type(creep) or "", creep_name(creep) or ""),
+    )[:MAX_WORKER_ASSIGNMENT_BLOCKED_WORKERS]:
         worker_summary: dict[str, Any] = {
             **({"name": creep_name(worker)} if creep_name(worker) else {}),
             **({"task": creep_task_type(worker)} if creep_task_type(worker) else {}),
@@ -5647,6 +6013,12 @@ def compute_room_summary_metrics(snapshot: RoomSnapshot) -> RoomSummaryMetrics:
         owned_creep_objects,
         assignment_evidence_available,
     )
+    assignment_evidence = worker_assignment_evidence_summary(
+        owned_creep_objects,
+        snapshot.tick,
+        assignment_evidence_available,
+        assignment_evidence_unavailable_reason,
+    )
     pending_build_progress = sum(construction_site_pending_progress(site) for site in construction_sites)
     extension_pending_build_progress = sum(
         construction_site_pending_progress(site) for site in extension_construction_sites
@@ -5666,6 +6038,7 @@ def compute_room_summary_metrics(snapshot: RoomSnapshot) -> RoomSummaryMetrics:
         owned_creep_objects=owned_creep_objects,
         task_counts=task_counts,
         worker_assignment_evidence_available=assignment_evidence_available,
+        worker_assignment_evidence=assignment_evidence,
         worker_assignment_evidence_unavailable_reason=assignment_evidence_unavailable_reason,
         construction_sites=construction_sites,
         pending_build_progress=pending_build_progress,
@@ -5751,6 +6124,8 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
     construction_activity = construction_activity_summary(snapshot, metrics, assignment_blocked_fields)
     worker_carried_energy = sum(store_energy(obj) for obj in owned_creeps)
     productive_energy = {
+        "assignedWorkerCount": metrics.worker_assignment_evidence.get("assignedTaskCount", 0),
+        "productiveAssignmentCount": metrics.worker_assignment_evidence.get("productiveAssignmentCount", 0),
         "pendingBuildProgress": metrics.pending_build_progress,
         "buildCarriedEnergy": metrics.build_carried_energy,
         "constructionDeadlockTicks": metrics.construction_deadlock_ticks,
@@ -5769,6 +6144,7 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
         "shard": snapshot.ref.shard,
         "taskCounts": metrics.task_counts,
         "workerAssignmentEvidenceAvailable": metrics.worker_assignment_evidence_available,
+        "workerAssignmentEvidence": metrics.worker_assignment_evidence,
         **assignment_evidence_unavailable_fields,
         "pendingBuildProgress": metrics.pending_build_progress,
         "buildCarriedEnergy": metrics.build_carried_energy,
@@ -6138,12 +6514,12 @@ def alert_timeout_seconds_from_args(args: argparse.Namespace) -> float:
         return float(configured_timeout)
 
     ctx = context_from_env(getattr(args, "world_profile", None))
-    room_count = alert_collection_room_count(ctx, getattr(args, "room", None))
+    room_count, shard_count = alert_collection_room_and_shard_count(ctx, getattr(args, "room", None))
     return alert_collection_timeout_budget_seconds(
         collection_attempts=ctx.collection_attempts,
         collection_retry_delay_seconds=ctx.collection_retry_delay_seconds,
         room_count=room_count,
-    )
+    ) + creep_memory_collection_timeout_budget_seconds(shard_count)
 
 
 def run_parsed_command(args: argparse.Namespace) -> int:
@@ -6587,8 +6963,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Wall-clock timeout for the alert command before emitting diagnostic JSON "
-            "(default: auto budget from monitored rooms and collection retry settings, "
-            "or SCREEPS_ALERT_TIMEOUT_SECONDS)."
+            "(default: auto budget from monitored rooms, collection retry settings, and "
+            "bounded creep-memory evidence, or SCREEPS_ALERT_TIMEOUT_SECONDS)."
         ),
     )
     alert.add_argument(
