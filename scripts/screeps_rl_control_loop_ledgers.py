@@ -29,6 +29,8 @@ DEFAULT_ARTIFACT_ROOT = Path("runtime-artifacts")
 DEFAULT_CONTROL_LOOP_DIR = Path("runtime-artifacts/rl-control-loop")
 DEFAULT_MAX_FILES_PER_ROOT = 25
 DEFAULT_STDOUT_BYTES = 4096
+E1_FULL_GATE_MIN_SAMPLE_COUNT = 200
+E1_GATE_STALE_FRESHNESS_SECONDS = 86400
 HISTORICAL_CONTEXT_ISSUES = [879, 893, 1589]
 REWARD_DECISION_SOURCE_ISSUE = 1690
 REWARD_DECISION_RELATED_ISSUES = [907, 924]
@@ -1415,6 +1417,36 @@ def training_did_run(training: JsonObject) -> bool:
     return bool(training.get("hasComputeEvidence") is True or training.get("trainingDidRun") is True)
 
 
+def utc_datetime_value(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        parsed = static_dashboard.parse_iso_datetime(value)
+    if parsed is None:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def selected_gate_resolves_e1_stale_anomaly(dashboard: JsonObject) -> bool:
+    gate = as_dict(dashboard.get("gate"))
+    if not gate:
+        return False
+    status = (text_value(gate.get("status")) or "").lower()
+    if status not in {"pass", "passed", "ok"}:
+        return False
+    sample_count = int_value(gate.get("sampleCount"))
+    if sample_count is None or sample_count < E1_FULL_GATE_MIN_SAMPLE_COUNT:
+        return False
+    generated_at = utc_datetime_value(dashboard.get("generatedAt"))
+    gate_timestamp = utc_datetime_value(gate.get("timestamp"))
+    if generated_at is None or gate_timestamp is None:
+        return False
+    age_seconds = (generated_at - gate_timestamp).total_seconds()
+    return 0 <= age_seconds <= E1_GATE_STALE_FRESHNESS_SECONDS
+
+
 def training_report_ids_from_training(training: JsonObject) -> list[str]:
     return unique_text_values(as_list(as_dict(training.get("identity")).get("report")))
 
@@ -1440,6 +1472,7 @@ def training_anomalies(
     training = as_dict(dashboard.get("training"))
     gate = as_dict(dashboard.get("gate"))
     anomalies: list[JsonObject] = []
+    stale_e1_gate_resolved = selected_gate_resolves_e1_stale_anomaly(dashboard)
     if not gate:
         anomalies.append(
             {
@@ -1472,6 +1505,8 @@ def training_anomalies(
         if not isinstance(item, dict):
             continue
         if reward_decision_id is not None and item.get("code") == "REWARD_DECISION_ID_NULL":
+            continue
+        if stale_e1_gate_resolved and item.get("code") == "E1_GATE_STALE":
             continue
         if item.get("code") not in {anomaly["code"] for anomaly in anomalies}:
             anomalies.append(item)
