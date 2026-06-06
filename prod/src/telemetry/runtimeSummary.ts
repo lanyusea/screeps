@@ -84,6 +84,7 @@ import {
 import {
   buildRuntimeCpuTelemetrySummary,
   getRuntimeCpuBudget,
+  shouldRunConstructionCpuWork,
   shouldShedNonessentialCpuWork,
   shouldThrottleRuntimeSummaryCadence,
   type RuntimeCpuAlert,
@@ -1051,6 +1052,7 @@ export function emitRuntimeSummary(
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
   const persistOccupationRecommendations = options.persistOccupationRecommendations !== false;
   const includeOptionalSummary = !cpuBudget.lowCpuLimit && !shouldShedNonessentialCpuWork(cpuBudget);
+  const includeConstructionScoring = shouldRunConstructionCpuWork(cpuBudget);
   const rooms = colonies.map((colony) =>
     summarizeRoom(
       colony,
@@ -1061,6 +1063,7 @@ export function emitRuntimeSummary(
       options.strategyRegistry,
       options.onStrategyRegistryRuntimeUse,
       includeOptionalSummary,
+      includeConstructionScoring,
       cpuBudget
     )
   );
@@ -1209,6 +1212,7 @@ function summarizeRoom(
   strategyRegistry: StrategyRegistryEntry[] | undefined,
   onStrategyRegistryRuntimeUse: ((entry: StrategyRegistryEntry) => void) | undefined,
   includeOptionalSummary: boolean,
+  includeConstructionScoring: boolean,
   cpuBudget: RuntimeCpuBudget
 ): RuntimeRoomSummary {
   const tick = getGameTime();
@@ -1240,7 +1244,7 @@ function summarizeRoom(
     territoryExpansion,
     tick
   );
-  const constructionPriorityEvaluation = includeOptionalSummary
+  const constructionPriorityEvaluation = includeConstructionScoring
     ? summarizeConstructionPriority(
         colony,
         colonyWorkers,

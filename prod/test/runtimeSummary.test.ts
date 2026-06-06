@@ -699,11 +699,28 @@ describe('runtime telemetry summaries', () => {
 
     const payload = parseLoggedSummary();
     const [room] = payload.rooms as Array<Record<string, unknown>>;
-    expect(room.constructionPriority).toEqual({ candidates: [], nextPrimary: null });
+    expect(room.constructionPriority).toMatchObject({
+      nextPrimary: {
+        buildItem: 'build rampart defense',
+        room: 'W1N1',
+        urgency: 'critical'
+      }
+    });
+    expect(room.constructionScoring).toEqual({
+      source: 'runtime-summary',
+      loopRan: true,
+      skipped: false,
+      rawCandidateCount: 4,
+      viableCandidateCount: 4,
+      suppressedCandidateCount: 3,
+      dominantSuppressionReason: 'lower_ranked_candidate',
+      acceptedCandidateCount: 1,
+      sitePlacementAttempted: false
+    });
     expect(room.territoryExpansion).toBeUndefined();
     expect(room.behavior).toBeUndefined();
     expect(room.workerEfficiency).toBeUndefined();
-    expect(onStrategyRegistryRuntimeUse).not.toHaveBeenCalled();
+    expect(onStrategyRegistryRuntimeUse).toHaveBeenCalledTimes(1);
   });
 
   it('reports per-creep behavior counters and resets emitted counters', () => {
