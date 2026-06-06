@@ -908,6 +908,38 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     });
   }
 
+  const bootstrapCriticalRepairTarget =
+    bootstrapNonCriticalWorkSuppressed &&
+    isWorkerInColonyRoom(creep) &&
+    !shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) &&
+    !shouldKeepSpawnExtensionRefillBeforeBootstrapExtension(creep, spawnOrExtensionEnergySink)
+      ? selectCriticalInfrastructureRepairTarget(creep)
+      : null;
+  if (bootstrapCriticalRepairTarget) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: 'repair',
+      targetId: bootstrapCriticalRepairTarget.id as Id<Structure>
+    });
+  }
+
+  const bootstrapStorageConstructionSite = selectBootstrapStorageConstructionSiteBeforeRefill(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    survivalAssessment,
+    controller
+  );
+  if (
+    bootstrapStorageConstructionSite &&
+    !shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) &&
+    !shouldKeepSpawnExtensionRefillBeforeBootstrapExtension(creep, spawnOrExtensionEnergySink)
+  ) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: 'build',
+      targetId: bootstrapStorageConstructionSite.id
+    });
+  }
+
   if (!bootstrapNonCriticalWorkSuppressed && !remoteProductiveSpendingSuppressed) {
     const productiveTaskBeforeIdleRefill = selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(
       creep,
@@ -4550,6 +4582,48 @@ function shouldPrioritizeBootstrapExtensionConstructionBeforeRefill(
   );
 }
 
+function selectBootstrapStorageConstructionSiteBeforeRefill(
+  creep: Creep,
+  constructionSites: ConstructionSite[],
+  constructionReservationContext: ConstructionReservationContext,
+  survivalAssessment: ColonySurvivalAssessment | null,
+  controller: StructureController | undefined
+): ConstructionSite | null {
+  if (!shouldPrioritizeBootstrapStorageConstructionBeforeRefill(creep, survivalAssessment, controller)) {
+    return null;
+  }
+
+  return selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    isStorageConstructionSite,
+    {
+      priorityContext: buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites),
+      requireReasonableRange: true
+    }
+  );
+}
+
+function shouldPrioritizeBootstrapStorageConstructionBeforeRefill(
+  creep: Creep,
+  survivalAssessment: ColonySurvivalAssessment | null,
+  controller: StructureController | undefined
+): boolean {
+  return (
+    survivalAssessment?.mode === 'BOOTSTRAP' &&
+    isWorkerInColonyRoom(creep) &&
+    getUsedEnergy(creep) > 0 &&
+    getActiveWorkParts(creep) > 0 &&
+    controller?.my === true &&
+    getControllerLevel(controller) >= 4 &&
+    !shouldGuardControllerDowngrade(controller) &&
+    !hasVisibleHostilePresence(creep.room) &&
+    checkEnergyBufferForStoredConstructionSpending(creep.room) &&
+    !hasOtherSameRoomLoadedBuildWorker(creep)
+  );
+}
+
 function shouldKeepSpawnExtensionRefillBeforeBootstrapExtension(
   creep: Creep,
   spawnOrExtensionEnergySink: StructureSpawn | StructureExtension | null
@@ -4612,7 +4686,7 @@ function selectNearFullConstructionBacklogTaskBeforeCriticalRepair(
   getShouldYieldSpawnReservationToConstructionBacklog: () => boolean
 ): Extract<CreepTaskMemory, { type: 'build' }> | null {
   if (
-    !isRoomEnergyFullOrCoveredByCarriedEnergy(creep.room, getUsedEnergy(creep)) ||
+    !hasSafeSurplusConstructionBacklogBeforeCriticalRepair(creep) ||
     !getShouldYieldSpawnReservationToConstructionBacklog() ||
     shouldUpgradeForRcl3DefenseUnlock(creep, creep.room.controller)
   ) {
@@ -4628,6 +4702,50 @@ function selectNearFullConstructionBacklogTaskBeforeCriticalRepair(
     { priorityContext: constructionPriorityContext }
   );
   return constructionSite ? { type: 'build', targetId: constructionSite.id } : null;
+}
+
+function hasSafeSurplusConstructionBacklogBeforeCriticalRepair(creep: Creep): boolean {
+  const carriedEnergy = getUsedEnergy(creep);
+  if (isRoomEnergyFullOrCoveredByCarriedEnergy(creep.room, carriedEnergy)) {
+    return true;
+  }
+
+  if (
+    carriedEnergy <= 0 ||
+    (!hasHealthyRoomEnergyBuffer(creep.room) && !checkEnergyBufferForStoredConstructionSpending(creep.room))
+  ) {
+    return false;
+  }
+
+  const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
+  return (
+    criticalRepairTarget === null ||
+    hasOtherSameRoomCapableRepairAssignmentForTarget(creep, criticalRepairTarget)
+  );
+}
+
+function hasOtherSameRoomCapableRepairAssignmentForTarget(
+  creep: Creep,
+  target: CriticalInfrastructureRepairTarget
+): boolean {
+  const targetId = String(target.id);
+  if (targetId.length === 0) {
+    return false;
+  }
+
+  return getRoomOwnedCreeps(creep.room).some((worker) => {
+    if (isSameCreep(worker, creep) || !isProductiveSameRoomWorker(worker, creep.room)) {
+      return false;
+    }
+
+    const task = worker.memory?.task as Partial<CreepTaskMemory> | undefined;
+    return (
+      task?.type === 'repair' &&
+      String(task.targetId) === targetId &&
+      getUsedEnergy(worker) > 0 &&
+      getActiveWorkParts(worker) > 0
+    );
+  });
 }
 
 function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(
@@ -4803,6 +4921,10 @@ function isExtensionConstructionSite(site: ConstructionSite): boolean {
 
 function isContainerConstructionSite(site: ConstructionSite): boolean {
   return matchesStructureType(site.structureType, 'STRUCTURE_CONTAINER', 'container');
+}
+
+function isStorageConstructionSite(site: ConstructionSite): boolean {
+  return matchesStructureType(site.structureType, 'STRUCTURE_STORAGE', 'storage');
 }
 
 function isRoadConstructionSite(site: ConstructionSite): boolean {
