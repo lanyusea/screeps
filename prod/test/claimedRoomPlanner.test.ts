@@ -202,6 +202,63 @@ describe('claimed room construction planner', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(16, 23, STRUCTURE_EXTENSION);
   });
 
+  it('plans the first E29N56 tower at RCL4 with pending extension and storage work', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        claimedRoomBootstrapper: {
+          rooms: {
+            E29N56: {
+              roomName: 'E29N56',
+              owned: true,
+              claimedAt: 1_837_000,
+              updatedAt: 1_837_614
+            }
+          }
+        }
+      }
+    };
+    const pendingExtension = makeConstructionSite(
+      'extension-pending',
+      TEST_GLOBALS.STRUCTURE_EXTENSION,
+      16,
+      23,
+      'E29N56'
+    );
+    const pendingStorage = makeConstructionSite(
+      'storage-pending',
+      TEST_GLOBALS.STRUCTURE_STORAGE,
+      17,
+      23,
+      'E29N56'
+    );
+    const { room, colony } = makeColony({
+      roomName: 'E29N56',
+      controllerLevel: 4,
+      energyAvailable: 1_050,
+      energyCapacityAvailable: 1_050,
+      spawnPosition: { x: 17, y: 24 },
+      structures: makeExtensions(15, 'E29N56'),
+      constructionSites: [pendingExtension, pendingStorage],
+      sources: []
+    });
+
+    const result = planClaimedRoomConstruction(colony);
+
+    expect(result.yielded).toBe(false);
+    expect(result.placements[0]).toMatchObject({
+      priority: 'tower',
+      roomName: 'E29N56',
+      structureType: TEST_GLOBALS.STRUCTURE_TOWER,
+      result: OK_CODE,
+      energyReserved: 50
+    });
+    expect(result.energyAvailable - result.energyReserved).toBeGreaterThanOrEqual(500);
+    expect(room.createConstructionSite.mock.calls.filter(([, , structureType]) => structureType === STRUCTURE_TOWER))
+      .toHaveLength(1);
+    expect(room.createConstructionSite).not.toHaveBeenCalledWith(expect.any(Number), expect.any(Number), STRUCTURE_EXTENSION);
+    expect(room.createConstructionSite).not.toHaveBeenCalledWith(expect.any(Number), expect.any(Number), STRUCTURE_STORAGE);
+  });
+
   it('seeds a deferred RCL2 claimed room extension when spawn coverage already exists', () => {
     const { room, colony } = makeColony({
       roomName: 'E29N57',
