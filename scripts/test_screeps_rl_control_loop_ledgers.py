@@ -979,10 +979,14 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
                             f"{report_id} (RUN_WITH_ANOMALY: trueGradient=true, rewardDecisionId=null)",
                         ],
                     },
-                    "rolloutGate": (
-                        "BLOCKED. Rollout still requires: rewardDecisionId propagated (currently null regression), "
-                        "local fallback card fix, and a fresh training pass."
-                    ),
+                    "rolloutGate": {
+                        "status": "BLOCKED",
+                        "reason": (
+                            "rewardDecisionId is null; local fallback card fix and a fresh training pass are still "
+                            "required."
+                        ),
+                        "source": "reward_decision_generation",
+                    },
                     "nextExperimentCardDelta": (
                         "(1) FIX experiment card path. "
                         "(2) RESTORE rewardDecisionId provenance \u2014 investigate why latest ledger shows null. "
@@ -1045,6 +1049,11 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
         self.assertEqual(payload["rewardDecisionArtifactPath"], reward_decision_path)
         self.assertEqual(payload["deployabilityStatus"], "BLOCKED")
         self.assertEqual(payload["evidenceWindows"]["trainingReportIds"], [report_id])
+        self.assertEqual(payload["rolloutGate"]["status"], "BLOCKED")
+        self.assertIn(
+            f"rewardDecisionId {reward_decision_id} is available",
+            payload["rolloutGate"]["reason"],
+        )
         self.assertNotIn("rewardDecisionId_null_regression", regression_metrics)
         self.assertNotIn("rewardDecisionId_missing", regression_metrics)
         for marker in ledgers.REWARD_DECISION_NULL_TEXT_MARKERS:

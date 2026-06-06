@@ -1900,7 +1900,29 @@ def reward_decision_consistent_text(
     reward_decision_artifact_path: str | None,
     field: str,
 ) -> Any:
-    if reward_decision_id is None or not isinstance(value, str) or not reward_decision_null_text_present(value):
+    if reward_decision_id is None or not reward_decision_null_text_present(value):
+        return value
+    if isinstance(value, dict):
+        return {
+            key: reward_decision_consistent_text(
+                item,
+                reward_decision_id=reward_decision_id,
+                reward_decision_artifact_path=reward_decision_artifact_path,
+                field=field if field == "rolloutGate" and key == "reason" else f"{field}.{key}",
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            reward_decision_consistent_text(
+                item,
+                reward_decision_id=reward_decision_id,
+                reward_decision_artifact_path=reward_decision_artifact_path,
+                field=f"{field}[]",
+            )
+            for item in value
+        ]
+    if not isinstance(value, str):
         return value
     resolved = reward_decision_resolved_reference(reward_decision_id, reward_decision_artifact_path)
     text = value
