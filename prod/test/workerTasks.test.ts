@@ -23,6 +23,7 @@ import {
   canLevelUpController,
   canSpendWorkerEnergyOnConstructionSite,
   canUpgradeController,
+  findBuilderEnergyAcquisitionCandidates,
   isUpgraderBoostActive,
   selectActiveRampartRepairEnergyAcquisitionTask,
   selectWorkerEnergyCriticalAcquisitionTask,
@@ -12214,6 +12215,125 @@ describe('selectWorkerTask', () => {
       targetId: 'spawn1',
       constructionSiteId: 'extension-site1'
     });
+  });
+
+  it('does not create a construction spawn withdraw candidate from fully reserved high-cost spawn energy', () => {
+    const site = withRangeTo(
+      { id: 'road-site1', structureType: 'road', progress: 0, progressTotal: 5_000 } as ConstructionSite,
+      { spawn1: 1 }
+    );
+    const spawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 300, 0);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N55',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 2_300,
+      energyCapacityAvailable: 2_300,
+      structures: [spawn as AnyStructure]
+    });
+    const creep = {
+      name: 'Builder',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+      },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      economy: {
+        spawnEnergyReservation: {
+          updatedAt: 1_838_649,
+          rooms: {
+            E29N55: {
+              bodyCost: 2_300,
+              creepName: 'worker-E29N55-next',
+              reservedAt: 1_838_649,
+              reservedEnergy: 2_300,
+              role: 'worker',
+              roomName: 'E29N55',
+              updatedAt: 1_838_649
+            }
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Builder: creep },
+      time: 1_838_650
+    };
+
+    expect(findBuilderEnergyAcquisitionCandidates(creep, site)).toEqual([]);
+  });
+
+  it('creates a construction spawn withdraw candidate from full-room surplus above active reservation', () => {
+    const site = withRangeTo(
+      { id: 'road-site1', structureType: 'road', progress: 0, progressTotal: 5_000 } as ConstructionSite,
+      { spawn1: 1 }
+    );
+    const spawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 300, 0);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N55',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 2_300,
+      energyCapacityAvailable: 2_300,
+      structures: [spawn as AnyStructure]
+    });
+    const creep = {
+      name: 'Builder',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+      },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      economy: {
+        spawnEnergyReservation: {
+          updatedAt: 1_838_649,
+          rooms: {
+            E29N55: {
+              bodyCost: 2_275,
+              creepName: 'worker-E29N55-next',
+              reservedAt: 1_838_649,
+              reservedEnergy: 2_275,
+              role: 'worker',
+              roomName: 'E29N55',
+              updatedAt: 1_838_649
+            }
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Builder: creep },
+      time: 1_838_650
+    };
+
+    expect(findBuilderEnergyAcquisitionCandidates(creep, site)).toEqual([
+      expect.objectContaining({
+        energy: 25,
+        task: {
+          type: 'withdraw',
+          targetId: 'spawn1',
+          constructionSiteId: 'road-site1'
+        }
+      })
+    ]);
   });
 
   it('uses safe E29N55 construction energy below the bootstrap buffer margin', () => {
