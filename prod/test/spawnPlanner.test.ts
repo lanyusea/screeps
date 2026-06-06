@@ -993,18 +993,85 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 2, sourceHarvester: 1, workerCapacity: 3 }, 163)).toBeNull();
   });
 
-  it('keeps mobile worker harvesting as the fallback when a local source container is missing', () => {
-    const { colony } = makeColony({
+  it('plans a mobile fallback local source harvester when a source container is missing', () => {
+    const emptySpawn = makeEnergyHaulingStructure('spawn1', STRUCTURE_SPAWN, 0, 300, 17, 24, 300);
+    const { colony, spawn } = makeColony({
       roomName: 'W1N29',
       sourceCount: 1,
       sourcePositions: [makeRoomPosition(10, 10, 'W1N29')],
       energyAvailable: 600,
       energyCapacityAvailable: 600,
       spawnEnergyBudget: 600,
+      ownedStructures: [emptySpawn],
       controller: makeSafeOwnedController()
     });
 
-    expect(planSpawn(colony, { worker: 3 }, 162)).toBeNull();
+    expect(planSpawn(colony, { worker: 3 }, 162)).toEqual({
+      spawn,
+      body: ['work', 'work', 'work', 'work', 'work', 'carry', 'move'],
+      name: 'sourceHarvester-W1N29-source0-162',
+      memory: {
+        role: 'sourceHarvester',
+        colony: 'W1N29',
+        sourceHarvester: {
+          roomName: 'W1N29',
+          sourceId: 'source0'
+        }
+      }
+    });
+  });
+
+  it('holds local source mining under the actual worker support floor', () => {
+    const emptySpawn = makeEnergyHaulingStructure('spawn1', STRUCTURE_SPAWN, 0, 300, 17, 24, 300);
+    const { colony } = makeColony({
+      roomName: 'W1N30',
+      sourceCount: 2,
+      sourcePositions: [makeRoomPosition(10, 10, 'W1N30'), makeRoomPosition(20, 20, 'W1N30')],
+      energyAvailable: 600,
+      energyCapacityAvailable: 600,
+      spawnEnergyBudget: 600,
+      ownedStructures: [emptySpawn],
+      controller: makeSafeOwnedController()
+    });
+
+    expect(planSpawn(colony, { worker: 2, sourceHarvester: 1 }, 163)?.memory.role).not.toBe('sourceHarvester');
+  });
+
+  it('holds local source mining while hostiles are visible', () => {
+    installHostileFindGlobals();
+    const hostile = { id: 'hostile1' } as Creep;
+    const emptySpawn = makeEnergyHaulingStructure('spawn1', STRUCTURE_SPAWN, 0, 300, 17, 24, 300);
+    const { colony } = makeColony({
+      roomName: 'W1N30',
+      sourceCount: 1,
+      sourcePositions: [makeRoomPosition(10, 10, 'W1N30')],
+      energyAvailable: 600,
+      energyCapacityAvailable: 600,
+      spawnEnergyBudget: 600,
+      hostileCreeps: [hostile],
+      ownedStructures: [emptySpawn],
+      controller: makeSafeOwnedController()
+    });
+
+    expect(planSpawn(colony, { worker: 3, sourceHarvester: 0, defender: 1 }, 164)?.memory.role).not.toBe(
+      'sourceHarvester'
+    );
+  });
+
+  it('holds local source mining during controller downgrade guard', () => {
+    const emptySpawn = makeEnergyHaulingStructure('spawn1', STRUCTURE_SPAWN, 0, 300, 17, 24, 300);
+    const { colony } = makeColony({
+      roomName: 'W1N30',
+      sourceCount: 1,
+      sourcePositions: [makeRoomPosition(10, 10, 'W1N30')],
+      energyAvailable: 600,
+      energyCapacityAvailable: 600,
+      spawnEnergyBudget: 600,
+      ownedStructures: [emptySpawn],
+      controller: { ...makeSafeOwnedController(), ticksToDowngrade: 1_500 } as StructureController
+    });
+
+    expect(planSpawn(colony, { worker: 3, sourceHarvester: 0 }, 165)?.memory.role).not.toBe('sourceHarvester');
   });
 
   it('uses the RCL4 medium worker profile when full capacity is affordable', () => {
@@ -2624,6 +2691,126 @@ describe('planSpawn', () => {
         }
       }
     });
+  });
+
+  it('spawns a local energy hauler from durable storage when priority refill targets are empty', () => {
+    const storage = makeEnergyHaulingStructure('storage1', STRUCTURE_STORAGE, 2_000, 8_000, 12, 12, 10_000);
+    const emptySpawn = makeEnergyHaulingStructure('spawn1', STRUCTURE_SPAWN, 0, 300, 17, 24, 300);
+    const emptyTower = makeEnergyHaulingStructure('tower1', STRUCTURE_TOWER, 0, 1_000, 18, 24, 1_000);
+    const { colony, spawn } = makeColony({
+      sourceCount: 0,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      spawnEnergyBudget: 800,
+      controller: makeSafeOwnedController(),
+      structures: [storage as unknown as AnyStructure],
+      ownedStructures: [emptySpawn, emptyTower, storage]
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 509,
+      rooms: { W1N1: colony.room },
+      spawns: { Spawn1: spawn },
+      creeps: {}
+    };
+
+    expect(planSpawn(colony, { worker: 3 }, 509)).toEqual({
+      spawn,
+      body: [
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move'
+      ],
+      name: 'hauler-W1N1-energy-509',
+      memory: {
+        role: 'hauler',
+        colony: 'W1N1',
+        energyHauler: {
+          roomName: 'W1N1'
+        }
+      }
+    });
+  });
+
+  it('holds durable-energy local haulers while hostiles are visible', () => {
+    installHostileFindGlobals();
+    const hostile = { id: 'hostile1' } as Creep;
+    const storage = makeEnergyHaulingStructure('storage1', STRUCTURE_STORAGE, 2_000, 8_000, 12, 12, 10_000);
+    const emptySpawn = makeEnergyHaulingStructure('spawn1', STRUCTURE_SPAWN, 0, 300, 17, 24, 300);
+    const { colony, spawn } = makeColony({
+      sourceCount: 0,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      spawnEnergyBudget: 800,
+      hostileCreeps: [hostile],
+      controller: makeSafeOwnedController(),
+      structures: [storage as unknown as AnyStructure],
+      ownedStructures: [emptySpawn, storage]
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 510,
+      rooms: { W1N1: colony.room },
+      spawns: { Spawn1: spawn },
+      creeps: {}
+    };
+
+    expect(planSpawn(colony, { worker: 3, defender: 1 }, 510)?.memory.role).not.toBe('hauler');
+  });
+
+  it('holds durable-energy local haulers during controller downgrade guard', () => {
+    const storage = makeEnergyHaulingStructure('storage1', STRUCTURE_STORAGE, 2_000, 8_000, 12, 12, 10_000);
+    const emptySpawn = makeEnergyHaulingStructure('spawn1', STRUCTURE_SPAWN, 0, 300, 17, 24, 300);
+    const { colony, spawn } = makeColony({
+      sourceCount: 0,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      spawnEnergyBudget: 800,
+      controller: { ...makeSafeOwnedController(), ticksToDowngrade: 1_500 } as StructureController,
+      structures: [storage as unknown as AnyStructure],
+      ownedStructures: [emptySpawn, storage]
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 511,
+      rooms: { W1N1: colony.room },
+      spawns: { Spawn1: spawn },
+      creeps: {}
+    };
+
+    expect(planSpawn(colony, { worker: 3 }, 511)?.memory.role).not.toBe('hauler');
+  });
+
+  it('holds durable-energy local haulers under the local worker floor', () => {
+    const storage = makeEnergyHaulingStructure('storage1', STRUCTURE_STORAGE, 2_000, 8_000, 12, 12, 10_000);
+    const emptySpawn = makeEnergyHaulingStructure('spawn1', STRUCTURE_SPAWN, 0, 300, 17, 24, 300);
+    const { colony, spawn } = makeColony({
+      sourceCount: 0,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      spawnEnergyBudget: 800,
+      controller: makeSafeOwnedController(),
+      structures: [storage as unknown as AnyStructure],
+      ownedStructures: [emptySpawn, storage]
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 512,
+      rooms: { W1N1: colony.room },
+      spawns: { Spawn1: spawn },
+      creeps: {}
+    };
+
+    expect(planSpawn(colony, { worker: 2 }, 512)?.memory.role).not.toBe('hauler');
   });
 
   it('plans a remote harvester for a newly claimed adjacent room source before container completion', () => {
