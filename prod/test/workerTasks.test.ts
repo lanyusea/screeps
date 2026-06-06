@@ -13091,6 +13091,91 @@ describe('selectWorkerTask', () => {
     ]);
   });
 
+  it('does not charge stored construction reservations against spawn construction withdrawal budget', () => {
+    const site = withRangeTo(
+      { id: 'road-site1', structureType: 'road', progress: 0, progressTotal: 5_000 } as ConstructionSite,
+      { spawn1: 1, container1: 1 }
+    );
+    const spawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 300, 0);
+    const container = makeStoredEnergyContainerWithCapacity('container1', 755, 2_000);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const roomCreeps: Creep[] = [];
+    const room = makeWorkerTaskRoom({
+      name: 'E29N55',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 2_300,
+      energyCapacityAvailable: 2_300,
+      myCreeps: roomCreeps,
+      structures: [spawn as AnyStructure, container as unknown as AnyStructure]
+    });
+    const creep = {
+      name: 'Builder',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+      },
+      room
+    } as unknown as Creep;
+    const storedBuilder = {
+      name: 'StoredBuilder',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: {
+          type: 'withdraw',
+          targetId: 'container1' as Id<AnyStoreStructure>,
+          constructionSiteId: 'road-site1' as Id<ConstructionSite>
+        }
+      },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+      },
+      room
+    } as unknown as Creep;
+    roomCreeps.push(creep, storedBuilder);
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      economy: {
+        spawnEnergyReservation: {
+          updatedAt: 1_838_649,
+          rooms: {
+            E29N55: {
+              bodyCost: 2_275,
+              creepName: 'worker-E29N55-next',
+              reservedAt: 1_838_649,
+              reservedEnergy: 2_275,
+              role: 'worker',
+              roomName: 'E29N55',
+              updatedAt: 1_838_649
+            }
+          }
+        }
+      }
+    };
+    setGameCreeps({ Builder: creep, StoredBuilder: storedBuilder });
+    setGameObjectsById([site, spawn, container], { rooms: { E29N55: room }, time: 1_838_650 });
+
+    expect(findBuilderEnergyAcquisitionCandidates(creep, site)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          energy: 25,
+          task: {
+            type: 'withdraw',
+            targetId: 'spawn1',
+            constructionSiteId: 'road-site1'
+          }
+        })
+      ])
+    );
+  });
+
   it('uses safe E29N55 construction energy below the bootstrap buffer margin', () => {
     const site = withRangeTo(
       { id: 'extension-site1', structureType: 'extension' } as ConstructionSite,

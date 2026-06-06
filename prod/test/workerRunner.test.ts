@@ -1637,6 +1637,14 @@ describe('runWorker', () => {
         getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0))
       }
     } as unknown as StructureSpawn;
+    const storedContainer = {
+      id: 'stored-container1',
+      structureType: 'container',
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 500 : 0)),
+        getFreeCapacity: jest.fn().mockReturnValue(1_500)
+      }
+    } as unknown as StructureContainer;
     const roomCreeps: Creep[] = [];
     const room = {
       name: 'E29N55',
@@ -1645,7 +1653,7 @@ describe('runWorker', () => {
       controller,
       find: jest.fn((type: number, options?: { filter?: (object: AnyOwnedStructure | Creep) => boolean }) => {
         if (type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES) {
-          const structures = [spawn] as unknown as AnyOwnedStructure[];
+          const structures = [spawn, storedContainer] as unknown as AnyOwnedStructure[];
           return options?.filter ? structures.filter(options.filter) : structures;
         }
 
@@ -1685,7 +1693,24 @@ describe('runWorker', () => {
       },
       room
     } as unknown as Creep;
-    roomCreeps.push(creep, recoveryWorker);
+    const storedBuilder = {
+      name: 'StoredBuilder',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: {
+          type: 'withdraw',
+          targetId: 'stored-container1' as Id<AnyStoreStructure>,
+          constructionSiteId: 'E29N55-road-site' as Id<ConstructionSite>
+        }
+      },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+      },
+      room
+    } as unknown as Creep;
+    roomCreeps.push(creep, recoveryWorker, storedBuilder);
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       economy: {
         spawnEnergyReservation: {
@@ -1705,12 +1730,16 @@ describe('runWorker', () => {
       }
     };
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
-      creeps: { Builder: creep, RecoveryWorker: recoveryWorker },
+      creeps: { Builder: creep, RecoveryWorker: recoveryWorker, StoredBuilder: storedBuilder },
       rooms: { E29N55: room },
       time: 1_838_650,
       getObjectById: jest.fn((id: string) => {
         if (id === 'spawn1') {
           return spawn;
+        }
+
+        if (id === 'stored-container1') {
+          return storedContainer;
         }
 
         return id === 'E29N55-road-site' ? site : null;

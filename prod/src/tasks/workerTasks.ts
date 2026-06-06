@@ -41,7 +41,6 @@ import {
   checkEnergyBufferForExtensionConstruction,
   checkEnergyBufferForStoredConstructionSpending,
   getEffectiveRoomEnergyBufferThreshold,
-  getConstructionSpendingEnergyThreshold,
   getStorageEnergyAvailableForWithdrawal,
   getStorageEnergyReserveThreshold,
   hasMinimumWorkerSpawnEnergyForConstruction,
@@ -57,9 +56,13 @@ import {
   hasSubstantialContainerEnergy
 } from '../economy/containerEnergy';
 import {
-  getRoomSpawnEnergyReservationState,
   getUnmetSpawnEnergyReservation
 } from '../economy/spawnEnergyReservation';
+import {
+  createWorkerConstructionWithdrawReservationContext,
+  getSpawnConstructionEnergyAvailableForWithdrawal,
+  type WorkerConstructionWithdrawReservationContext
+} from '../economy/workerConstructionWithdrawBudget';
 import { CROSS_ROOM_HAULER_ROLE, isLiveTransferCandidate } from '../economy/crossRoomHauler';
 import { selectEnergySurplusDeliverySink } from '../economy/energySurplus';
 import { getStorageBalanceState } from '../economy/storageBalancer';
@@ -5267,10 +5270,7 @@ interface ProductiveEnergySinkCandidate {
   taskPriority: number;
 }
 
-interface WorkerEnergyAcquisitionReservationContext {
-  constructionEnergyWithdrawn: number;
-  reservedEnergyBySourceId: Map<string, number>;
-}
+type WorkerEnergyAcquisitionReservationContext = WorkerConstructionWithdrawReservationContext;
 
 interface WorkerEnergyAcquisitionSearchOptions {
   maximumRange?: number;
@@ -5452,7 +5452,7 @@ function createUnreservedBuilderStoredEnergyAcquisitionCandidate(
 
   if (isSpawnEnergySource(source)) {
     const constructionEnergy = getSpawnConstructionEnergyAvailableForWithdrawal(
-      creep,
+      creep.room,
       source,
       energy,
       reservationContext
@@ -5491,52 +5491,12 @@ function isBuilderConstructionBufferSpawnSource(
     isSpawnEnergySource(structure) &&
     isFriendlyStoredEnergySource(structure, context) &&
     getSpawnConstructionEnergyAvailableForWithdrawal(
-      creep,
+      creep.room,
       structure,
       getStoredEnergy(structure),
       reservationContext
     ) > 0
   );
-}
-
-function getSpawnConstructionEnergyAvailableForWithdrawal(
-  creep: Creep,
-  source: StructureSpawn,
-  energy: number,
-  reservationContext: WorkerEnergyAcquisitionReservationContext
-): number {
-  const roomEnergyAvailable = getRoomEnergyAvailable(creep.room);
-  if (roomEnergyAvailable === null) {
-    return 0;
-  }
-
-  const reservedEnergy = getReservedWorkerEnergyAcquisitionAmount(source, reservationContext);
-  const projectedSourceEnergy = Math.max(0, energy - reservedEnergy);
-  const spawnReservationBudget = getConstructionEnergyAvailableAfterSpawnReservation(
-    creep.room,
-    roomEnergyAvailable,
-    reservationContext.constructionEnergyWithdrawn
-  );
-  const constructionBudget = Math.max(
-    0,
-    roomEnergyAvailable -
-      getConstructionSpendingEnergyThreshold(creep.room) -
-      reservationContext.constructionEnergyWithdrawn
-  );
-  return Math.min(projectedSourceEnergy, constructionBudget, spawnReservationBudget);
-}
-
-function getConstructionEnergyAvailableAfterSpawnReservation(
-  room: Room,
-  roomEnergyAvailable: number,
-  constructionEnergyWithdrawn: number
-): number {
-  const reservation = getRoomSpawnEnergyReservationState(room);
-  if (!reservation.active) {
-    return Number.POSITIVE_INFINITY;
-  }
-
-  return Math.max(0, roomEnergyAvailable - reservation.reservedEnergy - constructionEnergyWithdrawn);
 }
 
 function createBuilderEnergyAcquisitionCandidate(
@@ -6847,35 +6807,7 @@ function scoreWorkerEnergyAcquisitionAmount(energy: number, freeCapacity: number
 }
 
 function createWorkerEnergyAcquisitionReservationContext(creep: Creep): WorkerEnergyAcquisitionReservationContext {
-  return getReservedWorkerEnergyAcquisitions(creep);
-}
-
-function getReservedWorkerEnergyAcquisitions(creep: Creep): WorkerEnergyAcquisitionReservationContext {
-  const reservedEnergyBySourceId = new Map<string, number>();
-  let constructionEnergyWithdrawn = 0;
-  for (const worker of getGameCreeps()) {
-    if (isSameCreep(worker, creep) || !isSameRoomWorker(worker, creep.room)) {
-      continue;
-    }
-
-    const task = worker.memory?.task as Partial<CreepTaskMemory> | undefined;
-    if (!isWorkerEnergyAcquisitionReservationTask(task)) {
-      continue;
-    }
-
-    const freeCapacity = getFreeEnergyCapacity(worker);
-    if (freeCapacity <= 0) {
-      continue;
-    }
-
-    const sourceId = String(task.targetId);
-    reservedEnergyBySourceId.set(sourceId, (reservedEnergyBySourceId.get(sourceId) ?? 0) + freeCapacity);
-    if (isWorkerConstructionEnergyAcquisitionReservationTask(task)) {
-      constructionEnergyWithdrawn += freeCapacity;
-    }
-  }
-
-  return { constructionEnergyWithdrawn, reservedEnergyBySourceId };
+  return createWorkerConstructionWithdrawReservationContext(creep.room, creep);
 }
 
 function isWorkerEnergyAcquisitionReservationTask(

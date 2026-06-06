@@ -4,7 +4,7 @@ import {
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
   selectWorkerEnergyCriticalAcquisitionTask
 } from '../tasks/workerTasks';
-import { getSpawnEnergyWithdrawalAmount, isSpawnEnergySource } from '../economy/spawnEnergyBuffer';
+import { getSafeWorkerWithdrawEnergyAmount } from '../economy/workerConstructionWithdrawBudget';
 
 export const WORKER_ENERGY_CRITICAL_SPAWN_EXIT_THRESHOLD =
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD + 100;
@@ -359,10 +359,7 @@ function canRetainEnergyCriticalWithdrawTask(
     return false;
   }
 
-  return (
-    !isSpawnEnergySource(target) ||
-    getSpawnEnergyWithdrawalAmount(creep.room, target, getFreeEnergyCapacity(creep)) > 0
-  );
+  return getSafeWorkerWithdrawEnergyAmount(creep, target, getFreeEnergyCapacity(creep), task) > 0;
 }
 
 function getEnergyCriticalReason(spawnActive: boolean, storageActive: boolean): EnergyCriticalReason | null {
