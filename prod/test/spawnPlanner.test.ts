@@ -58,6 +58,7 @@ describe('planSpawn', () => {
     (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 2;
     (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 5;
     (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 6;
+    (globalThis as unknown as { FIND_DROPPED_RESOURCES: number }).FIND_DROPPED_RESOURCES = 7;
     (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 10;
     (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
@@ -378,6 +379,21 @@ describe('planSpawn', () => {
     } as unknown as StructureContainer;
   }
 
+  function makeDroppedEnergy(
+    id: string,
+    amount: number,
+    x = 10,
+    y = 10,
+    roomName = 'W2N1'
+  ): Resource<ResourceConstant> {
+    return {
+      id,
+      amount,
+      resourceType: RESOURCE_ENERGY,
+      pos: makeRoomPosition(x, y, roomName)
+    } as unknown as Resource<ResourceConstant>;
+  }
+
   function makeEnergyHaulingStructure(
     id: string,
     structureType: StructureConstant,
@@ -406,12 +422,14 @@ describe('planSpawn', () => {
     roomName = 'W2N1',
     source = makeRemoteSource(`${roomName}-source0`, 10, 10, roomName),
     container = makeRemoteContainer(`${roomName}-container0`, 0, 10, 11, roomName),
-    controller = { id: `${roomName}-controller`, my: true, level: 1 } as StructureController
+    controller = { id: `${roomName}-controller`, my: true, level: 1 } as StructureController,
+    droppedResources = []
   }: {
     roomName?: string;
     source?: Source;
     container?: StructureContainer | null;
     controller?: StructureController;
+    droppedResources?: Resource<ResourceConstant>[];
   } = {}): Room {
     return {
       name: roomName,
@@ -427,6 +445,10 @@ describe('planSpawn', () => {
 
         if (type === FIND_MY_CREEPS) {
           return findMockCreepsInRoom(roomName);
+        }
+
+        if (type === FIND_DROPPED_RESOURCES) {
+          return droppedResources;
         }
 
         return [];
@@ -511,7 +533,7 @@ describe('planSpawn', () => {
     };
   }
 
-  function makeRemoteHarvester(sourceId = 'W2N1-source0', containerId = 'W2N1-container0'): Creep {
+  function makeRemoteHarvester(sourceId = 'W2N1-source0', containerId: string | null = 'W2N1-container0'): Creep {
     return {
       memory: {
         role: 'remoteHarvester',
@@ -520,7 +542,24 @@ describe('planSpawn', () => {
           homeRoom: 'W1N1',
           targetRoom: 'W2N1',
           sourceId: sourceId as Id<Source>,
-          containerId: containerId as Id<StructureContainer>
+          ...(containerId === null ? {} : { containerId: containerId as Id<StructureContainer> })
+        }
+      },
+      room: { name: 'W2N1' } as Room,
+      ticksToLive: 1_000
+    } as Creep;
+  }
+
+  function makeRemoteHauler(sourceId = 'W2N1-source0', containerId: string | null = 'W2N1-container0'): Creep {
+    return {
+      memory: {
+        role: 'hauler',
+        colony: 'W1N1',
+        remoteHauler: {
+          homeRoom: 'W1N1',
+          targetRoom: 'W2N1',
+          sourceId: sourceId as Id<Source>,
+          ...(containerId === null ? {} : { containerId: containerId as Id<StructureContainer> })
         }
       },
       room: { name: 'W2N1' } as Room,
@@ -2906,6 +2945,86 @@ describe('planSpawn', () => {
         }
       }
     });
+  });
+
+  it('dispatches one remote hauler for dropped energy near a pending remote source without a container', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController(),
+      ownedStructures: [makeRemoteHaulerStorageSink('storage1')]
+    });
+    const source = makeRemoteSource('W2N1-source0');
+    const lowDroppedEnergyRoom = makeRemoteEconomyRoom({
+      source,
+      container: null,
+      droppedResources: [makeDroppedEnergy('drop-low', 500)]
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 510,
+      rooms: { W1N1: colony.room, W2N1: lowDroppedEnergyRoom },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        RemoteHarvester: makeRemoteHarvester('W2N1-source0', null)
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        remoteMining: {
+          'W1N1:W2N1': makeRemoteMiningMemory('W2N1', {
+            containerId: null,
+            containerBuilt: false,
+            containerSitePending: true
+          })
+        }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 4 }, 511)).toBeNull();
+
+    const highDroppedEnergyRoom = makeRemoteEconomyRoom({
+      source,
+      container: null,
+      droppedResources: [makeDroppedEnergy('drop-high', 700)]
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 511,
+      rooms: { W1N1: colony.room, W2N1: highDroppedEnergyRoom },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        RemoteHarvester: makeRemoteHarvester('W2N1-source0', null)
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+
+    expect(planSpawn(colony, { worker: 4 }, 512)).toEqual({
+      spawn,
+      body: ['carry', 'move', 'carry', 'move', 'carry', 'move', 'carry', 'move', 'carry', 'move', 'carry', 'move'],
+      name: 'hauler-W1N1-W2N1-W2N1-source0-512',
+      memory: {
+        role: 'hauler',
+        colony: 'W1N1',
+        remoteHauler: {
+          homeRoom: 'W1N1',
+          targetRoom: 'W2N1',
+          sourceId: 'W2N1-source0'
+        }
+      }
+    });
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 512,
+      rooms: { W1N1: colony.room, W2N1: highDroppedEnergyRoom },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        RemoteHarvester: makeRemoteHarvester('W2N1-source0', null),
+        RemoteHauler: makeRemoteHauler('W2N1-source0', null)
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+
+    expect(planSpawn(colony, { worker: 4 }, 513)).toBeNull();
   });
 
   it('waits on remote haulers when the home colony has no known delivery demand', () => {

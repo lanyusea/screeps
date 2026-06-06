@@ -4,7 +4,12 @@ import {
   isCriticalRoadLogisticsWork
 } from '../construction/criticalRoads';
 import { getContainerEnergyFillRatio, getStoreEnergyCapacity } from '../economy/containerEnergy';
-import { findSourceContainer } from '../economy/sourceContainers';
+import {
+  findSourceContainer,
+  findSourceContainerConstructionSite,
+  getRangeBetweenPositions,
+  getRoomObjectPosition
+} from '../economy/sourceContainers';
 import { buildRemoteHarvesterBody } from '../spawn/bodyBuilder';
 
 export const REMOTE_HARVESTER_ROLE = 'remoteHarvester';
@@ -17,6 +22,7 @@ const ERR_NOT_ENOUGH_RESOURCES_CODE = -6 as ScreepsReturnCode;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 const DEFAULT_REMOTE_ROOM_DISTANCE = 1;
 const CRITICAL_ROAD_MOVE_COST = 1;
+const REMOTE_SOURCE_DROPPED_ENERGY_RANGE = 1;
 
 export interface RemoteSourceAssignment {
   homeRoom: string;
@@ -113,19 +119,29 @@ export function runRemoteHarvester(creep: Creep): void {
 
   const source = getAssignedSource(assignment);
   const container = getAssignedContainer(assignment);
-  if (!container) {
-    delete creep.memory.task;
-    if (getCarriedEnergy(creep) > 0) {
+  if (!source) {
+    if (!container && getCarriedEnergy(creep) > 0) {
+      delete creep.memory.task;
       creep.drop?.(getEnergyResource());
       return;
     }
-  }
 
-  if (!source) {
     if (container) {
       moveTo(creep, container, assignment);
     }
     return;
+  }
+
+  if (!container) {
+    delete creep.memory.task;
+    if (getCarriedEnergy(creep) > 0) {
+      if (buildAssignedSourceContainerSite(creep, source, assignment)) {
+        return;
+      }
+
+      creep.drop?.(getEnergyResource());
+      return;
+    }
   }
 
   if (!isInRangeTo(creep, source, 1)) {
@@ -208,6 +224,7 @@ function getRemoteSourceAssignmentsInRoom(homeRoom: string, room: Room): RemoteS
     .map((source) => {
       const container = findSourceContainer(room, source);
       const containerEnergy = container ? getStoredEnergy(container) : 0;
+      const droppedEnergy = container ? 0 : getDroppedEnergyNearSource(room, source);
       const containerCapacity = container ? getStoreEnergyCapacity(container) : null;
       const containerFillRatio = container ? getContainerEnergyFillRatio(container, containerEnergy) : null;
       return {
@@ -216,11 +233,41 @@ function getRemoteSourceAssignmentsInRoom(homeRoom: string, room: Room): RemoteS
         sourceId: source.id,
         ...(container ? { containerId: container.id } : {}),
         ...(containerCapacity === null ? {} : { containerCapacity }),
-        containerEnergy,
+        containerEnergy: container ? containerEnergy : droppedEnergy,
         ...(containerFillRatio === null ? {} : { containerFillRatio }),
         routeDistance: estimateRemoteRoomDistance(homeRoom, room.name)
       };
     });
+}
+
+export function findDroppedEnergyNearSource(room: Room | undefined, source: Source): Resource<ResourceConstant>[] {
+  if (typeof FIND_DROPPED_RESOURCES !== 'number' || typeof room?.find !== 'function') {
+    return [];
+  }
+
+  const sourcePosition = getRoomObjectPosition(source);
+  if (!sourcePosition) {
+    return [];
+  }
+
+  const droppedResources = room.find(FIND_DROPPED_RESOURCES) as Resource<ResourceConstant>[];
+  if (!Array.isArray(droppedResources)) {
+    return [];
+  }
+
+  return droppedResources
+    .filter(isDroppedEnergy)
+    .filter((resource) => {
+      const resourcePosition = getRoomObjectPosition(resource);
+      return (
+        resourcePosition !== null &&
+        (typeof resourcePosition.roomName !== 'string' ||
+          typeof sourcePosition.roomName !== 'string' ||
+          resourcePosition.roomName === sourcePosition.roomName) &&
+        getRangeBetweenPositions(sourcePosition, resourcePosition) <= REMOTE_SOURCE_DROPPED_ENERGY_RANGE
+      );
+    })
+    .sort(compareDroppedEnergyForPickup);
 }
 
 function getRemoteSourceRoomRecords(homeRoom: string): RemoteSourceRoomRecord[] {
@@ -399,6 +446,31 @@ function transferToContainer(
   }
 }
 
+function buildAssignedSourceContainerSite(
+  creep: Creep,
+  source: Source,
+  assignment: CreepRemoteHarvesterMemory
+): boolean {
+  if (typeof creep.build !== 'function') {
+    return false;
+  }
+
+  const site = creep.room ? findSourceContainerConstructionSite(creep.room, source) : null;
+  if (!site) {
+    return false;
+  }
+
+  creep.memory.task = {
+    type: 'build',
+    targetId: site.id as Id<ConstructionSite>
+  };
+  const result = creep.build(site);
+  if (result === getErrNotInRangeCode()) {
+    moveTo(creep, site, assignment);
+  }
+  return true;
+}
+
 function moveTo(
   creep: Creep,
   target: RoomObject | RoomPosition,
@@ -495,6 +567,21 @@ function getStoredEnergy(target: unknown): number {
 
   const storedEnergy = store?.[getEnergyResource()];
   return typeof storedEnergy === 'number' && Number.isFinite(storedEnergy) ? Math.max(0, storedEnergy) : 0;
+}
+
+function getDroppedEnergyNearSource(room: Room, source: Source): number {
+  return findDroppedEnergyNearSource(room, source).reduce((total, resource) => total + resource.amount, 0);
+}
+
+function isDroppedEnergy(resource: Resource<ResourceConstant>): boolean {
+  return resource.resourceType === getEnergyResource() && resource.amount > 0;
+}
+
+function compareDroppedEnergyForPickup(
+  left: Resource<ResourceConstant>,
+  right: Resource<ResourceConstant>
+): number {
+  return right.amount - left.amount || String(left.id).localeCompare(String(right.id));
 }
 
 function getEnergyResource(): ResourceConstant {
