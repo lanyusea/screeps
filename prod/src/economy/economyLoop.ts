@@ -206,7 +206,10 @@ export function runEconomy(
   if (!shedNonessentialCpuWork) {
     refreshClaimedRoomBootstrapperOwnership(telemetryEvents);
   }
-  const postClaimBootstrapFocusRoomName = shedNonessentialCpuWork ? null : selectPostClaimBootstrapFocusRoomName(colonies);
+  const runConstructionCpuWork = shouldRunConstructionCpuWork(cpuBudget);
+  const postClaimBootstrapFocusRoomName = shedNonessentialCpuWork && !runConstructionCpuWork
+    ? null
+    : selectPostClaimBootstrapFocusRoomName(colonies);
   const controllerUpgradeTargetRooms = shedNonessentialCpuWork ? undefined : getControllerUpgradeTargetRooms(colonies);
 
   for (const colony of colonies) {
@@ -219,12 +222,19 @@ export function runEconomy(
       survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
       if (!shouldRunShedCpuColonyPlanning(colony, roleCounts, survivalAssessment)) {
         if (shouldRunConstructionCpuWork(roomCpuBudget)) {
+          const postClaimBootstrapRefresh = refreshPostClaimBootstrap(
+            colony,
+            roleCounts,
+            Game.time,
+            telemetryEvents,
+            { focusRoomName: postClaimBootstrapFocusRoomName }
+          );
           runClaimedRoomConstructionForCpuBudget(
             colony,
             creeps,
             options,
             postClaimBootstrapFocusRoomName,
-            false
+            postClaimBootstrapRefresh.deferred === true
           );
         }
         continue;
