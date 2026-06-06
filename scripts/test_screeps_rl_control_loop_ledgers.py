@@ -309,6 +309,85 @@ def write_legacy_scorecard_reward_decision(
 
 
 class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
+    def test_load_json_rejects_artifact_over_byte_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            path = root / "oversized.json"
+            original_limit = ledgers.MAX_JSON_ARTIFACT_BYTES
+            try:
+                ledgers.MAX_JSON_ARTIFACT_BYTES = 32
+                path.write_text(json.dumps({"payload": "x" * 64}), encoding="utf-8")
+
+                payload = ledgers.load_json(path)
+            finally:
+                ledgers.MAX_JSON_ARTIFACT_BYTES = original_limit
+
+        self.assertIsNone(payload)
+
+    def test_load_json_rejects_artifact_over_depth_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            path = root / "deep.json"
+            original_limit = ledgers.MAX_JSON_ARTIFACT_DEPTH
+            try:
+                ledgers.MAX_JSON_ARTIFACT_DEPTH = 2
+                write_json(path, {"a": {"b": {"c": "too deep"}}})
+
+                payload = ledgers.load_json(path)
+            finally:
+                ledgers.MAX_JSON_ARTIFACT_DEPTH = original_limit
+
+        self.assertIsNone(payload)
+
+    def test_json_safe_marks_over_depth_and_circular_branches(self) -> None:
+        circular: list[Any] = []
+        circular.append(circular)
+        original_limit = ledgers.MAX_JSON_ARTIFACT_DEPTH
+        try:
+            ledgers.MAX_JSON_ARTIFACT_DEPTH = 2
+
+            payload = ledgers.json_safe(
+                {
+                    "path": Path("runtime-artifacts/rl-control-loop/example.json"),
+                    "deep": {"a": {"b": {"c": "too deep"}}},
+                    "circular": circular,
+                }
+            )
+        finally:
+            ledgers.MAX_JSON_ARTIFACT_DEPTH = original_limit
+
+        self.assertEqual(payload["path"], "runtime-artifacts/rl-control-loop/example.json")
+        self.assertEqual(payload["deep"]["a"]["b"], ledgers.JSON_DEPTH_LIMIT_MARKER)
+        self.assertEqual(payload["circular"], [ledgers.JSON_CIRCULAR_REFERENCE_MARKER])
+
+    def test_reward_decision_text_scrub_ignores_over_depth_branch_without_recursion_error(self) -> None:
+        nested: Any = "rewardDecisionId=null"
+        for _ in range(sys.getrecursionlimit() + 20):
+            nested = [nested]
+
+        payload = ledgers.reward_decision_consistent_text(
+            nested,
+            reward_decision_id="reward-decision-test",
+            reward_decision_artifact_path="runtime-artifacts/rl-control-loop/reward-decisions/reward-decision-test.json",
+            field="rolloutGate",
+        )
+
+        self.assertIs(payload, nested)
+
+    def test_reward_decision_text_scrub_handles_circular_branch(self) -> None:
+        circular: JsonObject = {"reason": "rewardDecisionId=null"}
+        circular["self"] = circular
+
+        payload = ledgers.reward_decision_consistent_text(
+            circular,
+            reward_decision_id="reward-decision-test",
+            reward_decision_artifact_path=None,
+            field="rolloutGate",
+        )
+
+        self.assertIs(payload["self"], circular)
+        self.assertTrue(payload["reason"].startswith("BLOCKED. rewardDecisionId reward-decision-test is available"))
+
     def test_training_ledger_writes_artifact_when_stdout_is_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

@@ -29,6 +29,8 @@ DEFAULT_ARTIFACT_ROOT = Path("runtime-artifacts")
 DEFAULT_CONTROL_LOOP_DIR = Path("runtime-artifacts/rl-control-loop")
 DEFAULT_MAX_FILES_PER_ROOT = 25
 DEFAULT_STDOUT_BYTES = 4096
+MAX_JSON_ARTIFACT_BYTES = 8 * 1024 * 1024
+MAX_JSON_ARTIFACT_DEPTH = 100
 E1_FULL_GATE_MIN_SAMPLE_COUNT = 200
 E1_GATE_STALE_FRESHNESS_SECONDS = 86400
 HISTORICAL_CONTEXT_ISSUES = [879, 893, 1589]
@@ -47,6 +49,8 @@ REWARD_DECISION_NULL_TEXT_MARKERS = (
     "null value breaks downstream",
 )
 POLICY_METRIC_CATEGORIES = ("territory", "resources", "combat", "reliability", "logistics")
+JSON_DEPTH_LIMIT_MARKER = "[json depth limit exceeded]"
+JSON_CIRCULAR_REFERENCE_MARKER = "[circular reference omitted]"
 
 JsonObject = dict[str, Any]
 
@@ -88,25 +92,67 @@ def write_json_atomic(path: Path, payload: Any) -> None:
 
 
 def json_safe(value: Any) -> Any:
+    return json_safe_bounded(value, depth=0, active=set())
+
+
+def json_safe_bounded(value: Any, *, depth: int, active: set[int]) -> Any:
+    if depth > MAX_JSON_ARTIFACT_DEPTH:
+        return JSON_DEPTH_LIMIT_MARKER
     if isinstance(value, Path):
         return value.as_posix()
     if isinstance(value, datetime):
         return value.isoformat().replace("+00:00", "Z")
     if isinstance(value, dict):
-        return {str(key): json_safe(item) for key, item in value.items()}
+        object_id = id(value)
+        if object_id in active:
+            return JSON_CIRCULAR_REFERENCE_MARKER
+        active.add(object_id)
+        try:
+            return {str(key): json_safe_bounded(item, depth=depth + 1, active=active) for key, item in value.items()}
+        finally:
+            active.remove(object_id)
     if isinstance(value, (list, tuple)):
-        return [json_safe(item) for item in value]
+        object_id = id(value)
+        if object_id in active:
+            return JSON_CIRCULAR_REFERENCE_MARKER
+        active.add(object_id)
+        try:
+            return [json_safe_bounded(item, depth=depth + 1, active=active) for item in value]
+        finally:
+            active.remove(object_id)
     return value
+
+
+def json_depth_within_limit(value: Any) -> bool:
+    stack: list[tuple[Any, int]] = [(value, 0)]
+    while stack:
+        item, depth = stack.pop()
+        if depth > MAX_JSON_ARTIFACT_DEPTH:
+            return False
+        if isinstance(item, dict):
+            stack.extend((child, depth + 1) for child in item.values())
+        elif isinstance(item, list):
+            stack.extend((child, depth + 1) for child in item)
+    return True
 
 
 def load_json(path: Path | None) -> JsonObject | None:
     if path is None:
         return None
     try:
-        parsed = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        with path.open("rb") as handle:
+            raw = handle.read(MAX_JSON_ARTIFACT_BYTES + 1)
+    except OSError:
         return None
-    return parsed if isinstance(parsed, dict) else None
+    if len(raw) > MAX_JSON_ARTIFACT_BYTES:
+        return None
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+        return None
+    if not isinstance(parsed, dict) or not json_depth_within_limit(parsed):
+        return None
+    return parsed
 
 
 def as_dict(value: Any) -> JsonObject:
@@ -1905,12 +1951,35 @@ def reward_decision_missing_regression(
 
 
 def reward_decision_null_text_present(value: Any) -> bool:
+    return reward_decision_null_text_present_bounded(value, depth=0, active=set())
+
+
+def reward_decision_null_text_present_bounded(value: Any, *, depth: int, active: set[int]) -> bool:
+    if depth > MAX_JSON_ARTIFACT_DEPTH:
+        return False
     if isinstance(value, str):
         return any(marker in value for marker in REWARD_DECISION_NULL_TEXT_MARKERS)
-    if isinstance(value, list):
-        return any(reward_decision_null_text_present(item) for item in value)
+    if isinstance(value, (list, tuple)):
+        object_id = id(value)
+        if object_id in active:
+            return False
+        active.add(object_id)
+        try:
+            return any(reward_decision_null_text_present_bounded(item, depth=depth + 1, active=active) for item in value)
+        finally:
+            active.remove(object_id)
     if isinstance(value, dict):
-        return any(reward_decision_null_text_present(item) for item in value.values())
+        object_id = id(value)
+        if object_id in active:
+            return False
+        active.add(object_id)
+        try:
+            return any(
+                reward_decision_null_text_present_bounded(item, depth=depth + 1, active=active)
+                for item in value.values()
+            )
+        finally:
+            active.remove(object_id)
     return False
 
 
@@ -1926,29 +1995,53 @@ def reward_decision_consistent_text(
     reward_decision_id: str | None,
     reward_decision_artifact_path: str | None,
     field: str,
+    _depth: int = 0,
+    _active: set[int] | None = None,
 ) -> Any:
+    if _depth > MAX_JSON_ARTIFACT_DEPTH:
+        return value
     if reward_decision_id is None or not reward_decision_null_text_present(value):
         return value
+    if _active is None:
+        _active = set()
     if isinstance(value, dict):
-        return {
-            key: reward_decision_consistent_text(
-                item,
-                reward_decision_id=reward_decision_id,
-                reward_decision_artifact_path=reward_decision_artifact_path,
-                field=field if field == "rolloutGate" and key == "reason" else f"{field}.{key}",
-            )
-            for key, item in value.items()
-        }
-    if isinstance(value, list):
-        return [
-            reward_decision_consistent_text(
-                item,
-                reward_decision_id=reward_decision_id,
-                reward_decision_artifact_path=reward_decision_artifact_path,
-                field=f"{field}[]",
-            )
-            for item in value
-        ]
+        object_id = id(value)
+        if object_id in _active:
+            return value
+        _active.add(object_id)
+        try:
+            return {
+                key: reward_decision_consistent_text(
+                    item,
+                    reward_decision_id=reward_decision_id,
+                    reward_decision_artifact_path=reward_decision_artifact_path,
+                    field=field if field == "rolloutGate" and key == "reason" else f"{field}.{key}",
+                    _depth=_depth + 1,
+                    _active=_active,
+                )
+                for key, item in value.items()
+            }
+        finally:
+            _active.remove(object_id)
+    if isinstance(value, (list, tuple)):
+        object_id = id(value)
+        if object_id in _active:
+            return value
+        _active.add(object_id)
+        try:
+            return [
+                reward_decision_consistent_text(
+                    item,
+                    reward_decision_id=reward_decision_id,
+                    reward_decision_artifact_path=reward_decision_artifact_path,
+                    field=f"{field}[]",
+                    _depth=_depth + 1,
+                    _active=_active,
+                )
+                for item in value
+            ]
+        finally:
+            _active.remove(object_id)
     if not isinstance(value, str):
         return value
     resolved = reward_decision_resolved_reference(reward_decision_id, reward_decision_artifact_path)
