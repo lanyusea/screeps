@@ -69,6 +69,11 @@ def alert_collection_timeout_budget_seconds(
     )
 
 
+def creep_memory_collection_timeout_budget_seconds(shard_count: int = 1) -> float:
+    shards = max(1, int(shard_count))
+    return shards * CREEP_MEMORY_COLLECTION_TIMEOUT_SECONDS_PER_SHARD
+
+
 DEFAULT_ALERT_TIMEOUT_SECONDS = alert_collection_timeout_budget_seconds()
 ALERT_TIMEOUT_POLL_SECONDS = 0.02
 ALERT_TIMEOUT_TERMINATE_GRACE_SECONDS = 1.0
@@ -992,15 +997,23 @@ def discover_owned_rooms(ctx: RuntimeContext, forced_room: RoomRef | None) -> tu
     return [fallback], overview, warnings, [fallback]
 
 
-def alert_collection_room_count(ctx: RuntimeContext, room_arg: str | None) -> int:
+def alert_collection_room_and_shard_count(ctx: RuntimeContext, room_arg: str | None) -> tuple[int, int]:
     forced_room = parse_room_arg(room_arg, ctx.default_shard)
     if forced_room:
-        return 1
+        return 1, 1
     try:
         overview = get_json(ctx.base_http, ctx.token, "/api/user/overview")
     except Exception:  # noqa: BLE001 - default timeout must still exist when discovery is unavailable
-        return 1
-    return max(1, len(overview_room_refs(overview)))
+        return 1, 1
+    refs = overview_room_refs(overview)
+    if not refs:
+        return 1, 1
+    return len(refs), max(1, len({ref.shard for ref in refs}))
+
+
+def alert_collection_room_count(ctx: RuntimeContext, room_arg: str | None) -> int:
+    room_count, _shard_count = alert_collection_room_and_shard_count(ctx, room_arg)
+    return room_count
 
 
 def terrain_cache_path(cache_dir: Path, ref: RoomRef) -> Path:
@@ -5268,11 +5281,19 @@ def fetch_creep_memories_by_shard(
     ctx: RuntimeContext,
     refs: list[RoomRef],
     warnings: list[str],
+    *,
+    timeout_budget_seconds_per_shard: float = CREEP_MEMORY_COLLECTION_TIMEOUT_SECONDS_PER_SHARD,
+    request_timeout_seconds: float = CREEP_MEMORY_REQUEST_TIMEOUT_SECONDS,
 ) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     for shard in sorted({ref.shard for ref in refs}):
         try:
-            result[shard] = fetch_creep_memory_map_for_shard(ctx, shard)
+            result[shard] = fetch_creep_memory_map_for_shard(
+                ctx,
+                shard,
+                timeout_budget_seconds=timeout_budget_seconds_per_shard,
+                request_timeout_seconds=request_timeout_seconds,
+            )
         except Exception as exc:  # noqa: BLE001 - runtime summary can still explain missing creep memory
             warnings.append(
                 f"{shard} creep memory unavailable: {short_text(redact_secrets(str(exc), [ctx.token]), 140)}"
@@ -6479,12 +6500,12 @@ def alert_timeout_seconds_from_args(args: argparse.Namespace) -> float:
         return float(configured_timeout)
 
     ctx = context_from_env(getattr(args, "world_profile", None))
-    room_count = alert_collection_room_count(ctx, getattr(args, "room", None))
+    room_count, shard_count = alert_collection_room_and_shard_count(ctx, getattr(args, "room", None))
     return alert_collection_timeout_budget_seconds(
         collection_attempts=ctx.collection_attempts,
         collection_retry_delay_seconds=ctx.collection_retry_delay_seconds,
         room_count=room_count,
-    )
+    ) + creep_memory_collection_timeout_budget_seconds(shard_count)
 
 
 def run_parsed_command(args: argparse.Namespace) -> int:
@@ -6928,8 +6949,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Wall-clock timeout for the alert command before emitting diagnostic JSON "
-            "(default: auto budget from monitored rooms and collection retry settings, "
-            "or SCREEPS_ALERT_TIMEOUT_SECONDS)."
+            "(default: auto budget from monitored rooms, collection retry settings, and "
+            "bounded creep-memory evidence, or SCREEPS_ALERT_TIMEOUT_SECONDS)."
         ),
     )
     alert.add_argument(

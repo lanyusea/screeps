@@ -357,6 +357,10 @@ class WorldProfileDefaultsTest(unittest.TestCase):
         self.assertEqual(Path(alert_args.runtime_summary_dir), monitor.DEFAULT_RUNTIME_SUMMARY_OUT_DIR)
         self.assertEqual(monitor.alert_collection_timeout_budget_seconds(), expected_alert_timeout)
         self.assertEqual(monitor.DEFAULT_ALERT_TIMEOUT_SECONDS, expected_alert_timeout)
+        self.assertLess(
+            monitor.CREEP_MEMORY_COLLECTION_TIMEOUT_SECONDS_PER_SHARD,
+            monitor.ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS,
+        )
         self.assertIsNone(alert_args.alert_timeout_seconds)
         self.assertLess(monitor.DEFAULT_ALERT_TIMEOUT_SECONDS, 15 * 60)
         self.assertEqual(ctx.base_http, monitor.DEFAULT_API_URL)
@@ -413,13 +417,45 @@ class WorldProfileDefaultsTest(unittest.TestCase):
                     rc = monitor.run_parsed_command(alert_args)
 
         self.assertEqual(rc, 0)
-        self.assertAlmostEqual(
-            run_alert.call_args.args[1],
-            monitor.alert_collection_timeout_budget_seconds(
-                collection_attempts=4,
-                collection_retry_delay_seconds=7.5,
-                room_count=2,
-            ),
+        alert_collection_budget = monitor.alert_collection_timeout_budget_seconds(
+            collection_attempts=4,
+            collection_retry_delay_seconds=7.5,
+            room_count=2,
+        )
+        memory_evidence_budget = monitor.creep_memory_collection_timeout_budget_seconds(shard_count=1)
+        self.assertAlmostEqual(run_alert.call_args.args[1], alert_collection_budget + memory_evidence_budget)
+
+    def test_alert_timeout_default_adds_bounded_creep_memory_budget_per_shard(self) -> None:
+        overview = {
+            "shards": {
+                "shardSeason": {"rooms": ["E1N1"]},
+                "shardX": {"rooms": ["E2N2"]},
+            }
+        }
+        with mock.patch.dict(monitor.os.environ, {"SCREEPS_AUTH_TOKEN": "token"}, clear=True):
+            alert_args = monitor.build_parser().parse_args(["alert"])
+            with mock.patch.object(monitor, "get_json", return_value=overview):
+                with mock.patch.object(monitor, "run_alert_with_process_timeout", return_value=0) as run_alert:
+                    rc = monitor.run_parsed_command(alert_args)
+
+        alert_collection_budget = monitor.alert_collection_timeout_budget_seconds(room_count=2)
+        memory_evidence_budget = monitor.creep_memory_collection_timeout_budget_seconds(shard_count=2)
+
+        self.assertEqual(rc, 0)
+        self.assertAlmostEqual(run_alert.call_args.args[1], alert_collection_budget + memory_evidence_budget)
+        self.assertEqual(memory_evidence_budget, 2 * monitor.CREEP_MEMORY_COLLECTION_TIMEOUT_SECONDS_PER_SHARD)
+        self.assertEqual(
+            alert_collection_budget,
+            (
+                monitor.ALERT_COLLECTION_DISCOVERY_REQUEST_COUNT
+                + 2
+                * (
+                    monitor.ALERT_COLLECTION_INITIAL_ROOM_REQUEST_COUNT
+                    + monitor.DEFAULT_COLLECTION_ATTEMPTS * monitor.ALERT_COLLECTION_FALLBACK_REQUEST_COUNT_PER_ATTEMPT
+                )
+            )
+            * monitor.ROOM_SNAPSHOT_REQUEST_TIMEOUT_SECONDS
+            + 2 * (monitor.DEFAULT_COLLECTION_ATTEMPTS - 1) * monitor.DEFAULT_COLLECTION_RETRY_DELAY_SECONDS,
         )
 
     def test_positive_float_arg_rejects_non_finite_values(self) -> None:
