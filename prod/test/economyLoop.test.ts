@@ -1955,6 +1955,85 @@ describe('runEconomy', () => {
     expect(worker.memory.task).toEqual({ type: 'build', targetId: 'site-24-24' });
   });
 
+  it('preserves construction planning after the current tick exceeds its CPU limit with a healthy bucket', () => {
+    (globalThis as unknown as {
+      FIND_MY_STRUCTURES: number;
+      FIND_MY_CONSTRUCTION_SITES: number;
+      FIND_CONSTRUCTION_SITES: number;
+      RESOURCE_ENERGY: ResourceConstant;
+      STRUCTURE_EXTENSION: StructureConstant;
+      TERRAIN_MASK_WALL: number;
+      LOOK_STRUCTURES: LOOK_STRUCTURES;
+      LOOK_CONSTRUCTION_SITES: LOOK_CONSTRUCTION_SITES;
+    }).FIND_MY_STRUCTURES = 1;
+    (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 2;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 3;
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
+    (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+    (globalThis as unknown as { LOOK_STRUCTURES: LOOK_STRUCTURES }).LOOK_STRUCTURES = 'structure';
+    (globalThis as unknown as { LOOK_CONSTRUCTION_SITES: LOOK_CONSTRUCTION_SITES }).LOOK_CONSTRUCTION_SITES =
+      'constructionSite';
+
+    const constructionSites: ConstructionSite[] = [];
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      controller: {
+        my: true,
+        level: 2,
+        id: 'controller1',
+        ticksToDowngrade: CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS + 1
+      } as StructureController,
+      find: jest.fn((type: number) => (type === 3 ? constructionSites : [])),
+      lookForAt: jest.fn(() => {
+        throw new Error('extension planner should use cached occupancy instead of per-candidate lookups');
+      }),
+      lookForAtArea: jest.fn().mockReturnValue([]),
+      createConstructionSite: jest.fn((x: number, y: number, structureType: StructureConstant) => {
+        constructionSites.push({
+          id: `site-${x}-${y}`,
+          structureType,
+          pos: { x, y, roomName: 'W1N1' } as RoomPosition
+        } as ConstructionSite);
+        return OK_CODE;
+      })
+    } as unknown as Room;
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      pos: { x: 25, y: 25, roomName: 'W1N1' },
+      spawning: null,
+      spawnCreep: jest.fn()
+    } as unknown as StructureSpawn;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 253,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        Worker1: makeEconomyWorker(room),
+        Worker2: makeEconomyWorker(room),
+        Worker3: makeEconomyWorker(room),
+        Worker4: makeEconomyWorker(room),
+        Worker5: makeEconomyWorker(room)
+      },
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(71),
+        limit: 70,
+        bucket: 9_000,
+        tickLimit: 500
+      } as unknown as CPU,
+      map: {
+        getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
+      } as unknown as Game['map']
+    };
+
+    runEconomy();
+
+    expect(room.createConstructionSite).toHaveBeenCalledWith(24, 24, STRUCTURE_EXTENSION);
+  });
+
   it('preempts an existing RCL2 upgrade task for newly planned extension construction', () => {
     (globalThis as unknown as {
       FIND_MY_STRUCTURES: number;
@@ -3661,6 +3740,135 @@ describe('runEconomy', () => {
     expect(Memory.territory?.postClaimBootstraps?.W2N1).toMatchObject({
       status: 'spawnSitePending',
       updatedAt: 402
+    });
+    expect(Memory.territory?.postClaimBootstraps?.W3N1).toMatchObject({
+      status: 'detected',
+      updatedAt: 401
+    });
+  });
+
+  it('keeps post-claim spawn construction focused during used-over-limit CPU shedding', () => {
+    (globalThis as unknown as {
+      FIND_MY_CONSTRUCTION_SITES: number;
+      FIND_SOURCES: number;
+      FIND_HOSTILE_CREEPS: number;
+      FIND_HOSTILE_STRUCTURES: number;
+      LOOK_STRUCTURES: LOOK_STRUCTURES;
+      LOOK_CONSTRUCTION_SITES: LOOK_CONSTRUCTION_SITES;
+      STRUCTURE_SPAWN: StructureConstant;
+      TERRAIN_MASK_WALL: number;
+      Memory: Partial<Memory>;
+    }).FIND_MY_CONSTRUCTION_SITES = 2;
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
+    (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 6;
+    (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 7;
+    (globalThis as unknown as { LOOK_STRUCTURES: LOOK_STRUCTURES }).LOOK_STRUCTURES = 'structure';
+    (globalThis as unknown as { LOOK_CONSTRUCTION_SITES: LOOK_CONSTRUCTION_SITES }).LOOK_CONSTRUCTION_SITES =
+      'constructionSite';
+    (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
+    (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'detected',
+            claimedAt: 400,
+            updatedAt: 400,
+            workerTarget: 2,
+            controllerId: 'controller2' as Id<StructureController>
+          },
+          W3N1: {
+            colony: 'W1N1',
+            roomName: 'W3N1',
+            status: 'detected',
+            claimedAt: 401,
+            updatedAt: 401,
+            workerTarget: 2,
+            controllerId: 'controller3' as Id<StructureController>
+          }
+        }
+      }
+    };
+
+    const makePostClaimRoom = (roomName: string, controllerId: Id<StructureController>): Room => {
+      const constructionSites: ConstructionSite[] = [];
+      return {
+        name: roomName,
+        energyAvailable: 0,
+        energyCapacityAvailable: 0,
+        controller: {
+          id: controllerId,
+          my: true,
+          level: 1,
+          ticksToDowngrade: CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS + 1,
+          pos: { x: 25, y: 25, roomName }
+        } as StructureController,
+        find: jest.fn((type: number) => {
+          if (type === FIND_SOURCES) {
+            return [{ id: `${roomName}-source1`, pos: { x: 21, y: 21, roomName } } as Source];
+          }
+
+          if (type === FIND_MY_CONSTRUCTION_SITES) {
+            return constructionSites;
+          }
+
+          return [];
+        }),
+        lookForAtArea: jest.fn().mockReturnValue([]),
+        createConstructionSite: jest.fn((x: number, y: number, structureType: StructureConstant) => {
+          constructionSites.push({
+            id: `${roomName}-site-${x}-${y}`,
+            structureType,
+            pos: { x, y, roomName }
+          } as ConstructionSite);
+          return OK_CODE;
+        })
+      } as unknown as Room;
+    };
+    const olderRoom = makePostClaimRoom('W2N1', 'controller2' as Id<StructureController>);
+    const newerRoom = makePostClaimRoom('W3N1', 'controller3' as Id<StructureController>);
+    const makeShedWorker = (room: Room, index: number): Creep =>
+      ({
+        name: `worker-${room.name}-${index}`,
+        memory: {
+          role: 'worker',
+          colony: room.name,
+          territory: { targetRoom: `${room.name}-remote`, action: 'reserve' }
+        },
+        room
+      }) as unknown as Creep;
+    const creeps: Record<string, Creep> = {};
+    for (const room of [olderRoom, newerRoom]) {
+      for (let index = 0; index < 3; index += 1) {
+        const worker = makeShedWorker(room, index);
+        creeps[worker.name] = worker;
+      }
+    }
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 404,
+      rooms: { W3N1: newerRoom, W2N1: olderRoom },
+      spawns: {},
+      creeps,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(71),
+        limit: 70,
+        bucket: 9_000,
+        tickLimit: 500
+      } as unknown as CPU,
+      map: {
+        getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
+      } as unknown as GameMap
+    };
+
+    runEconomy();
+
+    expect(olderRoom.createConstructionSite).toHaveBeenCalledWith(23, 23, STRUCTURE_SPAWN);
+    expect(newerRoom.createConstructionSite).not.toHaveBeenCalled();
+    expect(Memory.territory?.postClaimBootstraps?.W2N1).toMatchObject({
+      status: 'spawnSitePending',
+      updatedAt: 404
     });
     expect(Memory.territory?.postClaimBootstraps?.W3N1).toMatchObject({
       status: 'detected',
