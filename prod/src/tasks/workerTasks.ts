@@ -2088,12 +2088,15 @@ function getOtherNearTermSpawnExtensionRefillCoverageEnergy(
     spawnExtensionEnergyStructures.map((structure) => String(structure.id))
   );
 
-  return getSameRoomLoadedWorkersForRefillReservations(creep)
-    .filter((worker) => !isSameCreep(worker, creep))
-    .filter((worker) =>
-      isWorkerRefillBoundOrReservableForSpawnExtensionDelivery(worker, spawnExtensionEnergyStructureIds)
-    )
-    .reduce((total, worker) => total + getUsedEnergy(worker), 0);
+  return getRoomOwnedCreeps(creep.room)
+    .filter((worker) => !isSameCreep(worker, creep) && isSameRoomWorker(worker, creep.room))
+    .reduce((total, worker) => {
+      if (isWorkerRefillBoundOrReservableForSpawnExtensionDelivery(worker, spawnExtensionEnergyStructureIds)) {
+        return total + getUsedEnergy(worker);
+      }
+
+      return total + getNearTermSpawnExtensionRefillAcquisitionCoverageEnergy(worker);
+    }, 0);
 }
 
 function isWorkerRefillBoundOrReservableForSpawnExtensionDelivery(
@@ -2101,11 +2104,52 @@ function isWorkerRefillBoundOrReservableForSpawnExtensionDelivery(
   spawnExtensionEnergyStructureIds: ReadonlySet<string>
 ): boolean {
   const task = worker.memory?.task as Partial<CreepTaskMemory> | null | undefined;
-  return task == null || (
-    task?.type === 'transfer' &&
-    task.targetId !== undefined &&
-    spawnExtensionEnergyStructureIds.has(String(task.targetId))
+  return (
+    getUsedEnergy(worker) > 0 &&
+    (task == null ||
+      (task?.type === 'transfer' &&
+        task.targetId !== undefined &&
+        spawnExtensionEnergyStructureIds.has(String(task.targetId))))
   );
+}
+
+function getNearTermSpawnExtensionRefillAcquisitionCoverageEnergy(worker: Creep): number {
+  const task = worker.memory?.task as Partial<CreepTaskMemory> | undefined;
+  if (
+    !isWorkerEnergyAcquisitionReservationTask(task) ||
+    isWorkerConstructionEnergyAcquisitionReservationTask(task)
+  ) {
+    return 0;
+  }
+
+  const freeCapacity = getFreeEnergyCapacity(worker);
+  if (freeCapacity <= 0) {
+    return 0;
+  }
+
+  const targetId = String(task.targetId);
+  const availableEnergy =
+    task.type === 'pickup'
+      ? getVisibleDroppedEnergyAmount(worker.room, targetId)
+      : getVisibleRefillAcquisitionSourceEnergy(worker, targetId);
+  return Math.min(freeCapacity, availableEnergy);
+}
+
+function getVisibleDroppedEnergyAmount(room: Room, targetId: string): number {
+  const resource = findDroppedResources(room).find((candidate) => String(candidate.id) === targetId);
+  return resource && isDroppedEnergy(resource, 1) ? Math.max(0, Math.floor(resource.amount)) : 0;
+}
+
+function getVisibleRefillAcquisitionSourceEnergy(worker: Creep, targetId: string): number {
+  const context: StoredEnergySourceContext = {
+    creepOwnerUsername: getCreepOwnerUsername(worker),
+    hasHostilePresence: hasVisibleHostilePresence(worker.room),
+    room: worker.room
+  };
+  const source = findVisibleRoomStructures(worker.room).find(
+    (structure) => String(structure.id) === targetId && isSafeStoredEnergySource(structure, context)
+  );
+  return source ? getStoredEnergy(source) : 0;
 }
 
 function shouldGuardControllerDowngradeForWorkerLoad(
