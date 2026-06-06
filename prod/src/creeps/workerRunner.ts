@@ -653,8 +653,46 @@ function hasOtherSameRoomRepairAssignmentForTarget(creep: Creep, target: Structu
     }
 
     const task = worker.memory?.task as Partial<CreepTaskMemory> | undefined;
-    return task?.type === 'repair' && String(task.targetId) === targetId;
+    return (
+      task?.type === 'repair' &&
+      String(task.targetId) === targetId &&
+      getUsedTransferEnergy(worker) > 0 &&
+      getActiveWorkParts(worker) > 0
+    );
   });
+}
+
+function getActiveWorkParts(creep: Creep): number {
+  const workPart = getBodyPartConstant('WORK', 'work');
+  const activeWorkParts = creep.getActiveBodyparts?.(workPart);
+  if (typeof activeWorkParts === 'number' && Number.isFinite(activeWorkParts)) {
+    return Math.max(0, Math.floor(activeWorkParts));
+  }
+
+  const bodyWorkParts = countActiveBodyParts(creep.body, workPart);
+  return bodyWorkParts ?? 1;
+}
+
+function countActiveBodyParts(body: unknown, bodyPartType: BodyPartConstant): number | null {
+  if (!Array.isArray(body)) {
+    return null;
+  }
+
+  return body.filter((part) => isActiveBodyPart(part, bodyPartType)).length;
+}
+
+function isActiveBodyPart(part: unknown, bodyPartType: BodyPartConstant): boolean {
+  if (typeof part !== 'object' || part === null) {
+    return false;
+  }
+
+  const bodyPart = part as Partial<BodyPartDefinition>;
+  return bodyPart.type === bodyPartType && typeof bodyPart.hits === 'number' && bodyPart.hits > 0;
+}
+
+function getBodyPartConstant(globalName: 'WORK', fallback: BodyPartConstant): BodyPartConstant {
+  const constants = globalThis as unknown as Partial<Record<'WORK', BodyPartConstant>>;
+  return constants[globalName] ?? fallback;
 }
 
 function isBuildPreemptionRepairStructureType(

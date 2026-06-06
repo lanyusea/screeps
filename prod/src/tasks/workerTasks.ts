@@ -4636,10 +4636,42 @@ function hasSafeSurplusConstructionBacklogBeforeCriticalRepair(creep: Creep): bo
     return true;
   }
 
+  if (
+    carriedEnergy <= 0 ||
+    (!hasHealthyRoomEnergyBuffer(creep.room) && !checkEnergyBufferForStoredConstructionSpending(creep.room))
+  ) {
+    return false;
+  }
+
+  const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
   return (
-    carriedEnergy > 0 &&
-    (hasHealthyRoomEnergyBuffer(creep.room) || checkEnergyBufferForStoredConstructionSpending(creep.room))
+    criticalRepairTarget === null ||
+    hasOtherSameRoomCapableRepairAssignmentForTarget(creep, criticalRepairTarget)
   );
+}
+
+function hasOtherSameRoomCapableRepairAssignmentForTarget(
+  creep: Creep,
+  target: CriticalInfrastructureRepairTarget
+): boolean {
+  const targetId = String(target.id);
+  if (targetId.length === 0) {
+    return false;
+  }
+
+  return getRoomOwnedCreeps(creep.room).some((worker) => {
+    if (isSameCreep(worker, creep) || !isProductiveSameRoomWorker(worker, creep.room)) {
+      return false;
+    }
+
+    const task = worker.memory?.task as Partial<CreepTaskMemory> | undefined;
+    return (
+      task?.type === 'repair' &&
+      String(task.targetId) === targetId &&
+      getUsedEnergy(worker) > 0 &&
+      getActiveWorkParts(worker) > 0
+    );
+  });
 }
 
 function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(

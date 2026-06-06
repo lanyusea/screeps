@@ -12612,6 +12612,60 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'container-critical' });
   });
 
+  it('keeps healthy-buffer construction behind critical container repair without live same-target coverage', () => {
+    const site = {
+      id: 'storage-site1',
+      my: true,
+      structureType: 'storage',
+      progress: 6_846,
+      progressTotal: 30_000
+    } as ConstructionSite;
+    const criticalContainer = makeStructure(
+      'container-critical',
+      'container' as StructureConstant,
+      900,
+      2_000
+    );
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 3_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [site],
+      controller,
+      energyAvailable: 500,
+      energyCapacityAvailable: 1_300,
+      structures: [criticalContainer]
+    });
+    const creep = {
+      name: 'LoadedBuilder',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 58 : 0))
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === 'work' ? 1 : 0)),
+      room
+    } as unknown as Creep;
+    const emptyStaleRepairer = {
+      name: 'EmptyStaleRepairer',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'repair', targetId: 'container-critical' as Id<Structure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0))
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === 'work' ? 1 : 0)),
+      room
+    } as unknown as Creep;
+    setGameCreeps({ LoadedBuilder: creep, EmptyStaleRepairer: emptyStaleRepairer });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'container-critical' });
+  });
+
   it('keeps carried spawn recovery ahead of near-floor rampart repair under critical CPU bucket pressure', () => {
     const spawnSite = {
       id: 'spawn-site1',

@@ -6287,6 +6287,116 @@ describe('runWorker', () => {
     expect(transfer).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['zero energy', 0, 1],
+    ['no active WORK parts', 85, 0]
+  ])(
+    'keeps critical container repair when same-target coverage has %s',
+    (_label, coverageEnergy, coverageWorkParts) => {
+      const site = {
+        id: 'storage-site1',
+        my: true,
+        structureType: 'storage',
+        progress: 6_846,
+        progressTotal: 30_000
+      } as ConstructionSite;
+      const damagedContainer = {
+        id: 'critical-container1',
+        structureType: 'container',
+        hits: 900,
+        hitsMax: 2_000
+      } as StructureContainer;
+      const controller = {
+        id: 'controller1',
+        my: true,
+        level: 4,
+        ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 3_000
+      } as StructureController;
+      const roomCreeps: Creep[] = [];
+      const room = {
+        name: 'E29N56',
+        energyAvailable: 500,
+        energyCapacityAvailable: 1_300,
+        controller,
+        find: jest.fn((type: number, options?: { filter?: (object: AnyOwnedStructure | Creep) => boolean }) => {
+          if (type === FIND_MY_CREEPS) {
+            return options?.filter ? roomCreeps.filter(options.filter) : roomCreeps;
+          }
+
+          if (type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+            return [];
+          }
+
+          if (type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES || type === FIND_CONSTRUCTION_SITES) {
+            return [];
+          }
+
+          return [];
+        })
+      } as unknown as Room;
+      const build = jest.fn().mockReturnValue(0);
+      const repair = jest.fn().mockReturnValue(0);
+      const selectedBuildTask = { type: 'build', targetId: 'storage-site1' as Id<ConstructionSite> } as const;
+      const creep = {
+        name: 'Builder',
+        memory: {
+          role: 'worker',
+          colony: 'E29N56',
+          task: { type: 'repair', targetId: 'critical-container1' as Id<Structure> }
+        },
+        store: {
+          getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 58 : 0)),
+          getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 42 : 0))
+        },
+        room,
+        build,
+        repair,
+        moveTo: jest.fn()
+      } as unknown as Creep;
+      const staleCoverage = {
+        name: 'StaleCoverage',
+        memory: {
+          role: 'worker',
+          colony: 'E29N56',
+          task: { type: 'repair', targetId: 'critical-container1' as Id<Structure> }
+        },
+        store: {
+          getUsedCapacity: jest.fn((resource?: ResourceConstant) =>
+            resource === RESOURCE_ENERGY ? coverageEnergy : 0
+          )
+        },
+        getActiveBodyparts: jest.fn((part?: BodyPartConstant) =>
+          part === 'work' ? coverageWorkParts : 0
+        ),
+        room
+      } as unknown as Creep;
+      roomCreeps.push(creep, staleCoverage);
+      const selectWorkerTask = jest.spyOn(workerTasks, 'selectWorkerTask').mockReturnValue(selectedBuildTask);
+      (globalThis as unknown as { Game: Partial<Game> }).Game = {
+        creeps: { Builder: creep, StaleCoverage: staleCoverage },
+        rooms: { E29N56: room },
+        time: 1_854_806,
+        getObjectById: jest.fn((id: string) => {
+          if (id === 'storage-site1') {
+            return site;
+          }
+
+          return id === 'critical-container1' ? damagedContainer : null;
+        })
+      };
+
+      try {
+        runWorker(creep);
+
+        expect(creep.memory.task).toEqual({ type: 'repair', targetId: 'critical-container1' });
+        expect(repair).toHaveBeenCalledWith(damagedContainer);
+        expect(build).not.toHaveBeenCalled();
+      } finally {
+        selectWorkerTask.mockRestore();
+      }
+    }
+  );
+
   it('keeps an existing near-full build assignment when storage-critical acquisition yields', () => {
     const site = {
       id: 'container-site1',

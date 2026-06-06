@@ -29840,7 +29840,25 @@ function hasSafeSurplusConstructionBacklogBeforeCriticalRepair(creep) {
   if (isRoomEnergyFullOrCoveredByCarriedEnergy(creep.room, carriedEnergy)) {
     return true;
   }
-  return carriedEnergy > 0 && (hasHealthyRoomEnergyBuffer(creep.room) || checkEnergyBufferForStoredConstructionSpending(creep.room));
+  if (carriedEnergy <= 0 || !hasHealthyRoomEnergyBuffer(creep.room) && !checkEnergyBufferForStoredConstructionSpending(creep.room)) {
+    return false;
+  }
+  const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
+  return criticalRepairTarget === null || hasOtherSameRoomCapableRepairAssignmentForTarget(creep, criticalRepairTarget);
+}
+function hasOtherSameRoomCapableRepairAssignmentForTarget(creep, target) {
+  const targetId = String(target.id);
+  if (targetId.length === 0) {
+    return false;
+  }
+  return getRoomOwnedCreeps(creep.room).some((worker) => {
+    var _a2;
+    if (isSameCreep2(worker, creep) || !isProductiveSameRoomWorker(worker, creep.room)) {
+      return false;
+    }
+    const task = (_a2 = worker.memory) == null ? void 0 : _a2.task;
+    return (task == null ? void 0 : task.type) === "repair" && String(task.targetId) === targetId && getUsedEnergy2(worker) > 0 && getActiveWorkParts2(worker) > 0;
+  });
 }
 function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(creep, spawnOrExtensionEnergySink, constructionSites, constructionReservationContext, getShouldYieldSpawnReservationToConstructionBacklog) {
   const deferForHealthyBuffer = shouldDeferIdleSpawnExtensionRefillForHealthyBuffer(
@@ -33734,8 +33752,36 @@ function hasOtherSameRoomRepairAssignmentForTarget(creep, target) {
       return false;
     }
     const task = (_a2 = worker.memory) == null ? void 0 : _a2.task;
-    return (task == null ? void 0 : task.type) === "repair" && String(task.targetId) === targetId;
+    return (task == null ? void 0 : task.type) === "repair" && String(task.targetId) === targetId && getUsedTransferEnergy(worker) > 0 && getActiveWorkParts3(worker) > 0;
   });
+}
+function getActiveWorkParts3(creep) {
+  var _a2;
+  const workPart = getBodyPartConstant4("WORK", "work");
+  const activeWorkParts = (_a2 = creep.getActiveBodyparts) == null ? void 0 : _a2.call(creep, workPart);
+  if (typeof activeWorkParts === "number" && Number.isFinite(activeWorkParts)) {
+    return Math.max(0, Math.floor(activeWorkParts));
+  }
+  const bodyWorkParts = countActiveBodyParts2(creep.body, workPart);
+  return bodyWorkParts != null ? bodyWorkParts : 1;
+}
+function countActiveBodyParts2(body, bodyPartType) {
+  if (!Array.isArray(body)) {
+    return null;
+  }
+  return body.filter((part) => isActiveBodyPart4(part, bodyPartType)).length;
+}
+function isActiveBodyPart4(part, bodyPartType) {
+  if (typeof part !== "object" || part === null) {
+    return false;
+  }
+  const bodyPart = part;
+  return bodyPart.type === bodyPartType && typeof bodyPart.hits === "number" && bodyPart.hits > 0;
+}
+function getBodyPartConstant4(globalName, fallback) {
+  var _a2;
+  const constants = globalThis;
+  return (_a2 = constants[globalName]) != null ? _a2 : fallback;
 }
 function isBuildPreemptionRepairStructureType(structure, globalConstantName, fallback) {
   const globalConstant = globalThis[globalConstantName];
@@ -38888,7 +38934,7 @@ function canSatisfyDefenderSpawnCapacity(creep) {
 }
 function hasActiveAttackPart2(creep) {
   var _a2;
-  const attackPart = getBodyPartConstant4("ATTACK", "attack");
+  const attackPart = getBodyPartConstant5("ATTACK", "attack");
   const activeParts = (_a2 = creep.getActiveBodyparts) == null ? void 0 : _a2.call(creep, attackPart);
   if (typeof activeParts === "number") {
     return activeParts > 0;
@@ -38898,7 +38944,7 @@ function hasActiveAttackPart2(creep) {
   }
   return creep.body.some((part) => part.type === attackPart && part.hits > 0);
 }
-function getBodyPartConstant4(globalName, fallback) {
+function getBodyPartConstant5(globalName, fallback) {
   const value = globalThis[globalName];
   return value != null ? value : fallback;
 }
@@ -43062,7 +43108,7 @@ function getSourceAssignmentLoads(roomName, sources, creeps) {
     const currentLoad = (_f = assignmentLoads.get(assignedSourceId)) != null ? _f : createEmptySourceAssignmentLoad();
     assignmentLoads.set(assignedSourceId, {
       assignedHarvesters: currentLoad.assignedHarvesters + 1,
-      assignedWorkParts: currentLoad.assignedWorkParts + getActiveWorkParts3(creep)
+      assignedWorkParts: currentLoad.assignedWorkParts + getActiveWorkParts4(creep)
     });
   }
   return assignmentLoads;
@@ -43131,24 +43177,24 @@ function getSourceEnergyRegenTicks2() {
   const regenTicks = globalThis.ENERGY_REGEN_TIME;
   return typeof regenTicks === "number" && Number.isFinite(regenTicks) && regenTicks > 0 ? regenTicks : DEFAULT_SOURCE_ENERGY_REGEN_TICKS2;
 }
-function getActiveWorkParts3(creep) {
+function getActiveWorkParts4(creep) {
   var _a2;
-  const workPart = getBodyPartConstant5("WORK", "work");
+  const workPart = getBodyPartConstant6("WORK", "work");
   const activeWorkParts = (_a2 = creep.getActiveBodyparts) == null ? void 0 : _a2.call(creep, workPart);
   if (typeof activeWorkParts === "number" && Number.isFinite(activeWorkParts)) {
     return Math.max(0, Math.floor(activeWorkParts));
   }
-  const bodyWorkParts = Array.isArray(creep.body) ? creep.body.filter((part) => isActiveBodyPart4(part, workPart)).length : 0;
+  const bodyWorkParts = Array.isArray(creep.body) ? creep.body.filter((part) => isActiveBodyPart5(part, workPart)).length : 0;
   return bodyWorkParts > 0 ? bodyWorkParts : 1;
 }
-function isActiveBodyPart4(part, bodyPartType) {
+function isActiveBodyPart5(part, bodyPartType) {
   if (typeof part !== "object" || part === null) {
     return false;
   }
   const bodyPart = part;
   return bodyPart.type === bodyPartType && typeof bodyPart.hits === "number" && bodyPart.hits > 0;
 }
-function getBodyPartConstant5(globalName, fallback) {
+function getBodyPartConstant6(globalName, fallback) {
   var _a2;
   const constants = globalThis;
   return (_a2 = constants[globalName]) != null ? _a2 : fallback;
@@ -46915,21 +46961,21 @@ function isForeignReservedController3(controller, colony) {
 }
 function getKnownActiveClaimPartCount(creep) {
   var _a2;
-  const claimPart = getBodyPartConstant6("CLAIM", "claim");
+  const claimPart = getBodyPartConstant7("CLAIM", "claim");
   const activeClaimParts = (_a2 = creep.getActiveBodyparts) == null ? void 0 : _a2.call(creep, claimPart);
   if (typeof activeClaimParts === "number") {
     return activeClaimParts;
   }
-  return Array.isArray(creep.body) ? creep.body.filter((part) => isActiveBodyPart5(part, claimPart)).length : null;
+  return Array.isArray(creep.body) ? creep.body.filter((part) => isActiveBodyPart6(part, claimPart)).length : null;
 }
-function isActiveBodyPart5(part, bodyPartType) {
+function isActiveBodyPart6(part, bodyPartType) {
   if (typeof part !== "object" || part === null) {
     return false;
   }
   const bodyPart = part;
   return bodyPart.type === bodyPartType && typeof bodyPart.hits === "number" && bodyPart.hits > 0;
 }
-function getBodyPartConstant6(globalName, fallback) {
+function getBodyPartConstant7(globalName, fallback) {
   var _a2;
   const constants = globalThis;
   return (_a2 = constants[globalName]) != null ? _a2 : fallback;
@@ -47899,7 +47945,7 @@ function getGameTime40() {
 }
 function isCreepKnownToHaveNoActiveClaimParts(creep) {
   var _a2;
-  const claimPart = getBodyPartConstant7("CLAIM", "claim");
+  const claimPart = getBodyPartConstant8("CLAIM", "claim");
   const activeClaimParts = (_a2 = creep.getActiveBodyparts) == null ? void 0 : _a2.call(creep, claimPart);
   if (typeof activeClaimParts === "number") {
     return activeClaimParts <= 0;
@@ -47907,16 +47953,16 @@ function isCreepKnownToHaveNoActiveClaimParts(creep) {
   if (!Array.isArray(creep.body)) {
     return false;
   }
-  return !creep.body.some((part) => isActiveBodyPart6(part, claimPart));
+  return !creep.body.some((part) => isActiveBodyPart7(part, claimPart));
 }
-function isActiveBodyPart6(part, bodyPartType) {
+function isActiveBodyPart7(part, bodyPartType) {
   if (typeof part !== "object" || part === null) {
     return false;
   }
   const bodyPart = part;
   return bodyPart.type === bodyPartType && typeof bodyPart.hits === "number" && bodyPart.hits > 0;
 }
-function getBodyPartConstant7(globalName, fallback) {
+function getBodyPartConstant8(globalName, fallback) {
   var _a2;
   const constants = globalThis;
   return (_a2 = constants[globalName]) != null ? _a2 : fallback;
@@ -50013,20 +50059,20 @@ function getControllerOwnerUsername15(controller) {
 }
 function getActiveClaimPartCount2(creep) {
   var _a2;
-  const claimPart = getBodyPartConstant8("CLAIM", "claim");
+  const claimPart = getBodyPartConstant9("CLAIM", "claim");
   const activeClaimParts = (_a2 = creep.getActiveBodyparts) == null ? void 0 : _a2.call(creep, claimPart);
   if (typeof activeClaimParts === "number") {
     return Math.max(0, Math.floor(activeClaimParts));
   }
-  return Array.isArray(creep.body) ? creep.body.filter((part) => isActiveBodyPart7(part, claimPart)).length : 0;
+  return Array.isArray(creep.body) ? creep.body.filter((part) => isActiveBodyPart8(part, claimPart)).length : 0;
 }
-function isActiveBodyPart7(part, bodyPartType) {
+function isActiveBodyPart8(part, bodyPartType) {
   if (!isRecord40(part)) {
     return false;
   }
   return part.type === bodyPartType && typeof part.hits === "number" && part.hits > 0;
 }
-function getBodyPartConstant8(globalName, fallback) {
+function getBodyPartConstant9(globalName, fallback) {
   var _a2;
   const constants = globalThis;
   return (_a2 = constants[globalName]) != null ? _a2 : fallback;
