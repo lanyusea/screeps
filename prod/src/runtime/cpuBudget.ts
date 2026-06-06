@@ -209,6 +209,14 @@ export function shouldShedNonessentialCpuWork(budget: RuntimeCpuBudget): boolean
   return budget.critical || hasLowBucketPressure(budget) || hasUsedOverLimitPressure(budget);
 }
 
+export function shouldRunConstructionCpuWork(budget: RuntimeCpuBudget): boolean {
+  if (!budget.degraded) {
+    return true;
+  }
+
+  return !budget.lowCpuLimit && !budget.critical && !hasLowBucketPressure(budget);
+}
+
 export function resetRuntimeCpuTelemetryForTesting(): void {
   cpuTelemetryState = {
     lowBucketTicks: 0,
