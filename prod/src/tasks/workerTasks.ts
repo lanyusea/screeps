@@ -908,6 +908,36 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     });
   }
 
+  const bootstrapCriticalRepairTarget =
+    bootstrapNonCriticalWorkSuppressed &&
+    isWorkerInColonyRoom(creep) &&
+    !shouldKeepSpawnExtensionRefillBeforeBootstrapExtension(creep, spawnOrExtensionEnergySink)
+      ? selectCriticalInfrastructureRepairTarget(creep)
+      : null;
+  if (bootstrapCriticalRepairTarget) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: 'repair',
+      targetId: bootstrapCriticalRepairTarget.id as Id<Structure>
+    });
+  }
+
+  const bootstrapStorageConstructionSite = selectBootstrapStorageConstructionSiteBeforeRefill(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    survivalAssessment,
+    controller
+  );
+  if (
+    bootstrapStorageConstructionSite &&
+    !shouldKeepSpawnExtensionRefillBeforeBootstrapExtension(creep, spawnOrExtensionEnergySink)
+  ) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: 'build',
+      targetId: bootstrapStorageConstructionSite.id
+    });
+  }
+
   if (!bootstrapNonCriticalWorkSuppressed && !remoteProductiveSpendingSuppressed) {
     const productiveTaskBeforeIdleRefill = selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(
       creep,
@@ -4550,6 +4580,48 @@ function shouldPrioritizeBootstrapExtensionConstructionBeforeRefill(
   );
 }
 
+function selectBootstrapStorageConstructionSiteBeforeRefill(
+  creep: Creep,
+  constructionSites: ConstructionSite[],
+  constructionReservationContext: ConstructionReservationContext,
+  survivalAssessment: ColonySurvivalAssessment | null,
+  controller: StructureController | undefined
+): ConstructionSite | null {
+  if (!shouldPrioritizeBootstrapStorageConstructionBeforeRefill(creep, survivalAssessment, controller)) {
+    return null;
+  }
+
+  return selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    isStorageConstructionSite,
+    {
+      priorityContext: buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites),
+      requireReasonableRange: true
+    }
+  );
+}
+
+function shouldPrioritizeBootstrapStorageConstructionBeforeRefill(
+  creep: Creep,
+  survivalAssessment: ColonySurvivalAssessment | null,
+  controller: StructureController | undefined
+): boolean {
+  return (
+    survivalAssessment?.mode === 'BOOTSTRAP' &&
+    isWorkerInColonyRoom(creep) &&
+    getUsedEnergy(creep) > 0 &&
+    getActiveWorkParts(creep) > 0 &&
+    controller?.my === true &&
+    getControllerLevel(controller) >= 4 &&
+    !shouldGuardControllerDowngrade(controller) &&
+    !hasVisibleHostilePresence(creep.room) &&
+    checkEnergyBufferForStoredConstructionSpending(creep.room) &&
+    !hasOtherSameRoomLoadedBuildWorker(creep)
+  );
+}
+
 function shouldKeepSpawnExtensionRefillBeforeBootstrapExtension(
   creep: Creep,
   spawnOrExtensionEnergySink: StructureSpawn | StructureExtension | null
@@ -4847,6 +4919,10 @@ function isExtensionConstructionSite(site: ConstructionSite): boolean {
 
 function isContainerConstructionSite(site: ConstructionSite): boolean {
   return matchesStructureType(site.structureType, 'STRUCTURE_CONTAINER', 'container');
+}
+
+function isStorageConstructionSite(site: ConstructionSite): boolean {
+  return matchesStructureType(site.structureType, 'STRUCTURE_STORAGE', 'storage');
 }
 
 function isRoadConstructionSite(site: ConstructionSite): boolean {
