@@ -378,6 +378,106 @@ describe('main runtime policy parameter consumption', () => {
     expect(Object.keys(recentWindows)).toEqual(['construction-priority']);
   });
 
+  it('does not monitor or roll back passive applied families outside consumed evidence', () => {
+    installScreepsGlobals();
+    const appliedStrategyIds = [
+      'construction-priority.territory-shadow.v1',
+      'expansion-remote.territory-shadow.v1'
+    ];
+    const runtimePolicyEvidence = {
+      type: 'screeps-rl-runtime-policy-parameter-consumption' as const,
+      consumerMarker: RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER,
+      consumerVersion: RUNTIME_POLICY_PARAMETERS_CONSUMER_VERSION,
+      runtimeParameterInjection: true,
+      consumed: true,
+      strategyVariantId: 'construction-priority.pg.territory-seed.v1',
+      candidatePolicyId: 'construction-priority.pg.territory-seed.v1',
+      family: 'construction-priority',
+      parameters: { territorySignalWeight: 29 },
+      parametersSha256: 'runtime-use-sha',
+      consumedStrategyVariantId: 'construction-priority.pg.territory-seed.v1',
+      consumedParametersSha256: 'runtime-use-sha',
+      appliedStrategyIds,
+      reason: 'runtime policy parameter payload was used by tick runtime strategy evaluation',
+      liveEffect: false as const,
+      officialMmoWrites: false as const,
+      officialMmoWritesAllowed: false as const
+    };
+    const recordStrategyRuntimeUse = jest.fn();
+    const buildEvidence = jest.fn(() => runtimePolicyEvidence);
+    const persistRuntimePolicyParameterConsumptionEvidence = jest.fn();
+    jest.doMock('../src/strategy/runtimePolicyParameters', () => {
+      const actual = jest.requireActual<typeof import('../src/strategy/runtimePolicyParameters')>(
+        '../src/strategy/runtimePolicyParameters'
+      );
+      return {
+        ...actual,
+        applyRuntimePolicyParametersToRegistry: jest.fn(() => ({
+          registry: DEFAULT_STRATEGY_REGISTRY,
+          evidence: {
+            ...runtimePolicyEvidence,
+            consumed: false,
+            reason: 'runtime policy parameter payload matched registry entries; awaiting tick runtime strategy evaluation'
+          }
+        })),
+        createRuntimePolicyParameterConsumptionRecorder: jest.fn(() => ({
+          recordStrategyRuntimeUse,
+          buildEvidence
+        })),
+        persistRuntimePolicyParameterConsumptionEvidence
+      };
+    });
+    const checkKpiRegression = jest.fn(
+      (_recentWindows: KpiWindowHistory, _baselineWindows: KpiWindowHistory): KpiRegressionResult => ({
+        regression: true,
+        regressedFamilies: ['construction-priority', 'expansion-remote-candidate'],
+        details: 'simulated regression',
+        metrics: {}
+      })
+    );
+    jest.doMock('../src/rl/kpiRolloutMonitor', () => {
+      const actual = jest.requireActual<typeof import('../src/rl/kpiRolloutMonitor')>(
+        '../src/rl/kpiRolloutMonitor'
+      );
+      return {
+        ...actual,
+        checkKpiRegression
+      };
+    });
+    const applyPendingRollbacks = jest.fn((registry: StrategyRegistryEntry[]) => registry);
+    const executeRollback = jest.fn((family: string, _registry: StrategyRegistryEntry[], reason: string) => ({
+      executed: true,
+      disabledId: `${family}.shadow`,
+      rollbackToId: `${family}.incumbent`,
+      reason
+    }));
+    jest.doMock('../src/rl/strategyRollback', () => {
+      const actual = jest.requireActual<typeof import('../src/rl/strategyRollback')>(
+        '../src/rl/strategyRollback'
+      );
+      return {
+        ...actual,
+        applyPendingRollbacks,
+        executeRollback
+      };
+    });
+    const run = jest.fn((_options: KernelRunOptions = {}) => makeRuntimeSummary());
+    mockKernel(run);
+    let main: typeof import('../src/main') | undefined;
+    jest.isolateModules(() => {
+      main = jest.requireActual<typeof import('../src/main')>('../src/main');
+    });
+
+    main?.loop();
+
+    expect(recordStrategyRuntimeUse).toHaveBeenCalledTimes(2);
+    expect(checkKpiRegression).toHaveBeenCalledTimes(1);
+    const recentWindows = checkKpiRegression.mock.calls[0][0];
+    expect(Object.keys(recentWindows)).toEqual(['construction-priority']);
+    expect(executeRollback).toHaveBeenCalledTimes(1);
+    expect(executeRollback.mock.calls[0][0]).toBe('construction-priority');
+  });
+
   it('does not execute stale rollback checks for an unconsumed family', () => {
     installScreepsGlobals();
     installRegressionBaselines();

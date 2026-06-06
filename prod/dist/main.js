@@ -52480,12 +52480,18 @@ function getRuntimeInfluencedStrategyFamilies(registry, evidence) {
   if ((evidence == null ? void 0 : evidence.consumed) !== true) {
     return [];
   }
-  const appliedStrategyIds = new Set(evidence.appliedStrategyIds);
-  return [
-    ...new Set(
-      registry.flatMap((entry) => appliedStrategyIds.has(entry.id) ? [entry.family] : [])
-    )
-  ];
+  const consumedFamilies = /* @__PURE__ */ new Set();
+  if (evidence.family && registry.some((entry) => entry.family === evidence.family)) {
+    consumedFamilies.add(evidence.family);
+  }
+  const consumedStrategyVariantId = evidence.consumedStrategyVariantId;
+  if (consumedStrategyVariantId) {
+    const consumedEntry = registry.find((entry) => entry.id === consumedStrategyVariantId);
+    if (consumedEntry) {
+      consumedFamilies.add(consumedEntry.family);
+    }
+  }
+  return [...consumedFamilies];
 }
 function buildKpiWindow(summary) {
   const artifacts = parseStrategyEvaluationArtifacts(summary);
