@@ -2330,13 +2330,20 @@ def build_conclusion_linked_issues_check(
     registry_path = artifact_root / "rl-control-loop" / "conclusion-registry.json"
     registry_loaded = False
     registry_error: str | None = None
-    try:
-        registry_payload = rl_conclusion_registry.load_registry(registry_path)
-        registry_loaded = bool(registry_payload)
-        linked_issue_gate = rl_conclusion_registry.build_open_conclusion_linked_issue_gate(registry_payload)
-    except rl_conclusion_registry.ConclusionRegistryError as error:
-        registry_error = str(error)
-        linked_issue_gate = rl_conclusion_registry.build_invalid_registry_linked_issue_gate(error)
+    if not registry_path.exists():
+        registry_error = (
+            "missing conclusion-registry.json: "
+            f"{repo_display_path(registry_path, repo_root)}"
+        )
+        linked_issue_gate = rl_conclusion_registry.build_invalid_registry_linked_issue_gate(registry_error)
+    else:
+        try:
+            registry_payload = rl_conclusion_registry.load_registry(registry_path)
+            registry_loaded = bool(registry_payload)
+            linked_issue_gate = rl_conclusion_registry.build_open_conclusion_linked_issue_gate(registry_payload)
+        except rl_conclusion_registry.ConclusionRegistryError as error:
+            registry_error = str(error)
+            linked_issue_gate = rl_conclusion_registry.build_invalid_registry_linked_issue_gate(error)
 
     ok = bool(linked_issue_gate.get("ok"))
     return {

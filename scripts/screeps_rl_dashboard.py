@@ -1129,11 +1129,17 @@ def display_value(value: Any) -> str:
 
 def conclusion_summary(artifact: LoadedArtifact | None) -> JsonObject:
     if artifact is None:
+        missing_registry_error = (
+            "missing conclusion-registry artifact: "
+            "runtime-artifacts/rl-control-loop/conclusion-registry.json"
+        )
         return {
             "counts": {status: 0 for status in CONCLUSION_STATUSES},
             "otherCounts": {},
             "p0Unresolved": [],
-            "linkedIssueGate": rl_conclusion_registry.build_open_conclusion_linked_issue_gate({}),
+            "linkedIssueGate": rl_conclusion_registry.build_invalid_registry_linked_issue_gate(
+                missing_registry_error
+            ),
             "latestArtifact": "N/A",
             "updatedAt": "N/A",
             "hasData": False,

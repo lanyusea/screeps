@@ -104,6 +104,23 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertTrue(dashboard.value_has_reference(["0", "2.5"]))
         self.assertTrue(dashboard.value_has_reference("training-report-a"))
 
+    def test_conclusion_summary_flags_missing_registry_as_invalid_gate(self) -> None:
+        summary = dashboard.conclusion_summary(None)
+
+        self.assertEqual(summary["counts"], {status: 0 for status in dashboard.CONCLUSION_STATUSES})
+        self.assertEqual(summary["otherCounts"], {})
+        self.assertEqual(summary["p0Unresolved"], [])
+        self.assertEqual(summary["latestArtifact"], "N/A")
+        self.assertEqual(summary["updatedAt"], "N/A")
+        self.assertFalse(summary["hasData"])
+        self.assertEqual(summary["linkedIssueGate"]["status"], "INVALID_REGISTRY")
+        self.assertFalse(summary["linkedIssueGate"]["ok"])
+        self.assertIn("missing conclusion-registry artifact", summary["linkedIssueGate"]["error"])
+        self.assertIn(
+            "missing conclusion-registry artifact",
+            summary["linkedIssueGate"]["projectEvidence"]["evidence"],
+        )
+
     def test_conclusion_summary_counts_mapping_registry_shape(self) -> None:
         artifact = loaded_artifact(
             Path("runtime-artifacts/rl-control-loop/conclusion-registry.json"),
