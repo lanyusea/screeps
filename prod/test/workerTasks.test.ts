@@ -15672,6 +15672,95 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
+  it('routes loaded E29N56 bootstrap workers to upgrade after construction completes when refill is covered', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const spawn = makeEnergySinkWithEnergy('spawn-needs-energy', 'spawn' as StructureConstant, 200, 100, {
+      my: true,
+      pos: makeRoomPosition(17, 24, 'E29N56')
+    }) as StructureSpawn;
+    const storage = makeStoredEnergyStructure('storage-built', 'storage' as StructureConstant, 113_639, {
+      my: true,
+      pos: makeRoomPosition(18, 23, 'E29N56')
+    }) as StructureStorage;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N56',
+      controller,
+      energyAvailable: 1_200,
+      energyCapacityAvailable: 1_300,
+      myStructures: [spawn as AnyOwnedStructure],
+      structures: [spawn as AnyStructure, storage as AnyStructure]
+    });
+    (room as { storage?: StructureStorage }).storage = storage;
+    const refillCoverage = {
+      name: 'RefillCoverage',
+      memory: {
+        role: 'worker',
+        colony: 'E29N56',
+        task: { type: 'transfer', targetId: 'spawn-needs-energy' as Id<AnyStoreStructure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 150 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0))
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'spawn-needs-energy' ? 1 : 5)) },
+      room
+    } as unknown as Creep;
+    const workers = Array.from({ length: 6 }, (_, index) => ({
+      name: `worker-E29N56-post-construction-${index}`,
+      memory: { role: 'worker', colony: 'E29N56' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'spawn-needs-energy': 4,
+            'storage-built': 2
+          };
+          return ranges[String(target.id)] ?? 6;
+        })
+      },
+      room
+    } as unknown as Creep));
+    const assessment = {
+      mode: 'BOOTSTRAP',
+      stage: 'BOOTSTRAP',
+      roomName: 'E29N56',
+      totalCreeps: 12,
+      spawnEnergyAvailable: 1_200,
+      workerCapacity: 6,
+      workerTarget: 6,
+      survivalWorkerFloor: 3,
+      bootstrapRecovery: true,
+      controllerDowngradeGuard: false,
+      hostilePresence: false,
+      territoryReady: false,
+      suppressionReasons: ['bootstrapRecovery']
+    } as ReturnType<typeof assessColonySurvival>;
+    recordColonySurvivalAssessment('E29N56', assessment, 1_909_293);
+    setGameCreeps({
+      RefillCoverage: refillCoverage,
+      ...Object.fromEntries(workers.map((worker) => [worker.name, worker]))
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      ...((globalThis as unknown as { Game?: Partial<Game> }).Game ?? {}),
+      rooms: { E29N56: room },
+      time: 1_909_293
+    };
+
+    for (const worker of workers) {
+      expect(selectWorkerTask(worker)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    }
+  });
+
   it.each(
     [
       [
