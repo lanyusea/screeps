@@ -1899,7 +1899,11 @@ function selectBootstrapPostConstructionControllerProgressTask(
     return null;
   }
 
-  if (!hasRecoverableSurplusEnergy(creep) && !hasFullRoomEnergyForControllerProgress(creep.room)) {
+  if (
+    getUsedEnergy(creep) <= 0 &&
+    !hasRecoverableSurplusEnergy(creep) &&
+    !hasFullRoomEnergyForControllerProgress(creep.room)
+  ) {
     return null;
   }
 

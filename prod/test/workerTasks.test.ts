@@ -15672,6 +15672,34 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
+  it('routes loaded bootstrap workers to upgrade after construction completes without ambient surplus', () => {
+    recordSurvivalMode('BOOTSTRAP');
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      controller,
+      energyAvailable: 1_200,
+      energyCapacityAvailable: 1_300
+    });
+    const creep = {
+      name: 'PostConstructionWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ PostConstructionWorker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
   it('routes loaded E29N56 bootstrap workers to upgrade after construction completes when refill is covered', () => {
     const controller = {
       id: 'controller1',

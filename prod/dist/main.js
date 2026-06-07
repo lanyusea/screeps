@@ -28307,7 +28307,7 @@ function selectBootstrapPostConstructionControllerProgressTask(creep, controller
   if (constructionSites.length > 0 || !isWorkerInColonyRoom(creep) || hasVisibleHostilePresence3(creep.room) || (controller == null ? void 0 : controller.my) !== true || !canUpgradeController(controller)) {
     return null;
   }
-  if (!hasRecoverableSurplusEnergy(creep) && !hasFullRoomEnergyForControllerProgress(creep.room)) {
+  if (getUsedEnergy2(creep) <= 0 && !hasRecoverableSurplusEnergy(creep) && !hasFullRoomEnergyForControllerProgress(creep.room)) {
     return null;
   }
   return { type: "upgrade", targetId: controller.id };
