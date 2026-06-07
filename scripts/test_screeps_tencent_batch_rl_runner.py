@@ -1158,6 +1158,61 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         summary = json.loads((artifact_dir / "controller-summary.json").read_text(encoding="utf-8"))
         return events, controller, guard, summary
 
+    def assert_validation_plan_handoff(
+        self,
+        controller: runner.Controller,
+        summary: dict[str, object],
+        plan: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        self.assertEqual(
+            controller.final_status,
+            runner.PAID_FAILURE_RECURRENCE_VALIDATION_PLAN_REQUIRED_FINAL_STATUS,
+        )
+        self.assertEqual(
+            summary["finalStatus"],
+            runner.PAID_FAILURE_RECURRENCE_VALIDATION_PLAN_REQUIRED_FINAL_STATUS,
+        )
+        execution = summary["execution"]
+        self.assertIsInstance(execution, dict)
+        self.assertEqual(execution["mode"], "validation_plan_required")
+        self.assertFalse(execution["computeAttempted"])
+        self.assertFalse(execution["paidRunAttempted"])
+        self.assertTrue(execution["launchGuardNoCompute"])
+        self.assertTrue(execution["validationPlanRequired"])
+        outputs = summary["outputs"]
+        self.assertIsInstance(outputs, dict)
+        handoff = outputs["validationPlanHandoff"]
+        self.assertIsInstance(handoff, dict)
+        self.assertEqual(handoff["status"], "validation_plan_required")
+        self.assertEqual(handoff["signature"], runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE)
+        self.assertTrue(handoff["requiresExplicitValidationSignature"])
+        self.assertFalse(handoff["paidRunAttempted"])
+        self.assertTrue(handoff["noCompute"])
+        self.assertIn("explicit post-fix validation signature", handoff["reason"])
+        self.assertTrue(handoff["nextAction"])
+        plan_path = Path(handoff["path"])
+        if plan is None:
+            self.assertTrue(plan_path.is_file())
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        self.assertEqual(plan["type"], runner.PAID_FAILURE_RECURRENCE_VALIDATION_PLAN_HANDOFF_TYPE)
+        self.assertEqual(plan["status"], "validation_plan_required")
+        self.assertEqual(plan["signature"], runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE)
+        self.assertFalse(plan["paidRunAttempted"])
+        self.assertTrue(plan["noCompute"])
+        self.assertEqual(plan["path"], str(plan_path))
+        self.assertIn("explicit post-fix validation signature", plan["reason"])
+        self.assertEqual(
+            plan["explicitValidationArgument"],
+            (
+                "--allow-paid-failure-recurrence-validation "
+                f"{runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE}"
+            ),
+        )
+        launch_guard = outputs["launchGuard"]
+        self.assertIsInstance(launch_guard, dict)
+        self.assertEqual(launch_guard["validationPlanHandoff"]["path"], str(plan_path))
+        return plan
+
     def test_controller_summary_records_pid_and_declared_timeout_window(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             args = controller_args()
@@ -5008,9 +5063,11 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 },
             ):
                 events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
+            handoff = summary["outputs"]["validationPlanHandoff"]
+            plan_payload = json.loads(Path(handoff["path"]).read_text(encoding="utf-8"))
 
         self.assertEqual(events, [])
-        self.assertEqual(controller.final_status, runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS)
+        plan = self.assert_validation_plan_handoff(controller, summary, plan_payload)
         self.assertTrue(guard["blocked"])
         self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_CONSUMED_STATUS)
         recovery = guard["postFixValidation"]["recoveryEligibility"]
@@ -5022,6 +5079,9 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertIn("explicitly larger timeout", guard["nextAction"])
         self.assertIn("smaller validation slice", guard["nextAction"])
         self.assertFalse(summary["execution"]["computeAttempted"])
+        self.assertEqual(plan["recoveryEligibility"]["recoveryClass"], "remote_training_timeout_after_recovery")
+        self.assertEqual(plan["currentValidationPlan"]["workers"], 5)
+        self.assertEqual(plan["currentValidationPlan"]["repetitions"], 5)
 
     def test_paid_failure_recurrence_guard_ignores_preflight_only_recovery_admission(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -5269,15 +5329,20 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 },
             ):
                 events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
+            handoff = summary["outputs"]["validationPlanHandoff"]
+            plan_payload = json.loads(Path(handoff["path"]).read_text(encoding="utf-8"))
 
         self.assertEqual(events, [])
-        self.assertEqual(controller.final_status, runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS)
+        plan = self.assert_validation_plan_handoff(controller, summary, plan_payload)
         self.assertTrue(guard["blocked"])
         self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_CONSUMED_STATUS)
         self.assertEqual(guard["postFixValidation"]["status"], "consumed")
         self.assertFalse(guard["postFixValidation"]["recoveryEligibility"]["eligible"])
         self.assertIn("explicit post-fix validation signature", guard["postFixValidation"]["recoveryEligibility"]["reason"])
         self.assertFalse(summary["execution"]["computeAttempted"])
+        self.assertEqual(plan["priorAttempt"]["runId"], "tencent-postfix-room-busy-v1")
+        self.assertEqual(plan["currentValidationPlan"]["workers"], 5)
+        self.assertEqual(plan["currentValidationPlan"]["repetitions"], 5)
 
     def test_paid_failure_recurrence_guard_blocks_recovery_below_trust_sample_target(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
