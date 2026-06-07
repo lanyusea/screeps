@@ -693,6 +693,7 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
 
     if (getFreeEnergyCapacity(creep) > 0) {
       if (shouldStandbySurplusWorkerInsteadOfAcquiring(creep, creep.room.controller)) {
+        recordControllerUpgradeSaturatedStandbyTelemetry(creep, creep.room.controller);
         return null;
       }
 
@@ -2399,7 +2400,28 @@ function clearWorkerTaskSelectionTelemetry(creep: Creep): void {
   if (memory) {
     delete memory.workerEfficiency;
     delete memory.spawnCriticalRefill;
+    delete memory.workerTaskSelectionStandby;
   }
+}
+
+function recordControllerUpgradeSaturatedStandbyTelemetry(
+  creep: Creep,
+  controller: StructureController | undefined
+): void {
+  if (isWorkerTaskSelectionTelemetrySuppressed()) {
+    return;
+  }
+
+  const memory = creep.memory;
+  if (!memory) {
+    return;
+  }
+
+  memory.workerTaskSelectionStandby = {
+    reason: 'controller_upgrade_saturated',
+    tick: getGameTick() ?? 0,
+    ...(controller ? { controllerId: String(controller.id) } : {})
+  };
 }
 
 function recordSpawnCriticalRefillTelemetry(creep: Creep, spawn: StructureSpawn): void {

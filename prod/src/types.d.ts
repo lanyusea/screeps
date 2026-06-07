@@ -43,6 +43,7 @@ declare global {
     colony?: string;
     task?: CreepTaskMemory;
     workerTaskSelectionNullLoop?: WorkerTaskSelectionNullLoopMemory;
+    workerTaskSelectionStandby?: WorkerTaskSelectionStandbyMemory;
     defense?: CreepDefenseMemory;
     territory?: CreepTerritoryMemory;
     controllerSustain?: CreepControllerSustainMemory;
@@ -1198,8 +1199,15 @@ declare global {
     idleStartTick: number;
   }
 
+  interface WorkerTaskSelectionStandbyMemory {
+    reason: 'controller_upgrade_saturated';
+    tick: number;
+    controllerId?: string;
+  }
+
   type WorkerDispatchDiagnosticReason =
     | 'assigned_selected_task'
+    | 'controller_upgrade_saturated_standby'
     | 'no_selected_task_idle'
     | 'selected_same_as_current'
     | 'selected_task_not_assigned'
