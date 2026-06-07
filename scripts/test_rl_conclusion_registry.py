@@ -459,6 +459,108 @@ class RlConclusionRegistryTest(unittest.TestCase):
         self.assertEqual(list(single_record), ["TOP-LEVEL-SINGLE"])
         self.assertEqual(single_record["TOP-LEVEL-SINGLE"]["status"], "VALIDATING")
 
+    def test_linked_issue_gate_flags_unlinked_open_high_priority_conclusions(self) -> None:
+        payload = {
+            "schemaVersion": 1,
+            "registryType": "rl-conclusion-registry",
+            "conclusions": {
+                "P1-UNLINKED": {
+                    "conclusionId": "P1-UNLINKED",
+                    "status": "OPEN",
+                    "severity": "P1",
+                    "category": "economy",
+                    "lastSeenAt": "2026-06-07T00:00:00Z",
+                    "statement": "Energy buffer collapse needs an atomic issue.",
+                },
+                "P2-EMPTY-LINKS": {
+                    "conclusionId": "P2-EMPTY-LINKS",
+                    "status": "OPEN",
+                    "severity": "P2",
+                    "linkedIssues": [],
+                    "lastSeenAt": "2026-06-07T00:01:00Z",
+                },
+            },
+            "entries": [
+                {
+                    "conclusionId": "P0-WHITESPACE-LINK",
+                    "status": "OPEN",
+                    "severity": "P0",
+                    "linkedIssues": ["  "],
+                    "lastSeenAt": "2026-06-07T00:02:00Z",
+                }
+            ],
+        }
+
+        gate = registry.build_open_conclusion_linked_issue_gate(payload)
+
+        self.assertFalse(gate["ok"])
+        self.assertEqual(gate["status"], "ACTION_REQUIRED")
+        self.assertEqual(gate["requiredStatuses"], ["OPEN"])
+        self.assertEqual(gate["requiredSeverities"], ["P0", "P1", "P2"])
+        self.assertEqual(gate["blockedConclusionCount"], 3)
+        self.assertEqual(gate["countsBySeverity"], {"P0": 1, "P1": 1, "P2": 1})
+        self.assertEqual(
+            gate["highestPriorityConclusionIds"],
+            ["P0-WHITESPACE-LINK", "P1-UNLINKED", "P2-EMPTY-LINKS"],
+        )
+        self.assertEqual(
+            [item["recommendedAction"] for item in gate["blockingConclusions"]],
+            ["attach_exact_atomic_issue", "attach_exact_atomic_issue", "attach_exact_atomic_issue"],
+        )
+        self.assertEqual(gate["projectEvidence"]["status"], "BLOCKED_MISSING_LINKED_ISSUES")
+        self.assertIn("#879", gate["routingPolicy"]["forbiddenBroadIssueSinks"])
+        self.assertIn("#1589", gate["routingPolicy"]["forbiddenBroadIssueSinks"])
+
+    def test_linked_issue_gate_accepts_linked_and_non_open_or_lower_severity_shapes(self) -> None:
+        payload = {
+            "schemaVersion": 1,
+            "type": "screeps-rl-conclusion-registry",
+            "conclusions": [
+                {
+                    "conclusionId": "P1-LINKED",
+                    "status": "OPEN",
+                    "severity": "P1",
+                    "linkedIssues": ["#1748"],
+                },
+                {
+                    "conclusionId": "P0-ACTIONED-UNLINKED",
+                    "status": "ACTIONED",
+                    "severity": "P0",
+                },
+            ],
+            "entries": [
+                {
+                    "conclusionId": "P2-STALE-UNLINKED",
+                    "status": "STALE",
+                    "severity": "P2",
+                },
+                {
+                    "conclusionId": "P3-OPEN-UNLINKED",
+                    "status": "OPEN",
+                    "severity": "P3",
+                },
+                {
+                    "conclusionId": "UNRANKED-OPEN-UNLINKED",
+                    "status": "OPEN",
+                    "severity": "HIGH",
+                },
+            ],
+        }
+
+        gate = registry.build_open_conclusion_linked_issue_gate(payload)
+
+        self.assertTrue(gate["ok"])
+        self.assertEqual(gate["status"], "OK")
+        self.assertEqual(gate["blockedConclusionCount"], 0)
+        self.assertEqual(gate["countsBySeverity"], {"P0": 0, "P1": 0, "P2": 0})
+        self.assertEqual(gate["highestPriorityConclusionIds"], [])
+        self.assertEqual(gate["blockingConclusions"], [])
+        self.assertEqual(gate["projectEvidence"]["status"], "OK")
+        self.assertEqual(
+            registry.summarize_conclusions(registry.normalize_conclusions(payload))["linkedIssueGate"],
+            gate,
+        )
+
     def test_merge_registry_file_accepts_metadata_only_existing_registry(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "conclusion-registry.json"

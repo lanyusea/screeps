@@ -1589,6 +1589,172 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
         self.assertIn("lanes", payload)
         self.assertIn("boundedProducer", payload)
 
+    def test_steward_digest_surfaces_unlinked_open_conclusion_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = write_fixture_artifacts(root)
+            write_json(
+                artifact_root / "rl-control-loop" / "conclusion-registry.json",
+                {
+                    "schemaVersion": 1,
+                    "registryType": "rl-conclusion-registry",
+                    "conclusions": {
+                        "P1-UNLINKED": {
+                            "conclusionId": "P1-UNLINKED",
+                            "status": "OPEN",
+                            "severity": "P1",
+                            "linkedIssues": [],
+                        }
+                    },
+                },
+            )
+            output = root / "out" / "steward-digest.json"
+
+            exit_code = ledgers.main(
+                [
+                    "steward-digest",
+                    "--repo-root",
+                    str(root),
+                    "--artifact-root",
+                    str(artifact_root),
+                    "--output",
+                    str(output),
+                    "--created-at",
+                    "2026-06-05T00:00:02Z",
+                    "--max-files-per-root",
+                    "4",
+                ],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+            payload = read_json(output)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["status"], "ACTION_REQUIRED")
+        self.assertEqual(payload["linkedIssueGate"]["status"], "ACTION_REQUIRED")
+        self.assertEqual(payload["linkedIssueGate"]["blockedConclusionCount"], 1)
+        self.assertEqual(payload["linkedIssueGate"]["highestPriorityConclusionIds"], ["P1-UNLINKED"])
+        self.assertIn("exact atomic linkedIssues", payload["nextAction"])
+
+    def test_linked_issues_check_writes_artifact_and_fails_for_unlinked_open_p1(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-control-loop" / "conclusion-registry.json",
+                {
+                    "schemaVersion": 1,
+                    "registryType": "rl-conclusion-registry",
+                    "conclusions": {
+                        "L20260606T160607Z-LOOP_B-ENERGY_BUFFER_COLLAPSE": {
+                            "conclusionId": "L20260606T160607Z-LOOP_B-ENERGY_BUFFER_COLLAPSE",
+                            "status": "OPEN",
+                            "severity": "P1",
+                            "category": "economy",
+                            "linkedIssues": [],
+                            "statement": "Energy buffer collapse lacks an atomic issue.",
+                        }
+                    },
+                },
+            )
+            output = root / "out" / "linked-issues-check.json"
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            exit_code = ledgers.main(
+                [
+                    "linked-issues-check",
+                    "--repo-root",
+                    str(root),
+                    "--artifact-root",
+                    str(artifact_root),
+                    "--output",
+                    str(output),
+                    "--created-at",
+                    "2026-06-07T00:00:00Z",
+                ],
+                stdout=stdout,
+                stderr=stderr,
+            )
+            payload = read_json(output)
+            emitted = json.loads(stdout.getvalue())
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(stderr.getvalue(), "")
+        self.assertFalse(emitted["ok"])
+        self.assertEqual(emitted["type"], ledgers.CONCLUSION_LINKED_ISSUES_CHECK_TYPE)
+        self.assertEqual(emitted["status"], "BLOCKED")
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["type"], ledgers.CONCLUSION_LINKED_ISSUES_CHECK_TYPE)
+        self.assertEqual(payload["status"], "BLOCKED")
+        self.assertEqual(payload["exitCode"], 2)
+        self.assertEqual(payload["githubComment"], "skipped_no_atomic_issue")
+        self.assertNotIn("historicalContextIssues", payload)
+        self.assertEqual(payload["linkedIssueGate"]["status"], "ACTION_REQUIRED")
+        self.assertEqual(payload["linkedIssueGate"]["blockedConclusionCount"], 1)
+        self.assertEqual(
+            payload["linkedIssueGate"]["highestPriorityConclusionIds"],
+            ["L20260606T160607Z-LOOP_B-ENERGY_BUFFER_COLLAPSE"],
+        )
+        self.assertEqual(
+            payload["projectEvidence"]["status"],
+            "BLOCKED_MISSING_LINKED_ISSUES",
+        )
+
+    def test_linked_issues_check_accepts_linked_and_non_blocking_conclusions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-control-loop" / "conclusion-registry.json",
+                {
+                    "schemaVersion": 1,
+                    "registryType": "rl-conclusion-registry",
+                    "entries": [
+                        {
+                            "conclusionId": "P1-LINKED",
+                            "status": "OPEN",
+                            "severity": "P1",
+                            "linkedIssues": ["#1748"],
+                        },
+                        {
+                            "conclusionId": "P2-CLOSED-UNLINKED",
+                            "status": "CLOSED",
+                            "severity": "P2",
+                        },
+                        {
+                            "conclusionId": "P3-OPEN-UNLINKED",
+                            "status": "OPEN",
+                            "severity": "P3",
+                        },
+                    ],
+                },
+            )
+            output = root / "out" / "linked-issues-check.json"
+
+            exit_code = ledgers.main(
+                [
+                    "linked-issues-check",
+                    "--repo-root",
+                    str(root),
+                    "--artifact-root",
+                    str(artifact_root),
+                    "--output",
+                    str(output),
+                    "--created-at",
+                    "2026-06-07T00:00:00Z",
+                ],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+            payload = read_json(output)
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["status"], "OK")
+        self.assertEqual(payload["linkedIssueGate"]["blockedConclusionCount"], 0)
+        self.assertEqual(payload["projectEvidence"]["nextAction"], "No unlinked OPEN P0/P1/P2 conclusions.")
+
     def test_steward_digest_sees_root_level_training_report_but_keeps_rollout_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

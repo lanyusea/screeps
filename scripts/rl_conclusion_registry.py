@@ -35,6 +35,15 @@ ACTIONABLE_STALE_CONCLUSION_PREVIEW_LIMIT = 10
 STALE_CONCLUSION_AGGREGATE_ROUTING_ISSUE = "#1543"
 STALE_CONCLUSION_AGGREGATE_ROUTING_ISSUE_NUMBER = 1543
 MIN_STALE_CONCLUSION_TRIAGE_DECISIONS_PER_STEWARD_CYCLE = 3
+LINKED_ISSUE_REQUIRED_STATUSES = ("OPEN",)
+LINKED_ISSUE_REQUIRED_SEVERITIES = ("P0", "P1", "P2")
+LINKED_ISSUE_PREVIEW_LIMIT = 20
+FORBIDDEN_LINKED_ISSUE_SINKS = (
+    "#879",
+    "#893",
+    "#1589",
+    STALE_CONCLUSION_AGGREGATE_ROUTING_ISSUE,
+)
 
 JsonObject = dict[str, Any]
 
@@ -258,6 +267,7 @@ def summarize_conclusions(
         "unknown": unknown_count,
         "actionableIssueGate": high_priority_stale_issue_gate(records),
         "staleConclusionActionPlan": build_stale_conclusion_action_plan(records),
+        "linkedIssueGate": build_open_conclusion_linked_issue_gate(records),
     }
 
 
@@ -393,6 +403,117 @@ def build_stale_conclusion_action_plan(
             "targetStaleTransitionsThisCycle": target_transitions,
         },
     }
+
+
+def build_open_conclusion_linked_issue_gate(
+    registry_or_conclusions: Any,
+    *,
+    preview_limit: int = LINKED_ISSUE_PREVIEW_LIMIT,
+) -> JsonObject:
+    """Build an artifact-first guard for OPEN P0/P1/P2 conclusions without issues."""
+    if preview_limit < 0:
+        raise ConclusionRegistryError("preview_limit must be non-negative")
+
+    records = normalize_conclusions(registry_or_conclusions)
+    blockers = sorted(
+        (
+            record
+            for record in records.values()
+            if is_open_conclusion_missing_linked_issue(record)
+        ),
+        key=open_linked_issue_gate_priority_key,
+    )
+    blocker_count = len(blockers)
+    counts_by_severity = {
+        severity: sum(1 for record in blockers if conclusion_severity(record) == severity)
+        for severity in LINKED_ISSUE_REQUIRED_SEVERITIES
+    }
+    highest_priority_ids = [
+        conclusion_id
+        for conclusion_id in (record.get("conclusionId") for record in blockers)
+        if isinstance(conclusion_id, str) and conclusion_id
+    ][:preview_limit]
+
+    status = "ACTION_REQUIRED" if blocker_count else "OK"
+    gate: JsonObject = {
+        "name": "open_p0_p1_p2_conclusion_linked_issues",
+        "status": status,
+        "ok": blocker_count == 0,
+        "requiredStatuses": list(LINKED_ISSUE_REQUIRED_STATUSES),
+        "requiredSeverities": list(LINKED_ISSUE_REQUIRED_SEVERITIES),
+        "requiredField": "linkedIssues",
+        "blockedConclusionCount": blocker_count,
+        "countsBySeverity": counts_by_severity,
+        "highestPriorityConclusionIds": highest_priority_ids,
+        "blockingConclusions": [
+            linked_issue_gate_record(record)
+            for record in blockers[:preview_limit]
+        ],
+        "routingPolicy": {
+            "artifactFirst": True,
+            "requiredRouting": "exact_atomic_issue_per_open_conclusion",
+            "forbiddenBroadIssueSinks": list(FORBIDDEN_LINKED_ISSUE_SINKS),
+            "githubComments": "do_not_write_routine_comments",
+        },
+        "projectEvidence": {
+            "status": "BLOCKED_MISSING_LINKED_ISSUES" if blocker_count else "OK",
+            "evidence": (
+                f"unlinkedOpenConclusions={blocker_count}; "
+                f"ids={','.join(highest_priority_ids) if highest_priority_ids else 'none'}"
+            ),
+            "nextAction": (
+                "Create or attach exact atomic linkedIssues for each blocking conclusion, "
+                "then rerun this registry check."
+                if blocker_count
+                else "No unlinked OPEN P0/P1/P2 conclusions."
+            ),
+        },
+    }
+    if blocker_count:
+        gate["recommendedAction"] = "route_each_open_conclusion_to_exact_atomic_issue"
+        gate["evidence"] = (
+            f"{blocker_count} OPEN P0/P1/P2 conclusions are missing linkedIssues: "
+            f"{', '.join(highest_priority_ids)}"
+        )
+    return gate
+
+
+def is_open_conclusion_missing_linked_issue(record: JsonObject) -> bool:
+    return (
+        conclusion_status(record) in LINKED_ISSUE_REQUIRED_STATUSES
+        and conclusion_severity(record) in LINKED_ISSUE_REQUIRED_SEVERITIES
+        and not normalize_linked_issues(record.get("linkedIssues"))
+    )
+
+
+def linked_issue_gate_record(record: JsonObject) -> JsonObject:
+    gate_record: JsonObject = {
+        "conclusionId": str(record.get("conclusionId") or ""),
+        "status": conclusion_status(record),
+        "severity": conclusion_severity(record),
+        "category": conclusion_category(record),
+        "linkedIssues": normalize_linked_issues(record.get("linkedIssues")),
+        "requiredField": "linkedIssues",
+        "recommendedAction": "attach_exact_atomic_issue",
+    }
+    for field in ("ownerCron", "lastSeenAt", "nextVerification", "requiredLandingEvidence"):
+        value = record.get(field)
+        if has_evidence_value(value):
+            gate_record[field] = value
+    statement = record.get("statement")
+    if isinstance(statement, str) and statement.strip():
+        gate_record["statement"] = statement.strip()
+    return gate_record
+
+
+def open_linked_issue_gate_priority_key(record: JsonObject) -> tuple[int, str, str, str]:
+    severity_order = {"P0": 0, "P1": 1, "P2": 2}
+    return (
+        severity_order.get(conclusion_severity(record), 99),
+        str(record.get("lastSeenAt") or record.get("nextVerification") or ""),
+        conclusion_category(record),
+        str(record.get("conclusionId") or ""),
+    )
 
 
 def is_stale_action_plan_candidate(record: JsonObject) -> bool:
