@@ -5,6 +5,7 @@ import io
 import copy
 import json
 import os
+import signal
 import sys
 import tempfile
 import unittest
@@ -1520,20 +1521,125 @@ class RlTrainingRunnerTest(unittest.TestCase):
         stdout = io.StringIO()
         stderr = io.StringIO()
 
-        with (
-            mock.patch.dict(os.environ, {"STEAM_KEY": secret}, clear=True),
-            mock.patch.object(
-                runner,
-                "run_training_experiment",
-                side_effect=RuntimeError(f"simulator echoed {secret}"),
-            ),
-        ):
-            exit_code = runner.main(["--experiment-card", "card.json"], stdout=stdout, stderr=stderr)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            write_json(card_path, base_card())
+
+            with (
+                mock.patch.dict(os.environ, {"STEAM_KEY": secret}, clear=True),
+                mock.patch.object(
+                    runner,
+                    "run_training_experiment",
+                    side_effect=RuntimeError(f"simulator echoed {secret}"),
+                ),
+            ):
+                exit_code = runner.main(
+                    [
+                        "--experiment-card",
+                        str(card_path),
+                        "--out-dir",
+                        str(out_dir),
+                        "--report-id",
+                        "secret-redaction",
+                    ],
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+
+            failure = read_json(out_dir / "secret-redaction.failure.json")
+            failure_text = json.dumps(failure, sort_keys=True)
 
         self.assertEqual(exit_code, 2)
         self.assertNotIn(secret, stdout.getvalue())
         self.assertNotIn(secret, stderr.getvalue())
+        self.assertNotIn(secret, failure_text)
         self.assertIn("[REDACTED]", stderr.getvalue())
+        self.assertIn("[REDACTED]", failure["failure"]["error"])
+
+    def test_main_writes_failure_artifact_for_timeout_without_report_id(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            write_json(card_path, base_card())
+
+            with mock.patch.object(
+                runner,
+                "run_training_experiment",
+                side_effect=TimeoutError("simulator child timed out before scoring"),
+            ):
+                exit_code = runner.main(
+                    [
+                        "--experiment-card",
+                        str(card_path),
+                        "--out-dir",
+                        str(out_dir),
+                    ],
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+
+            failure_files = sorted(out_dir.glob("*.failure.json"))
+            self.assertEqual(len(failure_files), 1)
+            failure = read_json(failure_files[0])
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(failure["type"], runner.FAILURE_REPORT_TYPE)
+        self.assertFalse(failure["ok"])
+        self.assertFalse(failure["trainingReportProduced"])
+        self.assertEqual(failure["trainingReportType"], runner.REPORT_TYPE)
+        self.assertEqual(failure["failure"]["classification"], "timeout")
+        self.assertEqual(failure["failure"]["exceptionType"], "TimeoutError")
+        self.assertIn("simulator child timed out", failure["failure"]["error"])
+        self.assertTrue(failure_files[0].name.endswith(".failure.json"))
+        self.assertEqual(failure_files[0].name, f"{failure['reportId']}.failure.json")
+        self.assertTrue(str(failure["expectedReportPath"]).endswith(f"{failure['reportId']}.json"))
+        self.assertIn("failure-artifact:", stderr.getvalue())
+
+    def test_main_writes_failure_artifact_for_sigterm_interrupt(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            write_json(card_path, base_card())
+
+            with mock.patch.object(
+                runner,
+                "run_training_experiment",
+                side_effect=runner.TrainingRunnerInterrupted(signal.SIGTERM),
+            ):
+                exit_code = runner.main(
+                    [
+                        "--experiment-card",
+                        str(card_path),
+                        "--out-dir",
+                        str(out_dir),
+                        "--report-id",
+                        "sigterm-run",
+                    ],
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+
+            failure = read_json(out_dir / "sigterm-run.failure.json")
+
+        self.assertEqual(exit_code, 128 + signal.SIGTERM)
+        self.assertEqual(failure["type"], runner.FAILURE_REPORT_TYPE)
+        self.assertFalse(failure["trainingReportProduced"])
+        self.assertEqual(failure["reportId"], "sigterm-run")
+        self.assertEqual(failure["failure"]["classification"], "interrupted")
+        self.assertEqual(failure["failure"]["exceptionType"], "TrainingRunnerInterrupted")
+        self.assertEqual(failure["failure"]["signalNumber"], signal.SIGTERM)
+        self.assertEqual(failure["failure"]["signalName"], "SIGTERM")
+        self.assertIn("failure-artifact:", stderr.getvalue())
 
     def test_main_treats_closed_stdout_as_success_after_report_generation(self) -> None:
         stderr = io.StringIO()
