@@ -84,6 +84,7 @@ const RANGED_WORK_MOVE_RANGE = 3;
 const EXACT_POSITION_MOVE_RANGE = 0;
 const BUILD_TARGET_STUCK_TICKS = 2;
 const BUILD_TARGET_SUPPRESSION_TICKS = 15;
+const DEFAULT_BUILD_POWER = 5;
 const MIN_HAULER_DROPPED_ENERGY = 25;
 const SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS = 2;
 const SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORED_SURPLUS = 300;
@@ -489,7 +490,7 @@ function selectWorkerAssignmentGapRecoveryTask(
     !canExecuteTask(creep, recoveryTask) ||
     isCriticalSpawnRefillTask(currentTask) ||
     isCriticalSpawnRefillTask(selectionContext.selectedTask) ||
-    !shouldAllowAssignmentGapRecoveryBuildWorker(creep, currentTask, selectionContext.selectedTask) ||
+    !shouldAllowAssignmentGapRecoveryBuildWorker(creep, currentTask, selectionContext.selectedTask, constructionSite) ||
     !hasSafeAssignmentGapRecoveryConstructionEnergy(creep, recoveryTask)
   ) {
     return null;
@@ -543,13 +544,121 @@ function selectWorkerAssignmentGapRecoveryConstructionSite(creep: Creep): Constr
 function shouldAllowAssignmentGapRecoveryBuildWorker(
   creep: Creep,
   currentTask: CreepTaskMemory | null | undefined,
-  selectedTask: CreepTaskMemory | null
+  selectedTask: CreepTaskMemory | null,
+  constructionSite: ConstructionSite
 ): boolean {
   if (!hasOtherSameRoomBuildAssignment(creep)) {
     return true;
   }
 
+  if (hasUncoveredAssignmentGapConstructionProgress(creep, constructionSite)) {
+    return true;
+  }
+
   return !currentTask && selectedTask === null && getFreeTransferEnergyCapacity(creep) <= 0;
+}
+
+function hasUncoveredAssignmentGapConstructionProgress(creep: Creep, constructionSite: ConstructionSite): boolean {
+  const pendingProgress = getRoomConstructionPendingProgress(creep.room);
+  if (pendingProgress === null) {
+    return false;
+  }
+
+  const reservedProgress = getOtherSameRoomBuildAssignmentProgress(creep);
+  if (reservedProgress <= 0) {
+    return true;
+  }
+
+  const carriedProgress = getUsedTransferEnergy(creep) * getBuildPower();
+  if (reservedProgress + carriedProgress < pendingProgress) {
+    return true;
+  }
+
+  const selectedSiteRemainingProgress = getConstructionSiteRemainingProgress(constructionSite);
+  const selectedSiteCanUseWorkerEnergy =
+    selectedSiteRemainingProgress === null ||
+    reservedProgress < selectedSiteRemainingProgress ||
+    carriedProgress <= selectedSiteRemainingProgress;
+  return selectedSiteCanUseWorkerEnergy && reservedProgress < pendingProgress;
+}
+
+function getOtherSameRoomBuildAssignmentProgress(creep: Creep): number {
+  return getRoomOwnedCreeps(creep.room).reduce((total, worker) => {
+    if (isSameCreep(worker, creep) || !isProductiveSameRoomWorker(worker, creep.room)) {
+      return total;
+    }
+
+    const task = worker.memory?.task;
+    if (task?.type !== 'build' || getActiveWorkParts(worker) <= 0) {
+      return total;
+    }
+
+    const carriedEnergy = getUsedTransferEnergy(worker);
+    if (carriedEnergy <= 0) {
+      return total;
+    }
+
+    const target = getTaskTarget(task);
+    if (!isConstructionSite(target) || target.my === false) {
+      return total;
+    }
+
+    const remainingProgress = getConstructionSiteRemainingProgress(target);
+    const carriedProgress = carriedEnergy * getBuildPower();
+    return total + (remainingProgress === null ? carriedProgress : Math.min(remainingProgress, carriedProgress));
+  }, 0);
+}
+
+function getRoomConstructionPendingProgress(room: Room): number | null {
+  if (typeof FIND_CONSTRUCTION_SITES !== 'number' || typeof room?.find !== 'function') {
+    return null;
+  }
+
+  const sites = room.find(FIND_CONSTRUCTION_SITES) as ConstructionSite[];
+  if (sites.length === 0) {
+    return 0;
+  }
+
+  return sites
+    .filter((site) => site.my !== false)
+    .reduce<number | null>((total, site) => {
+      if (total === null) {
+        return null;
+      }
+
+      const remainingProgress = getConstructionSiteRemainingProgress(site);
+      return remainingProgress === null ? null : total + remainingProgress;
+    }, 0);
+}
+
+function getConstructionSiteRemainingProgress(site: ConstructionSite): number | null {
+  const progress = (site as ConstructionSite & { progress?: unknown }).progress;
+  const progressTotal = (site as ConstructionSite & { progressTotal?: unknown }).progressTotal;
+  if (
+    typeof progress !== 'number' ||
+    typeof progressTotal !== 'number' ||
+    !Number.isFinite(progress) ||
+    !Number.isFinite(progressTotal)
+  ) {
+    return null;
+  }
+
+  return Math.max(0, Math.ceil(progressTotal - progress));
+}
+
+function isConstructionSite(target: unknown): target is ConstructionSite {
+  return (
+    typeof target === 'object' &&
+    target !== null &&
+    typeof (target as Partial<ConstructionSite>).structureType === 'string'
+  );
+}
+
+function getBuildPower(): number {
+  const buildPower = (globalThis as { BUILD_POWER?: unknown }).BUILD_POWER;
+  return typeof buildPower === 'number' && Number.isFinite(buildPower) && buildPower > 0
+    ? buildPower
+    : DEFAULT_BUILD_POWER;
 }
 
 function hasSafeAssignmentGapRecoveryConstructionEnergy(
@@ -1209,7 +1318,10 @@ function hasSafeStoredEnergyForBoundedConstruction(
   }
 
   if (hasOtherSameRoomBuildAssignment(creep)) {
-    return false;
+    const constructionSite = getTaskTarget(selectedTask);
+    if (!isConstructionSite(constructionSite) || !hasUncoveredAssignmentGapConstructionProgress(creep, constructionSite)) {
+      return false;
+    }
   }
 
   return storedEnergy >= SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORED_SURPLUS;
