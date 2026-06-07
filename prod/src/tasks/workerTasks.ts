@@ -2461,7 +2461,7 @@ function selectSpawnOrExtensionEnergySink(creep: Creep): StructureSpawn | Struct
   }
 
   const loadedWorkers = getSameRoomLoadedWorkersForRefillReservations(creep);
-  const reservedEnergyDeliveries = getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers);
+  const reservedEnergyDeliveries = getSpawnExtensionRefillReservationsBySinkId(creep, energySinks);
   const assignedTransferTargetId = getAssignedTransferTargetId(creep);
   const unreservedEnergySink = selectSpawnExtensionRecoveryEnergySink(
     energySinks.filter((energySink) => hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries)),
@@ -2473,6 +2473,130 @@ function selectSpawnOrExtensionEnergySink(creep: Creep): StructureSpawn | Struct
     unreservedEnergySink ??
     selectCloserReservedEnergySinkFallback(energySinks, creep, loadedWorkers, reservedEnergyDeliveries)
   );
+}
+
+function getSpawnExtensionRefillReservationsBySinkId(
+  creep: Creep,
+  energySinks: Array<StructureSpawn | StructureExtension>
+): Map<string, number> {
+  const reservedEnergyDeliveries = new Map<string, number>();
+  const shouldReserveAcquisitions = shouldReservePendingSpawnExtensionRefillAcquisitions(creep);
+
+  for (const worker of getRoomOwnedCreeps(creep.room)) {
+    if (isSameCreep(worker, creep)) {
+      continue;
+    }
+
+    const task = worker.memory?.task as Partial<CreepTaskMemory> | undefined;
+    if (task?.type === 'transfer' && typeof task.targetId === 'string') {
+      const energySinkId = String(task.targetId);
+      reservedEnergyDeliveries.set(
+        energySinkId,
+        (reservedEnergyDeliveries.get(energySinkId) ?? 0) + getUsedEnergy(worker)
+      );
+      continue;
+    }
+
+    if (shouldReserveAcquisitions && isPendingSpawnExtensionRefillAcquisitionWorker(worker, creep, task)) {
+      reserveSpawnExtensionRefillEnergy(
+        energySinks,
+        reservedEnergyDeliveries,
+        getPendingSpawnExtensionRefillAcquisitionEnergy(worker)
+      );
+    }
+  }
+
+  return reservedEnergyDeliveries;
+}
+
+function shouldReservePendingSpawnExtensionRefillAcquisitions(creep: Creep): boolean {
+  const energyAvailable = getRoomEnergyAvailable(creep.room);
+  if (energyAvailable !== null && energyAvailable < URGENT_SPAWN_REFILL_ENERGY_THRESHOLD) {
+    return false;
+  }
+
+  return !hasVisibleHostilePresence(creep.room) && findConstructionSites(creep.room).length === 0;
+}
+
+function isPendingSpawnExtensionRefillAcquisitionWorker(
+  worker: Creep,
+  currentCreep: Creep,
+  task: Partial<CreepTaskMemory> | undefined
+): boolean {
+  if (
+    isSameCreep(worker, currentCreep) ||
+    !isProductiveSameRoomWorker(worker, currentCreep.room) ||
+    !isPendingSpawnExtensionRefillReservableWorker(worker)
+  ) {
+    return false;
+  }
+
+  if (!isGenericWorkerEnergyAcquisitionTask(task)) {
+    return false;
+  }
+
+  return getPendingSpawnExtensionRefillAcquisitionEnergy(worker) > 0;
+}
+
+function isPendingSpawnExtensionRefillReservableWorker(worker: Creep): boolean {
+  const memory = worker.memory;
+  return (
+    memory?.interRoomEnergyHaul === undefined &&
+    memory?.controllerUpgrade === undefined &&
+    memory?.controllerSustain === undefined &&
+    memory?.territory === undefined
+  );
+}
+
+function isGenericWorkerEnergyAcquisitionTask(
+  task: Partial<CreepTaskMemory> | undefined
+): boolean {
+  if (!task || (task.type !== 'harvest' && task.type !== 'pickup' && task.type !== 'withdraw')) {
+    return false;
+  }
+
+  if (task.type === 'withdraw' && typeof task.constructionSiteId === 'string') {
+    return false;
+  }
+
+  return task.type !== 'harvest' || task.sourceContainerAssigned !== true;
+}
+
+function getPendingSpawnExtensionRefillAcquisitionEnergy(worker: Creep): number {
+  const carriedEnergy = getUsedEnergy(worker);
+  const freeCapacity = getFreeEnergyCapacity(worker);
+  return Math.max(0, carriedEnergy + freeCapacity);
+}
+
+function reserveSpawnExtensionRefillEnergy(
+  energySinks: Array<StructureSpawn | StructureExtension>,
+  reservedEnergyDeliveries: Map<string, number>,
+  energy: number
+): void {
+  let remainingEnergy = Math.max(0, energy);
+  if (remainingEnergy <= 0) {
+    return;
+  }
+
+  for (const energySink of [...energySinks].sort(compareEnergySinkId)) {
+    const unreservedCapacity = Math.max(
+      0,
+      getFreeStoredEnergyCapacity(energySink) - getReservedEnergyDelivery(energySink, reservedEnergyDeliveries)
+    );
+    if (unreservedCapacity <= 0) {
+      continue;
+    }
+
+    const reservedEnergy = Math.min(remainingEnergy, unreservedCapacity);
+    reservedEnergyDeliveries.set(
+      String(energySink.id),
+      getReservedEnergyDelivery(energySink, reservedEnergyDeliveries) + reservedEnergy
+    );
+    remainingEnergy -= reservedEnergy;
+    if (remainingEnergy <= 0) {
+      return;
+    }
+  }
 }
 
 function selectStorageToSpawnExtensionRefillAcquisitionTask(
@@ -7918,7 +8042,7 @@ function isWorkerEnergyNeededForNearTermSpawnExtensionRefillReserve(
   reserveContext: NearTermSpawnExtensionRefillReserveContext
 ): boolean {
   const loadedWorkers = getNearTermRefillReserveLoadedWorkers(creep, reserveContext);
-  let reservedEnergy = 0;
+  let reservedEnergy = getPendingSpawnExtensionRefillAcquisitionReserveEnergy(creep);
 
   for (const worker of loadedWorkers) {
     if (isSameCreep(worker, creep)) {
@@ -7929,6 +8053,24 @@ function isWorkerEnergyNeededForNearTermSpawnExtensionRefillReserve(
   }
 
   return true;
+}
+
+function getPendingSpawnExtensionRefillAcquisitionReserveEnergy(creep: Creep): number {
+  if (!shouldReservePendingSpawnExtensionRefillAcquisitions(creep)) {
+    return 0;
+  }
+
+  return getRoomOwnedCreeps(creep.room).reduce((total, worker) => {
+    if (isSameCreep(worker, creep)) {
+      return total;
+    }
+
+    if (!isPendingSpawnExtensionRefillAcquisitionWorker(worker, creep, worker.memory?.task)) {
+      return total;
+    }
+
+    return total + getFreeEnergyCapacity(worker);
+  }, 0);
 }
 
 function getNearTermRefillReserveLoadedWorkers(
