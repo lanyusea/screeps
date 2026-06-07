@@ -6,6 +6,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import stat
 import tempfile
 from collections import Counter
@@ -47,6 +48,11 @@ FORBIDDEN_LINKED_ISSUE_SINKS = (
 FORBIDDEN_LINKED_ISSUE_SINK_NUMBERS = frozenset(
     sink[1:] if sink.startswith("#") else sink
     for sink in FORBIDDEN_LINKED_ISSUE_SINKS
+)
+BARE_ISSUE_NUMBER_RE = re.compile(r"^[1-9][0-9]*$")
+HASH_ISSUE_NUMBER_RE = re.compile(r"^#([1-9][0-9]*)$")
+GITHUB_ISSUE_URL_RE = re.compile(
+    r"^https://github\.com/[^/\s]+/[^/\s]+/issues/([1-9][0-9]*)/?$"
 )
 
 JsonObject = dict[str, Any]
@@ -482,6 +488,36 @@ def build_open_conclusion_linked_issue_gate(
     return gate
 
 
+def build_invalid_registry_linked_issue_gate(error: Exception | str) -> JsonObject:
+    error_text = str(error)
+    return {
+        "name": "open_p0_p1_p2_conclusion_linked_issues",
+        "status": "INVALID_REGISTRY",
+        "ok": False,
+        "requiredStatuses": list(LINKED_ISSUE_REQUIRED_STATUSES),
+        "requiredSeverities": list(LINKED_ISSUE_REQUIRED_SEVERITIES),
+        "requiredField": "linkedIssues",
+        "blockedConclusionCount": None,
+        "countsBySeverity": {
+            severity: None for severity in LINKED_ISSUE_REQUIRED_SEVERITIES
+        },
+        "highestPriorityConclusionIds": [],
+        "blockingConclusions": [],
+        "error": error_text,
+        "routingPolicy": {
+            "artifactFirst": True,
+            "requiredRouting": "exact_atomic_issue_per_open_conclusion",
+            "forbiddenBroadIssueSinks": list(FORBIDDEN_LINKED_ISSUE_SINKS),
+            "githubComments": "do_not_write_routine_comments",
+        },
+        "projectEvidence": {
+            "status": "BLOCKED_INVALID_CONCLUSION_REGISTRY",
+            "evidence": f"conclusionRegistryInvalid={error_text}",
+            "nextAction": "Repair conclusion-registry.json, then rerun this registry check.",
+        },
+    }
+
+
 def is_open_conclusion_missing_linked_issue(record: JsonObject) -> bool:
     return (
         conclusion_status(record) in LINKED_ISSUE_REQUIRED_STATUSES
@@ -492,6 +528,9 @@ def is_open_conclusion_missing_linked_issue(record: JsonObject) -> bool:
 
 def linked_issue_gate_record(record: JsonObject) -> JsonObject:
     linked_issues = normalize_linked_issues(record.get("linkedIssues"))
+    invalid_linked_issue_values = [
+        issue for issue in linked_issues if issue_number_from_linked_issue(issue) is None
+    ]
     forbidden_linked_issue_sinks = [
         issue for issue in linked_issues if is_forbidden_linked_issue_sink(issue)
     ]
@@ -504,6 +543,8 @@ def linked_issue_gate_record(record: JsonObject) -> JsonObject:
         "requiredField": "linkedIssues",
         "recommendedAction": "attach_exact_atomic_issue",
     }
+    if invalid_linked_issue_values:
+        gate_record["invalidLinkedIssueValues"] = invalid_linked_issue_values
     if forbidden_linked_issue_sinks:
         gate_record["forbiddenLinkedIssueSinks"] = forbidden_linked_issue_sinks
     for field in ("ownerCron", "lastSeenAt", "nextVerification", "requiredLandingEvidence"):
@@ -643,13 +684,27 @@ def normalize_linked_issues(value: Any) -> list[str]:
 def allowed_linked_issues(value: Any) -> list[str]:
     return [
         issue for issue in normalize_linked_issues(value)
+        if issue_number_from_linked_issue(issue) is not None
         if not is_forbidden_linked_issue_sink(issue)
     ]
 
 
 def is_forbidden_linked_issue_sink(issue: str) -> bool:
-    issue_number = issue[1:] if issue.startswith("#") else issue
+    issue_number = issue_number_from_linked_issue(issue)
     return issue_number in FORBIDDEN_LINKED_ISSUE_SINK_NUMBERS
+
+
+def issue_number_from_linked_issue(issue: str) -> str | None:
+    text = issue.strip()
+    if BARE_ISSUE_NUMBER_RE.fullmatch(text):
+        return text
+    hash_match = HASH_ISSUE_NUMBER_RE.fullmatch(text)
+    if hash_match is not None:
+        return hash_match.group(1)
+    url_match = GITHUB_ISSUE_URL_RE.fullmatch(text)
+    if url_match is not None:
+        return url_match.group(1)
+    return None
 
 
 def stable_text_value(value: Any) -> str:

@@ -2281,7 +2281,10 @@ def build_steward_digest(
     p0_unresolved = as_list(conclusions.get("p0Unresolved"))
     lanes = as_list(summary.get("lanes"))
     blocked_lanes = [item for item in lanes if isinstance(item, dict) and str(item.get("status", "")).upper() == "BLOCKED"]
-    linked_issue_blocked = str(linked_issue_gate.get("status", "")).upper() == "ACTION_REQUIRED"
+    linked_issue_blocked = str(linked_issue_gate.get("status", "")).upper() in {
+        "ACTION_REQUIRED",
+        "INVALID_REGISTRY",
+    }
     project_evidence = as_dict(linked_issue_gate.get("projectEvidence"))
     if linked_issue_blocked:
         status = "ACTION_REQUIRED"
@@ -2317,35 +2320,6 @@ def build_steward_digest(
     }
 
 
-def invalid_registry_linked_issue_gate(error: Exception) -> JsonObject:
-    return {
-        "name": "open_p0_p1_p2_conclusion_linked_issues",
-        "status": "INVALID_REGISTRY",
-        "ok": False,
-        "requiredStatuses": list(rl_conclusion_registry.LINKED_ISSUE_REQUIRED_STATUSES),
-        "requiredSeverities": list(rl_conclusion_registry.LINKED_ISSUE_REQUIRED_SEVERITIES),
-        "requiredField": "linkedIssues",
-        "blockedConclusionCount": None,
-        "countsBySeverity": {
-            severity: None for severity in rl_conclusion_registry.LINKED_ISSUE_REQUIRED_SEVERITIES
-        },
-        "highestPriorityConclusionIds": [],
-        "blockingConclusions": [],
-        "error": str(error),
-        "routingPolicy": {
-            "artifactFirst": True,
-            "requiredRouting": "exact_atomic_issue_per_open_conclusion",
-            "forbiddenBroadIssueSinks": list(rl_conclusion_registry.FORBIDDEN_LINKED_ISSUE_SINKS),
-            "githubComments": "do_not_write_routine_comments",
-        },
-        "projectEvidence": {
-            "status": "BLOCKED_INVALID_CONCLUSION_REGISTRY",
-            "evidence": f"conclusionRegistryInvalid={str(error)}",
-            "nextAction": "Repair conclusion-registry.json, then rerun this registry check.",
-        },
-    }
-
-
 def build_conclusion_linked_issues_check(
     *,
     repo_root: Path,
@@ -2362,7 +2336,7 @@ def build_conclusion_linked_issues_check(
         linked_issue_gate = rl_conclusion_registry.build_open_conclusion_linked_issue_gate(registry_payload)
     except rl_conclusion_registry.ConclusionRegistryError as error:
         registry_error = str(error)
-        linked_issue_gate = invalid_registry_linked_issue_gate(error)
+        linked_issue_gate = rl_conclusion_registry.build_invalid_registry_linked_issue_gate(error)
 
     ok = bool(linked_issue_gate.get("ok"))
     return {

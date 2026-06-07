@@ -148,10 +148,17 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertEqual(summary["counts"], {status: 0 for status in dashboard.CONCLUSION_STATUSES})
         self.assertEqual(summary["otherCounts"], {})
         self.assertEqual(summary["p0Unresolved"], [])
+        self.assertEqual(summary["linkedIssueGate"]["status"], "INVALID_REGISTRY")
+        self.assertFalse(summary["linkedIssueGate"]["ok"])
         self.assertEqual(
-            summary["linkedIssueGate"],
-            dashboard.rl_conclusion_registry.build_open_conclusion_linked_issue_gate({}),
+            summary["linkedIssueGate"]["projectEvidence"]["status"],
+            "BLOCKED_INVALID_CONCLUSION_REGISTRY",
         )
+        self.assertIn(
+            "Repair conclusion-registry.json",
+            summary["linkedIssueGate"]["projectEvidence"]["nextAction"],
+        )
+        self.assertIn("each conclusion record", summary["linkedIssueGate"]["error"])
         self.assertEqual(summary["latestArtifact"], artifact.path)
         self.assertEqual(summary["updatedAt"], "2026-05-23T00:02:00Z")
         self.assertTrue(summary["hasData"])

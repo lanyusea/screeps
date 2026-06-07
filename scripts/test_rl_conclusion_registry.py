@@ -511,17 +511,88 @@ class RlConclusionRegistryTest(unittest.TestCase):
         self.assertIn("#879", gate["routingPolicy"]["forbiddenBroadIssueSinks"])
         self.assertIn("#1589", gate["routingPolicy"]["forbiddenBroadIssueSinks"])
 
+    def test_linked_issue_gate_rejects_placeholder_linked_issue_values(self) -> None:
+        payload = {
+            "schemaVersion": 1,
+            "registryType": "rl-conclusion-registry",
+            "conclusions": {
+                "P1-TBD": {
+                    "conclusionId": "P1-TBD",
+                    "status": "OPEN",
+                    "severity": "P1",
+                    "linkedIssues": "TBD",
+                },
+                "P2-NEEDS-ISSUE": {
+                    "conclusionId": "P2-NEEDS-ISSUE",
+                    "status": "OPEN",
+                    "severity": "P2",
+                    "linkedIssues": ["needs issue"],
+                },
+                "P1-VALID-HASH": {
+                    "conclusionId": "P1-VALID-HASH",
+                    "status": "OPEN",
+                    "severity": "P1",
+                    "linkedIssues": "#1748",
+                },
+                "P2-VALID-URL": {
+                    "conclusionId": "P2-VALID-URL",
+                    "status": "OPEN",
+                    "severity": "P2",
+                    "linkedIssues": "https://github.com/lanyusea/screeps/issues/1750",
+                },
+            },
+        }
+
+        gate = registry.build_open_conclusion_linked_issue_gate(payload)
+
+        self.assertFalse(gate["ok"])
+        self.assertEqual(gate["status"], "ACTION_REQUIRED")
+        self.assertEqual(gate["blockedConclusionCount"], 2)
+        self.assertEqual(gate["highestPriorityConclusionIds"], ["P1-TBD", "P2-NEEDS-ISSUE"])
+        blocking_by_id = {
+            item["conclusionId"]: item
+            for item in gate["blockingConclusions"]
+        }
+        self.assertEqual(blocking_by_id["P1-TBD"]["linkedIssues"], ["TBD"])
+        self.assertEqual(blocking_by_id["P1-TBD"]["invalidLinkedIssueValues"], ["TBD"])
+        self.assertEqual(blocking_by_id["P2-NEEDS-ISSUE"]["linkedIssues"], ["needs issue"])
+        self.assertEqual(
+            blocking_by_id["P2-NEEDS-ISSUE"]["invalidLinkedIssueValues"],
+            ["needs issue"],
+        )
+        self.assertNotIn("P1-VALID-HASH", blocking_by_id)
+        self.assertNotIn("P2-VALID-URL", blocking_by_id)
+        self.assertEqual(registry.allowed_linked_issues("TBD"), [])
+        self.assertEqual(
+            registry.allowed_linked_issues(["needs issue", "#1748"]),
+            ["#1748"],
+        )
+
     def test_linked_issue_gate_rejects_forbidden_broad_issue_sinks(self) -> None:
         payload = {
             "schemaVersion": 1,
             "registryType": "rl-conclusion-registry",
             "conclusions": {
-                "P1-BROAD-879": {
-                    "conclusionId": "P1-BROAD-879",
+                "P1-BROAD-879-HASH": {
+                    "conclusionId": "P1-BROAD-879-HASH",
                     "status": "OPEN",
                     "severity": "P1",
                     "category": "runtime",
                     "linkedIssues": ["#879"],
+                },
+                "P1-BROAD-879-BARE": {
+                    "conclusionId": "P1-BROAD-879-BARE",
+                    "status": "OPEN",
+                    "severity": "P1",
+                    "category": "runtime",
+                    "linkedIssues": [879],
+                },
+                "P1-BROAD-879-URL": {
+                    "conclusionId": "P1-BROAD-879-URL",
+                    "status": "OPEN",
+                    "severity": "P1",
+                    "category": "runtime",
+                    "linkedIssues": ["https://github.com/lanyusea/screeps/issues/879"],
                 },
                 "P2-BROAD-893": {
                     "conclusionId": "P2-BROAD-893",
@@ -551,8 +622,8 @@ class RlConclusionRegistryTest(unittest.TestCase):
 
         self.assertFalse(gate["ok"])
         self.assertEqual(gate["status"], "ACTION_REQUIRED")
-        self.assertEqual(gate["blockedConclusionCount"], 4)
-        self.assertEqual(gate["countsBySeverity"], {"P0": 1, "P1": 2, "P2": 1})
+        self.assertEqual(gate["blockedConclusionCount"], 6)
+        self.assertEqual(gate["countsBySeverity"], {"P0": 1, "P1": 4, "P2": 1})
         self.assertEqual(
             gate["routingPolicy"]["forbiddenBroadIssueSinks"],
             ["#879", "#893", "#1589", "#1543"],
@@ -565,8 +636,18 @@ class RlConclusionRegistryTest(unittest.TestCase):
             item["conclusionId"]: item
             for item in gate["blockingConclusions"]
         }
-        self.assertEqual(blocking_by_id["P1-BROAD-879"]["linkedIssues"], ["#879"])
-        self.assertEqual(blocking_by_id["P1-BROAD-879"]["forbiddenLinkedIssueSinks"], ["#879"])
+        self.assertEqual(blocking_by_id["P1-BROAD-879-HASH"]["linkedIssues"], ["#879"])
+        self.assertEqual(blocking_by_id["P1-BROAD-879-HASH"]["forbiddenLinkedIssueSinks"], ["#879"])
+        self.assertEqual(blocking_by_id["P1-BROAD-879-BARE"]["linkedIssues"], ["879"])
+        self.assertEqual(blocking_by_id["P1-BROAD-879-BARE"]["forbiddenLinkedIssueSinks"], ["879"])
+        self.assertEqual(
+            blocking_by_id["P1-BROAD-879-URL"]["linkedIssues"],
+            ["https://github.com/lanyusea/screeps/issues/879"],
+        )
+        self.assertEqual(
+            blocking_by_id["P1-BROAD-879-URL"]["forbiddenLinkedIssueSinks"],
+            ["https://github.com/lanyusea/screeps/issues/879"],
+        )
         self.assertEqual(blocking_by_id["P2-BROAD-893"]["linkedIssues"], ["#893"])
         self.assertEqual(blocking_by_id["P2-BROAD-893"]["forbiddenLinkedIssueSinks"], ["#893"])
         self.assertEqual(blocking_by_id["P1-BROAD-1589"]["linkedIssues"], ["#1589"])
@@ -584,6 +665,12 @@ class RlConclusionRegistryTest(unittest.TestCase):
                     "status": "OPEN",
                     "severity": "P1",
                     "linkedIssues": ["#1748"],
+                },
+                {
+                    "conclusionId": "P1-LINKED-BARE-NUMBER",
+                    "status": "OPEN",
+                    "severity": "P1",
+                    "linkedIssues": [1749],
                 },
                 {
                     "conclusionId": "P2-MIXED-BROAD-AND-ATOMIC",

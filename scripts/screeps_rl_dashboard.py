@@ -1141,8 +1141,16 @@ def conclusion_summary(artifact: LoadedArtifact | None) -> JsonObject:
 
     try:
         conclusions_by_id = rl_conclusion_registry.normalize_conclusions(artifact.payload)
-    except rl_conclusion_registry.ConclusionRegistryError:
-        conclusions_by_id = {}
+    except rl_conclusion_registry.ConclusionRegistryError as error:
+        return {
+            "counts": {status: 0 for status in CONCLUSION_STATUSES},
+            "otherCounts": {},
+            "p0Unresolved": [],
+            "linkedIssueGate": rl_conclusion_registry.build_invalid_registry_linked_issue_gate(error),
+            "latestArtifact": artifact.path,
+            "updatedAt": display_timestamp(artifact.payload.get("updatedAt") or artifact.timestamp),
+            "hasData": True,
+        }
     conclusions = list(conclusions_by_id.values())
     counts = Counter(str(item.get("status", "UNKNOWN")).upper() for item in conclusions)
     p0_unresolved = [
