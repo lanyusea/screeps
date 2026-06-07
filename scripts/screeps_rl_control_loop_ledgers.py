@@ -2283,6 +2283,12 @@ def build_steward_digest(
     blocked_lanes = [item for item in lanes if isinstance(item, dict) and str(item.get("status", "")).upper() == "BLOCKED"]
     linked_issue_blocked = str(linked_issue_gate.get("status", "")).upper() == "ACTION_REQUIRED"
     project_evidence = as_dict(linked_issue_gate.get("projectEvidence"))
+    if linked_issue_blocked:
+        status = "ACTION_REQUIRED"
+    elif blocked_lanes:
+        status = "BLOCKED"
+    else:
+        status = "OK"
     return {
         "type": STEWARD_DIGEST_TYPE,
         "schemaVersion": SCHEMA_VERSION,
@@ -2291,7 +2297,7 @@ def build_steward_digest(
         "sourceIssue": None,
         "historicalContextIssues": HISTORICAL_CONTEXT_ISSUES,
         **git_metadata(repo_root),
-        "status": "ACTION_REQUIRED" if linked_issue_blocked else "OK",
+        "status": status,
         "latestArtifacts": json_safe(as_dict(summary.get("artifacts"))),
         "conclusionCounts": conclusions.get("counts", {status: 0 for status in rl_conclusion_registry.CONCLUSION_STATUSES}),
         "linkedIssueGate": json_safe(linked_issue_gate),

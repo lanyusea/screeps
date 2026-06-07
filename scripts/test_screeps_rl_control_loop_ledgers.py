@@ -1783,10 +1783,12 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
         lanes = {item["name"]: item for item in payload["lanes"]}
         blocked_lane_names = {item["name"] for item in payload["blockedLanes"]}
         self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["status"], "BLOCKED")
         self.assertEqual(lanes["training"]["status"], "OK")
         self.assertTrue(str(lanes["training"]["latestArtifact"]).endswith(f"{report_id}.json"))
         self.assertIn("strategy comparison", blocked_lane_names)
         self.assertIn("rollout", blocked_lane_names)
+        self.assertEqual(payload["nextAction"], lanes["strategy comparison"]["blocker"])
 
 
 if __name__ == "__main__":
