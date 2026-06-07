@@ -44,6 +44,10 @@ FORBIDDEN_LINKED_ISSUE_SINKS = (
     "#1589",
     STALE_CONCLUSION_AGGREGATE_ROUTING_ISSUE,
 )
+FORBIDDEN_LINKED_ISSUE_SINK_NUMBERS = frozenset(
+    sink[1:] if sink.startswith("#") else sink
+    for sink in FORBIDDEN_LINKED_ISSUE_SINKS
+)
 
 JsonObject = dict[str, Any]
 
@@ -482,20 +486,26 @@ def is_open_conclusion_missing_linked_issue(record: JsonObject) -> bool:
     return (
         conclusion_status(record) in LINKED_ISSUE_REQUIRED_STATUSES
         and conclusion_severity(record) in LINKED_ISSUE_REQUIRED_SEVERITIES
-        and not normalize_linked_issues(record.get("linkedIssues"))
+        and not allowed_linked_issues(record.get("linkedIssues"))
     )
 
 
 def linked_issue_gate_record(record: JsonObject) -> JsonObject:
+    linked_issues = normalize_linked_issues(record.get("linkedIssues"))
+    forbidden_linked_issue_sinks = [
+        issue for issue in linked_issues if is_forbidden_linked_issue_sink(issue)
+    ]
     gate_record: JsonObject = {
         "conclusionId": str(record.get("conclusionId") or ""),
         "status": conclusion_status(record),
         "severity": conclusion_severity(record),
         "category": conclusion_category(record),
-        "linkedIssues": normalize_linked_issues(record.get("linkedIssues")),
+        "linkedIssues": linked_issues,
         "requiredField": "linkedIssues",
         "recommendedAction": "attach_exact_atomic_issue",
     }
+    if forbidden_linked_issue_sinks:
+        gate_record["forbiddenLinkedIssueSinks"] = forbidden_linked_issue_sinks
     for field in ("ownerCron", "lastSeenAt", "nextVerification", "requiredLandingEvidence"):
         value = record.get(field)
         if has_evidence_value(value):
@@ -628,6 +638,18 @@ def normalize_linked_issues(value: Any) -> list[str]:
         values = [value]
     normalized = [stable_text_value(item) for item in values if has_evidence_value(item)]
     return sorted(dict.fromkeys(item for item in normalized if item))
+
+
+def allowed_linked_issues(value: Any) -> list[str]:
+    return [
+        issue for issue in normalize_linked_issues(value)
+        if not is_forbidden_linked_issue_sink(issue)
+    ]
+
+
+def is_forbidden_linked_issue_sink(issue: str) -> bool:
+    issue_number = issue[1:] if issue.startswith("#") else issue
+    return issue_number in FORBIDDEN_LINKED_ISSUE_SINK_NUMBERS
 
 
 def stable_text_value(value: Any) -> str:

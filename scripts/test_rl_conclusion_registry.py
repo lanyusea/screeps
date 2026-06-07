@@ -511,6 +511,69 @@ class RlConclusionRegistryTest(unittest.TestCase):
         self.assertIn("#879", gate["routingPolicy"]["forbiddenBroadIssueSinks"])
         self.assertIn("#1589", gate["routingPolicy"]["forbiddenBroadIssueSinks"])
 
+    def test_linked_issue_gate_rejects_forbidden_broad_issue_sinks(self) -> None:
+        payload = {
+            "schemaVersion": 1,
+            "registryType": "rl-conclusion-registry",
+            "conclusions": {
+                "P1-BROAD-879": {
+                    "conclusionId": "P1-BROAD-879",
+                    "status": "OPEN",
+                    "severity": "P1",
+                    "category": "runtime",
+                    "linkedIssues": ["#879"],
+                },
+                "P2-BROAD-893": {
+                    "conclusionId": "P2-BROAD-893",
+                    "status": "OPEN",
+                    "severity": "P2",
+                    "category": "economy",
+                    "linkedIssues": ["#893"],
+                },
+                "P1-BROAD-1589": {
+                    "conclusionId": "P1-BROAD-1589",
+                    "status": "OPEN",
+                    "severity": "P1",
+                    "category": "ops",
+                    "linkedIssues": ["#1589"],
+                },
+                "P0-BROAD-1543": {
+                    "conclusionId": "P0-BROAD-1543",
+                    "status": "OPEN",
+                    "severity": "P0",
+                    "category": "rl",
+                    "linkedIssues": ["#1543"],
+                },
+            },
+        }
+
+        gate = registry.build_open_conclusion_linked_issue_gate(payload)
+
+        self.assertFalse(gate["ok"])
+        self.assertEqual(gate["status"], "ACTION_REQUIRED")
+        self.assertEqual(gate["blockedConclusionCount"], 4)
+        self.assertEqual(gate["countsBySeverity"], {"P0": 1, "P1": 2, "P2": 1})
+        self.assertEqual(
+            gate["routingPolicy"]["forbiddenBroadIssueSinks"],
+            ["#879", "#893", "#1589", "#1543"],
+        )
+        self.assertEqual(
+            gate["routingPolicy"]["requiredRouting"],
+            "exact_atomic_issue_per_open_conclusion",
+        )
+        blocking_by_id = {
+            item["conclusionId"]: item
+            for item in gate["blockingConclusions"]
+        }
+        self.assertEqual(blocking_by_id["P1-BROAD-879"]["linkedIssues"], ["#879"])
+        self.assertEqual(blocking_by_id["P1-BROAD-879"]["forbiddenLinkedIssueSinks"], ["#879"])
+        self.assertEqual(blocking_by_id["P2-BROAD-893"]["linkedIssues"], ["#893"])
+        self.assertEqual(blocking_by_id["P2-BROAD-893"]["forbiddenLinkedIssueSinks"], ["#893"])
+        self.assertEqual(blocking_by_id["P1-BROAD-1589"]["linkedIssues"], ["#1589"])
+        self.assertEqual(blocking_by_id["P1-BROAD-1589"]["forbiddenLinkedIssueSinks"], ["#1589"])
+        self.assertEqual(blocking_by_id["P0-BROAD-1543"]["linkedIssues"], ["#1543"])
+        self.assertEqual(blocking_by_id["P0-BROAD-1543"]["forbiddenLinkedIssueSinks"], ["#1543"])
+
     def test_linked_issue_gate_accepts_linked_and_non_open_or_lower_severity_shapes(self) -> None:
         payload = {
             "schemaVersion": 1,
@@ -521,6 +584,12 @@ class RlConclusionRegistryTest(unittest.TestCase):
                     "status": "OPEN",
                     "severity": "P1",
                     "linkedIssues": ["#1748"],
+                },
+                {
+                    "conclusionId": "P2-MIXED-BROAD-AND-ATOMIC",
+                    "status": "OPEN",
+                    "severity": "P2",
+                    "linkedIssues": ["#879", "#1750"],
                 },
                 {
                     "conclusionId": "P0-ACTIONED-UNLINKED",
