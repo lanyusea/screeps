@@ -15605,6 +15605,162 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-near' });
   });
 
+  it('routes loaded secondary-room workers to upgrade when existing refill work covers a post-construction deficit', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const extension = makeEnergySink('extension1', 'extension' as StructureConstant, 107);
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      controller,
+      energyAvailable: 1_693,
+      energyCapacityAvailable: 1_800,
+      myStructures: [extension as AnyOwnedStructure]
+    });
+    const transferWorker = {
+      name: 'RefillWorker',
+      memory: { role: 'worker', colony: 'E29N57', task: { type: 'transfer', targetId: 'extension1' as Id<AnyStoreStructure> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(60),
+        getFreeCapacity: jest.fn().mockReturnValue(40)
+      },
+      room
+    } as unknown as Creep;
+    const pendingRefillWorker = {
+      name: 'PendingRefillWorker',
+      memory: { role: 'worker', colony: 'E29N57', task: { type: 'withdraw', targetId: 'storage1' as Id<AnyStoreStructure> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'PostConstructionWorker',
+      memory: { role: 'worker', colony: 'E29N57', task: { type: 'withdraw', targetId: 'storage1' as Id<AnyStoreStructure> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    (room.find as jest.Mock).mockImplementation(
+      (type: number, options?: { filter?: (object: AnyOwnedStructure | Creep) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [extension as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        const findMyCreeps = (globalThis as unknown as { FIND_MY_CREEPS?: number }).FIND_MY_CREEPS;
+        if (typeof findMyCreeps === 'number' && type === findMyCreeps) {
+          const creeps = [transferWorker, pendingRefillWorker, creep];
+          return options?.filter ? creeps.filter(options.filter) : creeps;
+        }
+
+        return [];
+      }
+    );
+    setGameCreeps({
+      RefillWorker: transferWorker,
+      PendingRefillWorker: pendingRefillWorker,
+      PostConstructionWorker: creep
+    });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it.each(
+    [
+      [
+        'inter-room energy haul collector',
+        {
+          interRoomEnergyHaul: {
+            sourceRoom: 'E29N57',
+            targetRoom: 'E29N58',
+            sourceId: 'storage1' as Id<AnyStoreStructure>,
+            targetId: 'remote-storage' as Id<AnyStoreStructure>
+          }
+        }
+      ],
+      [
+        'managed controller upgrader',
+        {
+          controllerUpgrade: {
+            roomName: 'E29N57',
+            controllerId: 'controller1' as Id<StructureController>,
+            priority: 'steady'
+          }
+        }
+      ],
+      [
+        'controller sustain upgrader',
+        {
+          controllerSustain: { homeRoom: 'E29N57', targetRoom: 'E29N57', role: 'upgrader' }
+        }
+      ]
+    ] as Array<[string, Partial<CreepMemory>]>
+  )('does not count a %s as pending refill coverage for a post-construction deficit', (_label, specialistMemory) => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const extension = makeEnergySink('extension1', 'extension' as StructureConstant, 107);
+    const myCreeps: Creep[] = [];
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      controller,
+      energyAvailable: 1_693,
+      energyCapacityAvailable: 1_800,
+      myCreeps,
+      myStructures: [extension as AnyOwnedStructure]
+    });
+    const transferWorker = {
+      name: 'RefillWorker',
+      memory: { role: 'worker', colony: 'E29N57', task: { type: 'transfer', targetId: 'extension1' as Id<AnyStoreStructure> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(60),
+        getFreeCapacity: jest.fn().mockReturnValue(40)
+      },
+      room
+    } as unknown as Creep;
+    const specialistWorker = {
+      name: 'SpecialistWorker',
+      memory: {
+        role: 'worker',
+        colony: 'E29N57',
+        task: { type: 'withdraw', targetId: 'storage1' as Id<AnyStoreStructure> },
+        ...specialistMemory
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'PostConstructionWorker',
+      memory: { role: 'worker', colony: 'E29N57', task: { type: 'withdraw', targetId: 'storage1' as Id<AnyStoreStructure> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    myCreeps.push(transferWorker, specialistWorker, creep);
+    setGameCreeps({
+      RefillWorker: transferWorker,
+      SpecialistWorker: specialistWorker,
+      PostConstructionWorker: creep
+    });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension1' });
+  });
+
   it('keeps stable-room construction before a third controller upgrader when spawn energy is full', () => {
     const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {

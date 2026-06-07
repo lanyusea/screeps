@@ -28660,7 +28660,7 @@ function selectSpawnOrExtensionEnergySink(creep) {
     return null;
   }
   const loadedWorkers = getSameRoomLoadedWorkersForRefillReservations(creep);
-  const reservedEnergyDeliveries = getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers);
+  const reservedEnergyDeliveries = getSpawnExtensionRefillReservationsBySinkId(creep, energySinks);
   const assignedTransferTargetId = getAssignedTransferTargetId(creep);
   const unreservedEnergySink = selectSpawnExtensionRecoveryEnergySink(
     energySinks.filter((energySink) => hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries)),
@@ -28669,6 +28669,91 @@ function selectSpawnOrExtensionEnergySink(creep) {
     assignedTransferTargetId
   );
   return unreservedEnergySink != null ? unreservedEnergySink : selectCloserReservedEnergySinkFallback(energySinks, creep, loadedWorkers, reservedEnergyDeliveries);
+}
+function getSpawnExtensionRefillReservationsBySinkId(creep, energySinks) {
+  var _a2, _b;
+  const reservedEnergyDeliveries = /* @__PURE__ */ new Map();
+  const shouldReserveAcquisitions = shouldReservePendingSpawnExtensionRefillAcquisitions(creep);
+  for (const worker of getRoomOwnedCreeps2(creep.room)) {
+    if (isSameCreep3(worker, creep)) {
+      continue;
+    }
+    const task = (_a2 = worker.memory) == null ? void 0 : _a2.task;
+    if ((task == null ? void 0 : task.type) === "transfer" && typeof task.targetId === "string") {
+      const energySinkId = String(task.targetId);
+      reservedEnergyDeliveries.set(
+        energySinkId,
+        ((_b = reservedEnergyDeliveries.get(energySinkId)) != null ? _b : 0) + getUsedEnergy2(worker)
+      );
+      continue;
+    }
+    if (shouldReserveAcquisitions && isPendingSpawnExtensionRefillAcquisitionWorker(worker, creep, task)) {
+      reserveSpawnExtensionRefillEnergy(
+        energySinks,
+        reservedEnergyDeliveries,
+        getPendingSpawnExtensionRefillAcquisitionEnergy(worker)
+      );
+    }
+  }
+  return reservedEnergyDeliveries;
+}
+function shouldReservePendingSpawnExtensionRefillAcquisitions(creep) {
+  const energyAvailable = getRoomEnergyAvailable11(creep.room);
+  if (energyAvailable !== null && energyAvailable < URGENT_SPAWN_REFILL_ENERGY_THRESHOLD) {
+    return false;
+  }
+  return !hasVisibleHostilePresence3(creep.room) && findConstructionSites(creep.room).length === 0;
+}
+function isPendingSpawnExtensionRefillAcquisitionWorker(worker, currentCreep, task) {
+  if (isSameCreep3(worker, currentCreep) || !isProductiveSameRoomWorker(worker, currentCreep.room) || !isPendingSpawnExtensionRefillReservableWorker(worker)) {
+    return false;
+  }
+  if (!isGenericWorkerEnergyAcquisitionTask(task)) {
+    return false;
+  }
+  return getPendingSpawnExtensionRefillAcquisitionEnergy(worker) > 0;
+}
+function isPendingSpawnExtensionRefillReservableWorker(worker) {
+  const memory = worker.memory;
+  return (memory == null ? void 0 : memory.interRoomEnergyHaul) === void 0 && (memory == null ? void 0 : memory.controllerUpgrade) === void 0 && (memory == null ? void 0 : memory.controllerSustain) === void 0 && (memory == null ? void 0 : memory.territory) === void 0;
+}
+function isGenericWorkerEnergyAcquisitionTask(task) {
+  if (!task || task.type !== "harvest" && task.type !== "pickup" && task.type !== "withdraw") {
+    return false;
+  }
+  if (task.type === "withdraw" && typeof task.constructionSiteId === "string") {
+    return false;
+  }
+  return task.type !== "harvest" || task.sourceContainerAssigned !== true;
+}
+function getPendingSpawnExtensionRefillAcquisitionEnergy(worker) {
+  const carriedEnergy = getUsedEnergy2(worker);
+  const freeCapacity = getFreeEnergyCapacity9(worker);
+  return Math.max(0, carriedEnergy + freeCapacity);
+}
+function reserveSpawnExtensionRefillEnergy(energySinks, reservedEnergyDeliveries, energy) {
+  let remainingEnergy = Math.max(0, energy);
+  if (remainingEnergy <= 0) {
+    return;
+  }
+  for (const energySink of [...energySinks].sort(compareEnergySinkId)) {
+    const unreservedCapacity = Math.max(
+      0,
+      getFreeStoredEnergyCapacity(energySink) - getReservedEnergyDelivery(energySink, reservedEnergyDeliveries)
+    );
+    if (unreservedCapacity <= 0) {
+      continue;
+    }
+    const reservedEnergy = Math.min(remainingEnergy, unreservedCapacity);
+    reservedEnergyDeliveries.set(
+      String(energySink.id),
+      getReservedEnergyDelivery(energySink, reservedEnergyDeliveries) + reservedEnergy
+    );
+    remainingEnergy -= reservedEnergy;
+    if (remainingEnergy <= 0) {
+      return;
+    }
+  }
 }
 function selectStorageToSpawnExtensionRefillAcquisitionTask(creep) {
   if (!isSpawnExtensionThroughputBottlenecked(creep.room) || getFreeEnergyCapacity9(creep) <= 0) {
@@ -32020,7 +32105,7 @@ function getRoomName6(room) {
 }
 function isWorkerEnergyNeededForNearTermSpawnExtensionRefillReserve(creep, reserveContext) {
   const loadedWorkers = getNearTermRefillReserveLoadedWorkers(creep, reserveContext);
-  let reservedEnergy = 0;
+  let reservedEnergy = getPendingSpawnExtensionRefillAcquisitionReserveEnergy(creep);
   for (const worker of loadedWorkers) {
     if (isSameCreep3(worker, creep)) {
       return reservedEnergy < reserveContext.refillReserve;
@@ -32028,6 +32113,21 @@ function isWorkerEnergyNeededForNearTermSpawnExtensionRefillReserve(creep, reser
     reservedEnergy += getUsedEnergy2(worker);
   }
   return true;
+}
+function getPendingSpawnExtensionRefillAcquisitionReserveEnergy(creep) {
+  if (!shouldReservePendingSpawnExtensionRefillAcquisitions(creep)) {
+    return 0;
+  }
+  return getRoomOwnedCreeps2(creep.room).reduce((total, worker) => {
+    var _a2;
+    if (isSameCreep3(worker, creep)) {
+      return total;
+    }
+    if (!isPendingSpawnExtensionRefillAcquisitionWorker(worker, creep, (_a2 = worker.memory) == null ? void 0 : _a2.task)) {
+      return total;
+    }
+    return total + getFreeEnergyCapacity9(worker);
+  }, 0);
 }
 function getNearTermRefillReserveLoadedWorkers(creep, reserveContext) {
   if (reserveContext.sortedLoadedWorkers.some((worker) => isSameCreep3(worker, creep))) {
