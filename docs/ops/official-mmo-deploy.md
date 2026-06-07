@@ -150,6 +150,51 @@ Normal gameplay releases follow the 8h Gameplay Evolution Review cycle (cron `c7
 4. **Post-deploy acceptance**: The next Gameplay Evolution Review (or explicit post-deploy observation within 30 min) must verify expected KPI movement or record regression against the prior review's `Expected KPI movement` column.
 5. **Hold conditions**: Deploy is HELD when private-smoke is unavailable, the room is in a survival emergency, a deploy is already in-flight, or the review recommends Hold/Observe.
 
+## Construction-Fix Post-Deploy Verification
+
+Named checklist: `postConstructionFixVerification`.
+
+Run this checklist before marking any construction-deadlock fix accepted when the deployed issue or PR claims to resolve `worker_assignment_gap`, `stalled-construction`, `build=0`, `buildCarriedEnergy=0`, frozen `pendingBuildProgress`, construction-priority dispatch failure, or any equivalent construction execution blocker. This checklist is in addition to the normal post-deploy health gate; it does not authorize deploys, issue closure, or Project updates without controller verification.
+
+Required evidence:
+
+- Deploy evidence JSON or workflow artifact for the deployed commit.
+- Runtime monitor summary and alert artifacts for every affected owned room, including the primary target when the fix can affect shared worker/economy behavior.
+- Runtime-summary console capture paths under `runtime-artifacts/runtime-summary-console/`, or another explicit saved artifact path containing exact-prefix `#runtime-summary ` lines.
+- The relevant issue/PR identifiers and the controller's post-verification Project `Evidence` and `Next action` update text.
+
+Active-site pass condition:
+
+- If any affected room has active construction sites after deploy, collect at least 3 fresh post-deploy runtime-summary or console snapshots from that room. Fresh means captured after the deployed SHA/upload evidence, not reused from the pre-deploy review.
+- The 3-snapshot window must show actual build execution: either `buildCarriedEnergy > 0` appears in the affected room snapshots, or `buildProgress` increases while `pendingBuildProgress` decreases across the window.
+- Do not accept a construction fix from `taskCounts.build > 0`, construction scoring, or a release recommendation alone. The acceptance evidence must show carried build energy or completed build progress movement.
+
+No-site success condition:
+
+- If construction sites are already gone before the post-deploy window can observe active building, acceptance may use the no-site state instead of build-execution evidence.
+- Cite fresh evidence for the affected room with `constructionSiteCount=0`, `pendingBuildProgress=0`, and `buildBlockedReason=no_construction_sites`.
+- When the no-site evidence comes from a secondary artifact such as a policy-advantage report or steward summary rather than the latest runtime-summary console capture, keep the issue/PR open until the controller records the exact artifact path and confirms the affected room identity.
+
+Survival guardrails:
+
+- Owned spawns and owned creeps remain present in the affected room set: `owned_spawns >= 1` and `owned_creeps >= 1` where those monitor fields are available, or equivalent runtime-summary ownership fields for that room.
+- No `ROOM_DEAD`, `room_dead`, `postdeploy_room_dead`, or `postdeploy_no_owned_spawn` signal appears in runtime alerts, summaries, or the Gameplay Evolution Review.
+- No hostile or owned-structure damage regression appears in the alert artifact, monitor image evidence, or review window.
+- CPU bucket is not worsened below the current recovery band recorded by the prior review or issue. The controller must name the pre-deploy bucket band or floor, then reject acceptance if the post-deploy snapshots fall below that floor, add new critical CPU pressure, or make construction progress evidence untrustworthy.
+
+Controller completion contract:
+
+- After controller verification, update the relevant issue/PR Project `Evidence` with the deploy evidence path, runtime monitor artifact paths, runtime-summary console artifact paths, affected room names, snapshot ticks/timestamps, and pass/fail result for active-site or no-site acceptance.
+- Set Project `Next action` to the next bounded action: close/merge if accepted and all other gates pass, continue observation if evidence is incomplete, or open/dispatch a follow-up if build execution remains stalled.
+- Do not close a construction-deadlock issue only because a deploy succeeded or a runtime alert is silent. The construction-specific evidence above is required.
+
+Historical example from the 2026-06-07 Gameplay Evolution Review artifact:
+
+- Artifact: `/root/.hermes/cron/output/c7b3dda8f1ac/2026-06-07_16-42-18.md`.
+- E29N55 no-site acceptance evidence in that artifact cites runtime console capture `20260607T081617Z.log`, tick `1892633`, with `constructionSiteCount=0`, `pendingBuildProgress=0`, `buildCarriedEnergy=0`, and `buildBlockedReason=no_construction_sites`. Under this checklist, that is a no-site success case, not evidence that workers were actively building at that tick.
+- The same review says the latest policy-advantage/steward evidence showed all rooms at `0` construction sites and flagged #1758/E29N57 as likely satisfied, while also noting an E29N57 latest-console capture gap. Under this checklist, the controller should cite the exact E29N57 artifact path before updating or closing #1758.
+- The earlier #1747 acceptance would not have passed the active-site condition because `buildCarriedEnergy=0` persisted while construction backlog remained. The durable guard is the 3 fresh build-execution snapshots, or the explicit no-site success evidence when the backlog is already gone.
+
 ## Post-Deploy Monitoring
 
 After a successful live deploy, capture runtime evidence for `shardX/E29N55`:
