@@ -554,6 +554,52 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
         self.assertNotIn("TRAINING_LEDGER_MISSING", anomaly_codes)
         self.assertNotIn("activeRunner PID 1012127", payload["nextTrainingCapabilityAction"])
 
+    def test_training_ledger_ignores_newer_read_only_preflight_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root, report_id = write_root_local2w_training_report_artifacts(root)
+            preflight = artifact_root / "rl-control-loop" / "20260605T010100Z-training-ledger-read-only-preflight.json"
+            write_json(
+                preflight,
+                {
+                    "kind": "rl_training_ledger_read_only_preflight",
+                    "parsed": {"type": "screeps-rl-batch-preflight-context"},
+                    "raw": {"ok": True, "returncode": 0},
+                    "script": "preflight.py",
+                },
+            )
+            output = root / "out" / "training-ledger.json"
+
+            exit_code = ledgers.main(
+                [
+                    "training-ledger",
+                    "--repo-root",
+                    str(root),
+                    "--artifact-root",
+                    str(artifact_root),
+                    "--output",
+                    str(output),
+                    "--created-at",
+                    "2026-06-05T02:00:00Z",
+                    "--max-files-per-root",
+                    "4",
+                ],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+            payload = read_json(output)
+
+        anomaly_codes = {item["code"] for item in payload["anomalies"]}
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["status"], "RUN_VALIDATED")
+        self.assertTrue(payload["trainingDidRun"])
+        self.assertEqual(payload["environmentExecution"]["completed"], 80)
+        self.assertEqual(payload["trainingArtifacts"]["trainingReportIds"], [report_id])
+        self.assertTrue(payload["trainingArtifacts"]["latestTrainingLedger"].endswith(f"{report_id}.json"))
+        self.assertNotIn("training-ledger-read-only-preflight", payload["trainingArtifacts"]["latestTrainingLedger"])
+        self.assertNotIn("TRAINING_COMPUTE_EVIDENCE_MISSING", anomaly_codes)
+        self.assertNotIn("TRAINING_LEDGER_MISSING", anomaly_codes)
+
     def test_training_ledger_propagates_existing_reward_decision_and_clears_null_anomaly(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1202,7 +1248,7 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
             reward_decision_id, reward_decision_path = write_legacy_scorecard_reward_decision(
                 root,
                 artifact_root,
-                scorecard_id="legacy-selected-scorecard",
+                scorecard_id=local2w_scorecard_id(),
                 candidate_policy_id=candidate_policy_id,
             )
             write_json(
