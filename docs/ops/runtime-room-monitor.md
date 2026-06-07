@@ -294,6 +294,18 @@ SCREEPS_MONITOR_STATE_FILE=/tmp/screeps-monitor-alert-smoke-state.json \
   python3 scripts/screeps-runtime-monitor.py alert --room shardX/E29N55 --out-dir /root/screeps/runtime-artifacts/screeps-monitor-smoke
 ```
 
+### Construction-fix acceptance capture
+
+Use this capture pattern when `docs/ops/official-mmo-deploy.md` requires `postConstructionFixVerification` for a deployed construction-deadlock fix.
+
+1. Capture runtime-summary console evidence after the deployed SHA/upload evidence exists. Save the command output and the generated console artifact path; do not rely on pre-deploy review snapshots.
+2. Capture monitor `summary` and `alert` artifacts for each affected owned room. A silent alert is useful survival evidence, but it does not prove construction execution by itself.
+3. For active construction sites, collect at least 3 fresh runtime-summary or console snapshots from the affected room and record the ticks/timestamps. The snapshots must show `buildCarriedEnergy > 0`, or show `buildProgress` increasing while `pendingBuildProgress` decreases.
+4. For the no-site success case, record `constructionSiteCount=0`, `pendingBuildProgress=0`, and `buildBlockedReason=no_construction_sites` from a fresh artifact. If the affected room is only covered by a secondary steward/policy report, cite that path explicitly and have the controller verify room identity before closing or updating the issue.
+5. Pair construction evidence with survival guardrails: owned spawn/creep presence, no `ROOM_DEAD` or `postdeploy_no_owned_spawn`, no hostile/damage regression, and CPU bucket not below the current recovery band named by the issue or review.
+
+The controller should copy only artifact paths, ticks/timestamps, room names, and the pass/fail result into the relevant Project `Evidence` and `Next action` fields. Do not paste raw console captures into owner-facing reports when a saved artifact path is sufficient.
+
 ## Scheduled delivery design
 
 Use Hermes cron jobs rather than putting Discord tokens in the repo.
