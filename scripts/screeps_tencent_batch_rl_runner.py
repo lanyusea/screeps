@@ -96,6 +96,10 @@ E1S1_REPEAT_GUARD_NEXT_ACTION = (
 )
 PAID_FAILURE_RECURRENCE_GUARD_TYPE = "screeps-tencent-batch-rl-paid-failure-recurrence-guard"
 PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS = "skipped_paid_failure_recurrence_launch_guard"
+PAID_FAILURE_RECURRENCE_VALIDATION_PLAN_REQUIRED_FINAL_STATUS = "post_fix_validation_plan_required_no_compute"
+PAID_FAILURE_RECURRENCE_VALIDATION_PLAN_HANDOFF_TYPE = (
+    "screeps-tencent-batch-rl-post-fix-validation-plan-handoff"
+)
 PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD = 10
 PAID_FAILURE_RECURRENCE_GUARD_RECENT_SUMMARY_LIMIT = 100
 PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE = "simulator_place_spawn_room_busy"
@@ -1167,6 +1171,30 @@ class Controller:
     def launch_guard_path(self) -> Path:
         return self.artifact_dir / "launch_guard.json"
 
+    def validation_plan_handoff_path(self, signature: str) -> Path:
+        safe_signature = re.sub(r"[^A-Za-z0-9_.-]+", "_", signature).strip("._-") or "unknown"
+        return resolved_artifact_root(self.args) / "validation-plans" / f"{safe_signature}.json"
+
+    def write_validation_plan_handoff(self, guard: dict[str, Any]) -> dict[str, Any]:
+        handoff = build_paid_failure_validation_plan_handoff(guard, run_id=self.run_id)
+        signature = text_value(handoff.get("signature")) or "unknown"
+        path = self.validation_plan_handoff_path(signature)
+        handoff["path"] = str(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(canonical_json(handoff), encoding="utf-8")
+        summary = {
+            "path": str(path),
+            "status": handoff["status"],
+            "signature": handoff["signature"],
+            "requiresExplicitValidationSignature": handoff["requiresExplicitValidationSignature"],
+            "noCompute": True,
+            "paidRunAttempted": False,
+            "reason": handoff.get("reason"),
+            "nextAction": handoff.get("nextAction"),
+        }
+        self.result["validationPlanHandoff"] = summary
+        return summary
+
     def run(self) -> None:
         self.artifact_dir.mkdir(parents=True, exist_ok=True)
         validate_static_inputs(self.args, self.run_id)
@@ -1225,6 +1253,10 @@ class Controller:
         }
         if isinstance(guard.get("postFixValidation"), dict):
             self.result["launchGuard"]["postFixValidation"] = guard["postFixValidation"]
+        validation_plan_handoff = None
+        if paid_failure_guard_requires_explicit_validation_plan(guard):
+            validation_plan_handoff = self.write_validation_plan_handoff(guard)
+            self.result["launchGuard"]["validationPlanHandoff"] = validation_plan_handoff
         self.record_step(
             "e1s1_repeat_launch_guard",
             started,
@@ -1236,14 +1268,16 @@ class Controller:
             activeSignature=evidence.get("activeSignature"),
             evidenceCount=evidence["count"],
             evidenceThreshold=evidence["threshold"],
+            validationPlanRequired=validation_plan_handoff is not None,
         )
         if not guard["blocked"]:
             return False
-        self.final_status = (
-            PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS
-            if guard.get("activeGuard") == "paid_failure_recurrence_guard"
-            else E1S1_REPEAT_GUARD_FINAL_STATUS
-        )
+        if validation_plan_handoff is not None:
+            self.final_status = PAID_FAILURE_RECURRENCE_VALIDATION_PLAN_REQUIRED_FINAL_STATUS
+        elif guard.get("activeGuard") == "paid_failure_recurrence_guard":
+            self.final_status = PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS
+        else:
+            self.final_status = E1S1_REPEAT_GUARD_FINAL_STATUS
         self.finished_at = utc_now_iso()
         self.write_summary()
         return True
@@ -2307,11 +2341,16 @@ def controller_execution_summary(
         if partial_environments is not None:
             environments_run = partial_environments
     preflight_only = bool(getattr(args, "preflight_only", False))
+    validation_plan_required = isinstance(result.get("validationPlanHandoff"), dict)
+    mode = "preflight" if preflight_only else "validation_plan_required" if validation_plan_required else "compute"
     return {
         "command": getattr(args, "command", None),
-        "mode": "preflight" if preflight_only else "compute",
+        "mode": mode,
         "preflightOnly": preflight_only,
         "computeAttempted": compute_attempted,
+        "paidRunAttempted": compute_attempted,
+        "launchGuardNoCompute": validation_plan_required and not compute_attempted,
+        "validationPlanRequired": validation_plan_required,
         "scaleOutAttempted": scale_out_attempted,
         "remoteTrainingAttempted": remote_training_attempted,
         "trainingReportProduced": training_report_produced,
@@ -3221,6 +3260,82 @@ def paid_failure_recurrence_validation_requests(args: argparse.Namespace) -> set
         return set()
     values = raw if isinstance(raw, list) else [raw]
     return {value for value in (text_value(item) for item in values) if value is not None}
+
+
+def paid_failure_guard_requires_explicit_validation_plan(guard: dict[str, Any]) -> bool:
+    if guard.get("activeGuard") != "paid_failure_recurrence_guard":
+        return False
+    if text_value(guard.get("status")) != PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_CONSUMED_STATUS:
+        return False
+    validation = dict_value(guard.get("postFixValidation"))
+    if validation is None or text_value(validation.get("status")) != "consumed":
+        return False
+    if validation.get("requested") is True:
+        return False
+    recovery = dict_value(validation.get("recoveryEligibility"))
+    if recovery is None:
+        return False
+    if recovery.get("requiresExplicitValidationSignature") is not True or recovery.get("requested") is True:
+        return False
+    reason = text_value(recovery.get("reason")) or ""
+    return "explicit post-fix validation signature" in reason
+
+
+def build_paid_failure_validation_plan_handoff(
+    guard: dict[str, Any],
+    *,
+    run_id: str,
+) -> dict[str, Any]:
+    evidence = dict_value(guard.get("evidence")) or {}
+    validation = dict_value(guard.get("postFixValidation")) or {}
+    recovery = dict_value(validation.get("recoveryEligibility")) or {}
+    checks = dict_value(guard.get("checks")) or {}
+    recurrence_guard = dict_value(checks.get("paidFailureRecurrence")) or {}
+    current_launch = dict_value(recurrence_guard.get("currentLaunch")) or dict_value(guard.get("currentLaunch")) or {}
+    known_fix = dict_value(validation.get("knownFix")) or {}
+    current_validation_plan = dict_value(current_launch.get("validationPlan")) or {}
+    signature = (
+        text_value(validation.get("signature"))
+        or text_value(evidence.get("activeSignature"))
+        or PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE
+    )
+    return {
+        "type": PAID_FAILURE_RECURRENCE_VALIDATION_PLAN_HANDOFF_TYPE,
+        "schemaVersion": 1,
+        "runId": run_id,
+        "createdAt": utc_now_iso(),
+        "status": "validation_plan_required",
+        "signature": signature,
+        "guardStatus": text_value(guard.get("status")),
+        "reason": text_value(recovery.get("reason")) or text_value(guard.get("reason")),
+        "nextAction": text_value(guard.get("nextAction")),
+        "requiresExplicitValidationSignature": True,
+        "requested": False,
+        "requestedSignatures": validation.get("requestedSignatures")
+        if isinstance(validation.get("requestedSignatures"), list)
+        else [],
+        "explicitValidationArgument": f"--allow-paid-failure-recurrence-validation {signature}",
+        "noCompute": True,
+        "paidRunAttempted": False,
+        "currentLaunch": copy.deepcopy(current_launch),
+        "currentValidationPlan": copy.deepcopy(current_validation_plan),
+        "knownFix": copy.deepcopy(known_fix),
+        "priorAttempt": copy.deepcopy(dict_value(validation.get("priorAttempt"))),
+        "recoveryEligibility": copy.deepcopy(recovery),
+        "evidence": {
+            "activeSignature": text_value(evidence.get("activeSignature")),
+            "evidenceCount": evidence.get("count"),
+            "evidenceThreshold": evidence.get("threshold"),
+        },
+        "safety": {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+            "secretsPrinted": False,
+            "remoteExecutionAttempted": False,
+            "scaleOutAttempted": False,
+        },
+    }
 
 
 def paid_failure_current_validation_plan(args: argparse.Namespace) -> dict[str, Any]:
@@ -6491,7 +6606,11 @@ def main(argv: list[str] | None = None) -> int:
             {"ok": False, "runId": run_id, "artifactDir": str(artifact_dir), "status": controller.final_status},
         )
         return 3
-    if controller.final_status in {E1S1_REPEAT_GUARD_FINAL_STATUS, PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS}:
+    if controller.final_status in {
+        E1S1_REPEAT_GUARD_FINAL_STATUS,
+        PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS,
+        PAID_FAILURE_RECURRENCE_VALIDATION_PLAN_REQUIRED_FINAL_STATUS,
+    }:
         screeps_cli_io.write_json_line(
             sys.stderr,
             {
