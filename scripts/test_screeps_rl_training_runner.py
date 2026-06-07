@@ -35,6 +35,49 @@ def read_json(path: Path) -> JsonObject:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+class FakeStatvfsResult:
+    def __init__(self, *, total_mib: int = 10240, free_mib: int = 4096, available_mib: int | None = None) -> None:
+        self.f_frsize = 1024 * 1024
+        self.f_bsize = self.f_frsize
+        self.f_blocks = total_mib
+        self.f_bfree = free_mib
+        self.f_bavail = free_mib if available_mib is None else available_mib
+
+
+def fake_statvfs_result(
+    *,
+    total_mib: int = 10240,
+    free_mib: int = 4096,
+    available_mib: int | None = None,
+):
+    def fake_statvfs(_path: Path) -> FakeStatvfsResult:
+        return FakeStatvfsResult(total_mib=total_mib, free_mib=free_mib, available_mib=available_mib)
+
+    return fake_statvfs
+
+
+def write_meminfo(
+    path: Path,
+    *,
+    mem_total_mib: int = 7680,
+    mem_available_mib: int = 2048,
+    swap_total_mib: int = 2048,
+    swap_free_mib: int = 1536,
+) -> None:
+    path.write_text(
+        "\n".join(
+            [
+                f"MemTotal:       {mem_total_mib * 1024} kB",
+                f"MemAvailable:   {mem_available_mib * 1024} kB",
+                f"SwapTotal:      {swap_total_mib * 1024} kB",
+                f"SwapFree:       {swap_free_mib * 1024} kB",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
 def reinforce_stability_policy_gradient() -> JsonObject:
     return {
         "targetFamily": "test-family",
@@ -1515,6 +1558,157 @@ class RlTrainingRunnerTest(unittest.TestCase):
 
                 self.assertEqual(str(caught.exception), "STEAM_KEY environment variable is required for run mode")
                 self.assertEqual(simulator.observed_steam_keys, [None])
+
+    def test_host_resource_preflight_safe_swap_passes_real_local_runner(self) -> None:
+        start = tick(1, [room("W1N1", energy=100)])
+        baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
+        candidate = variant_result("candidate", [start, tick(2, [room("W1N1", energy=250)])])
+        simulator = MockSimulator({"baseline": baseline, "candidate": candidate})
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            meminfo_path = root / "meminfo"
+            write_json(card_path, base_card())
+            write_meminfo(meminfo_path, swap_total_mib=2048, swap_free_mib=1536)
+
+            with (
+                mock.patch.object(runner.simulator_harness, "run_simulator", simulator),
+                mock.patch.dict(os.environ, {"STEAM_KEY": "steam-key-for-test"}, clear=True),
+            ):
+                report = runner.run_training_experiment(
+                    card_path,
+                    root / "reports",
+                    report_id="safe-swap-preflight",
+                    simulator_runner=runner.simulator_harness.run_simulator,
+                    host_meminfo_path=meminfo_path,
+                    host_statvfs_reader=fake_statvfs_result(free_mib=4096),
+                )
+
+        self.assertEqual(report["reportId"], "safe-swap-preflight")
+        self.assertEqual(len(simulator.calls), 1)
+
+    def test_host_resource_preflight_blocks_low_free_high_used_swap_before_launch(self) -> None:
+        simulator = MockSimulator({
+            "baseline": variant_result("baseline", []),
+            "candidate": variant_result("candidate", []),
+        })
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            meminfo_path = root / "meminfo"
+            write_json(card_path, base_card())
+            write_meminfo(meminfo_path, swap_total_mib=2048, swap_free_mib=128)
+
+            with (
+                mock.patch.object(runner.simulator_harness, "run_simulator", simulator),
+                mock.patch.object(
+                    runner,
+                    "ensure_steam_key_for_training",
+                    side_effect=AssertionError("preflight did not block before STEAM_KEY"),
+                ),
+                mock.patch.dict(os.environ, {}, clear=True),
+            ):
+                with self.assertRaisesRegex(
+                    runner.HostResourcePreflightError,
+                    runner.HOST_SWAP_EXHAUSTED_ERROR_CODE,
+                ) as caught:
+                    runner.run_training_experiment(
+                        card_path,
+                        root / "reports",
+                        report_id="swap-blocked-before-launch",
+                        simulator_runner=runner.simulator_harness.run_simulator,
+                        host_meminfo_path=meminfo_path,
+                        host_statvfs_reader=fake_statvfs_result(free_mib=4096),
+                    )
+
+        preflight = caught.exception.host_resource_preflight
+        self.assertEqual(simulator.calls, [])
+        self.assertFalse(preflight["ok"])
+        self.assertEqual(preflight["blocker"]["errorCode"], runner.HOST_SWAP_EXHAUSTED_ERROR_CODE)
+        self.assertEqual(preflight["swap"]["freeBytes"], 128 * 1024 * 1024)
+        self.assertGreaterEqual(preflight["swap"]["usedRatio"], runner.DEFAULT_MAX_SWAP_USED_RATIO)
+        self.assertIn("availableBytes", preflight["disk"])
+
+    def test_main_writes_host_resource_preflight_failure_artifact(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            meminfo_path = root / "meminfo"
+            out_dir = root / "reports"
+            write_json(card_path, base_card())
+            write_meminfo(meminfo_path, swap_total_mib=2048, swap_free_mib=64)
+
+            with (
+                mock.patch.object(runner, "DEFAULT_HOST_MEMINFO_PATH", meminfo_path),
+                mock.patch.object(runner.os, "statvfs", side_effect=fake_statvfs_result(free_mib=4096)),
+                mock.patch.object(
+                    runner,
+                    "ensure_steam_key_for_training",
+                    side_effect=AssertionError("preflight did not block before STEAM_KEY"),
+                ),
+                mock.patch.dict(os.environ, {}, clear=True),
+            ):
+                exit_code = runner.main(
+                    [
+                        "--experiment-card",
+                        str(card_path),
+                        "--out-dir",
+                        str(out_dir),
+                        "--report-id",
+                        "swap-preflight-failure",
+                    ],
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+
+            failure = read_json(out_dir / "swap-preflight-failure.failure.json")
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(failure["type"], runner.FAILURE_REPORT_TYPE)
+        self.assertEqual(failure["failure"]["classification"], "host_resource_preflight_failed")
+        self.assertEqual(failure["failure"]["exceptionType"], "HostResourcePreflightError")
+        self.assertEqual(failure["failure"]["errorCode"], runner.HOST_SWAP_EXHAUSTED_ERROR_CODE)
+        self.assertEqual(
+            failure["hostResourcePreflight"]["blocker"]["errorCode"],
+            runner.HOST_SWAP_EXHAUSTED_ERROR_CODE,
+        )
+        self.assertEqual(failure["hostResourcePreflight"]["swap"]["freeBytes"], 64 * 1024 * 1024)
+        self.assertFalse(failure["trainingReportProduced"])
+        self.assertIn("failure-artifact:", stderr.getvalue())
+
+    def test_host_resource_preflight_no_swap_does_not_false_block(self) -> None:
+        start = tick(1, [room("W1N1", energy=100)])
+        baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
+        candidate = variant_result("candidate", [start, tick(2, [room("W1N1", energy=250)])])
+        simulator = MockSimulator({"baseline": baseline, "candidate": candidate})
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            meminfo_path = root / "meminfo"
+            write_json(card_path, base_card())
+            write_meminfo(meminfo_path, swap_total_mib=0, swap_free_mib=0)
+
+            with (
+                mock.patch.object(runner.simulator_harness, "run_simulator", simulator),
+                mock.patch.dict(os.environ, {"STEAM_KEY": "steam-key-for-test"}, clear=True),
+            ):
+                report = runner.run_training_experiment(
+                    card_path,
+                    root / "reports",
+                    report_id="no-swap-preflight",
+                    simulator_runner=runner.simulator_harness.run_simulator,
+                    host_meminfo_path=meminfo_path,
+                    host_statvfs_reader=fake_statvfs_result(free_mib=4096),
+                )
+
+        self.assertEqual(report["reportId"], "no-swap-preflight")
+        self.assertEqual(len(simulator.calls), 1)
 
     def test_main_redacts_steam_key_from_error_output(self) -> None:
         secret = "steam-secret-token-123456"
