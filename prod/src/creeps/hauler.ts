@@ -91,6 +91,8 @@ function hasRemoteHaulerDeliveryDemand(homeRoom: string): boolean {
 }
 
 export function runHauler(creep: Creep): void {
+  clearEmptyEnergyTransferTask(creep);
+
   const assignment = normalizeRemoteHaulerMemory(creep.memory?.remoteHauler);
   if (!assignment && creep.memory?.remoteHauler !== undefined) {
     return;
@@ -379,6 +381,10 @@ function deliverLocalEnergy(creep: Creep): void {
   };
   creep.memory.task = task;
   const result = creep.transfer?.(target, getEnergyResource());
+  if (shouldClearEmptyEnergyTransferTaskAfterResult(creep, result)) {
+    return;
+  }
+
   if (result === getErrNotInRangeCode()) {
     moveTo(creep, target);
   }
@@ -439,9 +445,40 @@ function deliverEnergy(creep: Creep, assignment: CreepRemoteHaulerMemory): void 
   }
 
   const result = creep.transfer?.(target, getEnergyResource());
+  if (shouldClearEmptyEnergyTransferTaskAfterResult(creep, result)) {
+    return;
+  }
+
   if (result === getErrNotInRangeCode()) {
     moveTo(creep, target);
   }
+}
+
+function clearEmptyEnergyTransferTask(creep: Creep): void {
+  if (creep.memory.task?.type === 'transfer' && getCarriedEnergy(creep) <= 0) {
+    delete creep.memory.task;
+  }
+}
+
+function shouldClearEmptyEnergyTransferTaskAfterResult(
+  creep: Creep,
+  result: ScreepsReturnCode | undefined
+): boolean {
+  if (getCarriedEnergy(creep) > 0) {
+    return false;
+  }
+
+  if (
+    result === OK_CODE ||
+    result === ERR_NOT_ENOUGH_RESOURCES_CODE ||
+    result === ERR_INVALID_TARGET_CODE ||
+    result === getErrNotInRangeCode()
+  ) {
+    delete creep.memory.task;
+    return true;
+  }
+
+  return false;
 }
 
 function compareRemoteHaulerAssignments(left: RemoteSourceAssignment, right: RemoteSourceAssignment): number {

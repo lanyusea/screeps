@@ -304,6 +304,21 @@ describe('runHauler', () => {
     expect(creep.withdraw).toHaveBeenCalledWith(storage, RESOURCE_ENERGY);
   });
 
+  it('clears stale empty local transfer memory before collecting energy', () => {
+    const spawn = makeStoreStructure('spawn1', STRUCTURE_SPAWN, 100, 200, 300, 10, 10);
+    const storage = makeStoreStructure('storage1', STRUCTURE_STORAGE, 500, 500, 1_000, 3, 3);
+    const room = makeRoom('W1N1', true, [spawn], [], [storage as unknown as Structure]);
+    const creep = makeLocalHauler(room, 0);
+    creep.memory.task = { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> };
+
+    runHauler(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'withdraw', targetId: 'storage1' });
+    expect(creep.withdraw).toHaveBeenCalledWith(storage, RESOURCE_ENERGY);
+    expect(creep.transfer).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalledWith(spawn, expect.anything());
+  });
+
   it('withdraws visible season score with an empty local hauler when priority delivery is absent', () => {
     (globalThis as unknown as { FIND_SCORE: number }).FIND_SCORE = 42;
     const score = makeScoreContainer('score1', 100, 3, 3);
