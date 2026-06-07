@@ -1187,7 +1187,9 @@ def conclusion_summary(artifact: LoadedArtifact | None) -> JsonObject:
 def artifact_kind(path: Path, payload: JsonObject) -> str:
     name = path.name.lower()
     type_text = str(payload.get("type", "")).lower()
-    if "training-ledger" in name or "training-execution-ledger" in type_text:
+    if "training-execution-ledger" in type_text:
+        return "training_ledger"
+    if "training-ledger" in name and "preflight" not in name:
         return "training_ledger"
     if "policy-advantage" in name or "policy-online-advantage" in type_text or "policyadvantage" in normalized_key(type_text):
         return "policy_advantage"
