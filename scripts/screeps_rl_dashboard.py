@@ -1139,7 +1139,10 @@ def conclusion_summary(artifact: LoadedArtifact | None) -> JsonObject:
             "hasData": False,
         }
 
-    conclusions_by_id = rl_conclusion_registry.normalize_conclusions(artifact.payload)
+    try:
+        conclusions_by_id = rl_conclusion_registry.normalize_conclusions(artifact.payload)
+    except rl_conclusion_registry.ConclusionRegistryError:
+        conclusions_by_id = {}
     conclusions = list(conclusions_by_id.values())
     counts = Counter(str(item.get("status", "UNKNOWN")).upper() for item in conclusions)
     p0_unresolved = [

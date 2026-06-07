@@ -134,6 +134,28 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertEqual(summary["counts"]["CLOSED"], 0)
         self.assertEqual([item["conclusionId"] for item in summary["p0Unresolved"]], ["E1-OPEN"])
 
+    def test_conclusion_summary_tolerates_malformed_registry_payload(self) -> None:
+        artifact = loaded_artifact(
+            Path("runtime-artifacts/rl-control-loop/conclusion-registry.json"),
+            {
+                "updatedAt": "2026-05-23T00:02:00Z",
+                "conclusions": ["not-a-conclusion-record"],
+            },
+        )
+
+        summary = dashboard.conclusion_summary(artifact)
+
+        self.assertEqual(summary["counts"], {status: 0 for status in dashboard.CONCLUSION_STATUSES})
+        self.assertEqual(summary["otherCounts"], {})
+        self.assertEqual(summary["p0Unresolved"], [])
+        self.assertEqual(
+            summary["linkedIssueGate"],
+            dashboard.rl_conclusion_registry.build_open_conclusion_linked_issue_gate({}),
+        )
+        self.assertEqual(summary["latestArtifact"], artifact.path)
+        self.assertEqual(summary["updatedAt"], "2026-05-23T00:02:00Z")
+        self.assertTrue(summary["hasData"])
+
     def test_dashboard_prefers_fresh_acceptable_gate_data_over_stale_dataset_gate_and_embedded_ledger_gate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
