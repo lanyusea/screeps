@@ -104,6 +104,23 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertTrue(dashboard.value_has_reference(["0", "2.5"]))
         self.assertTrue(dashboard.value_has_reference("training-report-a"))
 
+    def test_conclusion_summary_flags_missing_registry_as_invalid_gate(self) -> None:
+        summary = dashboard.conclusion_summary(None)
+
+        self.assertEqual(summary["counts"], {status: 0 for status in dashboard.CONCLUSION_STATUSES})
+        self.assertEqual(summary["otherCounts"], {})
+        self.assertEqual(summary["p0Unresolved"], [])
+        self.assertEqual(summary["latestArtifact"], "N/A")
+        self.assertEqual(summary["updatedAt"], "N/A")
+        self.assertFalse(summary["hasData"])
+        self.assertEqual(summary["linkedIssueGate"]["status"], "INVALID_REGISTRY")
+        self.assertFalse(summary["linkedIssueGate"]["ok"])
+        self.assertIn("missing conclusion-registry artifact", summary["linkedIssueGate"]["error"])
+        self.assertIn(
+            "missing conclusion-registry artifact",
+            summary["linkedIssueGate"]["projectEvidence"]["evidence"],
+        )
+
     def test_conclusion_summary_counts_mapping_registry_shape(self) -> None:
         artifact = loaded_artifact(
             Path("runtime-artifacts/rl-control-loop/conclusion-registry.json"),
@@ -133,6 +150,35 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertEqual(summary["counts"]["ACTIONED"], 1)
         self.assertEqual(summary["counts"]["CLOSED"], 0)
         self.assertEqual([item["conclusionId"] for item in summary["p0Unresolved"]], ["E1-OPEN"])
+
+    def test_conclusion_summary_tolerates_malformed_registry_payload(self) -> None:
+        artifact = loaded_artifact(
+            Path("runtime-artifacts/rl-control-loop/conclusion-registry.json"),
+            {
+                "updatedAt": "2026-05-23T00:02:00Z",
+                "conclusions": ["not-a-conclusion-record"],
+            },
+        )
+
+        summary = dashboard.conclusion_summary(artifact)
+
+        self.assertEqual(summary["counts"], {status: 0 for status in dashboard.CONCLUSION_STATUSES})
+        self.assertEqual(summary["otherCounts"], {})
+        self.assertEqual(summary["p0Unresolved"], [])
+        self.assertEqual(summary["linkedIssueGate"]["status"], "INVALID_REGISTRY")
+        self.assertFalse(summary["linkedIssueGate"]["ok"])
+        self.assertEqual(
+            summary["linkedIssueGate"]["projectEvidence"]["status"],
+            "BLOCKED_INVALID_CONCLUSION_REGISTRY",
+        )
+        self.assertIn(
+            "Repair conclusion-registry.json",
+            summary["linkedIssueGate"]["projectEvidence"]["nextAction"],
+        )
+        self.assertIn("each conclusion record", summary["linkedIssueGate"]["error"])
+        self.assertEqual(summary["latestArtifact"], artifact.path)
+        self.assertEqual(summary["updatedAt"], "2026-05-23T00:02:00Z")
+        self.assertTrue(summary["hasData"])
 
     def test_dashboard_prefers_fresh_acceptable_gate_data_over_stale_dataset_gate_and_embedded_ledger_gate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

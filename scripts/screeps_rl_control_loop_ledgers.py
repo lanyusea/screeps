@@ -25,6 +25,7 @@ TRAINING_LEDGER_TYPE = "screeps-rl-training-execution-ledger"
 POLICY_ADVANTAGE_TYPE = "screeps-rl-policy-online-advantage-report"
 REWARD_DECISION_RECORD_TYPE = "screeps-rl-reward-decision-record"
 STEWARD_DIGEST_TYPE = "screeps-rl-steward-bounded-digest"
+CONCLUSION_LINKED_ISSUES_CHECK_TYPE = "screeps-rl-conclusion-linked-issues-check"
 DEFAULT_ARTIFACT_ROOT = Path("runtime-artifacts")
 DEFAULT_CONTROL_LOOP_DIR = Path("runtime-artifacts/rl-control-loop")
 DEFAULT_MAX_FILES_PER_ROOT = 25
@@ -2276,9 +2277,21 @@ def build_steward_digest(
 ) -> JsonObject:
     summary = dashboard_summary(repo_root, artifact_root, created_at, max_files_per_root)
     conclusions = as_dict(summary.get("conclusions"))
+    linked_issue_gate = as_dict(conclusions.get("linkedIssueGate"))
     p0_unresolved = as_list(conclusions.get("p0Unresolved"))
     lanes = as_list(summary.get("lanes"))
     blocked_lanes = [item for item in lanes if isinstance(item, dict) and str(item.get("status", "")).upper() == "BLOCKED"]
+    linked_issue_blocked = str(linked_issue_gate.get("status", "")).upper() in {
+        "ACTION_REQUIRED",
+        "INVALID_REGISTRY",
+    }
+    project_evidence = as_dict(linked_issue_gate.get("projectEvidence"))
+    if linked_issue_blocked:
+        status = "ACTION_REQUIRED"
+    elif blocked_lanes:
+        status = "BLOCKED"
+    else:
+        status = "OK"
     return {
         "type": STEWARD_DIGEST_TYPE,
         "schemaVersion": SCHEMA_VERSION,
@@ -2287,12 +2300,15 @@ def build_steward_digest(
         "sourceIssue": None,
         "historicalContextIssues": HISTORICAL_CONTEXT_ISSUES,
         **git_metadata(repo_root),
+        "status": status,
         "latestArtifacts": json_safe(as_dict(summary.get("artifacts"))),
         "conclusionCounts": conclusions.get("counts", {status: 0 for status in rl_conclusion_registry.CONCLUSION_STATUSES}),
+        "linkedIssueGate": json_safe(linked_issue_gate),
         "p0Unresolved": json_safe(p0_unresolved[:8]),
         "lanes": json_safe(lanes),
         "blockedLanes": json_safe(blocked_lanes[:8]),
         "nextAction": (
+            text_value(project_evidence.get("nextAction")) if linked_issue_blocked else
             text_value(blocked_lanes[0].get("blocker")) if blocked_lanes and isinstance(blocked_lanes[0], dict) else
             "No bounded blocked lane was selected; inspect latest Loop A/B artifacts."
         ),
@@ -2304,6 +2320,51 @@ def build_steward_digest(
     }
 
 
+def build_conclusion_linked_issues_check(
+    *,
+    repo_root: Path,
+    artifact_root: Path,
+    created_at: str,
+    source_cron: str,
+) -> JsonObject:
+    registry_path = artifact_root / "rl-control-loop" / "conclusion-registry.json"
+    registry_loaded = False
+    registry_error: str | None = None
+    if not registry_path.exists():
+        registry_error = (
+            "missing conclusion-registry.json: "
+            f"{repo_display_path(registry_path, repo_root)}"
+        )
+        linked_issue_gate = rl_conclusion_registry.build_invalid_registry_linked_issue_gate(registry_error)
+    else:
+        try:
+            registry_payload = rl_conclusion_registry.load_registry(registry_path)
+            registry_loaded = bool(registry_payload)
+            linked_issue_gate = rl_conclusion_registry.build_open_conclusion_linked_issue_gate(registry_payload)
+        except rl_conclusion_registry.ConclusionRegistryError as error:
+            registry_error = str(error)
+            linked_issue_gate = rl_conclusion_registry.build_invalid_registry_linked_issue_gate(error)
+
+    ok = bool(linked_issue_gate.get("ok"))
+    return {
+        "type": CONCLUSION_LINKED_ISSUES_CHECK_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "createdAt": created_at,
+        "sourceCron": source_cron,
+        "sourceIssue": None,
+        **git_metadata(repo_root),
+        "ok": ok,
+        "status": "OK" if ok else "BLOCKED",
+        "exitCode": 0 if ok else 2,
+        "registryPath": repo_display_path(registry_path, repo_root),
+        "registryLoaded": registry_loaded,
+        "registryError": registry_error,
+        "linkedIssueGate": json_safe(linked_issue_gate),
+        "projectEvidence": json_safe(as_dict(linked_issue_gate.get("projectEvidence"))),
+        "githubComment": "skipped_no_atomic_issue",
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Write bounded Screeps RL control-loop artifacts for cron usage.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -2311,6 +2372,11 @@ def build_parser() -> argparse.ArgumentParser:
         ("training-ledger", "write a bounded Loop A training execution ledger", "Screeps RL training execution ledger"),
         ("policy-advantage", "write a bounded Loop B policy online advantage report", "Screeps RL policy online advantage ledger"),
         ("steward-digest", "write a bounded RL steward digest", "Screeps RL flywheel steward"),
+        (
+            "linked-issues-check",
+            "validate OPEN P0/P1/P2 conclusions have exact linked issues",
+            "Screeps RL conclusion linked-issues guard",
+        ),
     ):
         sub = subparsers.add_parser(command, help=help_text)
         sub.add_argument("--repo-root", type=Path, default=Path.cwd())
@@ -2365,6 +2431,14 @@ def run_command(args: argparse.Namespace) -> tuple[Path, JsonObject]:
             max_files_per_root=max_files,
         )
         path = resolve_against_repo(args.output, repo_root) if args.output else output_path(out_dir, created_at, "steward-digest")
+    elif args.command == "linked-issues-check":
+        payload = build_conclusion_linked_issues_check(
+            repo_root=repo_root,
+            artifact_root=artifact_root,
+            created_at=created_at,
+            source_cron=args.source_cron,
+        )
+        path = resolve_against_repo(args.output, repo_root) if args.output else output_path(out_dir, created_at, "linked-issues-check")
     else:
         raise ControlLoopLedgerError(f"unsupported command: {args.command}")
     write_json_atomic(path, payload)
@@ -2383,15 +2457,17 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: Tex
             max_bytes=max(256, int(getattr(args, "stdout_bytes", DEFAULT_STDOUT_BYTES))),
         )
         return 2
+    exit_code = int(payload.get("exitCode", 0)) if isinstance(payload.get("exitCode"), int) else 0
+    payload_ok = payload.get("ok")
     summary = {
-        "ok": True,
+        "ok": bool(payload_ok) if isinstance(payload_ok, bool) else exit_code == 0,
         "type": payload.get("type"),
         "artifact": repo_display_path(path, args.repo_root.expanduser().resolve()),
         "status": payload.get("status") or payload.get("onlineUtilityStatus") or "written",
         "githubComment": payload.get("githubComment"),
     }
     screeps_cli_io.write_json_line(stdout, summary, max_bytes=max(256, int(args.stdout_bytes)))
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":
