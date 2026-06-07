@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+import rl_conclusion_registry
 import screeps_rl_experiment_card as experiment_card
 
 
@@ -1128,18 +1129,35 @@ def display_value(value: Any) -> str:
 
 def conclusion_summary(artifact: LoadedArtifact | None) -> JsonObject:
     if artifact is None:
+        missing_registry_error = (
+            "missing conclusion-registry artifact: "
+            "runtime-artifacts/rl-control-loop/conclusion-registry.json"
+        )
         return {
             "counts": {status: 0 for status in CONCLUSION_STATUSES},
             "otherCounts": {},
             "p0Unresolved": [],
+            "linkedIssueGate": rl_conclusion_registry.build_invalid_registry_linked_issue_gate(
+                missing_registry_error
+            ),
             "latestArtifact": "N/A",
             "updatedAt": "N/A",
             "hasData": False,
         }
 
-    raw_conclusions = artifact.payload.get("conclusions")
-    conclusion_values = raw_conclusions.values() if isinstance(raw_conclusions, dict) else as_list(raw_conclusions)
-    conclusions = [item for item in conclusion_values if isinstance(item, dict)]
+    try:
+        conclusions_by_id = rl_conclusion_registry.normalize_conclusions(artifact.payload)
+    except rl_conclusion_registry.ConclusionRegistryError as error:
+        return {
+            "counts": {status: 0 for status in CONCLUSION_STATUSES},
+            "otherCounts": {},
+            "p0Unresolved": [],
+            "linkedIssueGate": rl_conclusion_registry.build_invalid_registry_linked_issue_gate(error),
+            "latestArtifact": artifact.path,
+            "updatedAt": display_timestamp(artifact.payload.get("updatedAt") or artifact.timestamp),
+            "hasData": True,
+        }
+    conclusions = list(conclusions_by_id.values())
     counts = Counter(str(item.get("status", "UNKNOWN")).upper() for item in conclusions)
     p0_unresolved = [
         item
@@ -1159,6 +1177,7 @@ def conclusion_summary(artifact: LoadedArtifact | None) -> JsonObject:
             status: count for status, count in sorted(counts.items()) if status not in CONCLUSION_STATUSES
         },
         "p0Unresolved": p0_unresolved[:8],
+        "linkedIssueGate": rl_conclusion_registry.build_open_conclusion_linked_issue_gate(conclusions_by_id),
         "latestArtifact": artifact.path,
         "updatedAt": display_timestamp(artifact.payload.get("updatedAt") or artifact.timestamp),
         "hasData": True,

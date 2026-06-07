@@ -22,14 +22,12 @@ import { runUpgrader } from './upgraderRunner';
 import { canCreepPressureTerritoryController } from '../territory/territoryPlanner';
 import {
   CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY,
-  getConstructionSpendingEnergyThreshold,
   getEffectiveRoomEnergyBufferThreshold,
   getRoomStoredEnergyAvailableForConstruction,
   MINIMUM_WORKER_SPAWN_ENERGY
 } from '../economy/energyBuffer';
-import { getSpawnEnergyWithdrawalAmount, isSpawnEnergySource } from '../economy/spawnEnergyBuffer';
+import { getSafeWorkerWithdrawEnergyAmount } from '../economy/workerConstructionWithdrawBudget';
 import {
-  getRoomSpawnEnergyReservationState,
   selectSpawnEnergyReservationRefillTarget,
   type SpawnEnergyReservationRefillTarget
 } from '../economy/spawnEnergyReservation';
@@ -464,7 +462,7 @@ function selectWorkerAssignmentGapRecoveryTask(
   currentTask: CreepTaskMemory | null | undefined,
   selectionContext: WorkerTaskSelectionContext
 ): Extract<CreepTaskMemory, { type: 'build' }> | null {
-  if (!isWorkerAssignmentGapRecoverySelection(currentTask, selectionContext.selectedTask)) {
+  if (!isWorkerAssignmentGapRecoverySelection(creep, currentTask, selectionContext.selectedTask)) {
     return null;
   }
 
@@ -501,6 +499,7 @@ function selectWorkerAssignmentGapRecoveryTask(
 }
 
 function isWorkerAssignmentGapRecoverySelection(
+  creep: Creep,
   currentTask: CreepTaskMemory | null | undefined,
   selectedTask: CreepTaskMemory | null
 ): boolean {
@@ -508,9 +507,21 @@ function isWorkerAssignmentGapRecoverySelection(
     return true;
   }
 
+  const allowUpgradeRecovery = !isControllerDowngradeGuardActive(creep.room);
+  return isWorkerAssignmentGapRecoveryTask(currentTask, allowUpgradeRecovery) &&
+    isWorkerAssignmentGapRecoveryTask(selectedTask, allowUpgradeRecovery);
+}
+
+function isWorkerAssignmentGapRecoveryTask(
+  task: CreepTaskMemory | null | undefined,
+  allowUpgradeRecovery: boolean
+): boolean {
   return (
-    (currentTask === undefined || currentTask === null || isEnergyAcquisitionTask(currentTask) || currentTask.type === 'transfer') &&
-    (selectedTask === null || isEnergyAcquisitionTask(selectedTask) || selectedTask.type === 'transfer')
+    task === undefined ||
+    task === null ||
+    isEnergyAcquisitionTask(task) ||
+    task.type === 'transfer' ||
+    (allowUpgradeRecovery && task.type === 'upgrade')
   );
 }
 
@@ -1115,6 +1126,18 @@ function getSpawnReservationRefillCoverageEnergy(
   }
 
   return carriedEnergy + getSpawnReservationRefillAcquisitionEnergy(worker, task);
+}
+
+function isConstructionWithdrawReservationTask(
+  task: Partial<CreepTaskMemory> | undefined
+): task is Extract<CreepTaskMemory, { type: 'withdraw' }> {
+  return (
+    task?.type === 'withdraw' &&
+    typeof task.targetId === 'string' &&
+    task.targetId.length > 0 &&
+    typeof task.constructionSiteId === 'string' &&
+    task.constructionSiteId.length > 0
+  );
 }
 
 function getSpawnReservationRefillAcquisitionEnergy(
@@ -2294,7 +2317,20 @@ function isDowngradeGuardUpgradeTask(
 }
 
 function isSameTask(left: CreepTaskMemory, right: CreepTaskMemory): boolean {
-  return left.type === right.type && left.targetId === right.targetId;
+  if (left.type !== right.type || left.targetId !== right.targetId) {
+    return false;
+  }
+
+  if (left.type === 'withdraw' && right.type === 'withdraw') {
+    return getWithdrawConstructionSiteId(left) === getWithdrawConstructionSiteId(right);
+  }
+
+  return true;
+}
+
+function getWithdrawConstructionSiteId(task: Extract<CreepTaskMemory, { type: 'withdraw' }>): string {
+  const constructionSiteId = task.constructionSiteId;
+  return typeof constructionSiteId === 'string' ? constructionSiteId : '';
 }
 
 function isEnergySpendingTask(task: CreepTaskMemory): task is Extract<
@@ -2711,7 +2747,7 @@ function executeTask(
     case 'withdraw': {
       const withdrawTarget = target as AnyStoreStructure;
       const requestedAmount = getFreeTransferEnergyCapacity(creep);
-      const safeAmount = getSafeWithdrawEnergyAmount(creep, withdrawTarget, requestedAmount, task);
+      const safeAmount = getSafeWorkerWithdrawEnergyAmount(creep, withdrawTarget, requestedAmount, task);
       if (safeAmount <= 0) {
         return { result: ERR_NOT_ENOUGH_RESOURCES_CODE };
       }
@@ -2772,95 +2808,6 @@ function executeCollectScoreTask(creep: Creep, target: RoomObject): TaskExecutio
   return { result: OK_CODE };
 }
 
-function getSafeWithdrawEnergyAmount(
-  creep: Creep,
-  target: AnyStoreStructure,
-  requestedAmount: number,
-  task: Extract<CreepTaskMemory, { type: 'withdraw' }>
-): number {
-  if (!task.constructionSiteId || !isSpawnEnergySource(target)) {
-    return getSpawnEnergyWithdrawalAmount(creep.room, target, requestedAmount);
-  }
-
-  const availableEnergy = getConstructionSpawnWithdrawEnergyAvailable(creep, target);
-  return Math.min(Math.max(0, requestedAmount), availableEnergy);
-}
-
-function getConstructionSpawnWithdrawEnergyAvailable(creep: Creep, target: StructureSpawn): number {
-  const roomEnergyAvailable = getRoomEnergyAvailable(creep.room);
-  if (roomEnergyAvailable === null) {
-    return 0;
-  }
-
-  const reservationContext = createConstructionWithdrawReservationContext(creep);
-  const sourceEnergy = Math.max(
-    0,
-    getStoredEnergy(target) - getReservedConstructionWithdrawEnergy(target, reservationContext)
-  );
-  const spawnReservationBudget = getConstructionEnergyAvailableAfterSpawnReservation(
-    creep.room,
-    roomEnergyAvailable,
-    reservationContext.constructionEnergyWithdrawn
-  );
-  const constructionBudget = Math.max(
-    0,
-    roomEnergyAvailable -
-      getConstructionSpendingEnergyThreshold(creep.room) -
-      reservationContext.constructionEnergyWithdrawn
-  );
-  return Math.min(sourceEnergy, constructionBudget, spawnReservationBudget);
-}
-
-function getConstructionEnergyAvailableAfterSpawnReservation(
-  room: Room,
-  roomEnergyAvailable: number,
-  constructionEnergyWithdrawn: number
-): number {
-  const reservation = getRoomSpawnEnergyReservationState(room);
-  if (!reservation.active) {
-    return Number.POSITIVE_INFINITY;
-  }
-
-  return Math.max(0, roomEnergyAvailable - reservation.reservedEnergy - constructionEnergyWithdrawn);
-}
-
-interface ConstructionWithdrawReservationContext {
-  constructionEnergyWithdrawn: number;
-  reservedEnergyBySourceId: Map<string, number>;
-}
-
-function createConstructionWithdrawReservationContext(creep: Creep): ConstructionWithdrawReservationContext {
-  const context: ConstructionWithdrawReservationContext = {
-    constructionEnergyWithdrawn: 0,
-    reservedEnergyBySourceId: new Map<string, number>()
-  };
-
-  for (const worker of getRoomOwnedCreeps(creep.room)) {
-    if (isSameCreep(worker, creep) || !isInRoom(worker, creep.room)) {
-      continue;
-    }
-
-    const task = worker.memory?.task as Partial<CreepTaskMemory> | undefined;
-    if (!isConstructionWithdrawReservationTask(task)) {
-      continue;
-    }
-
-    const freeCapacity = getFreeTransferEnergyCapacity(worker);
-    if (freeCapacity <= 0) {
-      continue;
-    }
-
-    const sourceId = String(task.targetId);
-    context.reservedEnergyBySourceId.set(
-      sourceId,
-      (context.reservedEnergyBySourceId.get(sourceId) ?? 0) + freeCapacity
-    );
-    context.constructionEnergyWithdrawn += freeCapacity;
-  }
-
-  return context;
-}
-
 function getRoomOwnedCreeps(room: Room): Creep[] {
   const findMyCreeps = (globalThis as unknown as { FIND_MY_CREEPS?: number }).FIND_MY_CREEPS;
   const roomFind = (room as Room & { find?: (type: number) => Creep[] }).find;
@@ -2877,25 +2824,6 @@ function getRoomOwnedCreeps(room: Room): Creep[] {
 
   const gameCreeps = (globalThis as unknown as { Game?: Partial<Game> }).Game?.creeps;
   return gameCreeps ? Object.values(gameCreeps) : [];
-}
-
-function isConstructionWithdrawReservationTask(
-  task: Partial<CreepTaskMemory> | undefined
-): task is Extract<CreepTaskMemory, { type: 'withdraw' }> {
-  return (
-    task?.type === 'withdraw' &&
-    typeof task.targetId === 'string' &&
-    task.targetId.length > 0 &&
-    typeof task.constructionSiteId === 'string' &&
-    task.constructionSiteId.length > 0
-  );
-}
-
-function getReservedConstructionWithdrawEnergy(
-  source: StructureSpawn,
-  reservationContext: ConstructionWithdrawReservationContext
-): number {
-  return reservationContext.reservedEnergyBySourceId.get(String(source.id)) ?? 0;
 }
 
 function executeHarvestTask(

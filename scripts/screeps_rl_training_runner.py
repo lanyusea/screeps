@@ -10,6 +10,7 @@ import json
 import math
 import os
 import re
+import signal
 import statistics
 import sys
 import tempfile
@@ -36,11 +37,19 @@ import screeps_cli_io
 SCHEMA_VERSION = 1
 REPORT_TYPE = "screeps-rl-training-report"
 SUMMARY_TYPE = "screeps-rl-training-generation"
+FAILURE_REPORT_TYPE = "screeps-rl-training-failure-report"
 DEFAULT_OUT_DIR = Path("runtime-artifacts/rl-training")
 DEFAULT_RESOURCE_NORMALIZER = 1000.0
 DEFAULT_RUN_REPETITIONS = 1
 DEFAULT_STEAM_KEY_ENV_FILE = screeps_secret_env.DEFAULT_LOCAL_SECRET_ENV_FILE
 STEAM_KEY_ENV_FILE_ENV = "SCREEPS_RL_STEAM_KEY_ENV_FILE"
+HOST_RESOURCE_PREFLIGHT_TYPE = "screeps-rl-host-resource-preflight"
+HOST_RESOURCE_PREFLIGHT_FAILED_ERROR_CODE = "HOST_RESOURCE_PREFLIGHT_FAILED"
+HOST_RESOURCE_PREFLIGHT_UNAVAILABLE_ERROR_CODE = "HOST_RESOURCE_PREFLIGHT_UNAVAILABLE"
+HOST_SWAP_EXHAUSTED_ERROR_CODE = "HOST_SWAP_EXHAUSTED"
+DEFAULT_HOST_MEMINFO_PATH = Path("/proc/meminfo")
+DEFAULT_MIN_SWAP_FREE_BYTES = 512 * 1024 * 1024
+DEFAULT_MAX_SWAP_USED_RATIO = 0.90
 PRE_SCALE_TRAINABILITY_SMOKE_TICKS = 2
 DEFAULT_POLICY_UPDATE_LEARNING_RATE = 0.25
 RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM = "rank_weighted_finite_difference_v1"
@@ -127,6 +136,37 @@ class TrainingCardError(ValueError):
     """Raised when an experiment card is unsafe or structurally invalid."""
 
 
+class TrainingRunnerInterrupted(KeyboardInterrupt):
+    """Raised when the CLI receives a termination signal during a training run."""
+
+    def __init__(self, signum: int | None = None) -> None:
+        self.signum = signum
+        signal_name = signal_name_for_number(signum)
+        detail = f" by {signal_name}" if signal_name is not None else ""
+        super().__init__(f"training runner interrupted{detail}")
+
+
+class HostResourcePreflightError(RuntimeError):
+    """Raised when the local simulator host is unsafe for a training launch."""
+
+    def __init__(self, preflight: JsonObject) -> None:
+        self.host_resource_preflight = copy.deepcopy(preflight)
+        blocker = self.host_resource_preflight.get("blocker")
+        if isinstance(blocker, dict):
+            raw_code = blocker.get("errorCode")
+            raw_message = blocker.get("message")
+        else:
+            raw_code = None
+            raw_message = None
+        self.error_code = (
+            raw_code
+            if isinstance(raw_code, str) and raw_code
+            else HOST_RESOURCE_PREFLIGHT_FAILED_ERROR_CODE
+        )
+        message = raw_message if isinstance(raw_message, str) and raw_message else "host resource preflight failed"
+        super().__init__(f"{self.error_code}: {message}")
+
+
 @dataclass(frozen=True)
 class StrategyVariant:
     """Strategy candidate metadata consumed by the simulator and report."""
@@ -210,6 +250,15 @@ class SimulationConfig:
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def signal_name_for_number(signum: int | None) -> str | None:
+    if signum is None:
+        return None
+    try:
+        return signal.Signals(signum).name
+    except ValueError:
+        return f"signal-{signum}"
 
 
 def canonical_json(value: Any) -> str:
@@ -1055,6 +1104,193 @@ def text_or_none(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def host_resource_bytes_from_meminfo(text: str) -> dict[str, int]:
+    values: dict[str, int] = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) < 2 or not parts[0].endswith(":"):
+            continue
+        raw_value = parts[1]
+        if not raw_value.isdigit():
+            continue
+        unit = parts[2].lower() if len(parts) >= 3 else "b"
+        multiplier = 1024 if unit == "kb" else 1
+        values[parts[0][:-1]] = int(raw_value) * multiplier
+    return values
+
+
+def ratio_or_none(numerator: int, denominator: int) -> float | None:
+    if denominator <= 0:
+        return None
+    return round(numerator / denominator, 6)
+
+
+def mib_string(byte_count: int) -> str:
+    return f"{byte_count / (1024 * 1024):.1f} MiB"
+
+
+def sanitized_min_swap_free_bytes(value: int) -> int:
+    return max(0, int(value))
+
+
+def sanitized_max_swap_used_ratio(value: float) -> float:
+    if not math.isfinite(value):
+        return DEFAULT_MAX_SWAP_USED_RATIO
+    return min(1.0, max(0.0, float(value)))
+
+
+def statvfs_probe_path(path: Path) -> Path:
+    target = path
+    while not target.exists():
+        parent = target.parent
+        if parent == target:
+            return target
+        target = parent
+    return target
+
+
+def collect_disk_preflight(path: Path, statvfs_reader: Callable[[Path], Any] | None) -> JsonObject:
+    checked_path = statvfs_probe_path(path)
+    disk: JsonObject = {
+        "path": dataset_export.display_path(path),
+        "checkedPath": dataset_export.display_path(checked_path),
+    }
+    if statvfs_reader is None:
+        disk["error"] = "host statvfs unavailable"
+        return disk
+    try:
+        stat = statvfs_reader(checked_path)
+        fragment_size = int(getattr(stat, "f_frsize", 0) or getattr(stat, "f_bsize", 0) or 0)
+        disk["freeBytes"] = int(getattr(stat, "f_bfree", 0)) * fragment_size
+        disk["availableBytes"] = int(getattr(stat, "f_bavail", 0)) * fragment_size
+        disk["totalBytes"] = int(getattr(stat, "f_blocks", 0)) * fragment_size
+    except OSError as error:
+        disk["error"] = dataset_export.redact_text(str(error))
+    return disk
+
+
+def build_host_resource_preflight_blocker(
+    *,
+    reasons: Sequence[str],
+    error_code: str,
+) -> JsonObject:
+    joined_reasons = "; ".join(reasons)
+    return {
+        "errorCode": error_code,
+        "message": joined_reasons,
+        "action": (
+            "Stop or wait for memory-heavy RL/simulator processes, free swap, add RAM/swap, "
+            "or run the training on a host with safe memory headroom before relaunching local RL."
+        ),
+    }
+
+
+def collect_host_resource_preflight(
+    out_dir: Path,
+    *,
+    meminfo_path: Path | None = None,
+    statvfs_reader: Callable[[Path], Any] | None = None,
+    min_swap_free_bytes: int = DEFAULT_MIN_SWAP_FREE_BYTES,
+    max_swap_used_ratio: float = DEFAULT_MAX_SWAP_USED_RATIO,
+) -> JsonObject:
+    resolved_meminfo_path = meminfo_path or DEFAULT_HOST_MEMINFO_PATH
+    resolved_statvfs_reader = (
+        statvfs_reader if statvfs_reader is not None else getattr(os, "statvfs", None)
+    )
+    safe_min_swap_free_bytes = sanitized_min_swap_free_bytes(min_swap_free_bytes)
+    safe_max_swap_used_ratio = sanitized_max_swap_used_ratio(max_swap_used_ratio)
+    preflight: JsonObject = {
+        "type": HOST_RESOURCE_PREFLIGHT_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "ok": True,
+        "checkedAt": utc_now_iso(),
+        "meminfoPath": dataset_export.display_path(resolved_meminfo_path),
+        "thresholds": {
+            "minSwapFreeBytes": safe_min_swap_free_bytes,
+            "maxSwapUsedRatio": safe_max_swap_used_ratio,
+        },
+        "disk": collect_disk_preflight(out_dir, resolved_statvfs_reader),
+    }
+    try:
+        meminfo_values = host_resource_bytes_from_meminfo(resolved_meminfo_path.read_text(encoding="utf-8"))
+    except OSError as error:
+        if meminfo_path is None and isinstance(error, FileNotFoundError):
+            preflight["warnings"] = [
+                (
+                    f"default host meminfo {dataset_export.display_path(resolved_meminfo_path)} is unavailable; "
+                    "skipping swap checks"
+                )
+            ]
+            return preflight
+        preflight["ok"] = False
+        preflight["blocker"] = build_host_resource_preflight_blocker(
+            reasons=[f"could not read host meminfo: {dataset_export.redact_text(str(error))}"],
+            error_code=HOST_RESOURCE_PREFLIGHT_UNAVAILABLE_ERROR_CODE,
+        )
+        return preflight
+
+    mem_total_bytes = meminfo_values.get("MemTotal", 0)
+    mem_available_bytes = meminfo_values.get("MemAvailable", 0)
+    swap_total_bytes = meminfo_values.get("SwapTotal", 0)
+    swap_free_bytes = meminfo_values.get("SwapFree", 0)
+    swap_used_bytes = max(0, swap_total_bytes - swap_free_bytes)
+    swap_used_ratio = ratio_or_none(swap_used_bytes, swap_total_bytes)
+    preflight["memory"] = {
+        "memTotalBytes": mem_total_bytes,
+        "memAvailableBytes": mem_available_bytes,
+    }
+    preflight["swap"] = {
+        "present": swap_total_bytes > 0,
+        "totalBytes": swap_total_bytes,
+        "freeBytes": swap_free_bytes,
+        "usedBytes": swap_used_bytes,
+        "usedRatio": swap_used_ratio,
+    }
+
+    reasons: list[str] = []
+    if swap_total_bytes > 0:
+        if swap_free_bytes < safe_min_swap_free_bytes:
+            reasons.append(
+                f"swap free {mib_string(swap_free_bytes)} is below required "
+                f"{mib_string(safe_min_swap_free_bytes)}"
+            )
+        if swap_used_ratio is not None and swap_used_ratio >= safe_max_swap_used_ratio:
+            reasons.append(
+                f"swap used ratio {swap_used_ratio:.3f} is at or above limit "
+                f"{safe_max_swap_used_ratio:.3f}"
+            )
+    if reasons:
+        preflight["ok"] = False
+        preflight["blocker"] = build_host_resource_preflight_blocker(
+            reasons=reasons,
+            error_code=HOST_SWAP_EXHAUSTED_ERROR_CODE,
+        )
+    return preflight
+
+
+def assert_local_training_host_resources_safe(
+    *,
+    simulator_runner: SimulatorRunner,
+    out_dir: Path,
+    meminfo_path: Path | None = None,
+    statvfs_reader: Callable[[Path], Any] | None = None,
+    min_swap_free_bytes: int = DEFAULT_MIN_SWAP_FREE_BYTES,
+    max_swap_used_ratio: float = DEFAULT_MAX_SWAP_USED_RATIO,
+) -> JsonObject | None:
+    if simulator_runner is not simulator_harness.run_simulator:
+        return None
+    preflight = collect_host_resource_preflight(
+        out_dir,
+        meminfo_path=meminfo_path,
+        statvfs_reader=statvfs_reader,
+        min_swap_free_bytes=min_swap_free_bytes,
+        max_swap_used_ratio=max_swap_used_ratio,
+    )
+    if preflight.get("ok") is not True:
+        raise HostResourcePreflightError(preflight)
+    return preflight
+
+
 def scalar_weighted_sum_authorized(raw: Any) -> bool:
     if not isinstance(raw, dict):
         return False
@@ -1134,6 +1370,10 @@ def run_training_experiment(
     simulator_runner: SimulatorRunner = simulator_harness.run_simulator,
     steam_key_env_file: Path | None = None,
     stdout: TextIO | None = None,
+    host_meminfo_path: Path | None = None,
+    host_statvfs_reader: Callable[[Path], Any] | None = None,
+    min_swap_free_bytes: int = DEFAULT_MIN_SWAP_FREE_BYTES,
+    max_swap_used_ratio: float = DEFAULT_MAX_SWAP_USED_RATIO,
 ) -> JsonObject:
     """Run all card variants through the simulator harness and write a JSON report."""
     card = load_experiment_card(card_path)
@@ -1146,8 +1386,16 @@ def run_training_experiment(
     reward_options = reward_options_from_card(card)
     resolved_report_id = report_id or default_report_id(card, variants, config)
     validate_report_id(resolved_report_id)
-    ensure_steam_key_for_training(simulator_runner=simulator_runner, env_file=steam_key_env_file)
     resolved_out_dir = out_dir.expanduser()
+    assert_local_training_host_resources_safe(
+        simulator_runner=simulator_runner,
+        out_dir=resolved_out_dir,
+        meminfo_path=host_meminfo_path,
+        statvfs_reader=host_statvfs_reader,
+        min_swap_free_bytes=min_swap_free_bytes,
+        max_swap_used_ratio=max_swap_used_ratio,
+    )
+    ensure_steam_key_for_training(simulator_runner=simulator_runner, env_file=steam_key_env_file)
     previous_gradient_momentum_state = load_policy_gradient_momentum_state(
         policy_gradient_metadata_from_card(card),
         resolved_out_dir,
@@ -8187,6 +8435,208 @@ def build_generation_summary(report: JsonObject) -> JsonObject:
     return summary
 
 
+def training_failure_classification(error: BaseException) -> str:
+    if isinstance(error, HostResourcePreflightError):
+        return "host_resource_preflight_failed"
+    if isinstance(error, (TrainingRunnerInterrupted, KeyboardInterrupt)):
+        return "interrupted"
+    if isinstance(error, TimeoutError):
+        return "timeout"
+    if isinstance(error, TrainingCardError):
+        return "card_validation_failed"
+    if isinstance(error, OSError):
+        return "io_error"
+    return "runner_failed"
+
+
+def training_failure_exit_code(error: BaseException) -> int:
+    if isinstance(error, TrainingRunnerInterrupted) and error.signum is not None:
+        return 128 + int(error.signum)
+    if isinstance(error, KeyboardInterrupt):
+        return 130
+    return 2
+
+
+def training_failure_report_context(
+    *,
+    card_path: Path,
+    report_id: str | None,
+    registry_path: Path | None,
+) -> JsonObject:
+    requested_report_id = text_or_none(report_id)
+    warnings: list[str] = []
+    resolved_report_id: str | None = None
+    artifact_stem: str | None = None
+    card_summary: JsonObject | None = None
+
+    if requested_report_id is not None:
+        try:
+            validate_report_id(requested_report_id)
+            resolved_report_id = requested_report_id
+            artifact_stem = requested_report_id
+        except TrainingCardError as error:
+            artifact_stem = safe_artifact_stem(requested_report_id)
+            warnings.append(f"requested report id was invalid: {dataset_export.redact_text(str(error))}")
+
+    try:
+        card = load_experiment_card(card_path)
+        card_summary = summarize_card(card, card_path)
+        if resolved_report_id is None and requested_report_id is None:
+            variants = load_strategy_variants(card, registry_path=registry_path)
+            variants = apply_policy_gradient_candidate_vectors_to_variants(card, variants)
+            config = simulation_config_from_card(card)
+            variants = expand_scale_environment_strategy_variants(variants, config.scale_environments)
+            resolved_report_id = default_report_id(card, variants, config)
+            artifact_stem = resolved_report_id
+    except Exception as error:  # noqa: BLE001 - failure reporting must survive context collection failures
+        warnings.append(f"training failure context was partial: {dataset_export.redact_text(str(error))}")
+
+    if artifact_stem is None:
+        seed = canonical_hash(
+            {
+                "cardPath": str(card_path),
+                "requestedReportId": requested_report_id,
+            }
+        )[:12]
+        artifact_stem = f"rl-training-failure-{seed}"
+
+    context: JsonObject = {
+        "artifactStem": safe_artifact_stem(artifact_stem),
+        "warnings": warnings,
+    }
+    if resolved_report_id is not None:
+        context["reportId"] = resolved_report_id
+    if requested_report_id is not None:
+        context["requestedReportId"] = requested_report_id
+    if card_summary is not None:
+        context["experimentCardSummary"] = card_summary
+    return context
+
+
+def build_training_failure_report(
+    *,
+    card_path: Path,
+    out_dir: Path,
+    report_id: str | None,
+    registry_path: Path | None,
+    error: BaseException,
+    failure_path: Path,
+    generated_at: str | None = None,
+    context: JsonObject | None = None,
+) -> JsonObject:
+    if context is None:
+        context = training_failure_report_context(
+            card_path=card_path,
+            report_id=report_id,
+            registry_path=registry_path,
+        )
+    resolved_report_id = text_or_none(context.get("reportId"))
+    requested_report_id = text_or_none(context.get("requestedReportId"))
+    classification = training_failure_classification(error)
+    error_text = dataset_export.redact_text(str(error) or type(error).__name__)
+    failure: JsonObject = {
+        "classification": classification,
+        "phase": classification,
+        "exceptionType": type(error).__name__,
+        "error": error_text,
+    }
+    if isinstance(error, HostResourcePreflightError):
+        failure["errorCode"] = error.error_code
+    if isinstance(error, TrainingRunnerInterrupted):
+        signal_name = signal_name_for_number(error.signum)
+        if error.signum is not None:
+            failure["signalNumber"] = error.signum
+        if signal_name is not None:
+            failure["signalName"] = signal_name
+
+    report: JsonObject = {
+        "type": FAILURE_REPORT_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "ok": False,
+        "status": "failed",
+        "trainingReportProduced": False,
+        "trainingReportType": REPORT_TYPE,
+        "generatedAt": generated_at or utc_now_iso(),
+        "cardPath": dataset_export.display_path(card_path),
+        "outDir": dataset_export.display_path(out_dir),
+        "failureArtifactPath": dataset_export.display_path(failure_path),
+        "failure": failure,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
+    if resolved_report_id is not None:
+        report["reportId"] = resolved_report_id
+        report["expectedReportPath"] = dataset_export.display_path(out_dir / f"{resolved_report_id}.json")
+    if requested_report_id is not None:
+        report["requestedReportId"] = requested_report_id
+    if isinstance(context.get("experimentCardSummary"), dict):
+        report["experimentCardSummary"] = copy.deepcopy(context["experimentCardSummary"])
+    if isinstance(error, HostResourcePreflightError):
+        report["hostResourcePreflight"] = copy.deepcopy(error.host_resource_preflight)
+    warnings = context.get("warnings")
+    if isinstance(warnings, list) and warnings:
+        report["warnings"] = copy.deepcopy(warnings)
+    return report
+
+
+def write_training_failure_report(
+    *,
+    card_path: Path,
+    out_dir: Path,
+    report_id: str | None,
+    registry_path: Path | None,
+    error: BaseException,
+) -> JsonObject:
+    resolved_out_dir = out_dir.expanduser()
+    context = training_failure_report_context(
+        card_path=card_path,
+        report_id=report_id,
+        registry_path=registry_path,
+    )
+    artifact_stem = text_or_none(context.get("artifactStem")) or "rl-training-failure"
+    failure_path = resolved_out_dir / f"{safe_artifact_stem(artifact_stem)}.failure.json"
+    report = build_training_failure_report(
+        card_path=card_path,
+        out_dir=resolved_out_dir,
+        report_id=report_id,
+        registry_path=registry_path,
+        error=error,
+        failure_path=failure_path,
+        context=context,
+    )
+    secret_values = dataset_export.configured_secret_values() + [os.environ.get("STEAM_KEY", "")]
+    assert_no_secret_leak(report, secret_values)
+    write_json_atomic(failure_path, report)
+    return report
+
+
+def raise_training_runner_interrupted(signum: int, _frame: Any) -> None:
+    raise TrainingRunnerInterrupted(signum)
+
+
+def install_training_signal_handlers() -> dict[int, Any]:
+    previous_handlers: dict[int, Any] = {}
+    for signum in (getattr(signal, "SIGTERM", None), getattr(signal, "SIGINT", None)):
+        if signum is None:
+            continue
+        try:
+            previous_handlers[int(signum)] = signal.getsignal(signum)
+            signal.signal(signum, raise_training_runner_interrupted)
+        except (OSError, RuntimeError, ValueError):
+            continue
+    return previous_handlers
+
+
+def restore_training_signal_handlers(previous_handlers: Mapping[int, Any]) -> None:
+    for signum, handler in previous_handlers.items():
+        try:
+            signal.signal(signum, handler)
+        except (OSError, RuntimeError, ValueError):
+            continue
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run offline Screeps RL strategy experiments through the private simulator harness.",
@@ -8225,6 +8675,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: TextIO = sys.stderr) -> int:
     args = build_parser().parse_args(argv)
+    previous_signal_handlers = install_training_signal_handlers()
     try:
         report = run_training_experiment(
             args.experiment_card,
@@ -8235,9 +8686,28 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: Tex
         )
         screeps_cli_io.write_json(stdout, report if args.print_report else build_generation_summary(report))
         return 0
-    except (RuntimeError, TrainingCardError, OSError) as error:
+    except (TrainingRunnerInterrupted, KeyboardInterrupt, Exception) as error:
         screeps_cli_io.write_text(stderr, f"error: {dataset_export.redact_text(str(error))}\n")
-        return 2
+        try:
+            failure_report = write_training_failure_report(
+                card_path=args.experiment_card,
+                out_dir=args.out_dir,
+                report_id=args.report_id,
+                registry_path=args.registry_path,
+                error=error,
+            )
+            failure_path = text_or_none(failure_report.get("failureArtifactPath"))
+            if failure_path is not None:
+                screeps_cli_io.write_text(stderr, f"failure-artifact: {failure_path}\n")
+        except Exception as artifact_error:  # noqa: BLE001 - preserve the original runner failure exit
+            screeps_cli_io.write_text(
+                stderr,
+                "failure-artifact-error: "
+                f"{dataset_export.redact_text(type(artifact_error).__name__ + ': ' + str(artifact_error))}\n",
+            )
+        return training_failure_exit_code(error)
+    finally:
+        restore_training_signal_handlers(previous_signal_handlers)
 
 
 if __name__ == "__main__":
