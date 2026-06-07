@@ -117,6 +117,7 @@ describe('runtime telemetry summaries', () => {
             productiveAssignmentCount: 1,
             unassignedWorkerCount: 1,
             idleReasonCounts: {
+              controller_upgrade_saturated_standby: 0,
               cpu_shed_assignment_skipped: 0,
               no_task_available: 0,
               role_body_unavailable: 0,
@@ -142,6 +143,8 @@ describe('runtime telemetry summaries', () => {
           taskCounts: {
             none: 1,
             harvest: 1,
+            pickup: 0,
+            withdraw: 0,
             transfer: 0,
             build: 0,
             repair: 0,
@@ -2012,6 +2015,7 @@ describe('runtime telemetry summaries', () => {
       productiveAssignmentCount: 0,
       unassignedWorkerCount: 1,
       idleReasonCounts: {
+        controller_upgrade_saturated_standby: 0,
         cpu_shed_assignment_skipped: 0,
         no_task_available: 0,
         role_body_unavailable: 0,
@@ -2127,6 +2131,52 @@ describe('runtime telemetry summaries', () => {
           carriedEnergy: 50,
           freeCapacity: 0,
           dispatchReason: 'no_selected_task_idle',
+          dispatchTick: RUNTIME_SUMMARY_INTERVAL
+        }
+      ]
+    });
+  });
+
+  it('reports controller-upgrade saturation standby as a guarded idle reason', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false
+    });
+    const idleWorker = makeWorker(
+      {
+        role: 'worker',
+        colony: 'W1N1',
+        workerDispatchDiagnostic: {
+          tick: RUNTIME_SUMMARY_INTERVAL,
+          reason: 'controller_upgrade_saturated_standby',
+          carriedEnergy: 0,
+          freeCapacity: 100
+        }
+      },
+      0,
+      'StandbyWorker'
+    );
+
+    emitRuntimeSummary([colony], [idleWorker]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.workerAssignmentEvidence).toMatchObject({
+      workerCount: 1,
+      assignedTaskCount: 0,
+      unassignedWorkerCount: 1,
+      idleReasonCounts: {
+        controller_upgrade_saturated_standby: 1,
+        no_task_available: 0,
+        task_assignment_not_observed: 0
+      },
+      idleWorkers: [
+        {
+          name: 'StandbyWorker',
+          reason: 'controller_upgrade_saturated_standby',
+          carriedEnergy: 0,
+          freeCapacity: 0,
+          dispatchReason: 'controller_upgrade_saturated_standby',
           dispatchTick: RUNTIME_SUMMARY_INTERVAL
         }
       ]
@@ -2252,10 +2302,12 @@ describe('runtime telemetry summaries', () => {
     expect(room.taskCounts).toMatchObject({
       build: 0,
       harvest: 0,
-      none: 3,
+      none: 1,
+      pickup: 1,
       repair: 0,
       transfer: 0,
-      upgrade: 0
+      upgrade: 0,
+      withdraw: 1
     });
     expect(room.workerAssignmentEvidence).toMatchObject({
       workerCount: 3,
@@ -2412,10 +2464,12 @@ describe('runtime telemetry summaries', () => {
     expect(room.taskCounts).toMatchObject({
       build: 0,
       harvest: 1,
-      none: 2,
+      none: 0,
+      pickup: 1,
       repair: 0,
       transfer: 1,
-      upgrade: 0
+      upgrade: 0,
+      withdraw: 1
     });
     expect(room.workerAssignmentEvidence).toMatchObject({
       workerCount: 4,
@@ -2569,10 +2623,11 @@ describe('runtime telemetry summaries', () => {
     expect(room.taskCounts).toMatchObject({
       build: 0,
       harvest: 0,
-      none: 1,
+      none: 0,
       repair: 0,
       transfer: 0,
-      upgrade: 0
+      upgrade: 0,
+      withdraw: 1
     });
     expect(room.workerAssignmentEvidence).toMatchObject({
       workerCount: 1,

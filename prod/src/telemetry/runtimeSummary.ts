@@ -117,7 +117,7 @@ const SPAWN_CRITICAL_REFILL_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 const OBSERVED_RAMPART_REPAIR_HITS_CEILING = 150_000;
 const TERRITORY_EXPANSION_PROGRESS_CPU_BUCKET_FLOOR = 500;
 
-const WORKER_TASK_TYPES = ['harvest', 'transfer', 'build', 'repair', 'upgrade'] as const;
+const WORKER_TASK_TYPES = ['harvest', 'pickup', 'withdraw', 'transfer', 'build', 'repair', 'upgrade'] as const;
 const PRODUCTIVE_WORKER_TASK_TYPES = ['build', 'repair', 'upgrade'] as const;
 const PRODUCTIVE_WORKER_ASSIGNMENT_TASK_TYPES = ['harvest', 'pickup', 'withdraw', 'transfer', 'build', 'repair', 'upgrade'] as const;
 const DEFAULT_EXTENSION_ENERGY_CAPACITY = 50;
@@ -146,6 +146,7 @@ type RuntimeConstructionActivityReason =
   | 'construction_site_progress_unavailable'
   | 'no_viable_candidate';
 type RuntimeWorkerIdleReason =
+  | 'controller_upgrade_saturated_standby'
   | 'cpu_shed_assignment_skipped'
   | 'no_task_available'
   | 'role_body_unavailable'
@@ -1355,6 +1356,7 @@ function summarizeWorkerIdleReasons(
 
 function createEmptyWorkerIdleReasonCounts(): RuntimeWorkerIdleReasonCounts {
   return {
+    controller_upgrade_saturated_standby: 0,
     cpu_shed_assignment_skipped: 0,
     no_task_available: 0,
     role_body_unavailable: 0,
@@ -1381,6 +1383,10 @@ function selectWorkerIdleReason(
   }
 
   const diagnostic = getCurrentWorkerDispatchDiagnostic(worker);
+  if (diagnostic?.reason === 'controller_upgrade_saturated_standby') {
+    return 'controller_upgrade_saturated_standby';
+  }
+
   if (diagnostic?.reason === 'no_selected_task_idle') {
     return 'no_task_available';
   }
@@ -2519,6 +2525,8 @@ function summarizeSpawn(spawn: StructureSpawn): RuntimeSpawnStatus {
 function countWorkerTasks(workers: Creep[]): WorkerTaskCounts {
   const counts: WorkerTaskCounts = {
     harvest: 0,
+    pickup: 0,
+    withdraw: 0,
     transfer: 0,
     build: 0,
     repair: 0,

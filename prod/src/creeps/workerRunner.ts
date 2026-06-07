@@ -341,6 +341,10 @@ function selectWorkerDispatchDiagnosticReason(
   }
 
   if (!selectedTask) {
+    if (!currentTask && hasCurrentControllerUpgradeSaturatedStandby(creep)) {
+      return 'controller_upgrade_saturated_standby';
+    }
+
     return currentTask ? 'selected_null_retained_current_task' : 'no_selected_task_idle';
   }
 
@@ -379,6 +383,15 @@ function selectWorkerDispatchDiagnosticReason(
   }
 
   return 'retained_current_task';
+}
+
+function hasCurrentControllerUpgradeSaturatedStandby(creep: Creep): boolean {
+  const standby = creep.memory?.workerTaskSelectionStandby;
+  return (
+    standby?.reason === 'controller_upgrade_saturated' &&
+    typeof standby.tick === 'number' &&
+    standby.tick === getGameTick()
+  );
 }
 
 function isSameOptionalTask(

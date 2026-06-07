@@ -4474,6 +4474,92 @@ describe('runWorker', () => {
     expect(workers.every((worker) => (worker.transfer as jest.Mock).mock.calls.length === 0)).toBe(true);
   });
 
+  it('reports saturated RCL4 controller upgrade standby instead of a generic no-task idle', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      progress: 58_331,
+      progressTotal: 405_000,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000,
+      pos: { x: 25, y: 25, roomName: 'E29N56' } as RoomPosition
+    } as StructureController;
+    const workers: Creep[] = [];
+    const room = {
+      name: 'E29N56',
+      energyAvailable: 1_000,
+      energyCapacityAvailable: 1_000,
+      controller,
+      find: jest.fn((type: number) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [];
+        }
+
+        if (type === FIND_MY_CREEPS) {
+          return workers;
+        }
+
+        if (type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES) {
+          return [];
+        }
+
+        if (type === FIND_SOURCES || type === FIND_DROPPED_RESOURCES) {
+          return [];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const makeLoadedUpgrader = (index: number): Creep =>
+      ({
+        name: `worker-E29N56-upgrader-${index}`,
+        memory: {
+          role: 'worker',
+          colony: 'E29N56',
+          task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+        },
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(50),
+          getFreeCapacity: jest.fn().mockReturnValue(50),
+          getCapacity: jest.fn().mockReturnValue(100)
+        },
+        room
+      }) as unknown as Creep;
+    const standbyWorker = {
+      name: 'worker-E29N56-standby',
+      memory: { role: 'worker', colony: 'E29N56' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(100),
+        getCapacity: jest.fn().mockReturnValue(100)
+      },
+      room,
+      harvest: jest.fn(),
+      withdraw: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    workers.push(makeLoadedUpgrader(1), makeLoadedUpgrader(2), standbyWorker);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 1_912_315,
+      creeps: Object.fromEntries(workers.map((worker) => [worker.name, worker])),
+      getObjectById: jest.fn((id: string) => (id === 'controller1' ? controller : null))
+    };
+
+    runWorker(standbyWorker);
+
+    expect(standbyWorker.memory.task).toBeUndefined();
+    expect(standbyWorker.memory.workerDispatchDiagnostic).toMatchObject({
+      reason: 'controller_upgrade_saturated_standby',
+      carriedEnergy: 0,
+      freeCapacity: 100
+    });
+    expect(standbyWorker.memory.workerTaskSelectionStandby).toMatchObject({
+      reason: 'controller_upgrade_saturated',
+      controllerId: 'controller1',
+      tick: 1_912_315
+    });
+  });
+
   it('bounds healthy E29N55 RCL3 routine repair saturation after construction clears', () => {
     const controller = {
       id: 'controller1',

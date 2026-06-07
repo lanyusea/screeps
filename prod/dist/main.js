@@ -27452,6 +27452,7 @@ function selectHeuristicWorkerTask(creep) {
     }
     if (getFreeEnergyCapacity9(creep) > 0) {
       if (shouldStandbySurplusWorkerInsteadOfAcquiring(creep, creep.room.controller)) {
+        recordControllerUpgradeSaturatedStandbyTelemetry(creep, creep.room.controller);
         return null;
       }
       const upgraderBoostEnergyAcquisitionTask = selectUpgraderBoostEnergyAcquisitionTask(creep, creep.room.controller);
@@ -28602,7 +28603,23 @@ function clearWorkerTaskSelectionTelemetry(creep) {
   if (memory) {
     delete memory.workerEfficiency;
     delete memory.spawnCriticalRefill;
+    delete memory.workerTaskSelectionStandby;
   }
+}
+function recordControllerUpgradeSaturatedStandbyTelemetry(creep, controller) {
+  var _a2;
+  if (isWorkerTaskSelectionTelemetrySuppressed()) {
+    return;
+  }
+  const memory = creep.memory;
+  if (!memory) {
+    return;
+  }
+  memory.workerTaskSelectionStandby = {
+    reason: "controller_upgrade_saturated",
+    tick: (_a2 = getGameTick3()) != null ? _a2 : 0,
+    ...controller ? { controllerId: String(controller.id) } : {}
+  };
 }
 function recordSpawnCriticalRefillTelemetry(creep, spawn) {
   var _a2, _b;
@@ -34006,6 +34023,9 @@ function selectWorkerDispatchDiagnosticReason(creep, context, assignedTask) {
     return "preempted_for_new_task";
   }
   if (!selectedTask) {
+    if (!currentTask && hasCurrentControllerUpgradeSaturatedStandby(creep)) {
+      return "controller_upgrade_saturated_standby";
+    }
     return currentTask ? "selected_null_retained_current_task" : "no_selected_task_idle";
   }
   if (!currentTask) {
@@ -34033,6 +34053,11 @@ function selectWorkerDispatchDiagnosticReason(creep, context, assignedTask) {
     return "retained_upgrade_task";
   }
   return "retained_current_task";
+}
+function hasCurrentControllerUpgradeSaturatedStandby(creep) {
+  var _a2;
+  const standby = (_a2 = creep.memory) == null ? void 0 : _a2.workerTaskSelectionStandby;
+  return (standby == null ? void 0 : standby.reason) === "controller_upgrade_saturated" && typeof standby.tick === "number" && standby.tick === getGameTick4();
 }
 function isSameOptionalTask(left, right) {
   return left !== null && right !== null && isSameTask2(left, right);
@@ -41078,7 +41103,7 @@ var REFILL_DELIVERY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 var SPAWN_CRITICAL_REFILL_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 var OBSERVED_RAMPART_REPAIR_HITS_CEILING = 15e4;
 var TERRITORY_EXPANSION_PROGRESS_CPU_BUCKET_FLOOR = 500;
-var WORKER_TASK_TYPES = ["harvest", "transfer", "build", "repair", "upgrade"];
+var WORKER_TASK_TYPES = ["harvest", "pickup", "withdraw", "transfer", "build", "repair", "upgrade"];
 var PRODUCTIVE_WORKER_TASK_TYPES = ["build", "repair", "upgrade"];
 var PRODUCTIVE_WORKER_ASSIGNMENT_TASK_TYPES = ["harvest", "pickup", "withdraw", "transfer", "build", "repair", "upgrade"];
 var DEFAULT_EXTENSION_ENERGY_CAPACITY = 50;
@@ -41355,6 +41380,7 @@ function summarizeWorkerIdleReasons(workers, cpuBudget) {
 }
 function createEmptyWorkerIdleReasonCounts() {
   return {
+    controller_upgrade_saturated_standby: 0,
     cpu_shed_assignment_skipped: 0,
     no_task_available: 0,
     role_body_unavailable: 0,
@@ -41374,6 +41400,9 @@ function selectWorkerIdleReason(worker, cpuBudget) {
     return "role_body_unavailable";
   }
   const diagnostic = getCurrentWorkerDispatchDiagnostic(worker);
+  if ((diagnostic == null ? void 0 : diagnostic.reason) === "controller_upgrade_saturated_standby") {
+    return "controller_upgrade_saturated_standby";
+  }
   if ((diagnostic == null ? void 0 : diagnostic.reason) === "no_selected_task_idle") {
     return "no_task_available";
   }
@@ -42147,6 +42176,8 @@ function countWorkerTasks(workers) {
   var _a2;
   const counts = {
     harvest: 0,
+    pickup: 0,
+    withdraw: 0,
     transfer: 0,
     build: 0,
     repair: 0,
