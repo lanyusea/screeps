@@ -28293,7 +28293,24 @@ function selectBootstrapSurvivalSpendingTask(creep, controller, constructionSite
   if (throughputRecoveryConstructionSite) {
     return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: throughputRecoveryConstructionSite.id });
   }
+  const postConstructionControllerProgressTask = selectBootstrapPostConstructionControllerProgressTask(
+    creep,
+    controller,
+    constructionSites
+  );
+  if (postConstructionControllerProgressTask) {
+    return applyMinimumUsefulLoadPolicy(creep, postConstructionControllerProgressTask);
+  }
   return null;
+}
+function selectBootstrapPostConstructionControllerProgressTask(creep, controller, constructionSites) {
+  if (constructionSites.length > 0 || !isWorkerInColonyRoom(creep) || hasVisibleHostilePresence3(creep.room) || (controller == null ? void 0 : controller.my) !== true || !canUpgradeController(controller)) {
+    return null;
+  }
+  if (getUsedEnergy2(creep) <= 0 && !hasRecoverableSurplusEnergy(creep) && !hasFullRoomEnergyForControllerProgress(creep.room)) {
+    return null;
+  }
+  return { type: "upgrade", targetId: controller.id };
 }
 function selectBootstrapSurvivalConstructionSite(creep, constructionSites, constructionReservationContext) {
   if (getUsedEnergy2(creep) <= 0 || hasOtherSameRoomLoadedBuildWorker(creep)) {
