@@ -1872,7 +1872,42 @@ function selectBootstrapSurvivalSpendingTask(
     return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: throughputRecoveryConstructionSite.id });
   }
 
+  const postConstructionControllerProgressTask = selectBootstrapPostConstructionControllerProgressTask(
+    creep,
+    controller,
+    constructionSites
+  );
+  if (postConstructionControllerProgressTask) {
+    return applyMinimumUsefulLoadPolicy(creep, postConstructionControllerProgressTask);
+  }
+
   return null;
+}
+
+function selectBootstrapPostConstructionControllerProgressTask(
+  creep: Creep,
+  controller: StructureController | undefined,
+  constructionSites: ConstructionSite[]
+): Extract<CreepTaskMemory, { type: 'upgrade' }> | null {
+  if (
+    constructionSites.length > 0 ||
+    !isWorkerInColonyRoom(creep) ||
+    hasVisibleHostilePresence(creep.room) ||
+    controller?.my !== true ||
+    !canUpgradeController(controller)
+  ) {
+    return null;
+  }
+
+  if (
+    getUsedEnergy(creep) <= 0 &&
+    !hasRecoverableSurplusEnergy(creep) &&
+    !hasFullRoomEnergyForControllerProgress(creep.room)
+  ) {
+    return null;
+  }
+
+  return { type: 'upgrade', targetId: controller.id };
 }
 
 function selectBootstrapSurvivalConstructionSite(
