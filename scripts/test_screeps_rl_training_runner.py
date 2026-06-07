@@ -1588,6 +1588,56 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertEqual(report["reportId"], "safe-swap-preflight")
         self.assertEqual(len(simulator.calls), 1)
 
+    def test_host_resource_preflight_records_disk_error_when_statvfs_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            meminfo_path = root / "meminfo"
+            write_meminfo(meminfo_path, swap_total_mib=2048, swap_free_mib=1536)
+
+            with mock.patch.object(runner.os, "statvfs", None, create=True):
+                preflight = runner.collect_host_resource_preflight(
+                    root / "reports",
+                    meminfo_path=meminfo_path,
+                )
+
+        self.assertTrue(preflight["ok"])
+        self.assertEqual(preflight["disk"]["error"], "host statvfs unavailable")
+        self.assertEqual(preflight["swap"]["freeBytes"], 1536 * 1024 * 1024)
+
+    def test_host_resource_preflight_skips_default_missing_meminfo(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            missing_meminfo_path = root / "missing-meminfo"
+
+            with mock.patch.object(runner, "DEFAULT_HOST_MEMINFO_PATH", missing_meminfo_path):
+                preflight = runner.collect_host_resource_preflight(
+                    root / "reports",
+                    statvfs_reader=fake_statvfs_result(free_mib=4096),
+                )
+
+        self.assertTrue(preflight["ok"])
+        self.assertNotIn("blocker", preflight)
+        self.assertNotIn("swap", preflight)
+        self.assertTrue(any("skipping swap checks" in warning for warning in preflight["warnings"]))
+
+    def test_host_resource_preflight_blocks_explicit_missing_meminfo(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            missing_meminfo_path = root / "missing-meminfo"
+
+            preflight = runner.collect_host_resource_preflight(
+                root / "reports",
+                meminfo_path=missing_meminfo_path,
+                statvfs_reader=fake_statvfs_result(free_mib=4096),
+            )
+
+        self.assertFalse(preflight["ok"])
+        self.assertEqual(
+            preflight["blocker"]["errorCode"],
+            runner.HOST_RESOURCE_PREFLIGHT_UNAVAILABLE_ERROR_CODE,
+        )
+        self.assertIn("could not read host meminfo", preflight["blocker"]["message"])
+
     def test_host_resource_preflight_blocks_low_free_high_used_swap_before_launch(self) -> None:
         simulator = MockSimulator({
             "baseline": variant_result("baseline", []),
@@ -1645,7 +1695,12 @@ class RlTrainingRunnerTest(unittest.TestCase):
 
             with (
                 mock.patch.object(runner, "DEFAULT_HOST_MEMINFO_PATH", meminfo_path),
-                mock.patch.object(runner.os, "statvfs", side_effect=fake_statvfs_result(free_mib=4096)),
+                mock.patch.object(
+                    runner.os,
+                    "statvfs",
+                    side_effect=fake_statvfs_result(free_mib=4096),
+                    create=True,
+                ),
                 mock.patch.object(
                     runner,
                     "ensure_steam_key_for_training",

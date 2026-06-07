@@ -1149,12 +1149,15 @@ def statvfs_probe_path(path: Path) -> Path:
     return target
 
 
-def collect_disk_preflight(path: Path, statvfs_reader: Callable[[Path], Any]) -> JsonObject:
+def collect_disk_preflight(path: Path, statvfs_reader: Callable[[Path], Any] | None) -> JsonObject:
     checked_path = statvfs_probe_path(path)
     disk: JsonObject = {
         "path": dataset_export.display_path(path),
         "checkedPath": dataset_export.display_path(checked_path),
     }
+    if statvfs_reader is None:
+        disk["error"] = "host statvfs unavailable"
+        return disk
     try:
         stat = statvfs_reader(checked_path)
         fragment_size = int(getattr(stat, "f_frsize", 0) or getattr(stat, "f_bsize", 0) or 0)
@@ -1191,7 +1194,9 @@ def collect_host_resource_preflight(
     max_swap_used_ratio: float = DEFAULT_MAX_SWAP_USED_RATIO,
 ) -> JsonObject:
     resolved_meminfo_path = meminfo_path or DEFAULT_HOST_MEMINFO_PATH
-    resolved_statvfs_reader = statvfs_reader or os.statvfs
+    resolved_statvfs_reader = (
+        statvfs_reader if statvfs_reader is not None else getattr(os, "statvfs", None)
+    )
     safe_min_swap_free_bytes = sanitized_min_swap_free_bytes(min_swap_free_bytes)
     safe_max_swap_used_ratio = sanitized_max_swap_used_ratio(max_swap_used_ratio)
     preflight: JsonObject = {
@@ -1209,6 +1214,14 @@ def collect_host_resource_preflight(
     try:
         meminfo_values = host_resource_bytes_from_meminfo(resolved_meminfo_path.read_text(encoding="utf-8"))
     except OSError as error:
+        if meminfo_path is None and isinstance(error, FileNotFoundError):
+            preflight["warnings"] = [
+                (
+                    f"default host meminfo {dataset_export.display_path(resolved_meminfo_path)} is unavailable; "
+                    "skipping swap checks"
+                )
+            ]
+            return preflight
         preflight["ok"] = False
         preflight["blocker"] = build_host_resource_preflight_blocker(
             reasons=[f"could not read host meminfo: {dataset_export.redact_text(str(error))}"],
