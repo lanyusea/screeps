@@ -1012,6 +1012,92 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         )
         self.assertTrue(report["silent"])
 
+    def test_energy_buffer_unhealthy_alerts_alive_room_without_room_dead_escalation(self) -> None:
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "worker-1": {
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "name": "worker-1",
+                    "x": 23,
+                    "y": 25,
+                },
+            }
+        )
+        runtime_room = {
+            "roomName": "E26S49",
+            "energyBufferHealth": {"currentEnergy": 250, "threshold": 300, "healthy": False},
+            "taskCounts": {"harvest": 1, "upgrade": 1, "build": 1, "transfer": 1},
+        }
+        previous = {"baseline_established": True, "owner": "owner"}
+
+        first_emitted, first_suppressed, first_state = monitor.evaluate_room_alert(
+            snapshot,
+            previous,
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+        self.assertEqual(first_emitted, [])
+        self.assertEqual(first_suppressed, [])
+        self.assertEqual(first_state["rule_counts"][monitor.ENERGY_BUFFER_UNHEALTHY_KIND], 1)
+
+        second_emitted, second_suppressed, second_state = monitor.evaluate_room_alert(
+            snapshot,
+            first_state,
+            now=200,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual([reason["kind"] for reason in second_emitted], [monitor.ENERGY_BUFFER_UNHEALTHY_KIND])
+        self.assertEqual(second_suppressed, [])
+        self.assertEqual(second_state["rule_counts"][monitor.ENERGY_BUFFER_UNHEALTHY_KIND], 2)
+        reason = second_emitted[0]
+        self.assertEqual(reason["priority"], "P1")
+        self.assertEqual(reason["current_energy"], 250)
+        self.assertEqual(reason["energy_buffer_threshold"], 300)
+        self.assertEqual(reason["build"], 1)
+        self.assertEqual(reason["upgrade"], 1)
+        self.assertEqual(reason["metadata"]["metric"], "energyBufferHealth")
+        self.assertEqual(reason["metadata"]["thresholds"], {"P1_consecutive_captures": 2})
+
+        alert_payload = {
+            "ok": True,
+            "mode": "alert",
+            "alert": True,
+            "reasons": second_emitted,
+            "rooms": ["shardX/E26S49"],
+            "room_summaries": [monitor.room_summary(snapshot)],
+        }
+        report = monitor.build_tactical_response_report(alert_payload)
+
+        self.assertTrue(report["emergency"])
+        self.assertFalse(report["silent"])
+        self.assertEqual(report["severity"], "high")
+        self.assertEqual(report["priority"], "P1")
+        self.assertEqual(report["categories"], [monitor.ENERGY_BUFFER_UNHEALTHY_KIND])
+        self.assertNotIn("room_dead", report["categories"])
+        self.assertNotIn("spawn_collapse", report["categories"])
+        self.assertEqual(report["triggers"][0]["decision"], "open_issue_or_codex_hotfix")
+        self.assertEqual(report["triggers"][0]["priority"], "P1")
+        self.assertEqual(report["triggers"][0]["metadata"]["metric"], "energyBufferHealth")
+        self.assertIn("inspect_energy_buffer", {action["id"] for action in report["next_actions"]})
+        self.assertNotIn("start_autonomous_recovery", {action["id"] for action in report["next_actions"]})
+        self.assertFalse(
+            any("owner_action" in str(action.get("decision", "")) for action in report["next_actions"])
+        )
+
     def test_energy_buffer_unhealthy_single_capture_reason_is_non_actionable(self) -> None:
         report = monitor.build_tactical_response_report(
             {

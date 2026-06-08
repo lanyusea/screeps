@@ -462,10 +462,12 @@ TACTICAL_CATEGORY_RULES: dict[str, dict[str, Any]] = {
     },
     "energy_buffer_unhealthy": {
         "severity": "high",
-        "decision": "metric_taxonomy_and_reward_decision_followup",
-        "actions": ["capture_runtime_context", "inspect_resource_state", "open_incident_issue"],
+        "decision": "open_issue_or_codex_hotfix",
+        "actions": ["capture_runtime_context", "inspect_energy_buffer", "open_incident_issue"],
         "metadata": {
+            "metric": "energyBufferHealth",
             "related_issues": ["#906", "#907"],
+            "thresholds": {"P1_consecutive_captures": ENERGY_BUFFER_UNHEALTHY_REQUIRED_CONSECUTIVE},
             "routes_to": ENERGY_BUFFER_UNHEALTHY_ROUTES,
         },
     },
@@ -608,6 +610,11 @@ TACTICAL_ACTION_CATALOG: dict[str, dict[str, Any]] = {
         "owner": "main-agent",
         "action": "Check available energy, worker carry, dropped energy, sources, spawn queue, and whether the bot can recover harvesting without owner action.",
         "decision": "owner_action_or_hotfix",
+    },
+    "inspect_energy_buffer": {
+        "owner": "main-agent",
+        "action": "Check energyBufferHealth evidence, room energy reserves, spawn refill demand, worker assignments, and whether a Codex hotfix or incident issue is needed.",
+        "decision": "open_issue_or_codex_hotfix",
     },
     "inspect_private_smoke_report": {
         "owner": "main-agent",
@@ -1447,7 +1454,9 @@ def runtime_energy_at_risk(room: dict[str, Any]) -> tuple[bool, int | float | No
 
 def energy_buffer_route_metadata() -> dict[str, Any]:
     return {
+        "metric": "energyBufferHealth",
         "related_issues": [str(route["issue"]) for route in ENERGY_BUFFER_UNHEALTHY_ROUTES],
+        "thresholds": {"P1_consecutive_captures": ENERGY_BUFFER_UNHEALTHY_REQUIRED_CONSECUTIVE},
         "routes_to": [dict(route) for route in ENERGY_BUFFER_UNHEALTHY_ROUTES],
     }
 
@@ -1660,6 +1669,7 @@ def build_energy_buffer_unhealthy_reason(
         "upgrade": upgrade_count,
         "task_counts": dict(as_dict(room.get("taskCounts"))),
         "energy_buffer_health": dict(buffer_health),
+        "energy_buffer_healthy": buffer_health.get("healthy"),
         "current_energy": current_energy,
         "threshold": threshold,
         "energy_buffer_threshold": threshold,
@@ -1675,6 +1685,16 @@ def build_energy_buffer_unhealthy_reason(
     }
 
 
+def energy_buffer_health_collapsed(buffer_health: dict[str, Any]) -> bool:
+    if buffer_health.get("healthy") is not False:
+        return False
+    current_energy = number_value(buffer_health.get("currentEnergy"))
+    threshold = number_value(buffer_health.get("threshold"))
+    if current_energy is None or threshold is None:
+        return True
+    return current_energy < threshold
+
+
 def detect_energy_buffer_unhealthy_reason(
     ref: RoomRef,
     runtime_room: dict[str, Any] | None,
@@ -1684,13 +1704,11 @@ def detect_energy_buffer_unhealthy_reason(
         return None
 
     buffer_health = as_dict(runtime_room.get("energyBufferHealth"))
-    if buffer_health.get("healthy") is not False:
+    if not energy_buffer_health_collapsed(buffer_health):
         return None
 
     build_count = runtime_task_count(runtime_room, "build")
     upgrade_count = runtime_task_count(runtime_room, "upgrade")
-    if build_count != 0 or upgrade_count != 0:
-        return None
 
     return build_energy_buffer_unhealthy_reason(
         ref,
@@ -3193,19 +3211,7 @@ def energy_buffer_unhealthy_reason_is_actionable(reason: dict[str, Any]) -> bool
         return True
     consecutive = number_from_reason(reason, "consecutive", "consecutive_captures", "consecutiveCaptures") or 0
     buffer_health = as_dict(reason.get("energy_buffer_health")) or as_dict(reason.get("energyBufferHealth"))
-    task_counts = as_dict(reason.get("task_counts")) or as_dict(reason.get("taskCounts"))
-    build_count = number_value(reason.get("build"))
-    if build_count is None:
-        build_count = number_value(task_counts.get("build"))
-    upgrade_count = number_value(reason.get("upgrade"))
-    if upgrade_count is None:
-        upgrade_count = number_value(task_counts.get("upgrade"))
-    return (
-        consecutive >= ENERGY_BUFFER_UNHEALTHY_REQUIRED_CONSECUTIVE
-        and buffer_health.get("healthy") is False
-        and build_count == 0
-        and upgrade_count == 0
-    )
+    return consecutive >= ENERGY_BUFFER_UNHEALTHY_REQUIRED_CONSECUTIVE and energy_buffer_health_collapsed(buffer_health)
 
 
 def copy_tactical_metadata(value: Any) -> Any:
@@ -7715,7 +7721,7 @@ def command_self_test(_args: argparse.Namespace) -> int:
                 "roomName": "E1N1",
                 "energyAvailable": 250,
                 "energyCapacity": 300,
-                "energyBufferHealth": {"currentEnergy": 250, "threshold": 300, "healthy": False},
+                "energyBufferHealth": {"currentEnergy": 300, "threshold": 300, "healthy": True},
                 "workerCount": 2,
                 "spawnStatus": [{"name": "Spawn1", "status": "idle"}],
                 "taskCounts": {"harvest": 0, "upgrade": 0, "transfer": 0, "build": 1, "repair": 0, "none": 2},
