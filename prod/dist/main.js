@@ -32295,10 +32295,16 @@ function hasNonControllerWorkerEnergyDemand(creep) {
   return selectCriticalInfrastructureRepairTarget(creep) !== null || selectRepairTarget(creep) !== null || selectRoutineBarrierMaintenanceRepairTarget(creep) !== null;
 }
 function hasPostConstructionControllerUpgradeEnergy(creep, controller) {
-  return isLowRclControllerProgressTarget(controller) && !hasVisibleHostilePresence3(creep.room) && !hasVisibleOwnedConstructionDemand(creep.room) && (findWorkerEnergyAcquisitionCandidates(creep).length > 0 || hasFullRoomEnergyForControllerProgress(creep.room));
+  return isPostConstructionControllerProgressTarget(controller) && !hasVisibleHostilePresence3(creep.room) && !hasVisibleOwnedConstructionDemand(creep.room) && hasPostConstructionControllerProgressEnergyRoute(creep);
 }
-function isLowRclControllerProgressTarget(controller) {
-  return canLevelUpController2(controller) && controller.level >= 2 && controller.level <= 3;
+function isPostConstructionControllerProgressTarget(controller) {
+  return canLevelUpController2(controller) && controller.level >= 2;
+}
+function hasPostConstructionControllerProgressEnergyRoute(creep) {
+  if (findWorkerEnergyAcquisitionCandidates(creep).length > 0) {
+    return true;
+  }
+  return hasFullRoomEnergyForControllerProgress(creep.room) && selectHarvestSource(creep) !== null;
 }
 function isControllerUpgradeSaturated(creep, controller, options = {}) {
   if (controller.my !== true || shouldGuardControllerDowngrade2(controller)) {

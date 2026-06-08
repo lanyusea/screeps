@@ -15462,6 +15462,39 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toBeNull();
   });
 
+  it('lets a full-buffer RCL4 secondary-room surplus worker harvest after construction clears', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const source = makeSource('source1', 20, 20, 'E29N56');
+    const room = makeWorkerTaskRoom({
+      name: 'E29N56',
+      controller,
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300,
+      sources: [source]
+    });
+    const creep = {
+      name: 'SurplusWorker',
+      memory: { role: 'worker', colony: 'E29N56' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({
+      Upgrader: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }),
+      SurplusWorker: creep
+    });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(creep.memory.workerTaskSelectionStandby).toBeUndefined();
+  });
+
   it('withdraws stored energy for post-construction RCL2 controller progress when one worker is already upgrading', () => {
     const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 4_399, {
       my: true

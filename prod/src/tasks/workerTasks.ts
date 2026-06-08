@@ -8337,16 +8337,23 @@ function hasNonControllerWorkerEnergyDemand(creep: Creep): boolean {
 
 function hasPostConstructionControllerUpgradeEnergy(creep: Creep, controller: StructureController): boolean {
   return (
-    isLowRclControllerProgressTarget(controller) &&
+    isPostConstructionControllerProgressTarget(controller) &&
     !hasVisibleHostilePresence(creep.room) &&
     !hasVisibleOwnedConstructionDemand(creep.room) &&
-    (findWorkerEnergyAcquisitionCandidates(creep).length > 0 ||
-      hasFullRoomEnergyForControllerProgress(creep.room))
+    hasPostConstructionControllerProgressEnergyRoute(creep)
   );
 }
 
-function isLowRclControllerProgressTarget(controller: StructureController): boolean {
-  return canLevelUpController(controller) && controller.level >= 2 && controller.level <= 3;
+function isPostConstructionControllerProgressTarget(controller: StructureController): boolean {
+  return canLevelUpController(controller) && controller.level >= 2;
+}
+
+function hasPostConstructionControllerProgressEnergyRoute(creep: Creep): boolean {
+  if (findWorkerEnergyAcquisitionCandidates(creep).length > 0) {
+    return true;
+  }
+
+  return hasFullRoomEnergyForControllerProgress(creep.room) && selectHarvestSource(creep) !== null;
 }
 
 function isControllerUpgradeSaturated(
