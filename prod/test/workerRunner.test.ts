@@ -4560,6 +4560,100 @@ describe('runWorker', () => {
     });
   });
 
+  it('routes full-buffer E29N56 saturated surplus workers to harvest instead of standby', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      progress: 58_331,
+      progressTotal: 405_000,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000,
+      pos: { x: 25, y: 25, roomName: 'E29N56' } as RoomPosition
+    } as StructureController;
+    const source = {
+      id: 'source1',
+      energy: 3_000,
+      pos: { x: 20, y: 20, roomName: 'E29N56' } as RoomPosition
+    } as Source;
+    const workers: Creep[] = [];
+    const room = {
+      name: 'E29N56',
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300,
+      controller,
+      find: jest.fn((type: number) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [];
+        }
+
+        if (type === FIND_MY_CREEPS) {
+          return workers;
+        }
+
+        if (type === FIND_SOURCES) {
+          return [source];
+        }
+
+        if (type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES || type === FIND_DROPPED_RESOURCES) {
+          return [];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const upgrader = {
+      name: 'worker-E29N56-upgrader',
+      memory: {
+        role: 'worker',
+        colony: 'E29N56',
+        task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+    const surplusWorker = {
+      name: 'worker-E29N56-surplus',
+      memory: { role: 'worker', colony: 'E29N56' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(100),
+        getCapacity: jest.fn().mockReturnValue(100)
+      },
+      room,
+      harvest: jest.fn().mockReturnValue(ERR_NOT_IN_RANGE),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    workers.push(upgrader, surplusWorker);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 1_919_363,
+      creeps: Object.fromEntries(workers.map((worker) => [worker.name, worker])),
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'source1') {
+          return source;
+        }
+
+        return id === 'controller1' ? controller : null;
+      })
+    };
+
+    runWorker(surplusWorker);
+
+    expect(surplusWorker.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(surplusWorker.memory.workerTaskSelectionStandby).toBeUndefined();
+    expect(surplusWorker.memory.workerDispatchDiagnostic).toMatchObject({
+      reason: 'assigned_selected_task',
+      selectedTask: 'harvest',
+      selectedTargetId: 'source1',
+      assignedTask: 'harvest',
+      assignedTargetId: 'source1'
+    });
+    expect(surplusWorker.harvest).toHaveBeenCalledWith(source);
+    expect(surplusWorker.moveTo).toHaveBeenCalledWith(source, { range: 1 });
+  });
+
   it('bounds healthy E29N55 RCL3 routine repair saturation after construction clears', () => {
     const controller = {
       id: 'controller1',
