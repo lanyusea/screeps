@@ -87,6 +87,12 @@ def quota_from_payload(used_percent: float, reset_at: datetime) -> guard.QuotaRe
 
 
 class CodexQuotaBudgetGuardTests(unittest.TestCase):
+    def test_parse_timestamp_rejects_out_of_range_numeric_epoch(self) -> None:
+        self.assertIsNone(guard.parse_timestamp(10**20))
+
+    def test_parse_timestamp_rejects_out_of_range_numeric_string_epoch(self) -> None:
+        self.assertIsNone(guard.parse_timestamp(str(10**20)))
+
     def test_healthy_quota_allows_all_jobs(self) -> None:
         result = guard.evaluate_budget(expected_jobs(), quota_from_payload(used_percent=50.0, reset_at=RESET_FUTURE), now=NOW)
 

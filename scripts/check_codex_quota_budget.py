@@ -73,13 +73,16 @@ def parse_timestamp(value: Any) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, (int, float)) and math.isfinite(float(value)):
-        return datetime.fromtimestamp(float(value), timezone.utc)
+        try:
+            return datetime.fromtimestamp(float(value), timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
     text = str(value).strip()
     if not text:
         return None
     try:
         return datetime.fromtimestamp(float(text), timezone.utc)
-    except ValueError:
+    except (OverflowError, OSError, ValueError):
         pass
     try:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
