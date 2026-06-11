@@ -661,14 +661,14 @@ describe('owned room construction planner', () => {
     expect(room.createConstructionSite.mock.calls[0][2]).toBe(STRUCTURE_CONTAINER);
   });
 
-  it('places source containers on source-adjacent road overlays', () => {
+  it('places source containers on rampart overlays while roads block source-adjacent tiles', () => {
     installOpenTerrain();
     const source = makeSource('source-a', 20, 10);
+    const rampartOffset = [-1, 0] as const;
     const roadOffsets = [
       [-1, -1],
       [0, -1],
       [1, -1],
-      [-1, 0],
       [1, 0],
       [-1, 1],
       [0, 1],
@@ -684,6 +684,12 @@ describe('owned room construction planner', () => {
         ),
         ...roadOffsets.map(([dx, dy], index) =>
           makeStructure(`source-road-${index}`, TEST_GLOBALS.STRUCTURE_ROAD, source.pos.x + dx, source.pos.y + dy)
+        ),
+        makeStructure(
+          'source-rampart',
+          TEST_GLOBALS.STRUCTURE_RAMPART,
+          source.pos.x + rampartOffset[0],
+          source.pos.y + rampartOffset[1]
         )
       ],
       sources: [source],
@@ -697,7 +703,7 @@ describe('owned room construction planner', () => {
 
     expect(result.placements.map((placement) => placement.priority)).toEqual(['container']);
     expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
-    expect(room.createConstructionSite).toHaveBeenCalledWith(19, 9, STRUCTURE_CONTAINER);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(19, 10, STRUCTURE_CONTAINER);
   });
 
   it('creates harvest-to-spawn road sites before extensions when off-route road backlog exists during starvation', () => {

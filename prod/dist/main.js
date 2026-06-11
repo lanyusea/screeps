@@ -12902,11 +12902,11 @@ function planSourceContainerConstruction(colony, options = {}) {
     }
     const result = room.createConstructionSite(position.x, position.y, getContainerStructureType());
     results.push(result);
+    lookups.blockingPositions.add(getPositionKey6(position));
     if (result !== getOkCode3()) {
       break;
     }
     lookups.pendingContainerPositions.push(position);
-    lookups.blockingPositions.add(getPositionKey6(position));
   }
   return results;
 }
@@ -13124,7 +13124,7 @@ function createSourceContainerPlannerLookups(room, sources) {
   return lookups;
 }
 function isSourceContainerPlacementBlockingStructure(structure) {
-  return !matchesStructureType10(structure.structureType, "STRUCTURE_ROAD", "road") && !matchesStructureType10(structure.structureType, "STRUCTURE_RAMPART", "rampart");
+  return !matchesStructureType10(structure.structureType, "STRUCTURE_RAMPART", "rampart");
 }
 function addBlockingPosition(lookups, position) {
   if (position) {
@@ -16881,9 +16881,10 @@ function planSourceContainerConstruction2(colony, options = {}) {
       continue;
     }
     const result = room.createConstructionSite(position.x, position.y, getContainerStructureType3());
+    const positionKey = getPositionKey2(position);
+    lookups.blockedPositions.add(positionKey);
     if (result === getOkCode6()) {
-      lookups.blockedPositions.add(getPositionKey2(position));
-      lookups.pendingContainerPositions.add(getPositionKey2(position));
+      lookups.pendingContainerPositions.add(positionKey);
     }
     return result;
   }
@@ -16932,7 +16933,7 @@ function createSourceContainerPlannerLookups2(room) {
   return lookups;
 }
 function isSourceContainerPlacementBlockingStructure2(structure) {
-  return structure.structureType !== getRoadStructureType2() && structure.structureType !== getRampartStructureType();
+  return structure.structureType !== getRampartStructureType();
 }
 function getSortedSources4(room) {
   return room.find(FIND_SOURCES).filter((source) => {
@@ -17017,10 +17018,6 @@ function isContainerConstructionSite2(site) {
 function getContainerStructureType3() {
   var _a2;
   return (_a2 = globalThis.STRUCTURE_CONTAINER) != null ? _a2 : "container";
-}
-function getRoadStructureType2() {
-  var _a2;
-  return (_a2 = globalThis.STRUCTURE_ROAD) != null ? _a2 : "road";
 }
 function getRampartStructureType() {
   var _a2;

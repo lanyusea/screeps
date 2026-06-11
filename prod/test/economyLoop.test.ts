@@ -2162,7 +2162,7 @@ describe('runEconomy', () => {
     );
   });
 
-  it('seeds a source-container candidate over roaded source tiles during low-bucket recovery', () => {
+  it('seeds a source-container candidate on a rampart opening around roaded source tiles during low-bucket recovery', () => {
     installRecoveryConstructionSeedGlobals();
     const { room, spawn } = makeRecoveryConstructionSeedRoom('E29N55', {
       controllerLevel: 6,
@@ -2195,7 +2195,7 @@ describe('runEconomy', () => {
     const summary = runEconomy();
 
     expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
-    expect(room.createConstructionSite).toHaveBeenCalledWith(11, 11, STRUCTURE_CONTAINER);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(10, 11, STRUCTURE_CONTAINER);
     expect(summary?.events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -5249,25 +5249,28 @@ function makeRecoveryConstructionSeedRoom(
       }) as StructureExtension
   );
   const sourceAdjacentRoads = options.roadedSourceAdjacency === true
-    ? Array.from({ length: 8 }, (_value, index) => {
-        const offsets = [
-          [-1, -1],
-          [0, -1],
-          [1, -1],
-          [-1, 0],
-          [1, 0],
-          [-1, 1],
-          [0, 1],
-          [1, 1]
-        ] as const;
-        const [dx, dy] = offsets[index];
-        return {
-          id: `${roomName}-source-road-${index}`,
-          structureType: 'road',
-          pos: { x: source.pos.x + dx, y: source.pos.y + dy, roomName } as RoomPosition
-        } as StructureRoad;
-      })
+    ? getSourceAdjacentOffsets()
+        .filter(([dx, dy]) => dx !== 0 || dy !== 1)
+        .map(([dx, dy], index) => {
+          return {
+            id: `${roomName}-source-road-${index}`,
+            structureType: 'road',
+            pos: { x: source.pos.x + dx, y: source.pos.y + dy, roomName } as RoomPosition
+          } as StructureRoad;
+        })
     : [];
+  const sourceAdjacentRamparts = options.roadedSourceAdjacency === true
+    ? (() => {
+        const [dx, dy] = [0, 1] as const;
+        return {
+          id: `${roomName}-source-rampart`,
+          structureType: 'rampart',
+          pos: { x: source.pos.x + dx, y: source.pos.y + dy, roomName } as RoomPosition
+        } as StructureRampart;
+      })()
+    : null;
+  const sourceAdjacentStructures =
+    sourceAdjacentRamparts === null ? sourceAdjacentRoads : [...sourceAdjacentRoads, sourceAdjacentRamparts];
   const room = {
     name: roomName,
     energyAvailable: options.energyAvailable ?? 800,
@@ -5286,7 +5289,7 @@ function makeRecoveryConstructionSeedRoom(
         type === FIND_SOURCES
           ? [source]
           : type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES
-            ? ([spawn as unknown as AnyOwnedStructure, ...extensions, ...sourceAdjacentRoads] as unknown[])
+            ? ([spawn as unknown as AnyOwnedStructure, ...extensions, ...sourceAdjacentStructures] as unknown[])
             : type === FIND_MY_CONSTRUCTION_SITES || type === FIND_CONSTRUCTION_SITES
               ? constructionSites
               : [];
@@ -5314,6 +5317,19 @@ function makeRecoveryConstructionSeedRoom(
   } as unknown as StructureSpawn;
 
   return { room, spawn };
+}
+
+function getSourceAdjacentOffsets(): ReadonlyArray<readonly [number, number]> {
+  return [
+    [-1, -1],
+    [0, -1],
+    [1, -1],
+    [-1, 0],
+    [1, 0],
+    [-1, 1],
+    [0, 1],
+    [1, 1]
+  ] as const;
 }
 
 function makeClaimedSpawnlessEconomyRoom({

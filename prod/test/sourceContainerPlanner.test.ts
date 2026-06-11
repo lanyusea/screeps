@@ -9,6 +9,8 @@ describe('source container planner', () => {
     (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 2;
     (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 3;
     (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
+    (globalThis as unknown as { STRUCTURE_ROAD: StructureConstant }).STRUCTURE_ROAD = 'road';
     (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
     (globalThis as unknown as { OK: ScreepsReturnCode }).OK = OK_CODE;
   });
@@ -44,6 +46,34 @@ describe('source container planner', () => {
     expect(planSourceContainerConstruction(colony)).toBeNull();
 
     expect(room.createConstructionSite).not.toHaveBeenCalled();
+  });
+
+  it('treats source-adjacent roads as blocking while allowing rampart overlays', () => {
+    const source = makeSource('source1', 10, 10);
+    const rampartOffset = [-1, 0] as const;
+    const roadOffsets = [
+      [-1, -1],
+      [0, -1],
+      [1, -1],
+      [1, 0],
+      [-1, 1],
+      [0, 1],
+      [1, 1]
+    ] as const;
+    const { room, colony } = makeColony({
+      sources: [source],
+      structures: [
+        ...roadOffsets.map(([dx, dy], index) =>
+          makeStructure(`source-road-${index}`, 'road', source.pos.x + dx, source.pos.y + dy)
+        ),
+        makeStructure('source-rampart', 'rampart', source.pos.x + rampartOffset[0], source.pos.y + rampartOffset[1])
+      ]
+    });
+
+    expect(planSourceContainerConstruction(colony)).toBe(OK_CODE);
+
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(9, 10, STRUCTURE_CONTAINER);
   });
 });
 

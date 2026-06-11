@@ -881,12 +881,12 @@ export function planSourceContainerConstruction(
 
     const result = room.createConstructionSite(position.x, position.y, getContainerStructureType());
     results.push(result);
+    lookups.blockingPositions.add(getPositionKey(position));
     if (result !== getOkCode()) {
       break;
     }
 
     lookups.pendingContainerPositions.push(position);
-    lookups.blockingPositions.add(getPositionKey(position));
   }
 
   return results;
@@ -1225,10 +1225,7 @@ function createSourceContainerPlannerLookups(
 }
 
 function isSourceContainerPlacementBlockingStructure(structure: Structure): boolean {
-  return (
-    !matchesStructureType(structure.structureType, 'STRUCTURE_ROAD', 'road') &&
-    !matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart')
-  );
+  return !matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart');
 }
 
 function addBlockingPosition(

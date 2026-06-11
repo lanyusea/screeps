@@ -59,9 +59,10 @@ export function planSourceContainerConstruction(
     }
 
     const result = room.createConstructionSite(position.x, position.y, getContainerStructureType());
+    const positionKey = getPositionKey(position);
+    lookups.blockedPositions.add(positionKey);
     if (result === getOkCode()) {
-      lookups.blockedPositions.add(getPositionKey(position));
-      lookups.pendingContainerPositions.add(getPositionKey(position));
+      lookups.pendingContainerPositions.add(positionKey);
     }
 
     return result;
@@ -121,10 +122,7 @@ function createSourceContainerPlannerLookups(room: Room): SourceContainerPlanner
 }
 
 function isSourceContainerPlacementBlockingStructure(structure: Structure): boolean {
-  return (
-    structure.structureType !== getRoadStructureType() &&
-    structure.structureType !== getRampartStructureType()
-  );
+  return structure.structureType !== getRampartStructureType();
 }
 
 function getSortedSources(room: Room): Source[] {
@@ -249,11 +247,6 @@ function isContainerConstructionSite(site: ConstructionSite): boolean {
 function getContainerStructureType(): BuildableStructureConstant {
   return ((globalThis as unknown as { STRUCTURE_CONTAINER?: StructureConstant }).STRUCTURE_CONTAINER ??
     'container') as BuildableStructureConstant;
-}
-
-function getRoadStructureType(): StructureConstant {
-  return ((globalThis as unknown as { STRUCTURE_ROAD?: StructureConstant }).STRUCTURE_ROAD ??
-    'road') as StructureConstant;
 }
 
 function getRampartStructureType(): StructureConstant {
