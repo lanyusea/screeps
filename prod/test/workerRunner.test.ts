@@ -617,6 +617,91 @@ describe('runWorker', () => {
     expect(repair).not.toHaveBeenCalled();
   });
 
+  it('keeps near-floor rampart repair during storage-critical hysteresis when carrying repair energy', () => {
+    const rampart = {
+      id: 'rampart-alert',
+      structureType: 'rampart',
+      my: true,
+      hits: BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING - 1,
+      hitsMax: 30_000_000
+    } as StructureRampart;
+    const storage = {
+      id: 'storage1',
+      structureType: 'storage',
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(500 + WORKER_ENERGY_CRITICAL_STORAGE_EXIT_MARGIN - 1),
+        getFreeCapacity: jest.fn().mockReturnValue(100_000)
+      }
+    } as unknown as StructureStorage;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 100
+    } as StructureController;
+    const room = {
+      name: 'E29N55',
+      controller,
+      energyAvailable: WORKER_ENERGY_CRITICAL_SPAWN_EXIT_THRESHOLD,
+      energyCapacityAvailable: 2_300,
+      storage,
+      find: jest.fn((type: number) => (type === FIND_STRUCTURES ? [rampart, storage] : []))
+    } as unknown as Room;
+    const repair = jest.fn().mockReturnValue(0);
+    const transfer = jest.fn();
+    const creep = {
+      name: 'RampartRepairer',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'repair', targetId: 'rampart-alert' as Id<Structure> },
+        workerEnergyCriticalPolicy: {
+          type: 'workerEnergyCriticalPolicy',
+          schemaVersion: 1,
+          active: true,
+          reason: 'storage',
+          enteredAt: 700,
+          updatedAt: 700,
+          storageEnergy: 499,
+          storageEnterThreshold: 500,
+          storageExitThreshold: 500 + WORKER_ENERGY_CRITICAL_STORAGE_EXIT_MARGIN
+        }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(100),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      repair,
+      transfer,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { RampartRepairer: creep },
+      time: 701,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 62,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById: jest.fn((id: string) =>
+        id === 'rampart-alert' ? rampart : id === 'storage1' ? storage : null
+      ) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'repair', targetId: 'rampart-alert' });
+    expect(creep.memory.workerEnergyCriticalPolicy).toMatchObject({
+      active: true,
+      reason: 'storage',
+      storageEnergy: 500 + WORKER_ENERGY_CRITICAL_STORAGE_EXIT_MARGIN - 1
+    });
+    expect(repair).toHaveBeenCalledWith(rampart);
+    expect(transfer).not.toHaveBeenCalled();
+  });
+
   it.each(['claim', 'reserve'] as const)(
     'drops a retained visible %s task under critical CPU when the home room fails the territory gate',
     (action) => {
