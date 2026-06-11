@@ -122,7 +122,15 @@ function createSourceContainerPlannerLookups(room: Room): SourceContainerPlanner
 }
 
 function isSourceContainerPlacementBlockingStructure(structure: Structure): boolean {
-  return structure.structureType !== getRampartStructureType();
+  if (structure.structureType !== getRampartStructureType()) {
+    return true;
+  }
+
+  return !isOwnedSourceContainerPlacementRampart(structure);
+}
+
+function isOwnedSourceContainerPlacementRampart(structure: Structure): structure is StructureRampart {
+  return (structure as Partial<StructureRampart>).my === true;
 }
 
 function getSortedSources(room: Room): Source[] {

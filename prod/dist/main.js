@@ -13124,7 +13124,13 @@ function createSourceContainerPlannerLookups(room, sources) {
   return lookups;
 }
 function isSourceContainerPlacementBlockingStructure(structure) {
-  return !matchesStructureType10(structure.structureType, "STRUCTURE_RAMPART", "rampart");
+  if (!matchesStructureType10(structure.structureType, "STRUCTURE_RAMPART", "rampart")) {
+    return true;
+  }
+  return !isOwnedSourceContainerPlacementRampart(structure);
+}
+function isOwnedSourceContainerPlacementRampart(structure) {
+  return structure.my === true;
 }
 function addBlockingPosition(lookups, position) {
   if (position) {
@@ -16933,7 +16939,13 @@ function createSourceContainerPlannerLookups2(room) {
   return lookups;
 }
 function isSourceContainerPlacementBlockingStructure2(structure) {
-  return structure.structureType !== getRampartStructureType();
+  if (structure.structureType !== getRampartStructureType()) {
+    return true;
+  }
+  return !isOwnedSourceContainerPlacementRampart2(structure);
+}
+function isOwnedSourceContainerPlacementRampart2(structure) {
+  return structure.my === true;
 }
 function getSortedSources4(room) {
   return room.find(FIND_SOURCES).filter((source) => {

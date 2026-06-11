@@ -1225,7 +1225,15 @@ function createSourceContainerPlannerLookups(
 }
 
 function isSourceContainerPlacementBlockingStructure(structure: Structure): boolean {
-  return !matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart');
+  if (!matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart')) {
+    return true;
+  }
+
+  return !isOwnedSourceContainerPlacementRampart(structure);
+}
+
+function isOwnedSourceContainerPlacementRampart(structure: Structure): structure is StructureRampart {
+  return (structure as Partial<StructureRampart>).my === true;
 }
 
 function addBlockingPosition(

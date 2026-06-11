@@ -48,7 +48,7 @@ describe('source container planner', () => {
     expect(room.createConstructionSite).not.toHaveBeenCalled();
   });
 
-  it('treats source-adjacent roads as blocking while allowing rampart overlays', () => {
+  it('treats source-adjacent roads as blocking while allowing owned rampart overlays', () => {
     const source = makeSource('source1', 10, 10);
     const rampartOffset = [-1, 0] as const;
     const roadOffsets = [
@@ -66,7 +66,13 @@ describe('source container planner', () => {
         ...roadOffsets.map(([dx, dy], index) =>
           makeStructure(`source-road-${index}`, 'road', source.pos.x + dx, source.pos.y + dy)
         ),
-        makeStructure('source-rampart', 'rampart', source.pos.x + rampartOffset[0], source.pos.y + rampartOffset[1])
+        makeStructure(
+          'source-rampart',
+          'rampart',
+          source.pos.x + rampartOffset[0],
+          source.pos.y + rampartOffset[1],
+          true
+        )
       ]
     });
 
@@ -74,6 +80,33 @@ describe('source container planner', () => {
 
     expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
     expect(room.createConstructionSite).toHaveBeenCalledWith(9, 10, STRUCTURE_CONTAINER);
+  });
+
+  it('keeps foreign ramparts blocking source-container placement', () => {
+    const source = makeSource('source1', 10, 10);
+    const roadOffsets = [
+      [-1, -1],
+      [1, -1],
+      [1, 0],
+      [-1, 1],
+      [0, 1],
+      [1, 1]
+    ] as const;
+    const { room, colony } = makeColony({
+      sources: [source],
+      structures: [
+        ...roadOffsets.map(([dx, dy], index) =>
+          makeStructure(`source-road-${index}`, 'road', source.pos.x + dx, source.pos.y + dy)
+        ),
+        makeStructure('foreign-rampart', 'rampart', source.pos.x - 1, source.pos.y, false),
+        makeStructure('owned-rampart', 'rampart', source.pos.x, source.pos.y - 1, true)
+      ]
+    });
+
+    expect(planSourceContainerConstruction(colony)).toBe(OK_CODE);
+
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(10, 9, STRUCTURE_CONTAINER);
   });
 });
 
@@ -140,10 +173,17 @@ function makeSource(id: string, x: number, y: number): Source {
   } as unknown as Source;
 }
 
-function makeStructure(id: string, structureType: StructureConstant, x: number, y: number): AnyStructure {
+function makeStructure(
+  id: string,
+  structureType: StructureConstant,
+  x: number,
+  y: number,
+  my?: boolean
+): AnyStructure {
   return {
     id,
     structureType,
+    ...(my === undefined ? {} : { my }),
     pos: { x, y, roomName: 'W1N1' } as RoomPosition
   } as unknown as AnyStructure;
 }

@@ -5265,6 +5265,7 @@ function makeRecoveryConstructionSeedRoom(
         return {
           id: `${roomName}-source-rampart`,
           structureType: 'rampart',
+          my: true,
           pos: { x: source.pos.x + dx, y: source.pos.y + dy, roomName } as RoomPosition
         } as StructureRampart;
       })()

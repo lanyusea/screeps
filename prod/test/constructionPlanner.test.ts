@@ -661,13 +661,13 @@ describe('owned room construction planner', () => {
     expect(room.createConstructionSite.mock.calls[0][2]).toBe(STRUCTURE_CONTAINER);
   });
 
-  it('places source containers on rampart overlays while roads block source-adjacent tiles', () => {
+  it('skips foreign ramparts while placing source containers on owned rampart overlays', () => {
     installOpenTerrain();
     const source = makeSource('source-a', 20, 10);
-    const rampartOffset = [-1, 0] as const;
+    const ownedRampartOffset = [0, -1] as const;
+    const foreignRampartOffset = [-1, 0] as const;
     const roadOffsets = [
       [-1, -1],
-      [0, -1],
       [1, -1],
       [1, 0],
       [-1, 1],
@@ -686,10 +686,18 @@ describe('owned room construction planner', () => {
           makeStructure(`source-road-${index}`, TEST_GLOBALS.STRUCTURE_ROAD, source.pos.x + dx, source.pos.y + dy)
         ),
         makeStructure(
-          'source-rampart',
+          'foreign-source-rampart',
           TEST_GLOBALS.STRUCTURE_RAMPART,
-          source.pos.x + rampartOffset[0],
-          source.pos.y + rampartOffset[1]
+          source.pos.x + foreignRampartOffset[0],
+          source.pos.y + foreignRampartOffset[1],
+          false
+        ),
+        makeStructure(
+          'owned-source-rampart',
+          TEST_GLOBALS.STRUCTURE_RAMPART,
+          source.pos.x + ownedRampartOffset[0],
+          source.pos.y + ownedRampartOffset[1],
+          true
         )
       ],
       sources: [source],
@@ -703,7 +711,7 @@ describe('owned room construction planner', () => {
 
     expect(result.placements.map((placement) => placement.priority)).toEqual(['container']);
     expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
-    expect(room.createConstructionSite).toHaveBeenCalledWith(19, 10, STRUCTURE_CONTAINER);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(20, 9, STRUCTURE_CONTAINER);
   });
 
   it('creates harvest-to-spawn road sites before extensions when off-route road backlog exists during starvation', () => {
@@ -1158,10 +1166,17 @@ function makeSource(id: string, x: number, y: number, roomName = 'W1N1'): Source
   } as unknown as Source;
 }
 
-function makeStructure(id: string, structureType: StructureConstant, x: number, y: number): Structure {
+function makeStructure(
+  id: string,
+  structureType: StructureConstant,
+  x: number,
+  y: number,
+  my?: boolean
+): Structure {
   return {
     id,
     structureType,
+    ...(my === undefined ? {} : { my }),
     pos: makeRoomPosition(x, y)
   } as unknown as Structure;
 }
