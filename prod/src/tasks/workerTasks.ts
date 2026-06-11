@@ -82,7 +82,11 @@ import {
 import { SOURCE_HARVESTER_ROLE } from '../creeps/sourceHarvester';
 import { recordWorkerTaskBehaviorTrace } from '../rl/workerTaskBehavior';
 import { selectWorkerTaskWithBcFallback } from '../rl/workerTaskPolicy';
-import { getRuntimeCpuBudget, shouldShedNonessentialCpuWork } from '../runtime/cpuBudget';
+import {
+  getRuntimeCpuBudget,
+  shouldRunConstructionCpuWork,
+  shouldShedNonessentialCpuWork
+} from '../runtime/cpuBudget';
 import { selectSeasonScoreCollectionTask } from '../season/scoreCollection';
 
 // Low-downgrade safety floor: enough buffer for worker travel/recovery without treating healthy controllers as urgent.
@@ -324,6 +328,14 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   const cpuBudget = getRuntimeCpuBudget();
   if (shouldShedNonessentialCpuWork(cpuBudget) && !hasActiveTerritoryControlAssignment(creep)) {
     const criticalTask = withWorkerTaskSelectionTelemetrySuppressed(true, () => selectCriticalCpuWorkerTask(creep));
+    if (!criticalTask && shouldRunConstructionCpuWork(cpuBudget)) {
+      const constructionTask = withWorkerTaskSelectionTelemetrySuppressed(true, () =>
+        selectConstructionRecoveryCpuWorkerTask(creep)
+      );
+      clearWorkerTaskShadowTelemetry(creep);
+      return constructionTask;
+    }
+
     clearWorkerTaskShadowTelemetry(creep);
     return criticalTask;
   }
@@ -443,6 +455,40 @@ function selectCriticalCpuWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   return null;
+}
+
+function selectConstructionRecoveryCpuWorkerTask(creep: Creep): CreepTaskMemory | null {
+  if (getUsedEnergy(creep) <= 0) {
+    return (
+      selectStoredProtectedSourceContainerConstructionEnergyAcquisitionTask(creep) ??
+      selectConstructionBacklogEnergyAcquisitionTask(creep)
+    );
+  }
+
+  const constructionSites = findConstructionSites(creep.room);
+  if (constructionSites.length === 0) {
+    return null;
+  }
+
+  const constructionReservationContext = createConstructionReservationContext(creep.room);
+  const storedProtectedConstructionTask = selectStoredProtectedSourceContainerConstructionTask(
+    creep,
+    constructionSites,
+    constructionReservationContext
+  );
+  if (storedProtectedConstructionTask) {
+    return applyMinimumUsefulLoadPolicy(creep, storedProtectedConstructionTask);
+  }
+
+  const constructionSite = selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    (site) => canSpendWorkerEnergyOnConstructionSite(creep, site)
+  );
+  return constructionSite
+    ? applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: constructionSite.id })
+    : null;
 }
 
 function selectStoredProtectedSourceContainerConstructionTask(

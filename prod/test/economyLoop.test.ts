@@ -2218,14 +2218,14 @@ describe('runEconomy', () => {
       Worker3: makeEconomyWorker(room)
     };
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
-      time: 252,
+      time: 2_043_977,
       rooms: { E29N55: room },
       spawns: { Spawn2: spawn },
       creeps: workers,
       cpu: {
-        getUsed: jest.fn().mockReturnValue(70.1),
+        getUsed: jest.fn().mockReturnValue(82.2544263),
         limit: 70,
-        bucket: 1_844,
+        bucket: 1_849,
         tickLimit: 500
       } as unknown as CPU,
       map: {

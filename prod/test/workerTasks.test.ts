@@ -14636,6 +14636,53 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'container-site1' });
   });
 
+  it('keeps construction build enabled during near-corridor over-limit recovery', () => {
+    const site = {
+      id: 'rampart-site1',
+      my: true,
+      structureType: 'rampart',
+      progress: 0,
+      progressTotal: 1_000,
+      pos: makeRoomPosition(24, 24, 'E29N56')
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N56',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 800,
+      energyCapacityAvailable: 1_300
+    });
+    const creep = {
+      name: 'RecoveryBuilder',
+      memory: { role: 'worker', colony: 'E29N56' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ RecoveryBuilder: creep });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      ...(globalThis as unknown as { Game: Partial<Game> }).Game,
+      time: 2_043_977,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(82.2544263),
+        limit: 70,
+        bucket: 1_849,
+        tickLimit: 500
+      } as unknown as CPU
+    };
+
+    expect(canSpendWorkerEnergyOnConstructionSite(creep, site)).toBe(true);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'rampart-site1' });
+  });
+
   it('refills an empty E29N57 source-container builder during low-bucket shedding when stored energy protects recovery', () => {
     const source = makeSource('source1', 20, 20, 'E29N57');
     const site = {
