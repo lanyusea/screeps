@@ -731,6 +731,40 @@ describe('owned room construction planner', () => {
     expect(room.createConstructionSite).not.toHaveBeenCalled();
   });
 
+  it('seeds one stored-backed construction site when spawn energy buffer blocks normal reservations', () => {
+    installOpenTerrain();
+    const { room, colony } = makeColony({
+      controllerLevel: 5,
+      energyAvailable: 250,
+      energyCapacityAvailable: 1_800,
+      structures: [
+        ...Array.from({ length: 30 }, (_, index) =>
+          makeStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 20 + index, 30)
+        ),
+        makeStructure('tower-existing', TEST_GLOBALS.STRUCTURE_TOWER, 24, 24),
+        makeStoredStructure('storage-existing', TEST_GLOBALS.STRUCTURE_STORAGE, 25, 26, 2_000)
+      ],
+      sources: [],
+      pathsByTarget: {}
+    });
+
+    const result = planConstructionForColony(colony, { respectRoomEnergyBuffer: true });
+
+    expect(result.placements).toEqual([
+      {
+        priority: 'rampart',
+        roomName: 'W1N1',
+        structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+        result: OK_CODE,
+        energyReserved: 50,
+        x: 10,
+        y: 10
+      }
+    ]);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(10, 10, TEST_GLOBALS.STRUCTURE_RAMPART);
+  });
+
   it('respects CONTROLLER_STRUCTURES counts before calling lower-level planners', () => {
     const controllerStructures = makeControllerStructures();
     controllerStructures.extension[2] = 1;
@@ -1084,6 +1118,23 @@ function makeStructure(id: string, structureType: StructureConstant, x: number, 
     id,
     structureType,
     pos: makeRoomPosition(x, y)
+  } as unknown as Structure;
+}
+
+function makeStoredStructure(
+  id: string,
+  structureType: StructureConstant,
+  x: number,
+  y: number,
+  energy: number
+): Structure {
+  return {
+    id,
+    structureType,
+    pos: makeRoomPosition(x, y),
+    store: {
+      getUsedCapacity: jest.fn().mockReturnValue(energy)
+    }
   } as unknown as Structure;
 }
 
