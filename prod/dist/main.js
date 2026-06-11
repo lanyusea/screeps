@@ -15162,23 +15162,59 @@ function selectResidualRoadSeedPositionNearAnchor(lookups, anchor, roomName, min
     maximumRadius === void 0 ? Number.MAX_SAFE_INTEGER : Math.max(0, Math.floor(maximumRadius))
   );
   for (let radius = firstRadius; radius <= lastRadius; radius += 1) {
-    const top = Math.max(ROOM_EDGE_MIN8, anchor.y - radius);
-    const left = Math.max(ROOM_EDGE_MIN8, anchor.x - radius);
-    const bottom = Math.min(ROOM_EDGE_MAX8, anchor.y + radius);
-    const right = Math.min(ROOM_EDGE_MAX8, anchor.x + radius);
-    for (let y = top; y <= bottom; y += 1) {
-      for (let x = left; x <= right; x += 1) {
-        if (Math.max(Math.abs(x - anchor.x), Math.abs(y - anchor.y)) !== radius) {
-          continue;
-        }
-        const position = { x, y, roomName };
-        if (canPlaceResidualRoadSeed(lookups, position)) {
-          return position;
-        }
-      }
+    const position = selectResidualRoadSeedPositionInRadiusShell(lookups, anchor, roomName, radius);
+    if (position) {
+      return position;
     }
   }
   return null;
+}
+function selectResidualRoadSeedPositionInRadiusShell(lookups, anchor, roomName, radius) {
+  const top = anchor.y - radius;
+  const left = anchor.x - radius;
+  const bottom = anchor.y + radius;
+  const right = anchor.x + radius;
+  const clippedLeft = Math.max(ROOM_EDGE_MIN8, left);
+  const clippedRight = Math.min(ROOM_EDGE_MAX8, right);
+  if (top >= ROOM_EDGE_MIN8 && top <= ROOM_EDGE_MAX8) {
+    const position = selectResidualRoadSeedPositionInRow(lookups, roomName, top, clippedLeft, clippedRight);
+    if (position) {
+      return position;
+    }
+  }
+  const sideTop = Math.max(ROOM_EDGE_MIN8, top + 1);
+  const sideBottom = Math.min(ROOM_EDGE_MAX8, bottom - 1);
+  for (let y = sideTop; y <= sideBottom; y += 1) {
+    if (left >= ROOM_EDGE_MIN8 && left <= ROOM_EDGE_MAX8) {
+      const position = selectResidualRoadSeedCandidate(lookups, roomName, left, y);
+      if (position) {
+        return position;
+      }
+    }
+    if (right >= ROOM_EDGE_MIN8 && right <= ROOM_EDGE_MAX8 && right !== left) {
+      const position = selectResidualRoadSeedCandidate(lookups, roomName, right, y);
+      if (position) {
+        return position;
+      }
+    }
+  }
+  if (bottom >= ROOM_EDGE_MIN8 && bottom <= ROOM_EDGE_MAX8 && bottom !== top) {
+    return selectResidualRoadSeedPositionInRow(lookups, roomName, bottom, clippedLeft, clippedRight);
+  }
+  return null;
+}
+function selectResidualRoadSeedPositionInRow(lookups, roomName, y, left, right) {
+  for (let x = left; x <= right; x += 1) {
+    const position = selectResidualRoadSeedCandidate(lookups, roomName, x, y);
+    if (position) {
+      return position;
+    }
+  }
+  return null;
+}
+function selectResidualRoadSeedCandidate(lookups, roomName, x, y) {
+  const position = { x, y, roomName };
+  return canPlaceResidualRoadSeed(lookups, position) ? position : null;
 }
 function getMaximumResidualRoadSeedScanRadius(anchor) {
   return Math.max(
