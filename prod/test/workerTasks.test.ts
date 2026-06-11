@@ -9718,6 +9718,51 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-near-floor' });
   });
 
+  it('spends low carried energy on defense-floor rampart repair before construction recovery', () => {
+    const site = { id: 'wall-site1', my: true, structureType: 'constructedWall' } as ConstructionSite;
+    const source = makeSource('source1', 20, 20, 'E29N55');
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const rampart = makeStructure(
+      'rampart-defense-floor',
+      'rampart' as StructureConstant,
+      BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING - 1,
+      30_000_000,
+      { my: true }
+    );
+    const room = makeWorkerTaskRoom({
+      name: 'E29N55',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 550,
+      energyCapacityAvailable: 2_300,
+      myStructures: [fullSpawn as AnyOwnedStructure],
+      sources: [source],
+      structures: [rampart]
+    });
+    const creep = {
+      name: 'LowLoadBuilder',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'harvest', targetId: 'source1' as Id<Source> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(4),
+        getFreeCapacity: jest.fn().mockReturnValue(96)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ LowLoadBuilder: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-defense-floor' });
+  });
+
   it('keeps normal construction ahead of non-emergency rampart maintenance', () => {
     const site = { id: 'wall-site1', my: true, structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
@@ -17288,6 +17333,46 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectActiveRampartRepairEnergyAcquisitionTask(creep)).toBeNull();
+  });
+
+  it('acquires energy for defense-floor rampart repair while construction sites remain', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const extensionSite = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const source = makeSource('source1', 20, 20, 'E29N55');
+    const rampart = makeStructure(
+      'rampart-defense-floor',
+      'rampart' as StructureConstant,
+      BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING - 1,
+      300_000,
+      { my: true }
+    );
+    const creep = {
+      name: 'EmptyRepairer',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: makeWorkerTaskRoom({
+        name: 'E29N55',
+        constructionSites: [extensionSite],
+        controller,
+        energyAvailable: 550,
+        energyCapacityAvailable: 550,
+        sources: [source],
+        structures: [rampart]
+      })
+    } as unknown as Creep;
+
+    expect(selectActiveRampartRepairEnergyAcquisitionTask(creep)).toEqual({
+      type: 'harvest',
+      targetId: 'source1'
+    });
   });
 
   it('repairs bootstrap-gated active ramparts before controller boost work', () => {
