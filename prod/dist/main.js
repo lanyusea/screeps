@@ -34272,11 +34272,17 @@ function isWorkerAssignmentGapRecoverySelection(creep, currentTask, selectedTask
   if (!currentTask && !selectedTask) {
     return true;
   }
+  if (getRuntimeCpuBudget().critical && ((currentTask == null ? void 0 : currentTask.type) === "repair" || (selectedTask == null ? void 0 : selectedTask.type) === "repair")) {
+    return false;
+  }
   const allowUpgradeRecovery = !isControllerDowngradeGuardActive2(creep.room);
-  return isWorkerAssignmentGapRecoveryTask(currentTask, allowUpgradeRecovery) && isWorkerAssignmentGapRecoveryTask(selectedTask, allowUpgradeRecovery);
+  return isWorkerAssignmentGapRecoveryTask(creep, currentTask, allowUpgradeRecovery, { allowRepair: true }) && isWorkerAssignmentGapRecoveryTask(creep, selectedTask, allowUpgradeRecovery);
 }
-function isWorkerAssignmentGapRecoveryTask(task, allowUpgradeRecovery) {
-  return task === void 0 || task === null || isEnergyAcquisitionTask2(task) || task.type === "transfer" || allowUpgradeRecovery && task.type === "upgrade";
+function isWorkerAssignmentGapRecoveryTask(creep, task, allowUpgradeRecovery, options = {}) {
+  return task === void 0 || task === null || isEnergyAcquisitionTask2(task) || task.type === "transfer" || options.allowRepair === true && isWorkerAssignmentGapRecoveryRepairTask(creep, task) || allowUpgradeRecovery && task.type === "upgrade";
+}
+function isWorkerAssignmentGapRecoveryRepairTask(creep, task) {
+  return (task == null ? void 0 : task.type) === "repair" && !isProtectedRepairTargetForConstructionBacklog(creep, getTaskTarget(task));
 }
 function selectWorkerAssignmentGapRecoveryConstructionSite(creep) {
   var _a2, _b;
