@@ -881,12 +881,12 @@ export function planSourceContainerConstruction(
 
     const result = room.createConstructionSite(position.x, position.y, getContainerStructureType());
     results.push(result);
+    lookups.blockingPositions.add(getPositionKey(position));
     if (result !== getOkCode()) {
       break;
     }
 
     lookups.pendingContainerPositions.push(position);
-    lookups.blockingPositions.add(getPositionKey(position));
   }
 
   return results;
@@ -1205,7 +1205,9 @@ function createSourceContainerPlannerLookups(
 
   for (const structure of structures) {
     const position = getRoomObjectPosition(structure);
-    addBlockingPosition(lookups, position);
+    if (isSourceContainerPlacementBlockingStructure(structure)) {
+      addBlockingPosition(lookups, position);
+    }
     if (matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container')) {
       addPosition(lookups.existingContainerPositions, position);
     }
@@ -1220,6 +1222,18 @@ function createSourceContainerPlannerLookups(
   }
 
   return lookups;
+}
+
+function isSourceContainerPlacementBlockingStructure(structure: Structure): boolean {
+  if (!matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart')) {
+    return true;
+  }
+
+  return !isOwnedSourceContainerPlacementRampart(structure);
+}
+
+function isOwnedSourceContainerPlacementRampart(structure: Structure): structure is StructureRampart {
+  return (structure as Partial<StructureRampart>).my === true;
 }
 
 function addBlockingPosition(

@@ -12902,11 +12902,11 @@ function planSourceContainerConstruction(colony, options = {}) {
     }
     const result = room.createConstructionSite(position.x, position.y, getContainerStructureType());
     results.push(result);
+    lookups.blockingPositions.add(getPositionKey6(position));
     if (result !== getOkCode3()) {
       break;
     }
     lookups.pendingContainerPositions.push(position);
-    lookups.blockingPositions.add(getPositionKey6(position));
   }
   return results;
 }
@@ -13107,7 +13107,9 @@ function createSourceContainerPlannerLookups(room, sources) {
   }
   for (const structure of structures) {
     const position = getRoomObjectPosition4(structure);
-    addBlockingPosition(lookups, position);
+    if (isSourceContainerPlacementBlockingStructure(structure)) {
+      addBlockingPosition(lookups, position);
+    }
     if (matchesStructureType10(structure.structureType, "STRUCTURE_CONTAINER", "container")) {
       addPosition(lookups.existingContainerPositions, position);
     }
@@ -13120,6 +13122,15 @@ function createSourceContainerPlannerLookups(room, sources) {
     }
   }
   return lookups;
+}
+function isSourceContainerPlacementBlockingStructure(structure) {
+  if (!matchesStructureType10(structure.structureType, "STRUCTURE_RAMPART", "rampart")) {
+    return true;
+  }
+  return !isOwnedSourceContainerPlacementRampart(structure);
+}
+function isOwnedSourceContainerPlacementRampart(structure) {
+  return structure.my === true;
 }
 function addBlockingPosition(lookups, position) {
   if (position) {
@@ -16876,9 +16887,10 @@ function planSourceContainerConstruction2(colony, options = {}) {
       continue;
     }
     const result = room.createConstructionSite(position.x, position.y, getContainerStructureType3());
+    const positionKey = getPositionKey2(position);
+    lookups.blockedPositions.add(positionKey);
     if (result === getOkCode6()) {
-      lookups.blockedPositions.add(getPositionKey2(position));
-      lookups.pendingContainerPositions.add(getPositionKey2(position));
+      lookups.pendingContainerPositions.add(positionKey);
     }
     return result;
   }
@@ -16908,7 +16920,9 @@ function createSourceContainerPlannerLookups2(room) {
   for (const structure of room.find(FIND_STRUCTURES)) {
     const position = getRoomObjectPosition(structure);
     if (position && isSameRoomPosition(position, room.name)) {
-      lookups.blockedPositions.add(getPositionKey2(position));
+      if (isSourceContainerPlacementBlockingStructure2(structure)) {
+        lookups.blockedPositions.add(getPositionKey2(position));
+      }
     }
   }
   for (const site of room.find(FIND_CONSTRUCTION_SITES)) {
@@ -16923,6 +16937,15 @@ function createSourceContainerPlannerLookups2(room) {
     }
   }
   return lookups;
+}
+function isSourceContainerPlacementBlockingStructure2(structure) {
+  if (structure.structureType !== getRampartStructureType()) {
+    return true;
+  }
+  return !isOwnedSourceContainerPlacementRampart2(structure);
+}
+function isOwnedSourceContainerPlacementRampart2(structure) {
+  return structure.my === true;
 }
 function getSortedSources4(room) {
   return room.find(FIND_SOURCES).filter((source) => {
@@ -17007,6 +17030,10 @@ function isContainerConstructionSite2(site) {
 function getContainerStructureType3() {
   var _a2;
   return (_a2 = globalThis.STRUCTURE_CONTAINER) != null ? _a2 : "container";
+}
+function getRampartStructureType() {
+  var _a2;
+  return (_a2 = globalThis.STRUCTURE_RAMPART) != null ? _a2 : "rampart";
 }
 function getOkCode6() {
   var _a2;

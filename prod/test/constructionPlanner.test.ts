@@ -661,6 +661,59 @@ describe('owned room construction planner', () => {
     expect(room.createConstructionSite.mock.calls[0][2]).toBe(STRUCTURE_CONTAINER);
   });
 
+  it('skips foreign ramparts while placing source containers on owned rampart overlays', () => {
+    installOpenTerrain();
+    const source = makeSource('source-a', 20, 10);
+    const ownedRampartOffset = [0, -1] as const;
+    const foreignRampartOffset = [-1, 0] as const;
+    const roadOffsets = [
+      [-1, -1],
+      [1, -1],
+      [1, 0],
+      [-1, 1],
+      [0, 1],
+      [1, 1]
+    ] as const;
+    const { room, colony } = makeColony({
+      controllerLevel: 6,
+      energyAvailable: 1_599,
+      energyCapacityAvailable: 2_300,
+      structures: [
+        ...Array.from({ length: 40 }, (_, index) =>
+          makeStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 20 + index, 30)
+        ),
+        ...roadOffsets.map(([dx, dy], index) =>
+          makeStructure(`source-road-${index}`, TEST_GLOBALS.STRUCTURE_ROAD, source.pos.x + dx, source.pos.y + dy)
+        ),
+        makeStructure(
+          'foreign-source-rampart',
+          TEST_GLOBALS.STRUCTURE_RAMPART,
+          source.pos.x + foreignRampartOffset[0],
+          source.pos.y + foreignRampartOffset[1],
+          false
+        ),
+        makeStructure(
+          'owned-source-rampart',
+          TEST_GLOBALS.STRUCTURE_RAMPART,
+          source.pos.x + ownedRampartOffset[0],
+          source.pos.y + ownedRampartOffset[1],
+          true
+        )
+      ],
+      sources: [source],
+      pathsByTarget: {}
+    });
+
+    const result = planConstructionForColony(colony, {
+      respectRoomEnergyBuffer: true,
+      maxPlacementsPerRoom: 1
+    });
+
+    expect(result.placements.map((placement) => placement.priority)).toEqual(['container']);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(20, 9, STRUCTURE_CONTAINER);
+  });
+
   it('creates harvest-to-spawn road sites before extensions when off-route road backlog exists during starvation', () => {
     installOpenTerrain();
     const { room, colony } = makeColony({
@@ -1113,10 +1166,17 @@ function makeSource(id: string, x: number, y: number, roomName = 'W1N1'): Source
   } as unknown as Source;
 }
 
-function makeStructure(id: string, structureType: StructureConstant, x: number, y: number): Structure {
+function makeStructure(
+  id: string,
+  structureType: StructureConstant,
+  x: number,
+  y: number,
+  my?: boolean
+): Structure {
   return {
     id,
     structureType,
+    ...(my === undefined ? {} : { my }),
     pos: makeRoomPosition(x, y)
   } as unknown as Structure;
 }

@@ -59,9 +59,10 @@ export function planSourceContainerConstruction(
     }
 
     const result = room.createConstructionSite(position.x, position.y, getContainerStructureType());
+    const positionKey = getPositionKey(position);
+    lookups.blockedPositions.add(positionKey);
     if (result === getOkCode()) {
-      lookups.blockedPositions.add(getPositionKey(position));
-      lookups.pendingContainerPositions.add(getPositionKey(position));
+      lookups.pendingContainerPositions.add(positionKey);
     }
 
     return result;
@@ -98,7 +99,9 @@ function createSourceContainerPlannerLookups(room: Room): SourceContainerPlanner
   for (const structure of room.find(FIND_STRUCTURES)) {
     const position = getRoomObjectPosition(structure);
     if (position && isSameRoomPosition(position, room.name)) {
-      lookups.blockedPositions.add(getPositionKey(position));
+      if (isSourceContainerPlacementBlockingStructure(structure)) {
+        lookups.blockedPositions.add(getPositionKey(position));
+      }
     }
   }
 
@@ -116,6 +119,18 @@ function createSourceContainerPlannerLookups(room: Room): SourceContainerPlanner
   }
 
   return lookups;
+}
+
+function isSourceContainerPlacementBlockingStructure(structure: Structure): boolean {
+  if (structure.structureType !== getRampartStructureType()) {
+    return true;
+  }
+
+  return !isOwnedSourceContainerPlacementRampart(structure);
+}
+
+function isOwnedSourceContainerPlacementRampart(structure: Structure): structure is StructureRampart {
+  return (structure as Partial<StructureRampart>).my === true;
 }
 
 function getSortedSources(room: Room): Source[] {
@@ -240,6 +255,11 @@ function isContainerConstructionSite(site: ConstructionSite): boolean {
 function getContainerStructureType(): BuildableStructureConstant {
   return ((globalThis as unknown as { STRUCTURE_CONTAINER?: StructureConstant }).STRUCTURE_CONTAINER ??
     'container') as BuildableStructureConstant;
+}
+
+function getRampartStructureType(): StructureConstant {
+  return ((globalThis as unknown as { STRUCTURE_RAMPART?: StructureConstant }).STRUCTURE_RAMPART ??
+    'rampart') as StructureConstant;
 }
 
 function getOkCode(): ScreepsReturnCode {
