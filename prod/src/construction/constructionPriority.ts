@@ -1205,7 +1205,9 @@ function createSourceContainerPlannerLookups(
 
   for (const structure of structures) {
     const position = getRoomObjectPosition(structure);
-    addBlockingPosition(lookups, position);
+    if (isSourceContainerPlacementBlockingStructure(structure)) {
+      addBlockingPosition(lookups, position);
+    }
     if (matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container')) {
       addPosition(lookups.existingContainerPositions, position);
     }
@@ -1220,6 +1222,13 @@ function createSourceContainerPlannerLookups(
   }
 
   return lookups;
+}
+
+function isSourceContainerPlacementBlockingStructure(structure: Structure): boolean {
+  return (
+    !matchesStructureType(structure.structureType, 'STRUCTURE_ROAD', 'road') &&
+    !matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart')
+  );
 }
 
 function addBlockingPosition(

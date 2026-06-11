@@ -2162,6 +2162,54 @@ describe('runEconomy', () => {
     );
   });
 
+  it('seeds a source-container candidate over roaded source tiles during low-bucket recovery', () => {
+    installRecoveryConstructionSeedGlobals();
+    const { room, spawn } = makeRecoveryConstructionSeedRoom('E29N55', {
+      controllerLevel: 6,
+      energyAvailable: 1_599,
+      energyCapacityAvailable: 2_300,
+      extensionCount: 40,
+      roadedSourceAdjacency: true
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 2_051_500,
+      rooms: { E29N55: room },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        Worker1: makeEconomyWorker(room),
+        Worker2: makeEconomyWorker(room),
+        Worker3: makeEconomyWorker(room),
+        Worker4: makeEconomyWorker(room)
+      },
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(12.34404209999957),
+        limit: 70,
+        bucket: 1_830,
+        tickLimit: 500
+      } as unknown as CPU,
+      map: {
+        getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
+      } as unknown as GameMap
+    };
+
+    const summary = runEconomy();
+
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(11, 11, STRUCTURE_CONTAINER);
+    expect(summary?.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'constructionPlacement',
+          roomName: 'E29N55',
+          priority: 'container',
+          structureType: STRUCTURE_CONTAINER,
+          result: OK_CODE,
+          mode: 'recoverySeed'
+        })
+      ])
+    );
+  });
+
   it('keeps construction seed suppressed while the CPU bucket is critical', () => {
     installRecoveryConstructionSeedGlobals();
     const { room, spawn } = makeRecoveryConstructionSeedRoom('E29N55');
@@ -5115,6 +5163,7 @@ function installRecoveryConstructionSeedGlobals(): void {
     STRUCTURE_SPAWN: StructureConstant;
     STRUCTURE_EXTENSION: StructureConstant;
     STRUCTURE_CONTAINER: StructureConstant;
+    STRUCTURE_ROAD: StructureConstant;
     STRUCTURE_TOWER: StructureConstant;
     STRUCTURE_RAMPART: StructureConstant;
     STRUCTURE_WALL: StructureConstant;
@@ -5133,6 +5182,7 @@ function installRecoveryConstructionSeedGlobals(): void {
   (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
   (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
   (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+  (globalThis as unknown as { STRUCTURE_ROAD: StructureConstant }).STRUCTURE_ROAD = 'road';
   (globalThis as unknown as { STRUCTURE_TOWER: StructureConstant }).STRUCTURE_TOWER = 'tower';
   (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
   (globalThis as unknown as { STRUCTURE_WALL: StructureConstant }).STRUCTURE_WALL = 'constructedWall';
@@ -5170,7 +5220,16 @@ function makeSpawnCoordinationRoom({
   } as unknown as Room;
 }
 
-function makeRecoveryConstructionSeedRoom(roomName: string): {
+function makeRecoveryConstructionSeedRoom(
+  roomName: string,
+  options: {
+    controllerLevel?: number;
+    energyAvailable?: number;
+    energyCapacityAvailable?: number;
+    extensionCount?: number;
+    roadedSourceAdjacency?: boolean;
+  } = {}
+): {
   room: Room & { createConstructionSite: jest.Mock };
   spawn: StructureSpawn;
 } {
@@ -5181,7 +5240,7 @@ function makeRecoveryConstructionSeedRoom(roomName: string): {
   } as Source;
   let spawn = {} as StructureSpawn;
   const extensions = Array.from(
-    { length: 10 },
+    { length: options.extensionCount ?? 10 },
     (_, index) =>
       ({
         id: `${roomName}-extension-${index}`,
@@ -5189,15 +5248,35 @@ function makeRecoveryConstructionSeedRoom(roomName: string): {
         pos: { x: 30 + index, y: 30, roomName } as RoomPosition
       }) as StructureExtension
   );
+  const sourceAdjacentRoads = options.roadedSourceAdjacency === true
+    ? Array.from({ length: 8 }, (_value, index) => {
+        const offsets = [
+          [-1, -1],
+          [0, -1],
+          [1, -1],
+          [-1, 0],
+          [1, 0],
+          [-1, 1],
+          [0, 1],
+          [1, 1]
+        ] as const;
+        const [dx, dy] = offsets[index];
+        return {
+          id: `${roomName}-source-road-${index}`,
+          structureType: 'road',
+          pos: { x: source.pos.x + dx, y: source.pos.y + dy, roomName } as RoomPosition
+        } as StructureRoad;
+      })
+    : [];
   const room = {
     name: roomName,
-    energyAvailable: 800,
-    energyCapacityAvailable: 800,
+    energyAvailable: options.energyAvailable ?? 800,
+    energyCapacityAvailable: options.energyCapacityAvailable ?? 800,
     controller: {
       id: `${roomName}-controller`,
       my: true,
       owner: { username: 'me' },
-      level: 3,
+      level: options.controllerLevel ?? 3,
       ticksToDowngrade: 10_000,
       pos: { x: 25, y: 25, roomName } as RoomPosition
     } as StructureController,
@@ -5207,7 +5286,7 @@ function makeRecoveryConstructionSeedRoom(roomName: string): {
         type === FIND_SOURCES
           ? [source]
           : type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES
-            ? ([spawn as unknown as AnyOwnedStructure, ...extensions] as unknown[])
+            ? ([spawn as unknown as AnyOwnedStructure, ...extensions, ...sourceAdjacentRoads] as unknown[])
             : type === FIND_MY_CONSTRUCTION_SITES || type === FIND_CONSTRUCTION_SITES
               ? constructionSites
               : [];

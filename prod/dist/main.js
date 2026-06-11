@@ -13107,7 +13107,9 @@ function createSourceContainerPlannerLookups(room, sources) {
   }
   for (const structure of structures) {
     const position = getRoomObjectPosition4(structure);
-    addBlockingPosition(lookups, position);
+    if (isSourceContainerPlacementBlockingStructure(structure)) {
+      addBlockingPosition(lookups, position);
+    }
     if (matchesStructureType10(structure.structureType, "STRUCTURE_CONTAINER", "container")) {
       addPosition(lookups.existingContainerPositions, position);
     }
@@ -13120,6 +13122,9 @@ function createSourceContainerPlannerLookups(room, sources) {
     }
   }
   return lookups;
+}
+function isSourceContainerPlacementBlockingStructure(structure) {
+  return !matchesStructureType10(structure.structureType, "STRUCTURE_ROAD", "road") && !matchesStructureType10(structure.structureType, "STRUCTURE_RAMPART", "rampart");
 }
 function addBlockingPosition(lookups, position) {
   if (position) {
@@ -16908,7 +16913,9 @@ function createSourceContainerPlannerLookups2(room) {
   for (const structure of room.find(FIND_STRUCTURES)) {
     const position = getRoomObjectPosition(structure);
     if (position && isSameRoomPosition(position, room.name)) {
-      lookups.blockedPositions.add(getPositionKey2(position));
+      if (isSourceContainerPlacementBlockingStructure2(structure)) {
+        lookups.blockedPositions.add(getPositionKey2(position));
+      }
     }
   }
   for (const site of room.find(FIND_CONSTRUCTION_SITES)) {
@@ -16923,6 +16930,9 @@ function createSourceContainerPlannerLookups2(room) {
     }
   }
   return lookups;
+}
+function isSourceContainerPlacementBlockingStructure2(structure) {
+  return structure.structureType !== getRoadStructureType2() && structure.structureType !== getRampartStructureType();
 }
 function getSortedSources4(room) {
   return room.find(FIND_SOURCES).filter((source) => {
@@ -17007,6 +17017,14 @@ function isContainerConstructionSite2(site) {
 function getContainerStructureType3() {
   var _a2;
   return (_a2 = globalThis.STRUCTURE_CONTAINER) != null ? _a2 : "container";
+}
+function getRoadStructureType2() {
+  var _a2;
+  return (_a2 = globalThis.STRUCTURE_ROAD) != null ? _a2 : "road";
+}
+function getRampartStructureType() {
+  var _a2;
+  return (_a2 = globalThis.STRUCTURE_RAMPART) != null ? _a2 : "rampart";
 }
 function getOkCode6() {
   var _a2;

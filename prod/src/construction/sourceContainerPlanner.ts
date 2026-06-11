@@ -98,7 +98,9 @@ function createSourceContainerPlannerLookups(room: Room): SourceContainerPlanner
   for (const structure of room.find(FIND_STRUCTURES)) {
     const position = getRoomObjectPosition(structure);
     if (position && isSameRoomPosition(position, room.name)) {
-      lookups.blockedPositions.add(getPositionKey(position));
+      if (isSourceContainerPlacementBlockingStructure(structure)) {
+        lookups.blockedPositions.add(getPositionKey(position));
+      }
     }
   }
 
@@ -116,6 +118,13 @@ function createSourceContainerPlannerLookups(room: Room): SourceContainerPlanner
   }
 
   return lookups;
+}
+
+function isSourceContainerPlacementBlockingStructure(structure: Structure): boolean {
+  return (
+    structure.structureType !== getRoadStructureType() &&
+    structure.structureType !== getRampartStructureType()
+  );
 }
 
 function getSortedSources(room: Room): Source[] {
@@ -240,6 +249,16 @@ function isContainerConstructionSite(site: ConstructionSite): boolean {
 function getContainerStructureType(): BuildableStructureConstant {
   return ((globalThis as unknown as { STRUCTURE_CONTAINER?: StructureConstant }).STRUCTURE_CONTAINER ??
     'container') as BuildableStructureConstant;
+}
+
+function getRoadStructureType(): StructureConstant {
+  return ((globalThis as unknown as { STRUCTURE_ROAD?: StructureConstant }).STRUCTURE_ROAD ??
+    'road') as StructureConstant;
+}
+
+function getRampartStructureType(): StructureConstant {
+  return ((globalThis as unknown as { STRUCTURE_RAMPART?: StructureConstant }).STRUCTURE_RAMPART ??
+    'rampart') as StructureConstant;
 }
 
 function getOkCode(): ScreepsReturnCode {
