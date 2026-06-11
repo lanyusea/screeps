@@ -1004,6 +1004,59 @@ describe('owned room construction planner', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(42, 42, TEST_GLOBALS.STRUCTURE_ROAD);
   });
 
+  it('keeps residual seeding alive when every anchor is saturated through the nearby radius', () => {
+    installOpenTerrain();
+    const controllerStructures = makeControllerStructures();
+    controllerStructures.container[6] = 0;
+    (globalThis as unknown as { CONTROLLER_STRUCTURES: ReturnType<typeof makeControllerStructures> }).CONTROLLER_STRUCTURES =
+      controllerStructures;
+    const source = makeSource('source-a', 35, 35);
+    const { room, colony } = makeColony({
+      controllerLevel: 6,
+      energyAvailable: 0,
+      energyCapacityAvailable: 2_300,
+      structures: [
+        ...makeRecoveredRcl6ResidualConstructionStructures(source),
+        ...makeResidualAnchorRoadShell('spawn-shell', 10, 10, 6),
+        ...makeResidualAnchorRoadShell('storage-shell', 18, 24, 6),
+        ...makeResidualAnchorRoadShell('controller-shell', 25, 25, 6),
+        ...makeResidualAnchorRoadShell('source-shell', source.pos.x, source.pos.y, 6)
+      ],
+      sources: [source],
+      pathsByTarget: {}
+    });
+
+    const result = planConstructionForColony(colony, {
+      creeps: makeWorkerCreeps(4),
+      respectRoomEnergyBuffer: true,
+      strategyRegistry: DEFAULT_STRATEGY_REGISTRY,
+      runtimeStrategyConstructionEnabled: true,
+      runtimeStrategyConstructionFallbackPriorities: false,
+      maxPlacementsPerRoom: 1,
+      maxContainerSitesPerTick: 1,
+      maxPendingContainerSites: 1,
+      roadOptions: {
+        maxSitesPerTick: 1,
+        maxPendingRoadSites: 1,
+        maxTargetsPerTick: 1
+      }
+    });
+
+    expect(result.placements).toEqual([
+      {
+        priority: 'road',
+        roomName: 'W1N1',
+        structureType: TEST_GLOBALS.STRUCTURE_ROAD,
+        result: OK_CODE,
+        energyReserved: 50,
+        x: 11,
+        y: 17
+      }
+    ]);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(11, 17, TEST_GLOBALS.STRUCTURE_ROAD);
+  });
+
   it('does not seed the residual stored-energy road without assigned worker coverage', () => {
     installOpenTerrain();
     const source = makeSource('source-a', 35, 35);
