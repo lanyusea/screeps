@@ -14668,6 +14668,7 @@ var SPAWN_EDGE_MIN = 2;
 var SPAWN_EDGE_MAX = 47;
 var MAX_SPAWN_SITE_SCAN_RADIUS = 8;
 var RESIDUAL_ROAD_SEED_MAX_RADIUS = 6;
+var RESIDUAL_ROAD_SEED_MAX_PLACEMENT_ATTEMPTS = 4;
 var MIN_RESIDUAL_CONSTRUCTION_SEED_WORKERS = 1;
 var DEFAULT_TERRAIN_WALL_MASK12 = 1;
 var OK_CODE7 = 0;
@@ -14989,17 +14990,25 @@ function planResidualStoredEnergyRoadSeed(colony, result, budgetState, options) 
   if (!shouldPlanResidualStoredEnergyRoadSeed(colony, result, budgetState, options)) {
     return;
   }
-  const position = selectResidualRoadSeedPosition(colony.room, colony);
-  if (!position) {
+  const seedPlan = createResidualRoadSeedPlan(colony.room, colony);
+  if (!seedPlan) {
     return;
   }
-  const placementResult = colony.room.createConstructionSite(
-    position.x,
-    position.y,
-    getStructureConstant6("STRUCTURE_ROAD")
-  );
-  if (placementResult === getOkCode5() || isFatalConstructionSiteResult3(placementResult)) {
-    recordPlacement(result, budgetState, "road", placementResult, options, position);
+  for (let attempt = 0; attempt < RESIDUAL_ROAD_SEED_MAX_PLACEMENT_ATTEMPTS; attempt += 1) {
+    const position = selectResidualRoadSeedPosition(seedPlan);
+    if (!position) {
+      return;
+    }
+    const placementResult = colony.room.createConstructionSite(
+      position.x,
+      position.y,
+      getStructureConstant6("STRUCTURE_ROAD")
+    );
+    if (placementResult === getOkCode5() || isFatalConstructionSiteResult3(placementResult)) {
+      recordPlacement(result, budgetState, "road", placementResult, options, position);
+      return;
+    }
+    seedPlan.lookups.blockingPositions.add(getPositionKey7(position));
   }
 }
 function shouldPlanResidualStoredEnergyRoadSeed(colony, result, budgetState, options) {
@@ -15039,16 +15048,47 @@ function isResidualConstructionSeedRoomSafe(colony) {
 function countVisibleHostileThreats(room) {
   return findRoomObjects18(room, "FIND_HOSTILE_CREEPS").length + findRoomObjects18(room, "FIND_HOSTILE_STRUCTURES").length;
 }
-function selectResidualRoadSeedPosition(room, colony) {
+function createResidualRoadSeedPlan(room, colony) {
   const lookups = buildResidualRoadSeedLookups(room);
   if (!lookups.terrain) {
     return null;
   }
-  for (const anchor of selectResidualRoadSeedAnchors(room, colony, lookups)) {
-    for (const position of getResidualRoadSeedCandidatePositions(anchor, room.name)) {
-      if (canPlaceResidualRoadSeed(lookups, position)) {
-        return position;
-      }
+  const anchors = selectResidualRoadSeedAnchors(room, colony, lookups);
+  return {
+    anchors,
+    lookups,
+    roomName: room.name
+  };
+}
+function selectResidualRoadSeedPosition(plan) {
+  const nearbyPosition = selectResidualRoadSeedPositionFromAnchors(
+    plan.lookups,
+    plan.anchors,
+    plan.roomName,
+    1,
+    RESIDUAL_ROAD_SEED_MAX_RADIUS
+  );
+  if (nearbyPosition) {
+    return nearbyPosition;
+  }
+  return selectResidualRoadSeedPositionFromAnchors(
+    plan.lookups,
+    plan.anchors,
+    plan.roomName,
+    RESIDUAL_ROAD_SEED_MAX_RADIUS + 1
+  );
+}
+function selectResidualRoadSeedPositionFromAnchors(lookups, anchors, roomName, minimumRadius, maximumRadius) {
+  for (const anchor of anchors) {
+    const position = selectResidualRoadSeedPositionNearAnchor(
+      lookups,
+      anchor,
+      roomName,
+      minimumRadius,
+      maximumRadius
+    );
+    if (position) {
+      return position;
     }
   }
   return null;
@@ -15131,19 +15171,74 @@ function selectResidualRoadSeedAnchors(room, colony, lookups) {
   }
   return dedupeCandidatePositions(anchors);
 }
-function getResidualRoadSeedCandidatePositions(anchor, roomName) {
-  const positions = [];
-  for (let radius = 1; radius <= RESIDUAL_ROAD_SEED_MAX_RADIUS; radius += 1) {
-    for (let y = anchor.y - radius; y <= anchor.y + radius; y += 1) {
-      for (let x = anchor.x - radius; x <= anchor.x + radius; x += 1) {
-        if (Math.max(Math.abs(x - anchor.x), Math.abs(y - anchor.y)) !== radius) {
-          continue;
-        }
-        positions.push({ x, y, roomName });
+function selectResidualRoadSeedPositionNearAnchor(lookups, anchor, roomName, minimumRadius, maximumRadius) {
+  const firstRadius = Math.max(1, Math.floor(minimumRadius));
+  const lastRadius = Math.min(
+    getMaximumResidualRoadSeedScanRadius(anchor),
+    maximumRadius === void 0 ? Number.MAX_SAFE_INTEGER : Math.max(0, Math.floor(maximumRadius))
+  );
+  for (let radius = firstRadius; radius <= lastRadius; radius += 1) {
+    const position = selectResidualRoadSeedPositionInRadiusShell(lookups, anchor, roomName, radius);
+    if (position) {
+      return position;
+    }
+  }
+  return null;
+}
+function selectResidualRoadSeedPositionInRadiusShell(lookups, anchor, roomName, radius) {
+  const top = anchor.y - radius;
+  const left = anchor.x - radius;
+  const bottom = anchor.y + radius;
+  const right = anchor.x + radius;
+  const clippedLeft = Math.max(ROOM_EDGE_MIN8, left);
+  const clippedRight = Math.min(ROOM_EDGE_MAX8, right);
+  if (top >= ROOM_EDGE_MIN8 && top <= ROOM_EDGE_MAX8) {
+    const position = selectResidualRoadSeedPositionInRow(lookups, roomName, top, clippedLeft, clippedRight);
+    if (position) {
+      return position;
+    }
+  }
+  const sideTop = Math.max(ROOM_EDGE_MIN8, top + 1);
+  const sideBottom = Math.min(ROOM_EDGE_MAX8, bottom - 1);
+  for (let y = sideTop; y <= sideBottom; y += 1) {
+    if (left >= ROOM_EDGE_MIN8 && left <= ROOM_EDGE_MAX8) {
+      const position = selectResidualRoadSeedCandidate(lookups, roomName, left, y);
+      if (position) {
+        return position;
+      }
+    }
+    if (right >= ROOM_EDGE_MIN8 && right <= ROOM_EDGE_MAX8 && right !== left) {
+      const position = selectResidualRoadSeedCandidate(lookups, roomName, right, y);
+      if (position) {
+        return position;
       }
     }
   }
-  return positions;
+  if (bottom >= ROOM_EDGE_MIN8 && bottom <= ROOM_EDGE_MAX8 && bottom !== top) {
+    return selectResidualRoadSeedPositionInRow(lookups, roomName, bottom, clippedLeft, clippedRight);
+  }
+  return null;
+}
+function selectResidualRoadSeedPositionInRow(lookups, roomName, y, left, right) {
+  for (let x = left; x <= right; x += 1) {
+    const position = selectResidualRoadSeedCandidate(lookups, roomName, x, y);
+    if (position) {
+      return position;
+    }
+  }
+  return null;
+}
+function selectResidualRoadSeedCandidate(lookups, roomName, x, y) {
+  const position = { x, y, roomName };
+  return canPlaceResidualRoadSeed(lookups, position) ? position : null;
+}
+function getMaximumResidualRoadSeedScanRadius(anchor) {
+  return Math.max(
+    Math.abs(anchor.x - ROOM_EDGE_MIN8),
+    Math.abs(ROOM_EDGE_MAX8 - anchor.x),
+    Math.abs(anchor.y - ROOM_EDGE_MIN8),
+    Math.abs(ROOM_EDGE_MAX8 - anchor.y)
+  );
 }
 function canPlaceResidualRoadSeed(lookups, position) {
   return isWithinRoomBuildBounds2(position) && !lookups.blockingPositions.has(getPositionKey7(position)) && !lookups.existingRoadPositions.has(getPositionKey7(position)) && !isTerrainWall7(lookups.terrain, position);
@@ -33721,6 +33816,9 @@ function selectWorkerEnergyCriticalTask(creep, currentTask, selectedTask) {
   if ((selectedTask == null ? void 0 : selectedTask.type) === "transfer") {
     return null;
   }
+  if (shouldKeepUrgentRampartRepairDuringEnergyCritical(creep, selectedTask)) {
+    return null;
+  }
   const avoidStorageWithdrawal = isStorageCritical(assessment);
   const freeCapacity = getFreeEnergyCapacity10(creep);
   const shouldPreemptStorageWithdrawal = avoidStorageWithdrawal && freeCapacity > 0 && isRoomStorageWithdrawTask(creep, currentTask);
@@ -33862,6 +33960,16 @@ function shouldReassignWorkerTaskForEnergyCriticalState(creep, task) {
     return true;
   }
   return task.type === "build" && isNonCriticalConstructionTask(task);
+}
+function shouldKeepUrgentRampartRepairDuringEnergyCritical(creep, selectedTask) {
+  return getCarriedEnergy3(creep) > 0 && (selectedTask == null ? void 0 : selectedTask.type) === "repair" && isUrgentOwnedRampartRepairTask(selectedTask);
+}
+function isUrgentOwnedRampartRepairTask(task) {
+  const rampart = getGameObjectById5(String(task.targetId));
+  return Boolean(rampart && isUrgentOwnedRampartRepairTarget(rampart));
+}
+function isUrgentOwnedRampartRepairTarget(structure) {
+  return matchesStructureType20(structure.structureType, "STRUCTURE_RAMPART", "rampart") && structure.my === true && typeof structure.hits === "number" && typeof structure.hitsMax === "number" && Number.isFinite(structure.hits) && Number.isFinite(structure.hitsMax) && structure.hits < Math.min(structure.hitsMax, BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING);
 }
 function isControllerDowngradeGuardTask(creep, task) {
   var _a2;
