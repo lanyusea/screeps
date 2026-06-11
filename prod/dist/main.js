@@ -14712,7 +14712,7 @@ function planConstructionForColony(colony, options = {}) {
     energyReserved: 0,
     placements: []
   };
-  if (rcl <= 0 || typeof room.createConstructionSite !== "function") {
+  if (rcl <= 0 || typeof room.createConstructionSite !== "function" || getMaxPlacementsPerRoom(options) <= 0) {
     return result;
   }
   const extensionBootstrapPriority = shouldPrioritizeExtensionBootstrapConstruction(
@@ -14728,33 +14728,33 @@ function planConstructionForColony(colony, options = {}) {
   const spawnPlacement = planSpawnIfMissing(colony);
   if (spawnPlacement) {
     recordPlacement(result, budgetState, "spawn", spawnPlacement.result, options, spawnPlacement.position);
-    if (spawnPlacement.result !== getOkCode5()) {
+    if (spawnPlacement.result !== getOkCode5() || hasReachedPlacementLimit(result, options)) {
       return result;
     }
   }
-  if (extensionBootstrapPriority && planBootstrapExtension(colony, result, budgetState, options) && options.respectRoomEnergyBuffer === true) {
+  if (extensionBootstrapPriority && planBootstrapExtension(colony, result, budgetState, options) && (options.respectRoomEnergyBuffer === true || hasReachedPlacementLimit(result, options))) {
     return result;
   }
   if (options.postClaimPriorityOrder === true) {
     planExtensions(colony, result, budgetState, options);
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
     planContainers(colony, result, budgetState, options);
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
     planRoads(colony, result, budgetState, options);
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
     planTowers(colony, result, budgetState, options);
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
     if (options.includePostClaimRamparts === true) {
       planRamparts(colony, result, budgetState, options);
-      if (hasBlockingPlacementFailure(result)) {
+      if (shouldStopConstructionPlanning(result, options)) {
         return result;
       }
     }
@@ -14762,16 +14762,16 @@ function planConstructionForColony(colony, options = {}) {
     return result;
   }
   let priorityTowerDefenseSiteState = shouldPrioritizeFirstTowerDefenseSiteBeforeRoutineConstruction(room, rcl, options) ? planPriorityTowerDefenseSiteIfNeeded(colony, result, budgetState, options, rcl) : "notNeeded";
-  if (hasBlockingPlacementFailure(result)) {
+  if (shouldStopConstructionPlanning(result, options)) {
     return result;
   }
   if (sourceLogisticsStarved) {
     planContainers(colony, result, budgetState, options, { includeStagingContainers: false });
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
     planRoads(colony, result, budgetState, buildSourceLogisticsStarvationRoadOptions(colony, options));
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
   }
@@ -14787,16 +14787,16 @@ function planConstructionForColony(colony, options = {}) {
     return result;
   }
   planExtensions(colony, result, budgetState, options);
-  if (hasBlockingPlacementFailure(result)) {
+  if (shouldStopConstructionPlanning(result, options)) {
     return result;
   }
   if (!sourceLogisticsStarved) {
     planContainers(colony, result, budgetState, options);
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
     planRoads(colony, result, budgetState, options);
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
   }
@@ -14808,24 +14808,27 @@ function planConstructionForColony(colony, options = {}) {
       options,
       rcl
     );
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
   }
   if (priorityTowerDefenseSiteState !== "blocked") {
     planBootstrapDefenseFloor(colony, result, budgetState, options);
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
   }
   if (options.includePostClaimRamparts === true) {
     planRamparts(colony, result, budgetState, options);
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
   }
   if (priorityTowerDefenseSiteState === "notNeeded") {
     planTowers(colony, result, budgetState, options);
+    if (shouldStopConstructionPlanning(result, options)) {
+      return result;
+    }
   }
   planStorage(colony, result, budgetState, options);
   return result;
@@ -14896,6 +14899,9 @@ function planExtensions(colony, result, budgetState, options) {
   const extensionResult = planExtensionConstruction(colony);
   if (extensionResult !== null) {
     recordPlacement(result, budgetState, "extension", extensionResult, options);
+    if (hasReachedPlacementLimit(result, options)) {
+      return;
+    }
   }
 }
 function planTowers(colony, result, budgetState, options) {
@@ -14944,6 +14950,9 @@ function planBootstrapDefenseFloor(colony, result, budgetState, options) {
     );
     if (placementResult === getOkCode5() || isFatalConstructionSiteResult3(placementResult)) {
       recordPlacement(result, budgetState, priority, placementResult, options, placement);
+      if (hasReachedPlacementLimit(result, options)) {
+        return;
+      }
     }
     if (placementResult !== getOkCode5()) {
       return;
@@ -14973,7 +14982,10 @@ function planRuntimeStrategyPrioritizedConstruction(colony, result, budgetState,
   }
   const report = buildRuntimeConstructionPriorityReport(colony, options.creeps, { strategyParameters });
   recordStrategyRegistryRuntimeUse(options, strategyEntry);
-  const priorities = runtimeConstructionPlannerPriorityOrder(report, { sourceLogisticsStarved });
+  const priorities = runtimeConstructionPlannerPriorityOrder(report, {
+    sourceLogisticsStarved,
+    includeDefaultPriorities: options.runtimeStrategyConstructionFallbackPriorities !== false
+  });
   if (priorities.length === 0) {
     return false;
   }
@@ -14988,7 +15000,7 @@ function planRuntimeStrategyPrioritizedConstruction(colony, result, budgetState,
       activePriorityTowerDefenseSiteState,
       rcl
     );
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return true;
     }
   }
@@ -15017,9 +15029,11 @@ function runtimeConstructionPlannerPriorityOrder(report, options = {}) {
       }
     }
   }
-  for (const priority of DEFAULT_ROUTINE_CONSTRUCTION_PRIORITIES) {
-    if (!shouldSkipRuntimeConstructionPriority(priority, options) && !priorities.includes(priority)) {
-      priorities.push(priority);
+  if (options.includeDefaultPriorities !== false) {
+    for (const priority of DEFAULT_ROUTINE_CONSTRUCTION_PRIORITIES) {
+      if (!shouldSkipRuntimeConstructionPriority(priority, options) && !priorities.includes(priority)) {
+        priorities.push(priority);
+      }
     }
   }
   return priorities;
@@ -15073,7 +15087,7 @@ function planRuntimeConstructionPlannerPriority(priority, colony, result, budget
         options,
         rcl
       );
-      if (hasBlockingPlacementFailure(result)) {
+      if (shouldStopConstructionPlanning(result, options)) {
         return priorityTowerDefenseSiteState;
       }
       if (priorityTowerDefenseSiteState === "notNeeded") {
@@ -15090,13 +15104,13 @@ function planRuntimeConstructionPlannerPriority(priority, colony, result, budget
           options,
           rcl
         );
-        if (hasBlockingPlacementFailure(result)) {
+        if (shouldStopConstructionPlanning(result, options)) {
           return priorityTowerDefenseSiteState;
         }
       }
       if (priorityTowerDefenseSiteState !== "blocked") {
         planBootstrapDefenseFloor(colony, result, budgetState, options);
-        if (hasBlockingPlacementFailure(result)) {
+        if (shouldStopConstructionPlanning(result, options)) {
           return priorityTowerDefenseSiteState;
         }
       }
@@ -15153,7 +15167,7 @@ function planRoads(colony, result, budgetState, options) {
   });
   for (const roadResult of roadResults) {
     recordPlacement(result, budgetState, "road", roadResult, options);
-    if (roadResult !== getOkCode5()) {
+    if (roadResult !== getOkCode5() || hasReachedPlacementLimit(result, options)) {
       return;
     }
   }
@@ -15175,7 +15189,7 @@ function planContainers(colony, result, budgetState, options, containerOptions =
   });
   for (const containerResult of containerResults) {
     recordPlacement(result, budgetState, "container", containerResult, options);
-    if (containerResult !== getOkCode5()) {
+    if (containerResult !== getOkCode5() || hasReachedPlacementLimit(result, options)) {
       return;
     }
     remainingContainerSitesThisTick -= 1;
@@ -15190,7 +15204,7 @@ function planContainers(colony, result, budgetState, options, containerOptions =
     });
     for (const stagingContainerResult of stagingContainerResults) {
       recordPlacement(result, budgetState, "container", stagingContainerResult, options);
-      if (stagingContainerResult !== getOkCode5()) {
+      if (stagingContainerResult !== getOkCode5() || hasReachedPlacementLimit(result, options)) {
         return;
       }
       remainingContainerSitesThisTick -= 1;
@@ -15268,6 +15282,26 @@ function recordPlacement(result, budgetState, priority, placementResult, options
 function hasBlockingPlacementFailure(result) {
   const lastPlacement = result.placements[result.placements.length - 1];
   return lastPlacement !== void 0 && lastPlacement.result !== getOkCode5();
+}
+function shouldStopConstructionPlanning(result, options) {
+  return hasBlockingPlacementFailure(result) || hasReachedPlacementLimit(result, options);
+}
+function hasReachedPlacementLimit(result, options) {
+  const maxPlacements = getMaxPlacementsPerRoom(options);
+  if (maxPlacements === Number.MAX_SAFE_INTEGER) {
+    return false;
+  }
+  return result.placements.filter((placement) => placement.result === getOkCode5()).length >= maxPlacements;
+}
+function getMaxPlacementsPerRoom(options) {
+  const value = options.maxPlacementsPerRoom;
+  if (value === void 0) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.floor(value));
 }
 function hasSpawnCoverage2(colony) {
   return hasOwnedSpawn(colony) || countPendingConstructionSites(colony.room, "spawn") > 0;
@@ -51655,8 +51689,10 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
             colony,
             creeps,
             options,
+            telemetryEvents,
             postClaimBootstrapFocusRoomName,
-            postClaimBootstrapRefresh2.deferred === true
+            postClaimBootstrapRefresh2.deferred === true,
+            selectConstructionCpuMode(roomCpuBudget)
           );
         }
         continue;
@@ -51690,8 +51726,10 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
         colony,
         creeps,
         options,
+        telemetryEvents,
         postClaimBootstrapFocusRoomName,
-        postClaimBootstrapRefresh.deferred === true
+        postClaimBootstrapRefresh.deferred === true,
+        selectConstructionCpuMode(roomCpuBudget)
       );
     }
     if (survivalAssessment.mode === "TERRITORY_READY" && shouldRunTerritoryPlanning(roomCpuBudget, runOptionalRoomWork)) {
@@ -51924,7 +51962,7 @@ function shouldRunShedCpuColonyPlanning(colony, roleCounts, survivalAssessment) 
   }
   return isColonyRoomThreatened(colony.room.name, Game.time);
 }
-function runClaimedRoomConstructionForCpuBudget(colony, creeps, options, postClaimBootstrapFocusRoomName, deferred) {
+function runClaimedRoomConstructionForCpuBudget(colony, creeps, options, telemetryEvents, postClaimBootstrapFocusRoomName, deferred, mode = "normal") {
   refreshPostClaimDefenseConstruction(colony, { focusRoomName: postClaimBootstrapFocusRoomName });
   const constructionOptions = {
     respectRoomEnergyBuffer: true,
@@ -51933,11 +51971,52 @@ function runClaimedRoomConstructionForCpuBudget(colony, creeps, options, postCla
     runtimeStrategyConstructionEnabled: options.runtimeStrategyConstructionEnabled,
     onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
   };
+  const activeConstructionOptions = mode === "recoverySeed" ? buildCpuRecoveryConstructionSeedOptions(constructionOptions) : constructionOptions;
   if (deferred) {
-    planDeferredClaimedRoomCapacityConstruction(colony, constructionOptions);
+    const result2 = planDeferredClaimedRoomCapacityConstruction(colony, activeConstructionOptions);
+    recordRecoveryConstructionPlacementTelemetry(telemetryEvents, result2.placements, mode);
     return;
   }
-  planClaimedRoomConstruction(colony, constructionOptions);
+  const result = planClaimedRoomConstruction(colony, activeConstructionOptions);
+  recordRecoveryConstructionPlacementTelemetry(telemetryEvents, result.placements, mode);
+}
+function selectConstructionCpuMode(cpuBudget) {
+  return shouldShedNonessentialCpuWork(cpuBudget) && shouldRunConstructionCpuWork(cpuBudget) ? "recoverySeed" : "normal";
+}
+function buildCpuRecoveryConstructionSeedOptions(options) {
+  var _a2;
+  return {
+    ...options,
+    strategyRegistry: (_a2 = options.strategyRegistry) != null ? _a2 : DEFAULT_STRATEGY_REGISTRY,
+    runtimeStrategyConstructionEnabled: true,
+    runtimeStrategyConstructionFallbackPriorities: false,
+    includePostClaimRamparts: true,
+    maxPlacementsPerRoom: 1,
+    maxContainerSitesPerTick: 1,
+    maxPendingContainerSites: 1,
+    roadOptions: {
+      ...options.roadOptions,
+      maxSitesPerTick: 1,
+      maxTargetsPerTick: 1
+    }
+  };
+}
+function recordRecoveryConstructionPlacementTelemetry(telemetryEvents, placements, mode) {
+  if (mode !== "recoverySeed") {
+    return;
+  }
+  for (const placement of placements) {
+    telemetryEvents.push({
+      type: "constructionPlacement",
+      roomName: placement.roomName,
+      priority: placement.priority,
+      structureType: String(placement.structureType),
+      result: placement.result,
+      mode: "recoverySeed",
+      ...placement.x !== void 0 ? { x: placement.x } : {},
+      ...placement.y !== void 0 ? { y: placement.y } : {}
+    });
+  }
 }
 function isDowngradeGuardControllerCreep(creep) {
   var _a2, _b, _c;

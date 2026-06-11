@@ -2121,7 +2121,76 @@ describe('runEconomy', () => {
     expect(worker.moveTo).not.toHaveBeenCalled();
   });
 
-  it('attempts E29N55 source-container construction during near-corridor over-limit recovery', () => {
+  it('seeds one accepted construction candidate during low-bucket recovery', () => {
+    installRecoveryConstructionSeedGlobals();
+    const { room, spawn } = makeRecoveryConstructionSeedRoom('E29N55');
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 2_048_800,
+      rooms: { E29N55: room },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        Worker1: makeEconomyWorker(room),
+        Worker2: makeEconomyWorker(room),
+        Worker3: makeEconomyWorker(room)
+      },
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(10.139446899999712),
+        limit: 70,
+        bucket: 1_782,
+        tickLimit: 500
+      } as unknown as CPU,
+      map: {
+        getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
+      } as unknown as GameMap
+    };
+
+    const summary = runEconomy();
+
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(11, 11, STRUCTURE_CONTAINER);
+    expect(summary?.events).toEqual(
+      expect.arrayContaining([
+        {
+          type: 'constructionPlacement',
+          roomName: 'E29N55',
+          priority: 'container',
+          structureType: STRUCTURE_CONTAINER,
+          result: OK_CODE,
+          mode: 'recoverySeed'
+        }
+      ])
+    );
+  });
+
+  it('keeps construction seed suppressed while the CPU bucket is critical', () => {
+    installRecoveryConstructionSeedGlobals();
+    const { room, spawn } = makeRecoveryConstructionSeedRoom('E29N55');
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 2_048_801,
+      rooms: { E29N55: room },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        Worker1: makeEconomyWorker(room),
+        Worker2: makeEconomyWorker(room),
+        Worker3: makeEconomyWorker(room)
+      },
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(10),
+        limit: 70,
+        bucket: 1,
+        tickLimit: 500
+      } as unknown as CPU,
+      map: {
+        getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
+      } as unknown as GameMap
+    };
+
+    runEconomy();
+
+    expect(room.createConstructionSite).not.toHaveBeenCalled();
+  });
+
+  it('bounds E29N55 source-container construction during near-corridor over-limit recovery', () => {
     (globalThis as unknown as {
       FIND_MY_STRUCTURES: number;
       FIND_MY_CONSTRUCTION_SITES: number;
@@ -2235,18 +2304,8 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    const constructionSiteCalls = (room.createConstructionSite as jest.Mock).mock.calls as Array<
-      [number, number, StructureConstant]
-    >;
-    expect(room.createConstructionSite).toHaveBeenCalledTimes(4);
-    expect(room.createConstructionSite).toHaveBeenNthCalledWith(1, 11, 11, STRUCTURE_CONTAINER);
-    expect(room.createConstructionSite).toHaveBeenNthCalledWith(2, 24, 24, STRUCTURE_TOWER);
-    expect(constructionSiteCalls.map(([, , structureType]) => structureType)).toEqual([
-      STRUCTURE_CONTAINER,
-      STRUCTURE_TOWER,
-      STRUCTURE_RAMPART,
-      STRUCTURE_WALL
-    ]);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(11, 11, STRUCTURE_CONTAINER);
   });
 
   it('runs existing worker creeps', () => {
@@ -5043,6 +5102,47 @@ function installMultiRoomSpawnQueueGlobals(): void {
   (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
 }
 
+function installRecoveryConstructionSeedGlobals(): void {
+  (globalThis as unknown as {
+    FIND_SOURCES: number;
+    FIND_MY_STRUCTURES: number;
+    FIND_MY_CONSTRUCTION_SITES: number;
+    FIND_STRUCTURES: number;
+    FIND_CONSTRUCTION_SITES: number;
+    FIND_HOSTILE_CREEPS: number;
+    FIND_HOSTILE_STRUCTURES: number;
+    RESOURCE_ENERGY: ResourceConstant;
+    STRUCTURE_SPAWN: StructureConstant;
+    STRUCTURE_EXTENSION: StructureConstant;
+    STRUCTURE_CONTAINER: StructureConstant;
+    STRUCTURE_TOWER: StructureConstant;
+    STRUCTURE_RAMPART: StructureConstant;
+    STRUCTURE_WALL: StructureConstant;
+    LOOK_STRUCTURES: LOOK_STRUCTURES;
+    LOOK_CONSTRUCTION_SITES: LOOK_CONSTRUCTION_SITES;
+    TERRAIN_MASK_WALL: number;
+    OK: ScreepsReturnCode;
+  }).FIND_SOURCES = 1;
+  (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 2;
+  (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 3;
+  (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 4;
+  (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 5;
+  (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 6;
+  (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 7;
+  (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+  (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
+  (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
+  (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+  (globalThis as unknown as { STRUCTURE_TOWER: StructureConstant }).STRUCTURE_TOWER = 'tower';
+  (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
+  (globalThis as unknown as { STRUCTURE_WALL: StructureConstant }).STRUCTURE_WALL = 'constructedWall';
+  (globalThis as unknown as { LOOK_STRUCTURES: LOOK_STRUCTURES }).LOOK_STRUCTURES = 'structure';
+  (globalThis as unknown as { LOOK_CONSTRUCTION_SITES: LOOK_CONSTRUCTION_SITES }).LOOK_CONSTRUCTION_SITES =
+    'constructionSite';
+  (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+  (globalThis as unknown as { OK: ScreepsReturnCode }).OK = OK_CODE;
+}
+
 function makeSpawnCoordinationRoom({
   roomName,
   energyAvailable,
@@ -5068,6 +5168,73 @@ function makeSpawnCoordinationRoom({
     memory: {},
     find: jest.fn((type: number) => (type === FIND_SOURCES ? [{ id: `${roomName}-source` } as Source] : []))
   } as unknown as Room;
+}
+
+function makeRecoveryConstructionSeedRoom(roomName: string): {
+  room: Room & { createConstructionSite: jest.Mock };
+  spawn: StructureSpawn;
+} {
+  const constructionSites: ConstructionSite[] = [];
+  const source = {
+    id: `${roomName}-source`,
+    pos: { x: 10, y: 10, roomName } as RoomPosition
+  } as Source;
+  let spawn = {} as StructureSpawn;
+  const extensions = Array.from(
+    { length: 10 },
+    (_, index) =>
+      ({
+        id: `${roomName}-extension-${index}`,
+        structureType: 'extension',
+        pos: { x: 30 + index, y: 30, roomName } as RoomPosition
+      }) as StructureExtension
+  );
+  const room = {
+    name: roomName,
+    energyAvailable: 800,
+    energyCapacityAvailable: 800,
+    controller: {
+      id: `${roomName}-controller`,
+      my: true,
+      owner: { username: 'me' },
+      level: 3,
+      ticksToDowngrade: 10_000,
+      pos: { x: 25, y: 25, roomName } as RoomPosition
+    } as StructureController,
+    memory: {},
+    find: jest.fn((type: number, options?: { filter?: (target: unknown) => boolean }) => {
+      const targets =
+        type === FIND_SOURCES
+          ? [source]
+          : type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES
+            ? ([spawn as unknown as AnyOwnedStructure, ...extensions] as unknown[])
+            : type === FIND_MY_CONSTRUCTION_SITES || type === FIND_CONSTRUCTION_SITES
+              ? constructionSites
+              : [];
+
+      return options?.filter ? targets.filter(options.filter) : targets;
+    }),
+    lookForAtArea: jest.fn().mockReturnValue([]),
+    createConstructionSite: jest.fn((x: number, y: number, structureType: StructureConstant) => {
+      constructionSites.push({
+        id: `${roomName}-site-${x}-${y}`,
+        structureType,
+        pos: { x, y, roomName } as RoomPosition
+      } as ConstructionSite);
+      return OK_CODE;
+    })
+  } as unknown as Room & { createConstructionSite: jest.Mock };
+  spawn = {
+    id: `${roomName}-spawn`,
+    name: 'Spawn1',
+    room,
+    structureType: 'spawn',
+    pos: { x: 25, y: 25, roomName } as RoomPosition,
+    spawning: null,
+    spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+  } as unknown as StructureSpawn;
+
+  return { room, spawn };
 }
 
 function makeClaimedSpawnlessEconomyRoom({

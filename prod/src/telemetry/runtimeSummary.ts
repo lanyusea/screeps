@@ -190,6 +190,7 @@ export type RuntimeTelemetryEvent =
   | RuntimeTerritoryScoutTelemetryEvent
   | RuntimePostClaimBootstrapTelemetryEvent
   | RuntimeSpawnSitePlacedTelemetryEvent
+  | RuntimeConstructionPlacementTelemetryEvent
   | RuntimeStrategyRecommendationTelemetryEvent;
 
 export type RuntimeTerritoryClaimTelemetryReason =
@@ -289,6 +290,17 @@ export interface RuntimeSpawnSitePlacedTelemetryEvent {
   result: ScreepsReturnCode;
   spawnSite: TerritoryPostClaimBootstrapSpawnSiteMemory;
   existing?: boolean;
+}
+
+export interface RuntimeConstructionPlacementTelemetryEvent {
+  type: 'constructionPlacement';
+  roomName: string;
+  priority: string;
+  structureType: string;
+  result: ScreepsReturnCode;
+  mode: 'recoverySeed';
+  x?: number;
+  y?: number;
 }
 
 export interface RuntimeStrategyRecommendationTelemetryEvent {
