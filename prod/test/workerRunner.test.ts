@@ -5388,6 +5388,94 @@ describe('runWorker', () => {
     expect(build).not.toHaveBeenCalled();
   });
 
+  it('preempts low-load harvesting for defense-floor owned rampart repair before construction recovery', () => {
+    const source = { id: 'source1', energy: 3_000 } as Source;
+    const site = {
+      id: 'site1',
+      my: true,
+      structureType: 'constructedWall',
+      progress: 0,
+      progressTotal: 5_000
+    } as ConstructionSite;
+    const rampart = {
+      id: 'rampart-defense-floor',
+      structureType: 'rampart',
+      my: true,
+      hits: BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING - 1,
+      hitsMax: 30_000_000
+    } as StructureRampart;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      spawning: null,
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+    } as unknown as StructureSpawn;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const build = jest.fn();
+    const harvest = jest.fn();
+    const repair = jest.fn().mockReturnValue(0);
+    const room = {
+      name: 'E29N55',
+      energyAvailable: 550,
+      energyCapacityAvailable: 2_300,
+      controller,
+      find: jest.fn((type: number) => {
+        if (type === FIND_MY_STRUCTURES) {
+          return [spawn];
+        }
+
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [site];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [rampart];
+        }
+
+        if (type === FIND_SOURCES) {
+          return [source];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const creep = {
+      name: 'LowLoadBuilder',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'harvest', targetId: 'source1' as Id<Source> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(4),
+        getFreeCapacity: jest.fn().mockReturnValue(96)
+      },
+      room,
+      build,
+      harvest,
+      repair,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { LowLoadBuilder: creep },
+      getObjectById: jest.fn((id: string) =>
+        id === 'rampart-defense-floor' ? rampart : id === 'site1' ? site : id === 'source1' ? source : null
+      ) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'repair', targetId: 'rampart-defense-floor' });
+    expect(repair).toHaveBeenCalledWith(rampart);
+    expect(build).not.toHaveBeenCalled();
+    expect(harvest).not.toHaveBeenCalled();
+  });
+
   it('returns partial acquired energy for emergency owned rampart repair', () => {
     const source = { id: 'source1', energy: 3_000 } as Source;
     const rampart = {

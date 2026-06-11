@@ -27623,6 +27623,10 @@ function selectHeuristicWorkerTask(creep) {
       if (controllerSigningTask && !bootstrapNonCriticalWorkSuppressed) {
         return controllerSigningTask;
       }
+      const activeRampartRepairEnergyAcquisitionTask = selectActiveRampartRepairEnergyAcquisitionTask(creep);
+      if (activeRampartRepairEnergyAcquisitionTask) {
+        return activeRampartRepairEnergyAcquisitionTask;
+      }
       const builderEnergyAcquisitionTask = selectBuilderEnergyAcquisitionTask(creep);
       if (builderEnergyAcquisitionTask) {
         return builderEnergyAcquisitionTask;
@@ -27630,10 +27634,6 @@ function selectHeuristicWorkerTask(creep) {
       const constructionBacklogEnergyAcquisitionTask = selectConstructionBacklogEnergyAcquisitionTask(creep);
       if (constructionBacklogEnergyAcquisitionTask) {
         return constructionBacklogEnergyAcquisitionTask;
-      }
-      const activeRampartRepairEnergyAcquisitionTask = selectActiveRampartRepairEnergyAcquisitionTask(creep);
-      if (activeRampartRepairEnergyAcquisitionTask) {
-        return activeRampartRepairEnergyAcquisitionTask;
       }
       const nearbyWorkerEnergyAcquisitionTask = selectNearbyWorkerEnergyAcquisitionTask(creep);
       if (nearbyWorkerEnergyAcquisitionTask) {
@@ -28701,6 +28701,9 @@ function applyMinimumUsefulLoadPolicy(creep, task) {
   if (!getLowLoadWorkerEnergyContext(creep)) {
     return task;
   }
+  if (shouldSpendLowLoadOnUrgentBarrierRepair(creep, task)) {
+    return task;
+  }
   if (hasVisibleHostilePresence3(creep.room)) {
     recordLowLoadReturnTelemetry(creep, task, "hostileSafety");
     return task;
@@ -28714,6 +28717,15 @@ function applyMinimumUsefulLoadPolicy(creep, task) {
   }
   recordLowLoadReturnTelemetry(creep, task, "noReachableEnergy");
   return task;
+}
+function shouldSpendLowLoadOnUrgentBarrierRepair(creep, task) {
+  if (task.type !== "repair") {
+    return false;
+  }
+  const target = findVisibleRoomStructures(creep.room).find(
+    (structure) => String(structure.id) === String(task.targetId) && isWorkerBarrierRepairStructure(structure)
+  );
+  return target !== void 0 && isUrgentBarrierRepairTarget(target);
 }
 function getLowLoadWorkerEnergyContinuationRange(creep, task) {
   return shouldUseExtendedLowLoadSourceLogisticsContinuation(creep, task) ? LOW_LOAD_SOURCE_LOGISTICS_CONTINUATION_MAX_RANGE : LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE;
@@ -31909,7 +31921,14 @@ function selectRoutineRampartMaintenanceRepairTarget(creep) {
   return selectAvailableRoutineRepairTarget(creep, computeRoutineRampartMaintenanceRepairTargets(creep.room));
 }
 function selectActiveRampartRepairEnergyAcquisitionTask(creep) {
-  if (getFreeEnergyCapacity9(creep) <= 0 || hasVisibleConstructionSites(creep.room) || !selectActiveOwnedRampartRepairTarget(creep)) {
+  if (getFreeEnergyCapacity9(creep) <= 0) {
+    return null;
+  }
+  const repairTarget = selectActiveOwnedRampartRepairTarget(creep);
+  if (!repairTarget) {
+    return null;
+  }
+  if (hasVisibleConstructionSites(creep.room) && !isUrgentBarrierRepairTarget(repairTarget)) {
     return null;
   }
   return selectWorkerEnergyCriticalAcquisitionTask(creep);

@@ -762,6 +762,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
         return controllerSigningTask;
       }
 
+      const activeRampartRepairEnergyAcquisitionTask = selectActiveRampartRepairEnergyAcquisitionTask(creep);
+      if (activeRampartRepairEnergyAcquisitionTask) {
+        return activeRampartRepairEnergyAcquisitionTask;
+      }
+
       const builderEnergyAcquisitionTask = selectBuilderEnergyAcquisitionTask(creep);
       if (builderEnergyAcquisitionTask) {
         return builderEnergyAcquisitionTask;
@@ -770,11 +775,6 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       const constructionBacklogEnergyAcquisitionTask = selectConstructionBacklogEnergyAcquisitionTask(creep);
       if (constructionBacklogEnergyAcquisitionTask) {
         return constructionBacklogEnergyAcquisitionTask;
-      }
-
-      const activeRampartRepairEnergyAcquisitionTask = selectActiveRampartRepairEnergyAcquisitionTask(creep);
-      if (activeRampartRepairEnergyAcquisitionTask) {
-        return activeRampartRepairEnergyAcquisitionTask;
       }
 
       const nearbyWorkerEnergyAcquisitionTask = selectNearbyWorkerEnergyAcquisitionTask(creep);
@@ -2356,6 +2356,10 @@ function applyMinimumUsefulLoadPolicy(
     return task;
   }
 
+  if (shouldSpendLowLoadOnUrgentBarrierRepair(creep, task)) {
+    return task;
+  }
+
   if (hasVisibleHostilePresence(creep.room)) {
     recordLowLoadReturnTelemetry(creep, task, 'hostileSafety');
     return task;
@@ -2371,6 +2375,18 @@ function applyMinimumUsefulLoadPolicy(
 
   recordLowLoadReturnTelemetry(creep, task, 'noReachableEnergy');
   return task;
+}
+
+function shouldSpendLowLoadOnUrgentBarrierRepair(creep: Creep, task: WorkerEnergySpendingTask): boolean {
+  if (task.type !== 'repair') {
+    return false;
+  }
+
+  const target = findVisibleRoomStructures(creep.room).find(
+    (structure): structure is RepairableWorkerStructure =>
+      String(structure.id) === String(task.targetId) && isWorkerBarrierRepairStructure(structure)
+  );
+  return target !== undefined && isUrgentBarrierRepairTarget(target);
 }
 
 function getLowLoadWorkerEnergyContinuationRange(creep: Creep, task: WorkerEnergySpendingTask): number {
@@ -7494,11 +7510,16 @@ function selectRoutineRampartMaintenanceRepairTarget(creep: Creep): StructureRam
 export function selectActiveRampartRepairEnergyAcquisitionTask(
   creep: Creep
 ): Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' }> | null {
-  if (
-    getFreeEnergyCapacity(creep) <= 0 ||
-    hasVisibleConstructionSites(creep.room) ||
-    !selectActiveOwnedRampartRepairTarget(creep)
-  ) {
+  if (getFreeEnergyCapacity(creep) <= 0) {
+    return null;
+  }
+
+  const repairTarget = selectActiveOwnedRampartRepairTarget(creep);
+  if (!repairTarget) {
+    return null;
+  }
+
+  if (hasVisibleConstructionSites(creep.room) && !isUrgentBarrierRepairTarget(repairTarget)) {
     return null;
   }
 
