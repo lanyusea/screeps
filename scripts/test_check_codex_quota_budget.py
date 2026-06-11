@@ -86,12 +86,69 @@ def quota_from_payload(used_percent: float, reset_at: datetime) -> guard.QuotaRe
     return guard.QuotaReadResult(snapshot, errors=errors)
 
 
+def quota_from_weekly_candidate(candidate: dict[str, object]) -> guard.QuotaReadResult:
+    payload = {
+        "timestamp": NOW.isoformat().replace("+00:00", "Z"),
+        "payload": {
+            "type": "token_count",
+            "rate_limits": {
+                "secondary": {
+                    "window_minutes": guard.DEFAULT_WEEKLY_WINDOW_MINUTES,
+                    **candidate,
+                },
+            },
+        },
+    }
+    snapshot, errors = guard.snapshot_from_mapping(payload, source="fixture")
+    return guard.QuotaReadResult(snapshot, errors=errors)
+
+
 class CodexQuotaBudgetGuardTests(unittest.TestCase):
+    def assert_unknown_quota_suppresses_non_p0(self, quota: guard.QuotaReadResult) -> None:
+        result = guard.evaluate_budget(expected_jobs(), quota, now=NOW)
+        decisions = {item["id"]: item for item in result["decisions"]}
+
+        self.assertEqual(result["status"], "UNKNOWN_QUOTA", result)
+        self.assertEqual(result["quota"]["state"], "UNKNOWN_QUOTA")
+        self.assertEqual(decisions["f66ed36d7be0"]["decision"], "ALLOW")
+        self.assertEqual(decisions["1df5ef0c3835"]["decision"], "ALLOW")
+        self.assertEqual(decisions["routine-codex"]["decision"], "SUPPRESS")
+        self.assertEqual(decisions["deepseek-report"]["decision"], "ALLOW")
+        self.assertEqual(result["summary"]["suppressedJobIds"], ["routine-codex"])
+
     def test_parse_timestamp_rejects_out_of_range_numeric_epoch(self) -> None:
         self.assertIsNone(guard.parse_timestamp(10**20))
 
     def test_parse_timestamp_rejects_out_of_range_numeric_string_epoch(self) -> None:
         self.assertIsNone(guard.parse_timestamp(str(10**20)))
+
+    def test_boolean_reset_timestamp_fails_safe(self) -> None:
+        for field in ("resets_at", "reset_at"):
+            with self.subTest(field=field):
+                quota = quota_from_weekly_candidate(
+                    {
+                        "used_percent": 50.0,
+                        field: False,
+                    }
+                )
+
+                self.assertIsNone(quota.snapshot)
+                self.assertTrue(any(f"{field} is not a timestamp: False" in error for error in quota.errors), quota)
+                self.assert_unknown_quota_suppresses_non_p0(quota)
+
+    def test_boolean_percent_fails_safe(self) -> None:
+        for field in ("used_percent", "remaining_percent"):
+            with self.subTest(field=field):
+                quota = quota_from_weekly_candidate(
+                    {
+                        field: False,
+                        "resets_at": int(RESET_FUTURE.timestamp()),
+                    }
+                )
+
+                self.assertIsNone(quota.snapshot)
+                self.assertTrue(any(f"{field} is not numeric: False" in error for error in quota.errors), quota)
+                self.assert_unknown_quota_suppresses_non_p0(quota)
 
     def test_healthy_quota_allows_all_jobs(self) -> None:
         result = guard.evaluate_budget(expected_jobs(), quota_from_payload(used_percent=50.0, reset_at=RESET_FUTURE), now=NOW)

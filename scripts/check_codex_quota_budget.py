@@ -72,6 +72,8 @@ class QuotaReadResult:
 def parse_timestamp(value: Any) -> datetime | None:
     if value is None:
         return None
+    if isinstance(value, bool):
+        return None
     if isinstance(value, (int, float)) and math.isfinite(float(value)):
         try:
             return datetime.fromtimestamp(float(value), timezone.utc)
@@ -104,6 +106,8 @@ def read_number(mapping: Mapping[str, Any], fields: Sequence[str]) -> tuple[floa
         if field not in mapping:
             continue
         value = mapping.get(field)
+        if isinstance(value, bool):
+            return None, f"{field} is not numeric: {value!r}"
         try:
             number = float(value)
         except (TypeError, ValueError):
