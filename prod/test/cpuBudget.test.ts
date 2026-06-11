@@ -285,6 +285,28 @@ describe('runtime CPU budget policy', () => {
     expect(shouldRunConstructionCpuWork(budget)).toBe(true);
   });
 
+  it('keeps construction enabled when an early over-limit sample is just above the recovery corridor', () => {
+    const budget = buildRuntimeCpuBudget({
+      tick: 2042163,
+      used: 70.1,
+      limit: 70,
+      bucket: 1_844,
+      tickLimit: 500
+    });
+
+    expect(budget).toMatchObject({
+      pressure: 'degraded',
+      degraded: true,
+      critical: false,
+      lowCpuLimit: false,
+      reasons: ['usedOverLimit']
+    });
+    expect(shouldRunOptionalCpuWork(budget, 'economy-global-optional')).toBe(false);
+    expect(shouldRunOptionalCpuRoomWork(budget, 'E29N55')).toBe(false);
+    expect(shouldShedNonessentialCpuWork(budget)).toBe(true);
+    expect(shouldRunConstructionCpuWork(budget)).toBe(true);
+  });
+
   it('keeps construction guarded when over-limit CPU would drain below the low-bucket floor', () => {
     const budget = buildRuntimeCpuBudget({
       tick: 2039861,
