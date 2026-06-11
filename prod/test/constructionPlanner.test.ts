@@ -17,6 +17,7 @@ const mockPlanExpansionDefenseBarrierPlacements =
   planExpansionDefenseBarrierPlacements as jest.MockedFunction<typeof planExpansionDefenseBarrierPlacements>;
 
 const OK_CODE = 0 as ScreepsReturnCode;
+const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
 const ERR_FULL_CODE = -8 as ScreepsReturnCode;
 const FIRST_RCL3_TOWER_PRIORITY_ENERGY = Math.max(500, TERRITORY_CONTROLLER_BODY_COST - 100);
 
@@ -1055,6 +1056,51 @@ describe('owned room construction planner', () => {
     ]);
     expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
     expect(room.createConstructionSite).toHaveBeenCalledWith(11, 17, TEST_GLOBALS.STRUCTURE_ROAD);
+  });
+
+  it('tries the next residual road candidate after Screeps rejects the first safe tile', () => {
+    installOpenTerrain();
+    const source = makeSource('source-a', 35, 35);
+    const { room, colony } = makeColony({
+      controllerLevel: 6,
+      energyAvailable: 2_250,
+      energyCapacityAvailable: 2_300,
+      structures: makeRecoveredRcl6ResidualConstructionStructures(source),
+      sources: [source],
+      pathsByTarget: {}
+    });
+    room.createConstructionSite.mockReturnValueOnce(ERR_INVALID_TARGET_CODE);
+
+    const result = planConstructionForColony(colony, {
+      creeps: makeWorkerCreeps(5),
+      respectRoomEnergyBuffer: true,
+      strategyRegistry: DEFAULT_STRATEGY_REGISTRY,
+      runtimeStrategyConstructionEnabled: true,
+      runtimeStrategyConstructionFallbackPriorities: false,
+      maxPlacementsPerRoom: 1,
+      maxContainerSitesPerTick: 1,
+      maxPendingContainerSites: 1,
+      roadOptions: {
+        maxSitesPerTick: 1,
+        maxPendingRoadSites: 1,
+        maxTargetsPerTick: 1
+      }
+    });
+
+    expect(result.placements).toEqual([
+      {
+        priority: 'road',
+        roomName: 'W1N1',
+        structureType: TEST_GLOBALS.STRUCTURE_ROAD,
+        result: OK_CODE,
+        energyReserved: 50,
+        x: 19,
+        y: 23
+      }
+    ]);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(2);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(1, 18, 23, TEST_GLOBALS.STRUCTURE_ROAD);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(2, 19, 23, TEST_GLOBALS.STRUCTURE_ROAD);
   });
 
   it('does not seed the residual stored-energy road without assigned worker coverage', () => {
