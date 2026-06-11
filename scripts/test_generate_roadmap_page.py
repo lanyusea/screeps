@@ -1574,6 +1574,67 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual([item["number"] for item in bot_column["items"]], [165])
         self.assertEqual([item["number"] for item in territory_column["items"]], [223])
 
+    def test_domain_card_and_board_counts_explain_hidden_non_done_items(self) -> None:
+        repo = {
+            "fullName": "lanyusea/screeps",
+            "url": "https://github.com/lanyusea/screeps",
+            "projectUrl": "https://github.com/users/lanyusea/projects/3",
+        }
+        project_items = [
+            {
+                "type": "Issue",
+                "number": number,
+                "title": f"Agent OS item {number}",
+                "url": f"https://github.com/lanyusea/screeps/issues/{number}",
+                "status": status,
+                "priority": "P0",
+                "domain": "Agent OS",
+                "nextAction": f"Track Agent OS item {number}.",
+            }
+            for number, status in (
+                (2100, "In progress"),
+                (2101, "In progress"),
+                (2102, "In review"),
+                (2103, "Ready"),
+                (2104, "Backlog"),
+                (2105, "Ready"),
+                (2106, "Done"),
+                (2107, "Done"),
+            )
+        ]
+        github_snapshot = {
+            "sourceMode": "live",
+            "projectItemsSource": "live",
+            "projectItemsCompleteness": {"complete": True, "returnedCount": 8, "totalCount": 8, "limit": 2000},
+            "projectItems": project_items,
+            "issues": [],
+            "pullRequests": [],
+            "roadmapCards": [],
+        }
+
+        roadmap_cards = roadmap.build_report_roadmap_cards(github_snapshot, repo)
+        domain_board = roadmap.build_report_domain_kanban(github_snapshot)
+
+        agent_card = next(card for card in roadmap_cards if card["title"] == "Agent OS")
+        agent_column = next(column for column in domain_board if column["title"] == "Agent OS")
+
+        self.assertEqual(agent_card["activeItems"], 6)
+        self.assertEqual(agent_card["visibleActiveItems"], 4)
+        self.assertEqual(agent_card["doneItems"], 2)
+        self.assertEqual(agent_card["status"], "8 Project items · 6 non-done · 4 shown in board · 2 done")
+        self.assertEqual(agent_column["activeItems"], 6)
+        self.assertEqual(agent_column["visibleItems"], 4)
+        self.assertEqual(len(agent_column["items"]), 4)
+        self.assertEqual(roadmap.kanban_column_count_label(agent_column, len(agent_column["items"])), (
+            "4/6",
+            "4 shown of 6 non-done Project items",
+        ))
+        rendered_column = roadmap.render_kanban_column(agent_column)
+        self.assertIn(
+            '<span class="column-count" title="4 shown of 6 non-done Project items">4/6</span>',
+            rendered_column,
+        )
+
     def test_project_data_live_gate_uses_project_specific_signals(self) -> None:
         complete = {"complete": True, "returnedCount": 2, "totalCount": 2, "limit": 2000}
         self.assertTrue(

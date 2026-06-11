@@ -618,6 +618,7 @@ CST = timezone(timedelta(hours=8), "CST")
 REPORT_FORMAT = "roadmap-portrait-kpi-kanban-v5"
 APPROVED_REPORT_MODEL_ID = REPORT_FORMAT
 STALE_VISIBLE_REPORT_MARKERS: tuple[str, ...] = ("pr #70",)
+DOMAIN_KANBAN_CARD_LIMIT = 4
 OFFICIAL_DEPLOY_EVIDENCE_DIR = Path("runtime-artifacts") / "official-screeps-deploy"
 OFFICIAL_DEPLOY_EVIDENCE_PATTERNS: tuple[str, ...] = (
     "official-screeps-deploy.json",
@@ -3099,6 +3100,7 @@ def build_stale_report_domain_card(domain: str, repo: JsonObject, github_snapsho
         "url": repo.get("projectUrl") or repo.get("url") or "",
         "totalItems": None,
         "activeItems": None,
+        "visibleActiveItems": None,
         "doneItems": None,
     }
 
@@ -3145,6 +3147,10 @@ def merge_issue_context(item: JsonObject, issue_lookup: Mapping[int, JsonObject]
     return merged
 
 
+def report_domain_active_items(items: Sequence[JsonObject]) -> list[JsonObject]:
+    return [item for item in items if not is_done_item(item)]
+
+
 def build_report_domain_card(
     domain: str,
     items: Sequence[JsonObject],
@@ -3153,7 +3159,8 @@ def build_report_domain_card(
 ) -> JsonObject:
     total = len(items)
     done = sum(1 for item in items if is_done_item(item))
-    active_items = [item for item in items if not is_done_item(item)]
+    active_items = report_domain_active_items(items)
+    visible_active_count = min(len(active_items), DOMAIN_KANBAN_CARD_LIMIT)
     representative = active_items[0] if active_items else (items[0] if items else None)
     card = {
         "title": domain,
@@ -3165,13 +3172,22 @@ def build_report_domain_card(
         "url": repo.get("projectUrl") or repo.get("url") or "",
         "totalItems": total,
         "activeItems": len(active_items),
+        "visibleActiveItems": visible_active_count,
+        "kanbanItemLimit": DOMAIN_KANBAN_CARD_LIMIT,
         "doneItems": done,
     }
     if total == 0:
         return card
 
     card["progress"] = int(round((done / total) * 100))
-    card["status"] = report_domain_status(domain, total, len(active_items), done, github_snapshot)
+    card["status"] = report_domain_status(
+        domain,
+        total,
+        len(active_items),
+        done,
+        github_snapshot,
+        visible_active_count,
+    )
     item = representative or {}
     item_url = item.get("url") if isinstance(item, dict) else ""
     if isinstance(item_url, str) and item_url:
@@ -3189,12 +3205,16 @@ def report_domain_status(
     active: int,
     done: int,
     github_snapshot: JsonObject,
+    visible_active: int | None = None,
 ) -> str:
     suffix = ""
     if github_snapshot.get("sourceMode") != "live":
         suffix = f" · {github_snapshot.get('sourceMode') or 'snapshot'}"
     item_word = "item" if total == 1 else "items"
-    return f"{total} Project {item_word} · {active} active · {done} done{suffix}"
+    board_text = ""
+    if visible_active is not None and visible_active < active:
+        board_text = f" · {visible_active} shown in board"
+    return f"{total} Project {item_word} · {active} non-done{board_text} · {done} done{suffix}"
 
 
 def report_domain_item_summary(item: JsonObject, prefix: str = "Current") -> str:
@@ -3309,10 +3329,14 @@ def build_report_domain_kanban(github_snapshot: JsonObject) -> list[JsonObject]:
             [item for item in source_items if project_domain(item) == domain and not is_done_item(item)],
             key=domain_item_sort_key,
         )
+        visible_items = domain_items[:DOMAIN_KANBAN_CARD_LIMIT]
         columns.append(
             {
                 "title": domain,
-                "items": [report_domain_kanban_item(item) for item in domain_items[:4]],
+                "activeItems": len(domain_items),
+                "visibleItems": len(visible_items),
+                "itemLimit": DOMAIN_KANBAN_CARD_LIMIT,
+                "items": [report_domain_kanban_item(item) for item in visible_items],
             }
         )
     return columns
@@ -6474,6 +6498,8 @@ def render_kanban_section(section_id: str, title: str, columns: Sequence[JsonObj
 def render_kanban_column(column: JsonObject) -> str:
     items = column.get("items", [])
     count = len(items)
+    count_label, count_title = kanban_column_count_label(column, count)
+    count_title_attr = f' title="{esc(count_title)}"' if count_title else ""
     rendered_items = (
         "\n".join(render_kanban_item(item) for item in items)
         if items
@@ -6483,11 +6509,21 @@ def render_kanban_column(column: JsonObject) -> str:
           <article class="kanban-column">
             <div class="column-heading">
               <h3>{esc(column["title"])}</h3>
-              <span class="column-count">{count}</span>
+              <span class="column-count"{count_title_attr}>{esc(count_label)}</span>
             </div>
             {rendered_items}
           </article>
 """
+
+
+def kanban_column_count_label(column: JsonObject, fallback_visible: int) -> tuple[str, str]:
+    visible = column.get("visibleItems")
+    if not isinstance(visible, int):
+        visible = fallback_visible
+    active = column.get("activeItems")
+    if isinstance(active, int) and active > visible:
+        return f"{visible}/{active}", f"{visible} shown of {active} non-done Project items"
+    return str(visible), ""
 
 
 def render_kanban_item(item: JsonObject) -> str:

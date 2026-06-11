@@ -97723,6 +97723,8 @@
     "contract": "Owner-approved roadmap-portrait-kpi-kanban-v5 presentation contract from Discord message/image 1498175235797811291.",
     "domainKanban": [
       {
+        "activeItems": 6,
+        "itemLimit": 4,
         "items": [
           {
             "description": "In progress \u00b7 Agent OS \u00b7 2026-06-04T05:20Z gate repair: Gameplay Review's prose-only gaps are now tracked/clo...",
@@ -97761,13 +97763,19 @@
             "url": "https://github.com/lanyusea/screeps/issues/1773"
           }
         ],
-        "title": "Agent OS"
+        "title": "Agent OS",
+        "visibleItems": 4
       },
       {
+        "activeItems": 0,
+        "itemLimit": 4,
         "items": [],
-        "title": "Change-control"
+        "title": "Change-control",
+        "visibleItems": 0
       },
       {
+        "activeItems": 2,
+        "itemLimit": 4,
         "items": [
           {
             "description": "Ready \u00b7 Runtime monitor \u00b7 2026-06-07T09:12Z no-prose gate refresh: latest Gameplay Review lines 434-436 says...",
@@ -97788,13 +97796,19 @@
             "url": "https://github.com/lanyusea/screeps/issues/1767"
           }
         ],
-        "title": "Runtime monitor"
+        "title": "Runtime monitor",
+        "visibleItems": 2
       },
       {
+        "activeItems": 0,
+        "itemLimit": 4,
         "items": [],
-        "title": "Release/deploy"
+        "title": "Release/deploy",
+        "visibleItems": 0
       },
       {
+        "activeItems": 1,
+        "itemLimit": 4,
         "items": [
           {
             "description": "Ready \u00b7 Bot capability \u00b7 2026-06-09: All 3 owned rooms (E29N55 RCL6, E29N56 RCL4, E29N57 RCL5) show construct...",
@@ -97806,13 +97820,19 @@
             "url": "https://github.com/lanyusea/screeps/issues/1781"
           }
         ],
-        "title": "Bot capability"
+        "title": "Bot capability",
+        "visibleItems": 1
       },
       {
+        "activeItems": 0,
+        "itemLimit": 4,
         "items": [],
-        "title": "Combat"
+        "title": "Combat",
+        "visibleItems": 0
       },
       {
+        "activeItems": 3,
+        "itemLimit": 4,
         "items": [
           {
             "description": "In progress \u00b7 Territory/Economy \u00b7 2026-06-07T07:34Z console runtime-summary-console-20260607T071023Z tick 189...",
@@ -97842,13 +97862,19 @@
             "url": "https://github.com/lanyusea/screeps/issues/1776"
           }
         ],
-        "title": "Territory/Economy"
+        "title": "Territory/Economy",
+        "visibleItems": 3
       },
       {
+        "activeItems": 0,
+        "itemLimit": 4,
         "items": [],
-        "title": "Gameplay Evolution"
+        "title": "Gameplay Evolution",
+        "visibleItems": 0
       },
       {
+        "activeItems": 8,
+        "itemLimit": 4,
         "items": [
           {
             "description": "In progress \u00b7 RL flywheel \u00b7 2026-06-08T00:28Z host disk recovered to 52%/83GiB free; no-compute Tencent prefl...",
@@ -97887,11 +97913,15 @@
             "url": "https://github.com/lanyusea/screeps/issues/1739"
           }
         ],
-        "title": "RL flywheel"
+        "title": "RL flywheel",
+        "visibleItems": 4
       },
       {
+        "activeItems": 0,
+        "itemLimit": 4,
         "items": [],
-        "title": "Docs/process"
+        "title": "Docs/process",
+        "visibleItems": 0
       }
     ],
     "id": "roadmap-portrait-kpi-kanban-v5",
@@ -98592,108 +98622,126 @@
         "domain": "Agent OS",
         "doneItems": 94,
         "goal": "Keep autonomous scheduling, routing, review, and handoff operations healthy.",
+        "kanbanItemLimit": 4,
         "next": "Current: #1028 In progress - 2026-06-04T05:20Z gate repair: Gameplay Review's prose-only gaps...",
         "progress": 94,
-        "status": "100 Project items \u00b7 6 active \u00b7 94 done",
+        "status": "100 Project items \u00b7 6 non-done \u00b7 4 shown in board \u00b7 94 done",
         "title": "Agent OS",
         "totalItems": 100,
-        "url": "https://github.com/lanyusea/screeps/issues/1028"
+        "url": "https://github.com/lanyusea/screeps/issues/1028",
+        "visibleActiveItems": 4
       },
       {
         "activeItems": 0,
         "domain": "Change-control",
         "doneItems": 12,
         "goal": "Keep repository, PR, Project, and release governance enforceable.",
+        "kanbanItemLimit": 4,
         "next": "No active item; latest tracked: #22 Done - PR #34; issue form + PR template + docs contract",
         "progress": 100,
-        "status": "12 Project items \u00b7 0 active \u00b7 12 done",
+        "status": "12 Project items \u00b7 0 non-done \u00b7 12 done",
         "title": "Change-control",
         "totalItems": 12,
-        "url": "https://github.com/lanyusea/screeps/issues/22"
+        "url": "https://github.com/lanyusea/screeps/issues/22",
+        "visibleActiveItems": 0
       },
       {
         "activeItems": 2,
         "domain": "Runtime monitor",
         "doneItems": 96,
         "goal": "Turn live Screeps telemetry into reliable KPI, alert, and report evidence.",
+        "kanbanItemLimit": 4,
         "next": "Current: #1752 Ready - 2026-06-07T09:12Z no-prose gate refresh: latest Gameplay Review lines...",
         "progress": 98,
-        "status": "98 Project items \u00b7 2 active \u00b7 96 done",
+        "status": "98 Project items \u00b7 2 non-done \u00b7 96 done",
         "title": "Runtime monitor",
         "totalItems": 98,
-        "url": "https://github.com/lanyusea/screeps/issues/1752"
+        "url": "https://github.com/lanyusea/screeps/issues/1752",
+        "visibleActiveItems": 2
       },
       {
         "activeItems": 0,
         "domain": "Release/deploy",
         "doneItems": 21,
         "goal": "Validate, deploy, and observe accepted changes across private smoke and official MMO gates.",
+        "kanbanItemLimit": 4,
         "next": "No active item; latest tracked: #63 Done - Record expected KPI movement and proof for gamepla...",
         "progress": 100,
-        "status": "21 Project items \u00b7 0 active \u00b7 21 done",
+        "status": "21 Project items \u00b7 0 non-done \u00b7 21 done",
         "title": "Release/deploy",
         "totalItems": 21,
-        "url": "https://github.com/lanyusea/screeps/issues/63"
+        "url": "https://github.com/lanyusea/screeps/issues/63",
+        "visibleActiveItems": 0
       },
       {
         "activeItems": 1,
         "domain": "Bot capability",
         "doneItems": 305,
         "goal": "Ship general gameplay behavior that advances the bot beyond single-slice fixes.",
+        "kanbanItemLimit": 4,
         "next": "Current: #1781 Ready - 2026-06-09: All 3 owned rooms (E29N55 RCL6, E29N56 RCL4, E29N57 RCL5)...",
         "progress": 100,
-        "status": "306 Project items \u00b7 1 active \u00b7 305 done",
+        "status": "306 Project items \u00b7 1 non-done \u00b7 305 done",
         "title": "Bot capability",
         "totalItems": 306,
-        "url": "https://github.com/lanyusea/screeps/issues/1781"
+        "url": "https://github.com/lanyusea/screeps/issues/1781",
+        "visibleActiveItems": 1
       },
       {
         "activeItems": 0,
         "domain": "Combat",
         "doneItems": 47,
         "goal": "Protect survival, hostile response, and defense/combat readiness.",
+        "kanbanItemLimit": 4,
         "next": "No active item; latest tracked: #977 Done - Post-closure 2026-05-12T23:25Z: live alert=false,...",
         "progress": 100,
-        "status": "47 Project items \u00b7 0 active \u00b7 47 done",
+        "status": "47 Project items \u00b7 0 non-done \u00b7 47 done",
         "title": "Combat",
         "totalItems": 47,
-        "url": "https://github.com/lanyusea/screeps/issues/977"
+        "url": "https://github.com/lanyusea/screeps/issues/977",
+        "visibleActiveItems": 0
       },
       {
         "activeItems": 3,
         "domain": "Territory/Economy",
         "doneItems": 307,
         "goal": "Advance expansion, controller pressure, worker efficiency, and resource throughput.",
+        "kanbanItemLimit": 4,
         "next": "Current: #1490 In progress - 2026-06-07T07:34Z console runtime-summary-console-20260607T07102...",
         "progress": 99,
-        "status": "310 Project items \u00b7 3 active \u00b7 307 done",
+        "status": "310 Project items \u00b7 3 non-done \u00b7 307 done",
         "title": "Territory/Economy",
         "totalItems": 310,
-        "url": "https://github.com/lanyusea/screeps/issues/1490"
+        "url": "https://github.com/lanyusea/screeps/issues/1490",
+        "visibleActiveItems": 3
       },
       {
         "activeItems": 0,
         "domain": "Gameplay Evolution",
         "doneItems": 6,
         "goal": "Convert game-result evidence into accepted roadmap, release, and strategy decisions.",
+        "kanbanItemLimit": 4,
         "next": "No active item; latest tracked: #878 Done - P0: Game evaluation must self-postmortem owner-tr...",
         "progress": 100,
-        "status": "6 Project items \u00b7 0 active \u00b7 6 done",
+        "status": "6 Project items \u00b7 0 non-done \u00b7 6 done",
         "title": "Gameplay Evolution",
         "totalItems": 6,
-        "url": "https://github.com/lanyusea/screeps/issues/878"
+        "url": "https://github.com/lanyusea/screeps/issues/878",
+        "visibleActiveItems": 0
       },
       {
         "activeItems": 8,
         "domain": "RL flywheel",
         "doneItems": 419,
         "goal": "Drive offline/simulator/data/training/validation work for safe strategy self-evolution.",
+        "kanbanItemLimit": 4,
         "next": "Current: #1032 In progress - 2026-06-08T00:28Z host disk recovered to 52%/83GiB free; no-comp...",
         "progress": 98,
-        "status": "427 Project items \u00b7 8 active \u00b7 419 done",
+        "status": "427 Project items \u00b7 8 non-done \u00b7 4 shown in board \u00b7 419 done",
         "title": "RL flywheel",
         "totalItems": 427,
-        "url": "https://github.com/lanyusea/screeps/issues/1032"
+        "url": "https://github.com/lanyusea/screeps/issues/1032",
+        "visibleActiveItems": 4
       }
     ]
   },
