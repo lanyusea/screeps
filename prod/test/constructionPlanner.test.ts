@@ -907,6 +907,49 @@ describe('owned room construction planner', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(18, 23, TEST_GLOBALS.STRUCTURE_ROAD);
   });
 
+  it('widens residual road seeding when mature safe room anchors are saturated nearby', () => {
+    installOpenTerrain();
+    const controllerStructures = makeControllerStructures();
+    controllerStructures.container[6] = 0;
+    (globalThis as unknown as { CONTROLLER_STRUCTURES: ReturnType<typeof makeControllerStructures> }).CONTROLLER_STRUCTURES =
+      controllerStructures;
+    const source = makeSource('source-a', 35, 35);
+    const { room, colony } = makeColony({
+      controllerLevel: 6,
+      energyAvailable: 0,
+      energyCapacityAvailable: 2_300,
+      structures: [
+        ...makeRecoveredRcl6ResidualConstructionStructures(source),
+        ...makeResidualAnchorRoadShell('spawn-shell', 10, 10),
+        ...makeResidualAnchorRoadShell('storage-shell', 18, 24),
+        ...makeResidualAnchorRoadShell('controller-shell', 25, 25),
+        ...makeResidualAnchorRoadShell('source-shell', source.pos.x, source.pos.y)
+      ],
+      sources: [source],
+      pathsByTarget: {}
+    });
+
+    const result = planConstructionForColony(colony, {
+      creeps: makeWorkerCreeps(4),
+      respectRoomEnergyBuffer: true,
+      maxPlacementsPerRoom: 1
+    });
+
+    expect(result.placements).toEqual([
+      {
+        priority: 'road',
+        roomName: 'W1N1',
+        structureType: TEST_GLOBALS.STRUCTURE_ROAD,
+        result: OK_CODE,
+        energyReserved: 50,
+        x: 14,
+        y: 20
+      }
+    ]);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(14, 20, TEST_GLOBALS.STRUCTURE_ROAD);
+  });
+
   it('falls back to source-area residual roads when core room anchors are exhausted', () => {
     installOpenTerrain();
     const controllerStructures = makeControllerStructures();
@@ -914,17 +957,17 @@ describe('owned room construction planner', () => {
     (globalThis as unknown as { CONTROLLER_STRUCTURES: ReturnType<typeof makeControllerStructures> }).CONTROLLER_STRUCTURES =
       controllerStructures;
     const coveredSource = makeSource('source-a', 35, 35);
-    const openSource = makeSource('source-b', 42, 42);
+    const openSource = makeSource('source-b', 43, 43);
     const { room, colony } = makeColony({
       controllerLevel: 6,
       energyAvailable: 0,
       energyCapacityAvailable: 2_300,
       structures: [
         ...makeRecoveredRcl6ResidualConstructionStructures(coveredSource),
-        ...makeResidualAnchorRoadShell('spawn-shell', 10, 10),
-        ...makeResidualAnchorRoadShell('storage-shell', 18, 24),
-        ...makeResidualAnchorRoadShell('controller-shell', 25, 25),
-        ...makeResidualAnchorRoadShell('covered-source-shell', coveredSource.pos.x, coveredSource.pos.y)
+        ...makeResidualAnchorRoadShell('spawn-shell', 10, 10, 6),
+        ...makeResidualAnchorRoadShell('storage-shell', 18, 24, 6),
+        ...makeResidualAnchorRoadShell('controller-shell', 25, 25, 6),
+        ...makeResidualAnchorRoadShell('covered-source-shell', coveredSource.pos.x, coveredSource.pos.y, 6)
       ],
       sources: [coveredSource, openSource],
       pathsByTarget: {}
@@ -953,12 +996,12 @@ describe('owned room construction planner', () => {
         structureType: TEST_GLOBALS.STRUCTURE_ROAD,
         result: OK_CODE,
         energyReserved: 50,
-        x: 41,
-        y: 41
+        x: 42,
+        y: 42
       }
     ]);
     expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
-    expect(room.createConstructionSite).toHaveBeenCalledWith(41, 41, TEST_GLOBALS.STRUCTURE_ROAD);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(42, 42, TEST_GLOBALS.STRUCTURE_ROAD);
   });
 
   it('does not seed the residual stored-energy road without assigned worker coverage', () => {
@@ -1400,9 +1443,9 @@ function makeRecoveredRcl6ResidualConstructionStructures(source: Source): Struct
   ];
 }
 
-function makeResidualAnchorRoadShell(prefix: string, anchorX: number, anchorY: number): Structure[] {
+function makeResidualAnchorRoadShell(prefix: string, anchorX: number, anchorY: number, maxRadius = 3): Structure[] {
   const structures: Structure[] = [];
-  for (let radius = 1; radius <= 3; radius += 1) {
+  for (let radius = 1; radius <= maxRadius; radius += 1) {
     for (let y = anchorY - radius; y <= anchorY + radius; y += 1) {
       for (let x = anchorX - radius; x <= anchorX + radius; x += 1) {
         if (Math.max(Math.abs(x - anchorX), Math.abs(y - anchorY)) !== radius) {
