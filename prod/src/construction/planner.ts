@@ -734,11 +734,43 @@ function selectResidualRoadSeedPosition(room: Room, colony: ColonySnapshot): Can
     return null;
   }
 
-  for (const anchor of selectResidualRoadSeedAnchors(room, colony, lookups)) {
-    for (const position of getResidualRoadSeedCandidatePositions(anchor, room.name)) {
-      if (canPlaceResidualRoadSeed(lookups, position)) {
-        return position;
-      }
+  const anchors = selectResidualRoadSeedAnchors(room, colony, lookups);
+  const nearbyPosition = selectResidualRoadSeedPositionFromAnchors(
+    lookups,
+    anchors,
+    room.name,
+    1,
+    RESIDUAL_ROAD_SEED_MAX_RADIUS
+  );
+  if (nearbyPosition) {
+    return nearbyPosition;
+  }
+
+  return selectResidualRoadSeedPositionFromAnchors(
+    lookups,
+    anchors,
+    room.name,
+    RESIDUAL_ROAD_SEED_MAX_RADIUS + 1
+  );
+}
+
+function selectResidualRoadSeedPositionFromAnchors(
+  lookups: ResidualRoadSeedLookups,
+  anchors: CandidatePosition[],
+  roomName: string,
+  minimumRadius: number,
+  maximumRadius?: number
+): CandidatePosition | null {
+  for (const anchor of anchors) {
+    const position = selectResidualRoadSeedPositionNearAnchor(
+      lookups,
+      anchor,
+      roomName,
+      minimumRadius,
+      maximumRadius
+    );
+    if (position) {
+      return position;
     }
   }
 
@@ -840,21 +872,47 @@ function selectResidualRoadSeedAnchors(
   return dedupeCandidatePositions(anchors);
 }
 
-function getResidualRoadSeedCandidatePositions(anchor: CandidatePosition, roomName: string): CandidatePosition[] {
-  const positions: CandidatePosition[] = [];
-  for (let radius = 1; radius <= RESIDUAL_ROAD_SEED_MAX_RADIUS; radius += 1) {
-    for (let y = anchor.y - radius; y <= anchor.y + radius; y += 1) {
-      for (let x = anchor.x - radius; x <= anchor.x + radius; x += 1) {
+function selectResidualRoadSeedPositionNearAnchor(
+  lookups: ResidualRoadSeedLookups,
+  anchor: CandidatePosition,
+  roomName: string,
+  minimumRadius: number,
+  maximumRadius?: number
+): CandidatePosition | null {
+  const firstRadius = Math.max(1, Math.floor(minimumRadius));
+  const lastRadius = Math.min(
+    getMaximumResidualRoadSeedScanRadius(anchor),
+    maximumRadius === undefined ? Number.MAX_SAFE_INTEGER : Math.max(0, Math.floor(maximumRadius))
+  );
+  for (let radius = firstRadius; radius <= lastRadius; radius += 1) {
+    const top = Math.max(ROOM_EDGE_MIN, anchor.y - radius);
+    const left = Math.max(ROOM_EDGE_MIN, anchor.x - radius);
+    const bottom = Math.min(ROOM_EDGE_MAX, anchor.y + radius);
+    const right = Math.min(ROOM_EDGE_MAX, anchor.x + radius);
+    for (let y = top; y <= bottom; y += 1) {
+      for (let x = left; x <= right; x += 1) {
         if (Math.max(Math.abs(x - anchor.x), Math.abs(y - anchor.y)) !== radius) {
           continue;
         }
 
-        positions.push({ x, y, roomName });
+        const position = { x, y, roomName };
+        if (canPlaceResidualRoadSeed(lookups, position)) {
+          return position;
+        }
       }
     }
   }
 
-  return positions;
+  return null;
+}
+
+function getMaximumResidualRoadSeedScanRadius(anchor: CandidatePosition): number {
+  return Math.max(
+    Math.abs(anchor.x - ROOM_EDGE_MIN),
+    Math.abs(ROOM_EDGE_MAX - anchor.x),
+    Math.abs(anchor.y - ROOM_EDGE_MIN),
+    Math.abs(ROOM_EDGE_MAX - anchor.y)
+  );
 }
 
 function canPlaceResidualRoadSeed(lookups: ResidualRoadSeedLookups, position: CandidatePosition): boolean {
