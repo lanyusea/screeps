@@ -7732,9 +7732,17 @@ function selectEmergencyOwnedRampartRepairTarget(creep: Creep): StructureRampart
     return null;
   }
 
-  return findVisibleRoomStructures(creep.room)
+  const repairTargets = findVisibleRoomStructures(creep.room)
     .filter(isEmergencyOwnedRampartRepairTarget)
-    .sort(compareRepairTargets)[0] ?? null;
+    .sort(compareRepairTargets);
+  if (repairTargets.length === 0) {
+    return null;
+  }
+
+  return (
+    repairTargets.find((structure) => hasEmergencyRampartRepairAssignmentCapacity(creep, structure)) ??
+    repairTargets[0]
+  );
 }
 
 function canRepairRemoteCriticalRoadInfrastructure(creep: Creep): boolean {
@@ -7860,6 +7868,14 @@ function hasRoutineRepairAssignmentCapacity(creep: Creep, structure: RepairableW
 }
 
 function hasActiveRampartRepairAssignmentCapacity(creep: Creep, structure: StructureRampart): boolean {
+  return hasLoadedRampartRepairAssignmentCapacity(creep, structure);
+}
+
+function hasEmergencyRampartRepairAssignmentCapacity(creep: Creep, structure: StructureRampart): boolean {
+  return hasLoadedRampartRepairAssignmentCapacity(creep, structure);
+}
+
+function hasLoadedRampartRepairAssignmentCapacity(creep: Creep, structure: StructureRampart): boolean {
   return (
     isWorkerAssignedToRepairTarget(creep, structure) ||
     !hasOtherLoadedWorkerAssignedToRepairTarget(creep, structure)
