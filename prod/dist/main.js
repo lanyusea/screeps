@@ -15003,9 +15003,12 @@ function planResidualStoredEnergyRoadSeed(colony, result, budgetState, options) 
   }
 }
 function shouldPlanResidualStoredEnergyRoadSeed(colony, result, budgetState, options) {
-  return result.placements.length <= 0 && !hasReachedPlacementLimit(result, options) && shouldUseStoredEnergyConstructionSeedSlot(colony.room, budgetState) && hasRemainingStructureCapacity(colony.room, "road") && hasResidualConstructionWorkerCoverage(colony.room.name, options.creeps) && isResidualConstructionSeedRoomSafe(colony);
+  return result.placements.length <= 0 && !hasReachedPlacementLimit(result, options) && shouldUseStoredEnergyConstructionSeedSlot(colony.room, budgetState) && hasRemainingStructureCapacity(colony.room, "road") && hasResidualConstructionWorkerCoverage(colony.room, options.creeps) && isResidualConstructionSeedRoomSafe(colony);
 }
-function hasResidualConstructionWorkerCoverage(roomName, creeps) {
+function hasResidualConstructionWorkerCoverage(room, creeps) {
+  return hasResidualConstructionWorkerEvidence(room.name, creeps) || hasResidualConstructionWorkerEvidence(room.name, findRoomObjects18(room, "FIND_MY_CREEPS"));
+}
+function hasResidualConstructionWorkerEvidence(roomName, creeps) {
   if (!creeps || creeps.length < MIN_RESIDUAL_CONSTRUCTION_SEED_WORKERS) {
     return false;
   }
@@ -15119,6 +15122,12 @@ function selectResidualRoadSeedAnchors(room, colony, lookups) {
   const controllerPosition = getAnyObjectPosition(room.controller);
   if (controllerPosition !== null && isSameRoomPosition6(controllerPosition, room.name)) {
     anchors.push(controllerPosition);
+  }
+  for (const source of getSortedSources3(room)) {
+    const position = getAnyObjectPosition(source);
+    if (position !== null && isSameRoomPosition6(position, room.name)) {
+      anchors.push(position);
+    }
   }
   return dedupeCandidatePositions(anchors);
 }
