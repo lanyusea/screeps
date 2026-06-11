@@ -260,10 +260,16 @@ function hasConstructionRecoveryBucketHeadroom(sample: RuntimeCpuSample): boolea
     return false;
   }
 
-  return (
-    projectedBucket >= LOW_CPU_BUCKET_THRESHOLD &&
-    projectedBucket <= LOW_CPU_BUCKET_THRESHOLD + getCpuBucketRecoveryHeadroom(sample.limit)
-  );
+  if (projectedBucket < LOW_CPU_BUCKET_THRESHOLD) {
+    return false;
+  }
+
+  const recoveryCeiling = LOW_CPU_BUCKET_THRESHOLD + getCpuBucketRecoveryHeadroom(sample.limit);
+  if (projectedBucket <= recoveryCeiling) {
+    return true;
+  }
+
+  return isNearConstructionRecoveryBucket(sample.bucket, sample.limit, recoveryCeiling);
 }
 
 function getProjectedPostTickBucket(sample: RuntimeCpuSample): number | undefined {
@@ -290,6 +296,26 @@ function hasLowBucketRecoveryPressure(sample: RuntimeCpuSample): boolean {
 function getCpuBucketRecoveryHeadroom(limit: number | undefined): number {
   if (limit !== undefined && limit > 0) {
     return Math.ceil(limit * CPU_BUCKET_RECOVERY_HEADROOM_MULTIPLIER);
+  }
+
+  return LOW_CPU_ACCOUNT_LIMIT;
+}
+
+function isNearConstructionRecoveryBucket(
+  bucket: number | undefined,
+  limit: number | undefined,
+  recoveryCeiling: number
+): boolean {
+  if (bucket === undefined) {
+    return false;
+  }
+
+  return bucket <= recoveryCeiling + getConstructionRecoveryEntryHeadroom(limit);
+}
+
+function getConstructionRecoveryEntryHeadroom(limit: number | undefined): number {
+  if (limit !== undefined && limit > 0) {
+    return Math.ceil(limit);
   }
 
   return LOW_CPU_ACCOUNT_LIMIT;

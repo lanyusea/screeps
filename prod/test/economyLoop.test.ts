@@ -2121,7 +2121,7 @@ describe('runEconomy', () => {
     expect(worker.moveTo).not.toHaveBeenCalled();
   });
 
-  it('attempts E29N55 source-container construction during postdeploy over-limit recovery', () => {
+  it('attempts E29N55 source-container construction during near-corridor over-limit recovery', () => {
     (globalThis as unknown as {
       FIND_MY_STRUCTURES: number;
       FIND_MY_CONSTRUCTION_SITES: number;
@@ -2223,9 +2223,9 @@ describe('runEconomy', () => {
       spawns: { Spawn2: spawn },
       creeps: workers,
       cpu: {
-        getUsed: jest.fn().mockReturnValue(78.23037710000062),
+        getUsed: jest.fn().mockReturnValue(70.1),
         limit: 70,
-        bucket: 1_842,
+        bucket: 1_844,
         tickLimit: 500
       } as unknown as CPU,
       map: {
