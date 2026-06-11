@@ -26,6 +26,8 @@ const TEST_GLOBALS = {
   FIND_MY_CONSTRUCTION_SITES: 3,
   FIND_STRUCTURES: 4,
   FIND_CONSTRUCTION_SITES: 5,
+  FIND_HOSTILE_CREEPS: 6,
+  FIND_HOSTILE_STRUCTURES: 7,
   LOOK_STRUCTURES: 'structure',
   LOOK_CONSTRUCTION_SITES: 'constructionSite',
   LOOK_MINERALS: 'mineral',
@@ -818,6 +820,113 @@ describe('owned room construction planner', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(10, 10, TEST_GLOBALS.STRUCTURE_RAMPART);
   });
 
+  it('seeds a stored-energy road when runtime priority leaves a safe staffed room with no sites', () => {
+    installOpenTerrain();
+    const source = makeSource('source-a', 35, 35);
+    const { room, colony } = makeColony({
+      controllerLevel: 6,
+      energyAvailable: 0,
+      energyCapacityAvailable: 2_300,
+      structures: makeRecoveredRcl6ResidualConstructionStructures(source),
+      sources: [source],
+      pathsByTarget: {}
+    });
+
+    const result = planConstructionForColony(colony, {
+      creeps: makeWorkerCreeps(5),
+      respectRoomEnergyBuffer: true,
+      strategyRegistry: DEFAULT_STRATEGY_REGISTRY,
+      runtimeStrategyConstructionEnabled: true,
+      runtimeStrategyConstructionFallbackPriorities: false,
+      maxPlacementsPerRoom: 1,
+      maxContainerSitesPerTick: 1,
+      maxPendingContainerSites: 1,
+      roadOptions: {
+        maxSitesPerTick: 1,
+        maxPendingRoadSites: 1,
+        maxTargetsPerTick: 1
+      }
+    });
+
+    expect(result.placements).toEqual([
+      {
+        priority: 'road',
+        roomName: 'W1N1',
+        structureType: TEST_GLOBALS.STRUCTURE_ROAD,
+        result: OK_CODE,
+        energyReserved: 50,
+        x: 18,
+        y: 23
+      }
+    ]);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(18, 23, TEST_GLOBALS.STRUCTURE_ROAD);
+  });
+
+  it('does not seed the residual stored-energy road without assigned worker coverage', () => {
+    installOpenTerrain();
+    const source = makeSource('source-a', 35, 35);
+    const { room, colony } = makeColony({
+      controllerLevel: 6,
+      energyAvailable: 0,
+      energyCapacityAvailable: 2_300,
+      structures: makeRecoveredRcl6ResidualConstructionStructures(source),
+      sources: [source],
+      pathsByTarget: {}
+    });
+
+    const result = planConstructionForColony(colony, {
+      respectRoomEnergyBuffer: true,
+      strategyRegistry: DEFAULT_STRATEGY_REGISTRY,
+      runtimeStrategyConstructionEnabled: true,
+      runtimeStrategyConstructionFallbackPriorities: false,
+      maxPlacementsPerRoom: 1,
+      maxContainerSitesPerTick: 1,
+      maxPendingContainerSites: 1,
+      roadOptions: {
+        maxSitesPerTick: 1,
+        maxPendingRoadSites: 1,
+        maxTargetsPerTick: 1
+      }
+    });
+
+    expect(result.placements).toEqual([]);
+    expect(room.createConstructionSite).not.toHaveBeenCalled();
+  });
+
+  it('does not seed the residual stored-energy road under visible hostile pressure', () => {
+    installOpenTerrain();
+    const source = makeSource('source-a', 35, 35);
+    const { room, colony } = makeColony({
+      controllerLevel: 6,
+      energyAvailable: 0,
+      energyCapacityAvailable: 2_300,
+      structures: makeRecoveredRcl6ResidualConstructionStructures(source),
+      hostileCreeps: [makeHostileCreep('invader-1', 20, 20)],
+      sources: [source],
+      pathsByTarget: {}
+    });
+
+    const result = planConstructionForColony(colony, {
+      creeps: makeWorkerCreeps(5),
+      respectRoomEnergyBuffer: true,
+      strategyRegistry: DEFAULT_STRATEGY_REGISTRY,
+      runtimeStrategyConstructionEnabled: true,
+      runtimeStrategyConstructionFallbackPriorities: false,
+      maxPlacementsPerRoom: 1,
+      maxContainerSitesPerTick: 1,
+      maxPendingContainerSites: 1,
+      roadOptions: {
+        maxSitesPerTick: 1,
+        maxPendingRoadSites: 1,
+        maxTargetsPerTick: 1
+      }
+    });
+
+    expect(result.placements).toEqual([]);
+    expect(room.createConstructionSite).not.toHaveBeenCalled();
+  });
+
   it('respects CONTROLLER_STRUCTURES counts before calling lower-level planners', () => {
     const controllerStructures = makeControllerStructures();
     controllerStructures.extension[2] = 1;
@@ -979,6 +1088,8 @@ interface MakeColonyOptions {
   includeSpawn?: boolean;
   structures?: Structure[];
   constructionSites?: ConstructionSite[];
+  hostileCreeps?: Creep[];
+  hostileStructures?: Structure[];
   sources: Source[];
   pathsByTarget: Record<string, TestPosition[]>;
 }
@@ -1014,6 +1125,10 @@ function makeColony(options: MakeColonyOptions): { room: MockRoom; colony: Colon
       const targets =
         findType === TEST_GLOBALS.FIND_SOURCES
           ? options.sources
+          : findType === TEST_GLOBALS.FIND_HOSTILE_CREEPS
+            ? (options.hostileCreeps ?? [])
+            : findType === TEST_GLOBALS.FIND_HOSTILE_STRUCTURES
+              ? (options.hostileStructures ?? [])
           : findType === TEST_GLOBALS.FIND_MY_STRUCTURES || findType === TEST_GLOBALS.FIND_STRUCTURES
             ? structures
             : findType === TEST_GLOBALS.FIND_MY_CONSTRUCTION_SITES ||
@@ -1139,6 +1254,57 @@ function makeWorkerCreeps(count: number): Creep[] {
         memory: { role: 'worker', colony: 'W1N1' }
       }) as Creep
   );
+}
+
+function makeRecoveredRcl6ResidualConstructionStructures(source: Source): Structure[] {
+  const sourceRoadOffsets = [
+    [-1, -1],
+    [0, -1],
+    [1, -1],
+    [-1, 0],
+    [1, 0],
+    [-1, 1],
+    [0, 1],
+    [1, 1]
+  ] as const;
+  const spawnWallOffsets = [
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+    [1, 1]
+  ] as const;
+
+  return [
+    ...Array.from({ length: 40 }, (_, index) =>
+      makeStructure(
+        `extension-${index}`,
+        TEST_GLOBALS.STRUCTURE_EXTENSION,
+        30 + (index % 10),
+        30 + Math.floor(index / 10)
+      )
+    ),
+    makeStructure('tower-a', TEST_GLOBALS.STRUCTURE_TOWER, 17, 23),
+    makeStructure('tower-b', TEST_GLOBALS.STRUCTURE_TOWER, 16, 24),
+    makeStoredStructure('storage-existing', TEST_GLOBALS.STRUCTURE_STORAGE, 18, 24, 2_000),
+    makeStructure('spawn-rampart', TEST_GLOBALS.STRUCTURE_RAMPART, 10, 10, true),
+    ...spawnWallOffsets.map(([dx, dy], index) =>
+      makeStructure(`spawn-wall-${index}`, TEST_GLOBALS.STRUCTURE_WALL, 10 + dx, 10 + dy)
+    ),
+    makeStructure('tower-a-rampart', TEST_GLOBALS.STRUCTURE_RAMPART, 17, 23, true),
+    makeStructure('tower-b-rampart', TEST_GLOBALS.STRUCTURE_RAMPART, 16, 24, true),
+    makeStructure('controller-rampart', TEST_GLOBALS.STRUCTURE_RAMPART, 24, 24, true),
+    ...sourceRoadOffsets.map(([dx, dy], index) =>
+      makeStructure(`source-road-${index}`, TEST_GLOBALS.STRUCTURE_ROAD, source.pos.x + dx, source.pos.y + dy)
+    )
+  ];
+}
+
+function makeHostileCreep(id: string, x: number, y: number): Creep {
+  return {
+    id,
+    owner: { username: 'Invader' },
+    pos: makeRoomPosition(x, y)
+  } as unknown as Creep;
 }
 
 function getAreaLookResults(
