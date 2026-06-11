@@ -94,6 +94,7 @@ type FindConstantGlobal =
   | 'FIND_CONSTRUCTION_SITES'
   | 'FIND_MY_STRUCTURES'
   | 'FIND_MY_CONSTRUCTION_SITES'
+  | 'FIND_MY_CREEPS'
   | 'FIND_HOSTILE_CREEPS'
   | 'FIND_HOSTILE_STRUCTURES';
 type LookConstantGlobal = 'LOOK_STRUCTURES' | 'LOOK_CONSTRUCTION_SITES' | 'LOOK_MINERALS';
@@ -667,12 +668,19 @@ function shouldPlanResidualStoredEnergyRoadSeed(
     !hasReachedPlacementLimit(result, options) &&
     shouldUseStoredEnergyConstructionSeedSlot(colony.room, budgetState) &&
     hasRemainingStructureCapacity(colony.room, 'road') &&
-    hasResidualConstructionWorkerCoverage(colony.room.name, options.creeps) &&
+    hasResidualConstructionWorkerCoverage(colony.room, options.creeps) &&
     isResidualConstructionSeedRoomSafe(colony)
   );
 }
 
-function hasResidualConstructionWorkerCoverage(roomName: string, creeps: Creep[] | undefined): boolean {
+function hasResidualConstructionWorkerCoverage(room: Room, creeps: Creep[] | undefined): boolean {
+  return (
+    hasResidualConstructionWorkerEvidence(room.name, creeps) ||
+    hasResidualConstructionWorkerEvidence(room.name, findRoomObjects<Creep>(room, 'FIND_MY_CREEPS'))
+  );
+}
+
+function hasResidualConstructionWorkerEvidence(roomName: string, creeps: Creep[] | undefined): boolean {
   if (!creeps || creeps.length < MIN_RESIDUAL_CONSTRUCTION_SEED_WORKERS) {
     return false;
   }
@@ -820,6 +828,13 @@ function selectResidualRoadSeedAnchors(
   const controllerPosition = getAnyObjectPosition(room.controller as RoomObject | undefined);
   if (controllerPosition !== null && isSameRoomPosition(controllerPosition, room.name)) {
     anchors.push(controllerPosition);
+  }
+
+  for (const source of getSortedSources(room)) {
+    const position = getAnyObjectPosition(source);
+    if (position !== null && isSameRoomPosition(position, room.name)) {
+      anchors.push(position);
+    }
   }
 
   return dedupeCandidatePositions(anchors);
