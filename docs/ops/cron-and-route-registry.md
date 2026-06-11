@@ -1,7 +1,7 @@
 # Screeps Cron and Route Registry
 
-Last updated: 2026-05-23
-Tracking issues: https://github.com/lanyusea/screeps/issues/620, https://github.com/lanyusea/screeps/issues/1122, https://github.com/lanyusea/screeps/issues/1170, https://github.com/lanyusea/screeps/issues/1178
+Last updated: 2026-06-11
+Tracking issues: https://github.com/lanyusea/screeps/issues/620, https://github.com/lanyusea/screeps/issues/1122, https://github.com/lanyusea/screeps/issues/1170, https://github.com/lanyusea/screeps/issues/1178, https://github.com/lanyusea/screeps/issues/1783
 
 This registry is the expected-state contract for Screeps/Hermes cron jobs and Discord delivery routes. It is not passive documentation: P0 monitor, scheduler, and acceptance checks must compare live cron metadata against this file with `scripts/check_cron_registry.py`.
 
@@ -11,6 +11,7 @@ This registry is the expected-state contract for Screeps/Hermes cron jobs and Di
 - Live cron metadata (`cronjob list` / `~/.hermes/cron/jobs.json`) says what currently exists; this registry says what should exist.
 - A job missing from live metadata, an unexpected recurring live job, wrong cadence, wrong delivery target, wrong provider/model, wrong repeat policy, wrong workdir, or paused expected job is Agent OS drift.
 - Drift is P0 when it affects scheduler, P0 monitor, runtime alerting, owner-decision routing, deploy/runtime safety, or GitHub/Project reconciliation.
+- Codex-dispatching cron runners must evaluate the weekly quota budget guard before launching Codex work. The guard reads the full recurring-job registry so suppression is cross-cron aware instead of per-job-local.
 - Old cron outputs and reporter state files are caches/history, not authority.
 - Before changing any live cron definition, create a rollback snapshot of `~/.hermes/cron/jobs.json` and relevant docs; after changing, run `cronjob list` and `python3 scripts/check_cron_registry.py --strict`. Expected recurring jobs are healthy when `enabled=true` and state is either `scheduled` or transiently `running`; paused/disabled/error states are drift unless explicitly documented as an active maintenance window.
 
@@ -18,6 +19,7 @@ Verification command:
 
 ```bash
 python3 scripts/check_cron_registry.py --strict
+python3 scripts/check_codex_quota_budget.py --json
 ```
 
 ## Current target
@@ -68,6 +70,27 @@ Repeat policy values:
 
 `Workdir` uses `-` to mean an explicit expectation that the job has no durable cron workdir. This is different from "unknown": the verifier should flag a live workdir on a `-` row because shared workdirs can serialize otherwise independent jobs behind repo-bound workers.
 
+### Codex weekly quota budget guard
+
+`scripts/check_codex_quota_budget.py` is the repo-contained preflight for issue #1783. It consumes this registry plus either a redacted quota JSON export or local Codex session logs, then emits machine-readable JSON decisions for every expected recurring job.
+
+Controller contract:
+
+- Default low-quota threshold: suppress non-P0 `openai-codex` jobs when weekly remaining quota is below `10%`.
+- Protected Codex runway: continuation worker `f66ed36d7be0`, runtime alert `1df5ef0c3835`, and RL flywheel steward `aed8362e4501`.
+- Unknown, missing, or malformed quota telemetry fails safe by allowing protected P0 Codex jobs and suppressing non-P0 Codex jobs with an explicit `UNKNOWN_QUOTA` report.
+- Reset self-healing: if the telemetry `resetAt`/`resets_at` time is in the past, the guard treats the weekly budget as reset and previously suppressed jobs become eligible without manual state cleanup.
+- Do not attach raw Codex session logs to Discord or GitHub; pass a redacted quota JSON export when possible.
+
+Example controller preflight:
+
+```bash
+python3 scripts/check_codex_quota_budget.py \
+  --quota-json runtime-artifacts/codex-quota/redacted-latest.json \
+  --threshold-remaining-percent 10 \
+  --json
+```
+
 | Job | ID | Schedule | Delivery | Provider | Model | Workdir | Repeat | Criticality | Purpose |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Screeps autonomous continuation worker | `f66ed36d7be0` | `8,28,48 * * * *` | `discord:#task-queue` | `openai-codex` | `gpt-5.5` | `/root/screeps` | `high-horizon` | P0 | Dispatcher/reconciler for safe work lanes. |
@@ -81,7 +104,7 @@ Repeat policy values:
 | Screeps 6h development report | `dfcaf65d7ea7` | `47 */6 * * *` | `discord:1497587260835758222:1497833662241181746` | `deepseek` | `deepseek-v4-flash` | `-` | `high-horizon` | P1 | Threaded 6h health/progress report. |
 | Screeps Gameplay Evolution Review | `c7b3dda8f1ac` | `0 */8 * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-flash` | `-` | `high-horizon` | P1 | 8h strategy review for current target `E29N55`. |
 | Screeps Gameplay Evolution Review decisions archive | `dc1c46787f2e` | `15 */8 * * *` | `discord:1497586175580311654` | `deepseek` | `deepseek-v4-flash` | `-` | `high-horizon` | P1 | Archive accepted strategy decisions/current strategy. |
-| Screeps RL flywheel steward | `aed8362e4501` | `17 * * * *` | `discord:#task-queue` | `openai-codex` | `gpt-5.5` | `/root/screeps` | `high-horizon` | P1 | RL flywheel stewardship and issue/Project reconciliation. |
+| Screeps RL flywheel steward | `aed8362e4501` | `17 * * * *` | `discord:#task-queue` | `openai-codex` | `gpt-5.5` | `/root/screeps` | `high-horizon` | P0 | RL flywheel stewardship and issue/Project reconciliation. |
 | Screeps RL shadow-eval bounded gate | `d6cff532edd4` | `5 * * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-flash` | `-` | `high-horizon` | P1 | Shadow-eval ledger producer for RL candidate/baseline evidence; routine output is stdout/artifacts only and must not comment on historical #879. |
 | Screeps RL training execution ledger | `5c869e7d8a1d` | `14,44 * * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-flash` | `-` | `high-horizon` | P1 | Training execution ledger for offline/private RL campaigns; owns Tencent RL utilization control through its preflight instead of a standalone cron. |
 | Screeps RL policy online advantage ledger | `01609968392a` | `27,57 * * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-flash` | `/root/screeps` | `high-horizon` | P1 | Online advantage ledger comparing candidate policy signals against baseline. |
@@ -101,6 +124,7 @@ Transient one-shot jobs must have an expiry condition and tracking issue. They s
 
 - Every cron prompt that reasons about room state for gameplay/bot-deployment purposes must use `shardX/E29N55` as current target. Runtime monitoring/alerting jobs that auto-discover rooms via API are exempt from single-room targeting.
 - P0 monitor and continuation/scheduler jobs must consult the registry diff before reporting cron health as OK or dispatching unrelated non-urgent work.
+- Codex-dispatching scheduler paths must consult `scripts/check_codex_quota_budget.py` before launch; when the guard reports low or unknown weekly quota, suppress non-P0 Codex dispatches and report the suppression artifact instead of consuming more Codex quota.
 - Tencent Cloud cost monitoring is owned by P0 agent operations monitor `75cedbb77150`; standalone billing-guard cron jobs are retired and must not be recreated.
 - Tencent RL batch utilization is owned by RL training execution ledger `5c869e7d8a1d`; standalone utilization-controller cron jobs are retired and must not deliver directly to Discord.
 - Incident/postdeploy/Project-field follow-ups should reuse runtime alert/summary, continuation worker, P0 monitor, or RL ledger mechanisms instead of creating ad-hoc temporary crons unless the owner explicitly approves a non-spamming new surface.
