@@ -731,11 +731,11 @@ describe('owned room construction planner', () => {
     expect(room.createConstructionSite).not.toHaveBeenCalled();
   });
 
-  it('seeds one stored-backed construction site when spawn energy buffer blocks normal reservations', () => {
+  it('seeds one stored-backed construction site when spawn energy cannot fund normal reservations', () => {
     installOpenTerrain();
     const { room, colony } = makeColony({
       controllerLevel: 5,
-      energyAvailable: 250,
+      energyAvailable: 0,
       energyCapacityAvailable: 1_800,
       structures: [
         ...Array.from({ length: 30 }, (_, index) =>

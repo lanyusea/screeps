@@ -259,6 +259,56 @@ describe('claimed room construction planner', () => {
     expect(room.createConstructionSite).not.toHaveBeenCalledWith(expect.any(Number), expect.any(Number), STRUCTURE_STORAGE);
   });
 
+  it('seeds an E29N56 tower from stored energy when spawn energy cannot fund normal reservations', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        claimedRoomBootstrapper: {
+          rooms: {
+            E29N56: {
+              roomName: 'E29N56',
+              owned: true,
+              claimedAt: 1_837_000,
+              updatedAt: 1_837_614
+            }
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game.creeps = {
+      'worker-E29N56-1': {
+        name: 'worker-E29N56-1',
+        memory: { role: 'worker', colony: 'E29N56' }
+      } as Creep
+    };
+    const { room, colony } = makeColony({
+      roomName: 'E29N56',
+      controllerLevel: 4,
+      energyAvailable: 0,
+      energyCapacityAvailable: 1_300,
+      spawnPosition: { x: 17, y: 24 },
+      structures: [
+        ...makeExtensions(20, 'E29N56'),
+        makeStoredStructure('storage-existing', TEST_GLOBALS.STRUCTURE_STORAGE, 17, 23, 'E29N56', 494_145)
+      ],
+      sources: []
+    });
+
+    const result = planClaimedRoomConstruction(colony);
+
+    expect(result.yielded).toBe(false);
+    expect(result.placements).toEqual([
+      expect.objectContaining({
+        priority: 'tower',
+        roomName: 'E29N56',
+        structureType: TEST_GLOBALS.STRUCTURE_TOWER,
+        result: OK_CODE,
+        energyReserved: 50
+      })
+    ]);
+    expect(room.createConstructionSite.mock.calls.filter(([, , structureType]) => structureType === STRUCTURE_TOWER))
+      .toHaveLength(1);
+  });
+
   it('seeds a deferred RCL2 claimed room extension when spawn coverage already exists', () => {
     const { room, colony } = makeColony({
       roomName: 'E29N57',
@@ -728,6 +778,24 @@ function makeStructure(
     id,
     structureType,
     pos: makeRoomPosition({ x, y }, roomName)
+  } as unknown as Structure;
+}
+
+function makeStoredStructure(
+  id: string,
+  structureType: StructureConstant,
+  x: number,
+  y: number,
+  roomName: string,
+  energy: number
+): Structure {
+  return {
+    id,
+    structureType,
+    pos: makeRoomPosition({ x, y }, roomName),
+    store: {
+      getUsedCapacity: jest.fn().mockReturnValue(energy)
+    }
   } as unknown as Structure;
 }
 

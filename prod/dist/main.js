@@ -15379,7 +15379,7 @@ function getRemainingEnergySlots(room, budgetState, priority, options) {
   if (energyBufferSlots > 0) {
     return energyBufferSlots;
   }
-  return shouldUseStoredEnergyConstructionSeedSlot(room, budgetState) ? Math.min(1, budgetSlots) : 0;
+  return shouldUseStoredEnergyConstructionSeedSlot(room, budgetState) ? 1 : 0;
 }
 function getConstructionEnergyReservation(priority, options = {}) {
   if (priority === "spawn") {
@@ -15401,7 +15401,7 @@ function checkEnergyBufferForConstructionPriority(room, priority, amount) {
   return checkEnergyBufferForSpending(room, amount);
 }
 function shouldUseStoredEnergyConstructionSeedSlot(room, budgetState) {
-  return budgetState.energyReserved <= 0 && countPendingRoomConstructionSites(room) <= 0 && checkEnergyBufferForStoredConstructionSpending(room);
+  return budgetState.energyReserved <= 0 && countPendingRoomConstructionSites(room) <= 0 && getRoomStoredEnergyAvailableForConstruction(room) >= CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY;
 }
 function countPendingRoomConstructionSites(room) {
   const sites = [

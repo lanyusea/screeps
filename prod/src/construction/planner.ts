@@ -1,8 +1,9 @@
 import { getOwnedColonies, type ColonySnapshot } from '../colony/colonyRegistry';
 import {
+  CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY,
   checkEnergyBufferForExtensionConstruction,
   checkEnergyBufferForSpending,
-  checkEnergyBufferForStoredConstructionSpending
+  getRoomStoredEnergyAvailableForConstruction
 } from '../economy/energyBuffer';
 import { planBootstrapDefenseFloorPlacements } from '../defense/defensePlanner';
 import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyBuilder';
@@ -1187,7 +1188,7 @@ function getRemainingEnergySlots(
     return energyBufferSlots;
   }
 
-  return shouldUseStoredEnergyConstructionSeedSlot(room, budgetState) ? Math.min(1, budgetSlots) : 0;
+  return shouldUseStoredEnergyConstructionSeedSlot(room, budgetState) ? 1 : 0;
 }
 
 function getConstructionEnergyReservation(
@@ -1234,7 +1235,7 @@ function shouldUseStoredEnergyConstructionSeedSlot(
   return (
     budgetState.energyReserved <= 0 &&
     countPendingRoomConstructionSites(room) <= 0 &&
-    checkEnergyBufferForStoredConstructionSpending(room)
+    getRoomStoredEnergyAvailableForConstruction(room) >= CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY
   );
 }
 
