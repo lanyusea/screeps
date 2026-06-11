@@ -1081,7 +1081,26 @@ function hasUsedOverLimitPressure(budget) {
   return budget.reasons.includes("usedOverLimit");
 }
 function hasHardConstructionCpuPressure(budget) {
-  return budget.lowCpuLimit || budget.critical || budget.reasons.includes("lowBucket") || budget.reasons.includes("criticalBucket") || hasUsedOverLimitPressure(budget);
+  if (budget.lowCpuLimit || budget.critical || budget.reasons.includes("lowBucket") || budget.reasons.includes("criticalBucket")) {
+    return true;
+  }
+  if (!hasUsedOverLimitPressure(budget)) {
+    return false;
+  }
+  return !hasConstructionRecoveryBucketHeadroom(budget.sample);
+}
+function hasConstructionRecoveryBucketHeadroom(sample) {
+  const projectedBucket = getProjectedPostTickBucket(sample);
+  if (projectedBucket === void 0) {
+    return false;
+  }
+  return projectedBucket >= LOW_CPU_BUCKET_THRESHOLD && projectedBucket <= LOW_CPU_BUCKET_THRESHOLD + getCpuBucketRecoveryHeadroom(sample.limit);
+}
+function getProjectedPostTickBucket(sample) {
+  if (sample.bucket === void 0 || sample.used === void 0 || sample.limit === void 0 || sample.limit <= 0) {
+    return void 0;
+  }
+  return sample.bucket - Math.max(0, sample.used - sample.limit);
 }
 function hasLowBucketRecoveryPressure(sample) {
   if (sample.bucket === void 0 || sample.bucket < LOW_CPU_BUCKET_THRESHOLD) {

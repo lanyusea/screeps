@@ -202,7 +202,7 @@ describe('runtime CPU budget policy', () => {
     }
   });
 
-  it('treats postdeploy over-limit recovery buckets as low-bucket recovery pressure', () => {
+  it('keeps construction enabled during postdeploy over-limit recovery buckets', () => {
     const budgets = [
       buildRuntimeCpuBudget({
         tick: 1781934,
@@ -259,8 +259,49 @@ describe('runtime CPU budget policy', () => {
       expect(shouldRunOptionalCpuWork(budget, 'economy-global-optional')).toBe(false);
       expect(shouldRunOptionalCpuRoomWork(budget, 'E29N55')).toBe(false);
       expect(shouldShedNonessentialCpuWork(budget)).toBe(true);
-      expect(shouldRunConstructionCpuWork(budget)).toBe(false);
+      expect(shouldRunConstructionCpuWork(budget)).toBe(true);
     }
+  });
+
+  it('keeps construction enabled when over-limit CPU projects into the recovery corridor', () => {
+    const budget = buildRuntimeCpuBudget({
+      tick: 2039860,
+      used: 78.23037710000062,
+      limit: 70,
+      bucket: 1_842,
+      tickLimit: 500
+    });
+
+    expect(budget).toMatchObject({
+      pressure: 'degraded',
+      degraded: true,
+      critical: false,
+      lowCpuLimit: false,
+      reasons: ['usedOverLimit']
+    });
+    expect(shouldRunOptionalCpuWork(budget, 'economy-global-optional')).toBe(false);
+    expect(shouldRunOptionalCpuRoomWork(budget, 'E29N55')).toBe(false);
+    expect(shouldShedNonessentialCpuWork(budget)).toBe(true);
+    expect(shouldRunConstructionCpuWork(budget)).toBe(true);
+  });
+
+  it('keeps construction guarded when over-limit CPU would drain below the low-bucket floor', () => {
+    const budget = buildRuntimeCpuBudget({
+      tick: 2039861,
+      used: 90,
+      limit: 70,
+      bucket: 1_010,
+      tickLimit: 500
+    });
+
+    expect(budget).toMatchObject({
+      pressure: 'degraded',
+      degraded: true,
+      critical: false,
+      lowCpuLimit: false,
+      reasons: ['lowBucketRecovery', 'usedOverLimit']
+    });
+    expect(shouldRunConstructionCpuWork(budget)).toBe(false);
   });
 
   it('resumes optional work only after the widened low-bucket recovery boundary', () => {
