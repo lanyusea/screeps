@@ -4,6 +4,7 @@ import {
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
   selectWorkerEnergyCriticalAcquisitionTask
 } from '../tasks/workerTasks';
+import { BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING } from '../defense/defensePlanner';
 import { getSafeWorkerWithdrawEnergyAmount } from '../economy/workerConstructionWithdrawBudget';
 
 export const WORKER_ENERGY_CRITICAL_SPAWN_EXIT_THRESHOLD =
@@ -44,6 +45,10 @@ export function selectWorkerEnergyCriticalTask(
   }
 
   if (selectedTask?.type === 'transfer') {
+    return null;
+  }
+
+  if (shouldKeepUrgentRampartRepairDuringEnergyCritical(creep, selectedTask)) {
     return null;
   }
 
@@ -236,6 +241,34 @@ function shouldReassignWorkerTaskForEnergyCriticalState(
   }
 
   return task.type === 'build' && isNonCriticalConstructionTask(task);
+}
+
+function shouldKeepUrgentRampartRepairDuringEnergyCritical(
+  creep: Creep,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  return (
+    getCarriedEnergy(creep) > 0 &&
+    selectedTask?.type === 'repair' &&
+    isUrgentOwnedRampartRepairTask(selectedTask)
+  );
+}
+
+function isUrgentOwnedRampartRepairTask(task: Extract<CreepTaskMemory, { type: 'repair' }>): boolean {
+  const rampart = getGameObjectById<StructureRampart>(String(task.targetId));
+  return Boolean(rampart && isUrgentOwnedRampartRepairTarget(rampart));
+}
+
+function isUrgentOwnedRampartRepairTarget(structure: StructureRampart): boolean {
+  return (
+    matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') &&
+    structure.my === true &&
+    typeof structure.hits === 'number' &&
+    typeof structure.hitsMax === 'number' &&
+    Number.isFinite(structure.hits) &&
+    Number.isFinite(structure.hitsMax) &&
+    structure.hits < Math.min(structure.hitsMax, BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING)
+  );
 }
 
 function isControllerDowngradeGuardTask(
@@ -455,6 +488,7 @@ function matchesStructureType(
     | 'STRUCTURE_CONTAINER'
     | 'STRUCTURE_EXTENSION'
     | 'STRUCTURE_ROAD'
+    | 'STRUCTURE_RAMPART'
     | 'STRUCTURE_SPAWN'
     | 'STRUCTURE_STORAGE'
     | 'STRUCTURE_TOWER',

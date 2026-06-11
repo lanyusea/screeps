@@ -33816,6 +33816,9 @@ function selectWorkerEnergyCriticalTask(creep, currentTask, selectedTask) {
   if ((selectedTask == null ? void 0 : selectedTask.type) === "transfer") {
     return null;
   }
+  if (shouldKeepUrgentRampartRepairDuringEnergyCritical(creep, selectedTask)) {
+    return null;
+  }
   const avoidStorageWithdrawal = isStorageCritical(assessment);
   const freeCapacity = getFreeEnergyCapacity10(creep);
   const shouldPreemptStorageWithdrawal = avoidStorageWithdrawal && freeCapacity > 0 && isRoomStorageWithdrawTask(creep, currentTask);
@@ -33957,6 +33960,16 @@ function shouldReassignWorkerTaskForEnergyCriticalState(creep, task) {
     return true;
   }
   return task.type === "build" && isNonCriticalConstructionTask(task);
+}
+function shouldKeepUrgentRampartRepairDuringEnergyCritical(creep, selectedTask) {
+  return getCarriedEnergy3(creep) > 0 && (selectedTask == null ? void 0 : selectedTask.type) === "repair" && isUrgentOwnedRampartRepairTask(selectedTask);
+}
+function isUrgentOwnedRampartRepairTask(task) {
+  const rampart = getGameObjectById5(String(task.targetId));
+  return Boolean(rampart && isUrgentOwnedRampartRepairTarget(rampart));
+}
+function isUrgentOwnedRampartRepairTarget(structure) {
+  return matchesStructureType20(structure.structureType, "STRUCTURE_RAMPART", "rampart") && structure.my === true && typeof structure.hits === "number" && typeof structure.hitsMax === "number" && Number.isFinite(structure.hits) && Number.isFinite(structure.hitsMax) && structure.hits < Math.min(structure.hitsMax, BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING);
 }
 function isControllerDowngradeGuardTask(creep, task) {
   var _a2;
