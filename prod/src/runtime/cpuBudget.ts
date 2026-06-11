@@ -238,13 +238,45 @@ function hasUsedOverLimitPressure(budget: RuntimeCpuBudget): boolean {
 }
 
 function hasHardConstructionCpuPressure(budget: RuntimeCpuBudget): boolean {
-  return (
+  if (
     budget.lowCpuLimit ||
     budget.critical ||
     budget.reasons.includes('lowBucket') ||
-    budget.reasons.includes('criticalBucket') ||
-    hasUsedOverLimitPressure(budget)
+    budget.reasons.includes('criticalBucket')
+  ) {
+    return true;
+  }
+
+  if (!hasUsedOverLimitPressure(budget)) {
+    return false;
+  }
+
+  return !hasConstructionRecoveryBucketHeadroom(budget.sample);
+}
+
+function hasConstructionRecoveryBucketHeadroom(sample: RuntimeCpuSample): boolean {
+  const projectedBucket = getProjectedPostTickBucket(sample);
+  if (projectedBucket === undefined) {
+    return false;
+  }
+
+  return (
+    projectedBucket >= LOW_CPU_BUCKET_THRESHOLD &&
+    projectedBucket <= LOW_CPU_BUCKET_THRESHOLD + getCpuBucketRecoveryHeadroom(sample.limit)
   );
+}
+
+function getProjectedPostTickBucket(sample: RuntimeCpuSample): number | undefined {
+  if (
+    sample.bucket === undefined ||
+    sample.used === undefined ||
+    sample.limit === undefined ||
+    sample.limit <= 0
+  ) {
+    return undefined;
+  }
+
+  return sample.bucket - Math.max(0, sample.used - sample.limit);
 }
 
 function hasLowBucketRecoveryPressure(sample: RuntimeCpuSample): boolean {
