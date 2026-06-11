@@ -55,8 +55,10 @@ export interface ConstructionPlannerOptions {
   includePostClaimRamparts?: boolean;
   includeStorage?: boolean;
   postClaimPriorityOrder?: boolean;
+  maxPlacementsPerRoom?: number;
   strategyRegistry?: StrategyRegistryEntry[];
   runtimeStrategyConstructionEnabled?: boolean;
+  runtimeStrategyConstructionFallbackPriorities?: boolean;
   onStrategyRegistryRuntimeUse?: (entry: StrategyRegistryEntry) => void;
 }
 
@@ -219,7 +221,11 @@ export function planConstructionForColony(
     placements: []
   };
 
-  if (rcl <= 0 || typeof room.createConstructionSite !== 'function') {
+  if (
+    rcl <= 0 ||
+    typeof room.createConstructionSite !== 'function' ||
+    getMaxPlacementsPerRoom(options) <= 0
+  ) {
     return result;
   }
   const extensionBootstrapPriority = shouldPrioritizeExtensionBootstrapConstruction(
@@ -236,7 +242,7 @@ export function planConstructionForColony(
   const spawnPlacement = planSpawnIfMissing(colony);
   if (spawnPlacement) {
     recordPlacement(result, budgetState, 'spawn', spawnPlacement.result, options, spawnPlacement.position);
-    if (spawnPlacement.result !== getOkCode()) {
+    if (spawnPlacement.result !== getOkCode() || hasReachedPlacementLimit(result, options)) {
       return result;
     }
   }
@@ -244,35 +250,35 @@ export function planConstructionForColony(
   if (
     extensionBootstrapPriority &&
     planBootstrapExtension(colony, result, budgetState, options) &&
-    options.respectRoomEnergyBuffer === true
+    (options.respectRoomEnergyBuffer === true || hasReachedPlacementLimit(result, options))
   ) {
     return result;
   }
 
   if (options.postClaimPriorityOrder === true) {
     planExtensions(colony, result, budgetState, options);
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
 
     planContainers(colony, result, budgetState, options);
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
 
     planRoads(colony, result, budgetState, options);
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
 
     planTowers(colony, result, budgetState, options);
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
 
     if (options.includePostClaimRamparts === true) {
       planRamparts(colony, result, budgetState, options);
-      if (hasBlockingPlacementFailure(result)) {
+      if (shouldStopConstructionPlanning(result, options)) {
         return result;
       }
     }
@@ -285,18 +291,18 @@ export function planConstructionForColony(
     shouldPrioritizeFirstTowerDefenseSiteBeforeRoutineConstruction(room, rcl, options)
       ? planPriorityTowerDefenseSiteIfNeeded(colony, result, budgetState, options, rcl)
       : 'notNeeded';
-  if (hasBlockingPlacementFailure(result)) {
+  if (shouldStopConstructionPlanning(result, options)) {
     return result;
   }
 
   if (sourceLogisticsStarved) {
     planContainers(colony, result, budgetState, options, { includeStagingContainers: false });
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
 
     planRoads(colony, result, budgetState, buildSourceLogisticsStarvationRoadOptions(colony, options));
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
   }
@@ -316,18 +322,18 @@ export function planConstructionForColony(
   }
 
   planExtensions(colony, result, budgetState, options);
-  if (hasBlockingPlacementFailure(result)) {
+  if (shouldStopConstructionPlanning(result, options)) {
     return result;
   }
 
   if (!sourceLogisticsStarved) {
     planContainers(colony, result, budgetState, options);
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
 
     planRoads(colony, result, budgetState, options);
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
   }
@@ -340,27 +346,30 @@ export function planConstructionForColony(
       options,
       rcl
     );
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
   }
 
   if (priorityTowerDefenseSiteState !== 'blocked') {
     planBootstrapDefenseFloor(colony, result, budgetState, options);
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
   }
 
   if (options.includePostClaimRamparts === true) {
     planRamparts(colony, result, budgetState, options);
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return result;
     }
   }
 
   if (priorityTowerDefenseSiteState === 'notNeeded') {
     planTowers(colony, result, budgetState, options);
+    if (shouldStopConstructionPlanning(result, options)) {
+      return result;
+    }
   }
   planStorage(colony, result, budgetState, options);
 
@@ -477,6 +486,9 @@ function planExtensions(
   const extensionResult = planExtensionConstruction(colony);
   if (extensionResult !== null) {
     recordPlacement(result, budgetState, 'extension', extensionResult, options);
+    if (hasReachedPlacementLimit(result, options)) {
+      return;
+    }
   }
 }
 
@@ -575,6 +587,9 @@ function planBootstrapDefenseFloor(
     );
     if (placementResult === getOkCode() || isFatalConstructionSiteResult(placementResult)) {
       recordPlacement(result, budgetState, priority, placementResult, options, placement);
+      if (hasReachedPlacementLimit(result, options)) {
+        return;
+      }
     }
 
     if (placementResult !== getOkCode()) {
@@ -628,7 +643,10 @@ function planRuntimeStrategyPrioritizedConstruction(
 
   const report = buildRuntimeConstructionPriorityReport(colony, options.creeps, { strategyParameters });
   recordStrategyRegistryRuntimeUse(options, strategyEntry);
-  const priorities = runtimeConstructionPlannerPriorityOrder(report, { sourceLogisticsStarved });
+  const priorities = runtimeConstructionPlannerPriorityOrder(report, {
+    sourceLogisticsStarved,
+    includeDefaultPriorities: options.runtimeStrategyConstructionFallbackPriorities !== false
+  });
   if (priorities.length === 0) {
     return false;
   }
@@ -644,7 +662,7 @@ function planRuntimeStrategyPrioritizedConstruction(
       activePriorityTowerDefenseSiteState,
       rcl
     );
-    if (hasBlockingPlacementFailure(result)) {
+    if (shouldStopConstructionPlanning(result, options)) {
       return true;
     }
   }
@@ -670,7 +688,7 @@ function recordStrategyRegistryRuntimeUse(
 
 function runtimeConstructionPlannerPriorityOrder(
   report: ConstructionPriorityReport,
-  options: { sourceLogisticsStarved?: boolean } = {}
+  options: { sourceLogisticsStarved?: boolean; includeDefaultPriorities?: boolean } = {}
 ): ConstructionPlannerPriority[] {
   const priorities: ConstructionPlannerPriority[] = [];
   for (const score of report.candidates) {
@@ -684,9 +702,11 @@ function runtimeConstructionPlannerPriorityOrder(
     }
   }
 
-  for (const priority of DEFAULT_ROUTINE_CONSTRUCTION_PRIORITIES) {
-    if (!shouldSkipRuntimeConstructionPriority(priority, options) && !priorities.includes(priority)) {
-      priorities.push(priority);
+  if (options.includeDefaultPriorities !== false) {
+    for (const priority of DEFAULT_ROUTINE_CONSTRUCTION_PRIORITIES) {
+      if (!shouldSkipRuntimeConstructionPriority(priority, options) && !priorities.includes(priority)) {
+        priorities.push(priority);
+      }
     }
   }
 
@@ -758,7 +778,7 @@ function planRuntimeConstructionPlannerPriority(
         options,
         rcl
       );
-      if (hasBlockingPlacementFailure(result)) {
+      if (shouldStopConstructionPlanning(result, options)) {
         return priorityTowerDefenseSiteState;
       }
 
@@ -776,14 +796,14 @@ function planRuntimeConstructionPlannerPriority(
           options,
           rcl
         );
-        if (hasBlockingPlacementFailure(result)) {
+        if (shouldStopConstructionPlanning(result, options)) {
           return priorityTowerDefenseSiteState;
         }
       }
 
       if (priorityTowerDefenseSiteState !== 'blocked') {
         planBootstrapDefenseFloor(colony, result, budgetState, options);
-        if (hasBlockingPlacementFailure(result)) {
+        if (shouldStopConstructionPlanning(result, options)) {
           return priorityTowerDefenseSiteState;
         }
       }
@@ -853,7 +873,7 @@ function planRoads(
   });
   for (const roadResult of roadResults) {
     recordPlacement(result, budgetState, 'road', roadResult, options);
-    if (roadResult !== getOkCode()) {
+    if (roadResult !== getOkCode() || hasReachedPlacementLimit(result, options)) {
       return;
     }
   }
@@ -883,7 +903,7 @@ function planContainers(
   });
   for (const containerResult of containerResults) {
     recordPlacement(result, budgetState, 'container', containerResult, options);
-    if (containerResult !== getOkCode()) {
+    if (containerResult !== getOkCode() || hasReachedPlacementLimit(result, options)) {
       return;
     }
 
@@ -904,7 +924,7 @@ function planContainers(
     });
     for (const stagingContainerResult of stagingContainerResults) {
       recordPlacement(result, budgetState, 'container', stagingContainerResult, options);
-      if (stagingContainerResult !== getOkCode()) {
+      if (stagingContainerResult !== getOkCode() || hasReachedPlacementLimit(result, options)) {
         return;
       }
 
@@ -1023,6 +1043,38 @@ function recordPlacement(
 function hasBlockingPlacementFailure(result: RoomConstructionPlannerResult): boolean {
   const lastPlacement = result.placements[result.placements.length - 1];
   return lastPlacement !== undefined && lastPlacement.result !== getOkCode();
+}
+
+function shouldStopConstructionPlanning(
+  result: RoomConstructionPlannerResult,
+  options: ConstructionPlannerOptions
+): boolean {
+  return hasBlockingPlacementFailure(result) || hasReachedPlacementLimit(result, options);
+}
+
+function hasReachedPlacementLimit(
+  result: RoomConstructionPlannerResult,
+  options: ConstructionPlannerOptions
+): boolean {
+  const maxPlacements = getMaxPlacementsPerRoom(options);
+  if (maxPlacements === Number.MAX_SAFE_INTEGER) {
+    return false;
+  }
+
+  return result.placements.filter((placement) => placement.result === getOkCode()).length >= maxPlacements;
+}
+
+function getMaxPlacementsPerRoom(options: ConstructionPlannerOptions): number {
+  const value = options.maxPlacementsPerRoom;
+  if (value === undefined) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.floor(value));
 }
 
 function hasSpawnCoverage(colony: ColonySnapshot): boolean {

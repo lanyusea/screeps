@@ -8,7 +8,8 @@ import {
 } from '../colony/colonyStage';
 import {
   planClaimedRoomConstruction,
-  planDeferredClaimedRoomCapacityConstruction
+  planDeferredClaimedRoomCapacityConstruction,
+  type ClaimedRoomConstructionPlannerOptions
 } from '../construction/claimed-room-planner';
 import { countCreepsByRole, getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import { runWorker } from '../creeps/workerRunner';
@@ -35,7 +36,7 @@ import {
   type RuntimeSummary,
   type RuntimeTelemetryEvent
 } from '../telemetry/runtimeSummary';
-import type { StrategyRegistryEntry } from '../strategy/strategyRegistry';
+import { DEFAULT_STRATEGY_REGISTRY, type StrategyRegistryEntry } from '../strategy/strategyRegistry';
 import { getRuntimeFeatureGates, type RuntimeFeatureGates } from '../runtime/featureGates';
 import {
   getRuntimeCpuBudget,
@@ -133,6 +134,8 @@ const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const OK_CODE = 0 as ScreepsReturnCode;
 const BOOTSTRAP_WORKER_BUFFER_BYPASS_MIN_ENERGY = 300;
 const LOW_ROOM_ENERGY_TASK_PRIORITY_RATIO = 0.5;
+
+type ConstructionCpuMode = 'normal' | 'recoverySeed';
 
 interface SpawnAttemptOutcome {
   spawn: StructureSpawn;
@@ -233,8 +236,10 @@ export function runEconomy(
             colony,
             creeps,
             options,
+            telemetryEvents,
             postClaimBootstrapFocusRoomName,
-            postClaimBootstrapRefresh.deferred === true
+            postClaimBootstrapRefresh.deferred === true,
+            selectConstructionCpuMode(roomCpuBudget)
           );
         }
         continue;
@@ -272,8 +277,10 @@ export function runEconomy(
         colony,
         creeps,
         options,
+        telemetryEvents,
         postClaimBootstrapFocusRoomName,
-        postClaimBootstrapRefresh.deferred === true
+        postClaimBootstrapRefresh.deferred === true,
+        selectConstructionCpuMode(roomCpuBudget)
       );
     }
     if (survivalAssessment.mode === 'TERRITORY_READY' && shouldRunTerritoryPlanning(roomCpuBudget, runOptionalRoomWork)) {
@@ -567,24 +574,88 @@ function runClaimedRoomConstructionForCpuBudget(
   colony: ColonySnapshot,
   creeps: Creep[],
   options: EconomyRuntimeOptions,
+  telemetryEvents: RuntimeTelemetryEvent[],
   postClaimBootstrapFocusRoomName: string | null,
-  deferred: boolean
+  deferred: boolean,
+  mode: ConstructionCpuMode = 'normal'
 ): void {
   refreshPostClaimDefenseConstruction(colony, { focusRoomName: postClaimBootstrapFocusRoomName });
-  const constructionOptions = {
+  const constructionOptions: ClaimedRoomConstructionPlannerOptions = {
     respectRoomEnergyBuffer: true,
     creeps,
     strategyRegistry: options.strategyRegistry,
     runtimeStrategyConstructionEnabled: options.runtimeStrategyConstructionEnabled,
     onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
   };
+  const activeConstructionOptions =
+    mode === 'recoverySeed'
+      ? buildCpuRecoveryConstructionSeedOptions(constructionOptions)
+      : constructionOptions;
 
   if (deferred) {
-    planDeferredClaimedRoomCapacityConstruction(colony, constructionOptions);
+    const result = planDeferredClaimedRoomCapacityConstruction(colony, activeConstructionOptions);
+    recordRecoveryConstructionPlacementTelemetry(telemetryEvents, result.placements, mode);
     return;
   }
 
-  planClaimedRoomConstruction(colony, constructionOptions);
+  const result = planClaimedRoomConstruction(colony, activeConstructionOptions);
+  recordRecoveryConstructionPlacementTelemetry(telemetryEvents, result.placements, mode);
+}
+
+function selectConstructionCpuMode(cpuBudget: RuntimeCpuBudget): ConstructionCpuMode {
+  return shouldShedNonessentialCpuWork(cpuBudget) && shouldRunConstructionCpuWork(cpuBudget)
+    ? 'recoverySeed'
+    : 'normal';
+}
+
+function buildCpuRecoveryConstructionSeedOptions(
+  options: ClaimedRoomConstructionPlannerOptions
+): ClaimedRoomConstructionPlannerOptions {
+  return {
+    ...options,
+    strategyRegistry: options.strategyRegistry ?? DEFAULT_STRATEGY_REGISTRY,
+    runtimeStrategyConstructionEnabled: true,
+    runtimeStrategyConstructionFallbackPriorities: false,
+    includePostClaimRamparts: true,
+    maxPlacementsPerRoom: 1,
+    maxContainerSitesPerTick: 1,
+    maxPendingContainerSites: 1,
+    roadOptions: {
+      ...options.roadOptions,
+      maxSitesPerTick: 1,
+      maxTargetsPerTick: 1
+    }
+  };
+}
+
+function recordRecoveryConstructionPlacementTelemetry(
+  telemetryEvents: RuntimeTelemetryEvent[],
+  placements: Array<{
+    priority: string;
+    roomName: string;
+    structureType: BuildableStructureConstant;
+    result: ScreepsReturnCode;
+    x?: number;
+    y?: number;
+  }>,
+  mode: ConstructionCpuMode
+): void {
+  if (mode !== 'recoverySeed') {
+    return;
+  }
+
+  for (const placement of placements) {
+    telemetryEvents.push({
+      type: 'constructionPlacement',
+      roomName: placement.roomName,
+      priority: placement.priority,
+      structureType: String(placement.structureType),
+      result: placement.result,
+      mode: 'recoverySeed',
+      ...(placement.x !== undefined ? { x: placement.x } : {}),
+      ...(placement.y !== undefined ? { y: placement.y } : {})
+    });
+  }
 }
 
 function isDowngradeGuardControllerCreep(creep: Creep): boolean {
