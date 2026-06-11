@@ -1955,7 +1955,7 @@ describe('runEconomy', () => {
     expect(worker.memory.task).toEqual({ type: 'build', targetId: 'site-24-24' });
   });
 
-  it('preserves construction planning after the current tick exceeds its CPU limit with a healthy bucket', () => {
+  it('suppresses construction planning after the current tick exceeds its CPU limit with a healthy bucket', () => {
     (globalThis as unknown as {
       FIND_MY_STRUCTURES: number;
       FIND_MY_CONSTRUCTION_SITES: number;
@@ -2031,7 +2031,7 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(room.createConstructionSite).toHaveBeenCalledWith(24, 24, STRUCTURE_EXTENSION);
+    expect(room.createConstructionSite).not.toHaveBeenCalled();
   });
 
   it('preempts an existing RCL2 upgrade task for newly planned extension construction', () => {
@@ -2121,7 +2121,7 @@ describe('runEconomy', () => {
     expect(worker.moveTo).not.toHaveBeenCalled();
   });
 
-  it('plans source containers before staging containers for an owned expansion room', () => {
+  it('attempts E29N55 source-container construction during safe low-bucket recovery', () => {
     (globalThis as unknown as {
       FIND_MY_STRUCTURES: number;
       FIND_MY_CONSTRUCTION_SITES: number;
@@ -2158,7 +2158,7 @@ describe('runEconomy', () => {
     const constructionSites: ConstructionSite[] = [];
     let ownedStructures: AnyOwnedStructure[] = [];
     const room = {
-      name: 'W2N1',
+      name: 'E29N55',
       energyAvailable: 800,
       energyCapacityAvailable: 800,
       controller: {
@@ -2166,7 +2166,7 @@ describe('runEconomy', () => {
         owner: { username: 'me' },
         level: 3,
         ticksToDowngrade: 10_000,
-        pos: { x: 25, y: 25, roomName: 'W2N1' }
+        pos: { x: 25, y: 25, roomName: 'E29N55' }
       } as StructureController,
       find: jest.fn((type: number, options?: { filter?: (target: unknown) => boolean }) => {
         const targets =
@@ -2177,7 +2177,7 @@ describe('runEconomy', () => {
               : type === FIND_STRUCTURES
                 ? ownedStructures
                 : type === FIND_SOURCES
-                  ? ([{ id: 'source1', pos: { x: 10, y: 10, roomName: 'W2N1' } as RoomPosition }] as Source[])
+                  ? ([{ id: 'source1', pos: { x: 10, y: 10, roomName: 'E29N55' } as RoomPosition }] as Source[])
                   : [];
 
         return options?.filter ? targets.filter(options.filter) : targets;
@@ -2187,7 +2187,7 @@ describe('runEconomy', () => {
         constructionSites.push({
           id: `site-${x}-${y}`,
           structureType,
-          pos: { x, y, roomName: 'W2N1' } as RoomPosition
+          pos: { x, y, roomName: 'E29N55' } as RoomPosition
         } as ConstructionSite);
         return OK_CODE;
       })
@@ -2195,7 +2195,7 @@ describe('runEconomy', () => {
     const spawn = {
       name: 'Spawn2',
       room,
-      pos: { x: 25, y: 25, roomName: 'W2N1' },
+      pos: { x: 25, y: 25, roomName: 'E29N55' },
       structureType: 'spawn',
       spawning: null,
       spawnCreep: jest.fn()
@@ -2208,7 +2208,7 @@ describe('runEconomy', () => {
           ({
             id: `extension-${index}`,
             structureType: 'extension',
-            pos: { x: 35 + index, y: 35, roomName: 'W2N1' } as RoomPosition
+            pos: { x: 35 + index, y: 35, roomName: 'E29N55' } as RoomPosition
           }) as AnyOwnedStructure
       )
     ];
@@ -2219,9 +2219,15 @@ describe('runEconomy', () => {
     };
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 252,
-      rooms: { W2N1: room },
+      rooms: { E29N55: room },
       spawns: { Spawn2: spawn },
       creeps: workers,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(8),
+        limit: 70,
+        bucket: 1_840,
+        tickLimit: 500
+      } as unknown as CPU,
       map: {
         getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
       } as unknown as GameMap
@@ -3747,7 +3753,7 @@ describe('runEconomy', () => {
     });
   });
 
-  it('keeps post-claim spawn construction focused during used-over-limit CPU shedding', () => {
+  it('suppresses post-claim spawn construction during used-over-limit CPU shedding', () => {
     (globalThis as unknown as {
       FIND_MY_CONSTRUCTION_SITES: number;
       FIND_SOURCES: number;
@@ -3864,11 +3870,11 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(olderRoom.createConstructionSite).toHaveBeenCalledWith(23, 23, STRUCTURE_SPAWN);
+    expect(olderRoom.createConstructionSite).not.toHaveBeenCalled();
     expect(newerRoom.createConstructionSite).not.toHaveBeenCalled();
     expect(Memory.territory?.postClaimBootstraps?.W2N1).toMatchObject({
-      status: 'spawnSitePending',
-      updatedAt: 404
+      status: 'detected',
+      updatedAt: 400
     });
     expect(Memory.territory?.postClaimBootstraps?.W3N1).toMatchObject({
       status: 'detected',

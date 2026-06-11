@@ -621,7 +621,7 @@ describe('runtime telemetry summaries', () => {
     expect(onStrategyRegistryRuntimeUse).not.toHaveBeenCalled();
   });
 
-  it('reports construction scoring skipped by low-bucket CPU recovery', () => {
+  it('reports construction scoring during safe low-bucket CPU recovery', () => {
     const colony = makeColony({
       time: RUNTIME_SUMMARY_INTERVAL * 5,
       includeEventLog: false
@@ -639,16 +639,22 @@ describe('runtime telemetry summaries', () => {
 
     const payload = parseLoggedSummary();
     const [room] = payload.rooms as Array<Record<string, unknown>>;
-    expect(room.constructionPriority).toEqual({ candidates: [], nextPrimary: null });
+    expect(room.constructionPriority).toMatchObject({
+      nextPrimary: {
+        buildItem: 'build rampart defense',
+        room: 'W1N1',
+        urgency: 'critical'
+      }
+    });
     expect(room.constructionScoring).toEqual({
       source: 'runtime-summary',
-      loopRan: false,
-      skipped: true,
-      skipReason: 'lowBucketRecovery',
-      rawCandidateCount: 0,
-      viableCandidateCount: 0,
-      suppressedCandidateCount: 0,
-      acceptedCandidateCount: 0,
+      loopRan: true,
+      skipped: false,
+      rawCandidateCount: 4,
+      viableCandidateCount: 4,
+      suppressedCandidateCount: 3,
+      dominantSuppressionReason: 'lower_ranked_candidate',
+      acceptedCandidateCount: 1,
       sitePlacementAttempted: false
     });
   });
@@ -702,28 +708,22 @@ describe('runtime telemetry summaries', () => {
 
     const payload = parseLoggedSummary();
     const [room] = payload.rooms as Array<Record<string, unknown>>;
-    expect(room.constructionPriority).toMatchObject({
-      nextPrimary: {
-        buildItem: 'build rampart defense',
-        room: 'W1N1',
-        urgency: 'critical'
-      }
-    });
+    expect(room.constructionPriority).toEqual({ candidates: [], nextPrimary: null });
     expect(room.constructionScoring).toEqual({
       source: 'runtime-summary',
-      loopRan: true,
-      skipped: false,
-      rawCandidateCount: 4,
-      viableCandidateCount: 4,
-      suppressedCandidateCount: 3,
-      dominantSuppressionReason: 'lower_ranked_candidate',
-      acceptedCandidateCount: 1,
+      loopRan: false,
+      skipped: true,
+      skipReason: 'usedOverLimit',
+      rawCandidateCount: 0,
+      viableCandidateCount: 0,
+      suppressedCandidateCount: 0,
+      acceptedCandidateCount: 0,
       sitePlacementAttempted: false
     });
     expect(room.territoryExpansion).toBeUndefined();
     expect(room.behavior).toBeUndefined();
     expect(room.workerEfficiency).toBeUndefined();
-    expect(onStrategyRegistryRuntimeUse).toHaveBeenCalledTimes(1);
+    expect(onStrategyRegistryRuntimeUse).not.toHaveBeenCalled();
   });
 
   it('reports per-creep behavior counters and resets emitted counters', () => {
