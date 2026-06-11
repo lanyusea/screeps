@@ -129,6 +129,12 @@ interface ResidualRoadSeedLookups {
   terrain: RoomTerrain | null;
 }
 
+interface ResidualRoadSeedPlan {
+  anchors: CandidatePosition[];
+  lookups: ResidualRoadSeedLookups;
+  roomName: string;
+}
+
 interface SpawnPlacementResult {
   result: ScreepsReturnCode;
   position?: CandidatePosition;
@@ -154,6 +160,7 @@ const SPAWN_EDGE_MIN = 2;
 const SPAWN_EDGE_MAX = 47;
 const MAX_SPAWN_SITE_SCAN_RADIUS = 8;
 const RESIDUAL_ROAD_SEED_MAX_RADIUS = 6;
+const RESIDUAL_ROAD_SEED_MAX_PLACEMENT_ATTEMPTS = 4;
 const MIN_RESIDUAL_CONSTRUCTION_SEED_WORKERS = 1;
 const DEFAULT_TERRAIN_WALL_MASK = 1;
 const OK_CODE = 0 as ScreepsReturnCode;
@@ -642,18 +649,28 @@ function planResidualStoredEnergyRoadSeed(
     return;
   }
 
-  const position = selectResidualRoadSeedPosition(colony.room, colony);
-  if (!position) {
+  const seedPlan = createResidualRoadSeedPlan(colony.room, colony);
+  if (!seedPlan) {
     return;
   }
 
-  const placementResult = colony.room.createConstructionSite(
-    position.x,
-    position.y,
-    getStructureConstant('STRUCTURE_ROAD')
-  );
-  if (placementResult === getOkCode() || isFatalConstructionSiteResult(placementResult)) {
-    recordPlacement(result, budgetState, 'road', placementResult, options, position);
+  for (let attempt = 0; attempt < RESIDUAL_ROAD_SEED_MAX_PLACEMENT_ATTEMPTS; attempt += 1) {
+    const position = selectResidualRoadSeedPosition(seedPlan);
+    if (!position) {
+      return;
+    }
+
+    const placementResult = colony.room.createConstructionSite(
+      position.x,
+      position.y,
+      getStructureConstant('STRUCTURE_ROAD')
+    );
+    if (placementResult === getOkCode() || isFatalConstructionSiteResult(placementResult)) {
+      recordPlacement(result, budgetState, 'road', placementResult, options, position);
+      return;
+    }
+
+    seedPlan.lookups.blockingPositions.add(getPositionKey(position));
   }
 }
 
@@ -728,17 +745,25 @@ function countVisibleHostileThreats(room: Room): number {
   );
 }
 
-function selectResidualRoadSeedPosition(room: Room, colony: ColonySnapshot): CandidatePosition | null {
+function createResidualRoadSeedPlan(room: Room, colony: ColonySnapshot): ResidualRoadSeedPlan | null {
   const lookups = buildResidualRoadSeedLookups(room);
   if (!lookups.terrain) {
     return null;
   }
 
   const anchors = selectResidualRoadSeedAnchors(room, colony, lookups);
-  const nearbyPosition = selectResidualRoadSeedPositionFromAnchors(
-    lookups,
+  return {
     anchors,
-    room.name,
+    lookups,
+    roomName: room.name
+  };
+}
+
+function selectResidualRoadSeedPosition(plan: ResidualRoadSeedPlan): CandidatePosition | null {
+  const nearbyPosition = selectResidualRoadSeedPositionFromAnchors(
+    plan.lookups,
+    plan.anchors,
+    plan.roomName,
     1,
     RESIDUAL_ROAD_SEED_MAX_RADIUS
   );
@@ -747,9 +772,9 @@ function selectResidualRoadSeedPosition(room: Room, colony: ColonySnapshot): Can
   }
 
   return selectResidualRoadSeedPositionFromAnchors(
-    lookups,
-    anchors,
-    room.name,
+    plan.lookups,
+    plan.anchors,
+    plan.roomName,
     RESIDUAL_ROAD_SEED_MAX_RADIUS + 1
   );
 }
