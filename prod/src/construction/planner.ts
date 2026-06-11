@@ -93,7 +93,9 @@ type FindConstantGlobal =
   | 'FIND_STRUCTURES'
   | 'FIND_CONSTRUCTION_SITES'
   | 'FIND_MY_STRUCTURES'
-  | 'FIND_MY_CONSTRUCTION_SITES';
+  | 'FIND_MY_CONSTRUCTION_SITES'
+  | 'FIND_HOSTILE_CREEPS'
+  | 'FIND_HOSTILE_STRUCTURES';
 type LookConstantGlobal = 'LOOK_STRUCTURES' | 'LOOK_CONSTRUCTION_SITES' | 'LOOK_MINERALS';
 type StructureConstantGlobal =
   | 'STRUCTURE_SPAWN'
@@ -116,6 +118,13 @@ interface SpawnPlacementLookups {
   blockingPositions: Set<string>;
   mineralPositions: Set<string>;
   rangeReservedPositions: CandidatePosition[];
+  terrain: RoomTerrain | null;
+}
+
+interface ResidualRoadSeedLookups {
+  structures: Structure[];
+  blockingPositions: Set<string>;
+  existingRoadPositions: Set<string>;
   terrain: RoomTerrain | null;
 }
 
@@ -143,6 +152,8 @@ const ROOM_EDGE_MAX = 48;
 const SPAWN_EDGE_MIN = 2;
 const SPAWN_EDGE_MAX = 47;
 const MAX_SPAWN_SITE_SCAN_RADIUS = 8;
+const RESIDUAL_ROAD_SEED_MAX_RADIUS = 3;
+const MIN_RESIDUAL_CONSTRUCTION_SEED_WORKERS = 1;
 const DEFAULT_TERRAIN_WALL_MASK = 1;
 const OK_CODE = 0 as ScreepsReturnCode;
 const ERR_FULL_CODE = -8 as ScreepsReturnCode;
@@ -284,6 +295,7 @@ export function planConstructionForColony(
     }
 
     planStorage(colony, result, budgetState, options);
+    planResidualStoredEnergyRoadSeed(colony, result, budgetState, options);
     return result;
   }
 
@@ -372,6 +384,7 @@ export function planConstructionForColony(
     }
   }
   planStorage(colony, result, budgetState, options);
+  planResidualStoredEnergyRoadSeed(colony, result, budgetState, options);
 
   return result;
 }
@@ -618,6 +631,264 @@ function planStorage(
   }
 }
 
+function planResidualStoredEnergyRoadSeed(
+  colony: ColonySnapshot,
+  result: RoomConstructionPlannerResult,
+  budgetState: ConstructionBudgetState,
+  options: ConstructionPlannerOptions
+): void {
+  if (!shouldPlanResidualStoredEnergyRoadSeed(colony, result, budgetState, options)) {
+    return;
+  }
+
+  const position = selectResidualRoadSeedPosition(colony.room, colony);
+  if (!position) {
+    return;
+  }
+
+  const placementResult = colony.room.createConstructionSite(
+    position.x,
+    position.y,
+    getStructureConstant('STRUCTURE_ROAD')
+  );
+  if (placementResult === getOkCode() || isFatalConstructionSiteResult(placementResult)) {
+    recordPlacement(result, budgetState, 'road', placementResult, options, position);
+  }
+}
+
+function shouldPlanResidualStoredEnergyRoadSeed(
+  colony: ColonySnapshot,
+  result: RoomConstructionPlannerResult,
+  budgetState: ConstructionBudgetState,
+  options: ConstructionPlannerOptions
+): boolean {
+  return (
+    result.placements.length <= 0 &&
+    !hasReachedPlacementLimit(result, options) &&
+    shouldUseStoredEnergyConstructionSeedSlot(colony.room, budgetState) &&
+    hasRemainingStructureCapacity(colony.room, 'road') &&
+    hasResidualConstructionWorkerCoverage(colony.room.name, options.creeps) &&
+    isResidualConstructionSeedRoomSafe(colony)
+  );
+}
+
+function hasResidualConstructionWorkerCoverage(roomName: string, creeps: Creep[] | undefined): boolean {
+  if (!creeps || creeps.length < MIN_RESIDUAL_CONSTRUCTION_SEED_WORKERS) {
+    return false;
+  }
+
+  let workers = 0;
+  for (const creep of creeps) {
+    if (!isResidualConstructionWorker(roomName, creep)) {
+      continue;
+    }
+
+    workers += 1;
+    if (workers >= MIN_RESIDUAL_CONSTRUCTION_SEED_WORKERS) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isResidualConstructionWorker(roomName: string, creep: Creep): boolean {
+  const memory = creep.memory as { role?: unknown; colony?: unknown };
+  const ttl = (creep as { ticksToLive?: unknown }).ticksToLive;
+  const creepRoomName = (creep as { room?: { name?: unknown } }).room?.name;
+  return (
+    memory.role === 'worker' &&
+    (memory.colony === roomName || creepRoomName === roomName) &&
+    (typeof ttl !== 'number' || ttl > 0)
+  );
+}
+
+function isResidualConstructionSeedRoomSafe(colony: ColonySnapshot): boolean {
+  const room = colony.room;
+  return (
+    room.controller?.my === true &&
+    getOwnedRoomRcl(room) >= 2 &&
+    hasOwnedSpawn(colony) &&
+    countVisibleHostileThreats(room) <= 0
+  );
+}
+
+function countVisibleHostileThreats(room: Room): number {
+  return (
+    findRoomObjects<Creep>(room, 'FIND_HOSTILE_CREEPS').length +
+    findRoomObjects<Structure>(room, 'FIND_HOSTILE_STRUCTURES').length
+  );
+}
+
+function selectResidualRoadSeedPosition(room: Room, colony: ColonySnapshot): CandidatePosition | null {
+  const lookups = buildResidualRoadSeedLookups(room);
+  if (!lookups.terrain) {
+    return null;
+  }
+
+  for (const anchor of selectResidualRoadSeedAnchors(room, colony, lookups)) {
+    for (const position of getResidualRoadSeedCandidatePositions(anchor, room.name)) {
+      if (canPlaceResidualRoadSeed(lookups, position)) {
+        return position;
+      }
+    }
+  }
+
+  return null;
+}
+
+function buildResidualRoadSeedLookups(room: Room): ResidualRoadSeedLookups {
+  const structures = findUniqueRoomObjectsByStableKey<Structure>([
+    ...findRoomObjects<Structure>(room, 'FIND_STRUCTURES'),
+    ...findRoomObjects<Structure>(room, 'FIND_MY_STRUCTURES')
+  ]);
+  const sites = findUniqueRoomObjectsByStableKey<ConstructionSite>([
+    ...findRoomObjects<ConstructionSite>(room, 'FIND_CONSTRUCTION_SITES'),
+    ...findRoomObjects<ConstructionSite>(room, 'FIND_MY_CONSTRUCTION_SITES')
+  ]);
+  const blockingPositions = new Set<string>();
+  const existingRoadPositions = new Set<string>();
+  for (const object of [room.controller, ...getSortedSources(room)]) {
+    const position = getAnyObjectPosition(object);
+    if (position !== null && isSameRoomPosition(position, room.name)) {
+      blockingPositions.add(getPositionKey(position));
+    }
+  }
+
+  for (const structure of structures) {
+    const position = getAnyObjectPosition(structure);
+    if (position === null || !isSameRoomPosition(position, room.name)) {
+      continue;
+    }
+
+    if (structure.structureType === getStructureConstant('STRUCTURE_ROAD')) {
+      existingRoadPositions.add(getPositionKey(position));
+      continue;
+    }
+
+    if (!isRoadSeedPassableRampart(structure)) {
+      blockingPositions.add(getPositionKey(position));
+    }
+  }
+
+  for (const site of sites) {
+    const position = getAnyObjectPosition(site);
+    if (position === null || !isSameRoomPosition(position, room.name)) {
+      continue;
+    }
+
+    if (site.structureType === getStructureConstant('STRUCTURE_ROAD')) {
+      existingRoadPositions.add(getPositionKey(position));
+    } else {
+      blockingPositions.add(getPositionKey(position));
+    }
+  }
+
+  return {
+    structures,
+    blockingPositions,
+    existingRoadPositions,
+    terrain: getRoomTerrain(room)
+  };
+}
+
+function selectResidualRoadSeedAnchors(
+  room: Room,
+  colony: ColonySnapshot,
+  lookups: ResidualRoadSeedLookups
+): CandidatePosition[] {
+  const anchors: CandidatePosition[] = [];
+  const storageType = getStructureConstant('STRUCTURE_STORAGE');
+  for (const structure of lookups.structures) {
+    if (structure.structureType !== storageType) {
+      continue;
+    }
+
+    const position = getAnyObjectPosition(structure);
+    if (position !== null && isSameRoomPosition(position, room.name)) {
+      anchors.push(position);
+    }
+  }
+
+  for (const spawn of colony.spawns) {
+    const position = getAnyObjectPosition(spawn);
+    if (position !== null && isSameRoomPosition(position, room.name)) {
+      anchors.push(position);
+    }
+  }
+
+  const controllerPosition = getAnyObjectPosition(room.controller as RoomObject | undefined);
+  if (controllerPosition !== null && isSameRoomPosition(controllerPosition, room.name)) {
+    anchors.push(controllerPosition);
+  }
+
+  return dedupeCandidatePositions(anchors);
+}
+
+function getResidualRoadSeedCandidatePositions(anchor: CandidatePosition, roomName: string): CandidatePosition[] {
+  const positions: CandidatePosition[] = [];
+  for (let radius = 1; radius <= RESIDUAL_ROAD_SEED_MAX_RADIUS; radius += 1) {
+    for (let y = anchor.y - radius; y <= anchor.y + radius; y += 1) {
+      for (let x = anchor.x - radius; x <= anchor.x + radius; x += 1) {
+        if (Math.max(Math.abs(x - anchor.x), Math.abs(y - anchor.y)) !== radius) {
+          continue;
+        }
+
+        positions.push({ x, y, roomName });
+      }
+    }
+  }
+
+  return positions;
+}
+
+function canPlaceResidualRoadSeed(lookups: ResidualRoadSeedLookups, position: CandidatePosition): boolean {
+  return (
+    isWithinRoomBuildBounds(position) &&
+    !lookups.blockingPositions.has(getPositionKey(position)) &&
+    !lookups.existingRoadPositions.has(getPositionKey(position)) &&
+    !isTerrainWall(lookups.terrain, position)
+  );
+}
+
+function isRoadSeedPassableRampart(structure: Structure): boolean {
+  return (
+    structure.structureType === getStructureConstant('STRUCTURE_RAMPART') &&
+    (structure as { my?: unknown }).my !== false
+  );
+}
+
+function dedupeCandidatePositions(positions: CandidatePosition[]): CandidatePosition[] {
+  const seen = new Set<string>();
+  const deduped: CandidatePosition[] = [];
+  for (const position of positions) {
+    const key = `${position.roomName ?? ''}:${getPositionKey(position)}`;
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    deduped.push(position);
+  }
+
+  return deduped;
+}
+
+function findUniqueRoomObjectsByStableKey<T extends Structure | ConstructionSite>(objects: T[]): T[] {
+  const seen = new Set<string>();
+  const uniqueObjects: T[] = [];
+  objects.forEach((object, index) => {
+    const key = getObjectStableKey(object, index);
+    if (seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    uniqueObjects.push(object);
+  });
+  return uniqueObjects;
+}
+
 function planRuntimeStrategyPrioritizedConstruction(
   colony: ColonySnapshot,
   result: RoomConstructionPlannerResult,
@@ -651,6 +922,7 @@ function planRuntimeStrategyPrioritizedConstruction(
     return false;
   }
 
+  const initialPlacementCount = result.placements.length;
   let activePriorityTowerDefenseSiteState = priorityTowerDefenseSiteState;
   for (const priority of priorities) {
     activePriorityTowerDefenseSiteState = planRuntimeConstructionPlannerPriority(
@@ -667,7 +939,7 @@ function planRuntimeStrategyPrioritizedConstruction(
     }
   }
 
-  return true;
+  return result.placements.length > initialPlacementCount || hasBlockingPlacementFailure(result);
 }
 
 function recordStrategyRegistryRuntimeUse(
@@ -1519,14 +1791,29 @@ function lookForArea(
 
 function canPlaceSpawn(lookups: SpawnPlacementLookups, position: CandidatePosition): boolean {
   return (
-    position.x >= SPAWN_EDGE_MIN &&
-    position.x <= SPAWN_EDGE_MAX &&
-    position.y >= SPAWN_EDGE_MIN &&
-    position.y <= SPAWN_EDGE_MAX &&
+    isWithinSpawnBuildBounds(position) &&
     !lookups.blockingPositions.has(getPositionKey(position)) &&
     !lookups.mineralPositions.has(getPositionKey(position)) &&
     hasMinimumSpawnRange(lookups, position) &&
     !isTerrainWall(lookups.terrain, position)
+  );
+}
+
+function isWithinSpawnBuildBounds(position: CandidatePosition): boolean {
+  return (
+    position.x >= SPAWN_EDGE_MIN &&
+    position.x <= SPAWN_EDGE_MAX &&
+    position.y >= SPAWN_EDGE_MIN &&
+    position.y <= SPAWN_EDGE_MAX
+  );
+}
+
+function isWithinRoomBuildBounds(position: CandidatePosition): boolean {
+  return (
+    position.x >= ROOM_EDGE_MIN &&
+    position.x <= ROOM_EDGE_MAX &&
+    position.y >= ROOM_EDGE_MIN &&
+    position.y <= ROOM_EDGE_MAX
   );
 }
 
