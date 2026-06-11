@@ -3555,6 +3555,14 @@ describe('runWorker', () => {
       until: 215,
       reason: 'noPath'
     });
+    expect(creep.memory.buildActionTelemetry).toEqual({
+      resultCounts: {
+        failed_no_path: 1
+      },
+      lastResult: 'failed_no_path',
+      lastTargetId: 'site1',
+      lastTick: 200
+    });
   });
 
   it('clears build-target stuck telemetry after successful build work', () => {
@@ -3596,6 +3604,14 @@ describe('runWorker', () => {
     expect(creep.memory.behaviorTelemetry).toMatchObject({
       stuckTicks: 1,
       workTicks: 1
+    });
+    expect(creep.memory.buildActionTelemetry).toEqual({
+      resultCounts: {
+        succeeded: 1
+      },
+      lastResult: 'succeeded',
+      lastTargetId: 'site1',
+      lastTick: 200
     });
     expect(creep.memory.behaviorTelemetry?.buildTargetStuckTicks).toBeUndefined();
     expect(creep.memory.behaviorTelemetry?.buildTargetStuckTargetId).toBeUndefined();
