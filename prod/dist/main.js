@@ -15376,7 +15376,10 @@ function getRemainingEnergySlots(room, budgetState, priority, options) {
   )) {
     energyBufferSlots += 1;
   }
-  return energyBufferSlots;
+  if (energyBufferSlots > 0) {
+    return energyBufferSlots;
+  }
+  return shouldUseStoredEnergyConstructionSeedSlot(room, budgetState) ? Math.min(1, budgetSlots) : 0;
 }
 function getConstructionEnergyReservation(priority, options = {}) {
   if (priority === "spawn") {
@@ -15396,6 +15399,20 @@ function checkEnergyBufferForConstructionPriority(room, priority, amount) {
     return checkEnergyBufferForExtensionConstruction(room, amount);
   }
   return checkEnergyBufferForSpending(room, amount);
+}
+function shouldUseStoredEnergyConstructionSeedSlot(room, budgetState) {
+  return budgetState.energyReserved <= 0 && countPendingRoomConstructionSites(room) <= 0 && checkEnergyBufferForStoredConstructionSpending(room);
+}
+function countPendingRoomConstructionSites(room) {
+  const sites = [
+    ...findRoomObjects18(room, "FIND_CONSTRUCTION_SITES"),
+    ...findRoomObjects18(room, "FIND_MY_CONSTRUCTION_SITES")
+  ];
+  const seen = /* @__PURE__ */ new Set();
+  for (const [index, site] of sites.entries()) {
+    seen.add(getObjectStableKey(site, index));
+  }
+  return seen.size;
 }
 function resolveEnergyBudgetRatio(value) {
   if (typeof value !== "number" || !Number.isFinite(value)) {

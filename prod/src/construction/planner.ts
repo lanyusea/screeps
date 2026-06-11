@@ -1,7 +1,8 @@
 import { getOwnedColonies, type ColonySnapshot } from '../colony/colonyRegistry';
 import {
   checkEnergyBufferForExtensionConstruction,
-  checkEnergyBufferForSpending
+  checkEnergyBufferForSpending,
+  checkEnergyBufferForStoredConstructionSpending
 } from '../economy/energyBuffer';
 import { planBootstrapDefenseFloorPlacements } from '../defense/defensePlanner';
 import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyBuilder';
@@ -1182,7 +1183,11 @@ function getRemainingEnergySlots(
     energyBufferSlots += 1;
   }
 
-  return energyBufferSlots;
+  if (energyBufferSlots > 0) {
+    return energyBufferSlots;
+  }
+
+  return shouldUseStoredEnergyConstructionSeedSlot(room, budgetState) ? Math.min(1, budgetSlots) : 0;
 }
 
 function getConstructionEnergyReservation(
@@ -1220,6 +1225,30 @@ function checkEnergyBufferForConstructionPriority(
   }
 
   return checkEnergyBufferForSpending(room, amount);
+}
+
+function shouldUseStoredEnergyConstructionSeedSlot(
+  room: Room,
+  budgetState: ConstructionBudgetState
+): boolean {
+  return (
+    budgetState.energyReserved <= 0 &&
+    countPendingRoomConstructionSites(room) <= 0 &&
+    checkEnergyBufferForStoredConstructionSpending(room)
+  );
+}
+
+function countPendingRoomConstructionSites(room: Room): number {
+  const sites = [
+    ...findRoomObjects<ConstructionSite>(room, 'FIND_CONSTRUCTION_SITES'),
+    ...findRoomObjects<ConstructionSite>(room, 'FIND_MY_CONSTRUCTION_SITES')
+  ];
+  const seen = new Set<string>();
+  for (const [index, site] of sites.entries()) {
+    seen.add(getObjectStableKey(site, index));
+  }
+
+  return seen.size;
 }
 
 function resolveEnergyBudgetRatio(value: number | undefined): number {
