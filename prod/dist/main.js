@@ -27212,6 +27212,14 @@ function selectWorkerTask(creep) {
   const cpuBudget = getRuntimeCpuBudget();
   if (shouldShedNonessentialCpuWork(cpuBudget) && !hasActiveTerritoryControlAssignment(creep)) {
     const criticalTask = withWorkerTaskSelectionTelemetrySuppressed(true, () => selectCriticalCpuWorkerTask(creep));
+    if (!criticalTask && shouldRunConstructionCpuWork(cpuBudget)) {
+      const constructionTask = withWorkerTaskSelectionTelemetrySuppressed(
+        true,
+        () => selectConstructionRecoveryCpuWorkerTask(creep)
+      );
+      clearWorkerTaskShadowTelemetry(creep);
+      return constructionTask;
+    }
     clearWorkerTaskShadowTelemetry(creep);
     return criticalTask;
   }
@@ -27307,6 +27315,32 @@ function selectCriticalCpuWorkerTask(creep) {
     });
   }
   return null;
+}
+function selectConstructionRecoveryCpuWorkerTask(creep) {
+  var _a2;
+  if (getUsedEnergy2(creep) <= 0) {
+    return (_a2 = selectStoredProtectedSourceContainerConstructionEnergyAcquisitionTask(creep)) != null ? _a2 : selectConstructionBacklogEnergyAcquisitionTask(creep);
+  }
+  const constructionSites = findConstructionSites(creep.room);
+  if (constructionSites.length === 0) {
+    return null;
+  }
+  const constructionReservationContext = createConstructionReservationContext(creep.room);
+  const storedProtectedConstructionTask = selectStoredProtectedSourceContainerConstructionTask(
+    creep,
+    constructionSites,
+    constructionReservationContext
+  );
+  if (storedProtectedConstructionTask) {
+    return applyMinimumUsefulLoadPolicy(creep, storedProtectedConstructionTask);
+  }
+  const constructionSite = selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    (site) => canSpendWorkerEnergyOnConstructionSite(creep, site)
+  );
+  return constructionSite ? applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: constructionSite.id }) : null;
 }
 function selectStoredProtectedSourceContainerConstructionTask(creep, constructionSites, constructionReservationContext) {
   const constructionSite = selectStoredProtectedSourceContainerConstructionSite(
