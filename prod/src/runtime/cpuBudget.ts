@@ -214,7 +214,7 @@ export function shouldRunConstructionCpuWork(budget: RuntimeCpuBudget): boolean 
     return true;
   }
 
-  return !budget.lowCpuLimit && !budget.critical && !hasLowBucketPressure(budget);
+  return !hasHardConstructionCpuPressure(budget);
 }
 
 export function resetRuntimeCpuTelemetryForTesting(): void {
@@ -235,6 +235,16 @@ export function hasLowBucketPressure(budget: RuntimeCpuBudget): boolean {
 
 function hasUsedOverLimitPressure(budget: RuntimeCpuBudget): boolean {
   return budget.reasons.includes('usedOverLimit');
+}
+
+function hasHardConstructionCpuPressure(budget: RuntimeCpuBudget): boolean {
+  return (
+    budget.lowCpuLimit ||
+    budget.critical ||
+    budget.reasons.includes('lowBucket') ||
+    budget.reasons.includes('criticalBucket') ||
+    hasUsedOverLimitPressure(budget)
+  );
 }
 
 function hasLowBucketRecoveryPressure(sample: RuntimeCpuSample): boolean {

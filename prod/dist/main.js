@@ -1072,13 +1072,16 @@ function shouldRunConstructionCpuWork(budget) {
   if (!budget.degraded) {
     return true;
   }
-  return !budget.lowCpuLimit && !budget.critical && !hasLowBucketPressure(budget);
+  return !hasHardConstructionCpuPressure(budget);
 }
 function hasLowBucketPressure(budget) {
   return budget.reasons.includes("lowBucketRecovery") || budget.reasons.includes("lowBucket") || budget.reasons.includes("criticalBucket");
 }
 function hasUsedOverLimitPressure(budget) {
   return budget.reasons.includes("usedOverLimit");
+}
+function hasHardConstructionCpuPressure(budget) {
+  return budget.lowCpuLimit || budget.critical || budget.reasons.includes("lowBucket") || budget.reasons.includes("criticalBucket") || hasUsedOverLimitPressure(budget);
 }
 function hasLowBucketRecoveryPressure(sample) {
   if (sample.bucket === void 0 || sample.bucket < LOW_CPU_BUCKET_THRESHOLD) {
