@@ -3,50 +3,33 @@
     "logo": "assets/screeps-community-logo.png"
   },
   "format": "roadmap-portrait-kpi-kanban-v5",
-  "generatedAt": "2026-06-10T20:45:49Z",
-  "generatedAtCst": "2026-06-11T04:45:49+08:00",
+  "generatedAt": "2026-06-11T20:35:39Z",
+  "generatedAtCst": "2026-06-12T04:35:39+08:00",
   "github": {
     "fetchErrors": [],
     "fetched": true,
     "issues": [
-      {
-        "createdAt": "2026-06-10T00:17:55Z",
-        "domain": "Agent OS",
-        "domainSource": "heuristic",
-        "kind": "ops",
-        "labels": [
-          "kind:ops",
-          "priority:p0",
-          "roadmap:p0-agent-ops"
-        ],
-        "milestone": "",
-        "number": 1783,
-        "priority": "P0",
-        "state": "OPEN",
-        "status": "Ready",
-        "title": "P0: Implement Codex weekly quota budget manager \u2014 prevent cross-cron quota exhaustion",
-        "type": "Issue",
-        "updatedAt": "2026-06-10T00:18:16Z",
-        "url": "https://github.com/lanyusea/screeps/issues/1783"
-      },
       {
         "createdAt": "2026-06-09T00:20:25Z",
         "domain": "RL flywheel",
         "domainSource": "heuristic",
         "kind": "ops",
         "labels": [
+          "blocked",
+          "domain:rl-flywheel",
           "kind:ops",
           "priority:p0",
+          "roadmap",
           "roadmap:rl-flywheel"
         ],
         "milestone": "P1: RL strategy flywheel gate",
         "number": 1782,
         "priority": "P0",
         "state": "OPEN",
-        "status": "Ready",
+        "status": "Backlog",
         "title": "P0: E1 gate expired \u2014 training data pipeline must restart from scratch",
         "type": "Issue",
-        "updatedAt": "2026-06-09T17:47:57Z",
+        "updatedAt": "2026-06-11T19:52:17Z",
         "url": "https://github.com/lanyusea/screeps/issues/1782"
       },
       {
@@ -56,17 +39,18 @@
         "kind": "bug",
         "labels": [
           "kind:bug",
-          "priority:p1",
+          "priority:p0",
+          "roadmap",
           "roadmap:territory-economy"
         ],
         "milestone": "P1: Territory/Economy gameplay gate",
         "number": 1781,
-        "priority": "P1",
+        "priority": "P0",
         "state": "OPEN",
         "status": "Ready",
-        "title": "P1: Investigate construction-site placement root cause (no_viable_candidate despite valid scores)",
+        "title": "P0: Recover construction-site seeding and build execution after deploy",
         "type": "Issue",
-        "updatedAt": "2026-06-09T00:20:21Z",
+        "updatedAt": "2026-06-11T20:31:17Z",
         "url": "https://github.com/lanyusea/screeps/issues/1781"
       },
       {
@@ -86,7 +70,7 @@
         "status": "Ready",
         "title": "P0: HTTP 429 rate limit blocking RL steward, continuation worker, AND runtime alert monitor",
         "type": "Issue",
-        "updatedAt": "2026-06-09T00:20:17Z",
+        "updatedAt": "2026-06-11T02:05:28Z",
         "url": "https://github.com/lanyusea/screeps/issues/1780"
       },
       {
@@ -95,6 +79,7 @@
         "domainSource": "heuristic",
         "kind": "ops",
         "labels": [
+          "blocked",
           "domain:rl-flywheel",
           "kind:ops",
           "priority:p0",
@@ -105,10 +90,10 @@
         "number": 1777,
         "priority": "P0",
         "state": "OPEN",
-        "status": "Ready",
+        "status": "Backlog",
         "title": "P0: Select bounded Tencent post-fix validation plan after paid-failure guard",
         "type": "Issue",
-        "updatedAt": "2026-06-08T02:59:48Z",
+        "updatedAt": "2026-06-11T19:52:19Z",
         "url": "https://github.com/lanyusea/screeps/issues/1777"
       },
       {
@@ -150,7 +135,7 @@
         "status": "Ready",
         "title": "P0: Stop RL flywheel steward timeout recurrence",
         "type": "Issue",
-        "updatedAt": "2026-06-07T23:25:15Z",
+        "updatedAt": "2026-06-11T02:05:27Z",
         "url": "https://github.com/lanyusea/screeps/issues/1773"
       },
       {
@@ -182,19 +167,19 @@
         "kind": "code",
         "labels": [
           "kind:code",
-          "priority:p1",
+          "priority:p0",
           "roadmap",
           "roadmap:phase-c-telemetry",
           "runtime-alert"
         ],
         "milestone": "Phase C: Runtime telemetry / monitor gate",
         "number": 1752,
-        "priority": "P1",
+        "priority": "P0",
         "state": "OPEN",
         "status": "Ready",
-        "title": "P1: Add build action result telemetry for construction stalls",
+        "title": "P0: Add build action result telemetry for construction stalls",
         "type": "Issue",
-        "updatedAt": "2026-06-07T02:38:16Z",
+        "updatedAt": "2026-06-11T17:01:58Z",
         "url": "https://github.com/lanyusea/screeps/issues/1752"
       },
       {
@@ -329,7 +314,7 @@
         "status": "Backlog",
         "title": "P0: Land first bounded RL live canary from fresh-gate candidate",
         "type": "Issue",
-        "updatedAt": "2026-06-10T17:33:29Z",
+        "updatedAt": "2026-06-11T14:14:06Z",
         "url": "https://github.com/lanyusea/screeps/issues/1583"
       },
       {
@@ -419,7 +404,7 @@
         "status": "Backlog",
         "title": "P0: Restore RL steward autonomous compute dispatch cadence",
         "type": "Issue",
-        "updatedAt": "2026-06-05T00:41:08Z",
+        "updatedAt": "2026-06-11T02:50:52Z",
         "url": "https://github.com/lanyusea/screeps/issues/1233"
       },
       {
@@ -461,7 +446,7 @@
         "status": "Ready",
         "title": "P0: Continuation worker ticks can be claimed without fresh output while prior workdir run is unfinished",
         "type": "Issue",
-        "updatedAt": "2026-06-02T12:41:27Z",
+        "updatedAt": "2026-06-11T07:15:18Z",
         "url": "https://github.com/lanyusea/screeps/issues/1135"
       },
       {
@@ -529,7 +514,7 @@
         "status": "Backlog",
         "title": "P0: Scale-first offline/private RL training campaign",
         "type": "Issue",
-        "updatedAt": "2026-06-10T20:18:58Z",
+        "updatedAt": "2026-06-11T12:39:24Z",
         "url": "https://github.com/lanyusea/screeps/issues/1032"
       },
       {
@@ -599,7 +584,7 @@
         {
           "domain": "Agent OS",
           "domainSource": "project",
-          "evidence": "2026-06-07T09:02Z this scheduler attempted bundled summary->alert->health capture and hit 120s timeout; ps recheck found no screeps-runtime-monitor leftovers. Fresh cached console artifact was used instead.",
+          "evidence": "2026-06-11T19:36Z controller split monitor summary succeeded but direct alert command timed out at 60s, left empty alert.json, and orphan renderer/alert pids were killed. Empty alert was not treated as healthy.",
           "kind": "ops",
           "lane": "Agent OS",
           "nextAction": "",
@@ -617,8 +602,8 @@
         {
           "domain": "Agent OS",
           "domainSource": "project",
-          "evidence": "2026-06-09: RL steward/continuation worker/runtime alert all failing with HTTP 429 since ~08:00Z. AI provider quota exhausted (both openai-codex and deepseek providers). Source: cron outputs aed8362e4501/f66ed36d7be0/1df5ef0c3835 all show 'RuntimeError: HTTP 429: The usage limit has been reached'. Created #1780.",
-          "kind": "bug",
+          "evidence": "2026-06-11T19:31Z audit: cron registry PASS; latest runtime-alert cron output 2026-06-12_01-49-09 was exact [SILENT], and no live HTTP 429 was seen. PR #1785 is merged; keep validation for recurrence.",
+          "kind": "ops",
           "lane": "Agent OS",
           "nextAction": "",
           "number": 1780,
@@ -653,7 +638,7 @@
         {
           "domain": "Agent OS",
           "domainSource": "project",
-          "evidence": "2026-06-08: Prior two steward outputs after timeout had normal responses; current steward slice recovered #1749 PR and is producing a checkpoint. Final closure requires this cron output to finalize without TimeoutError.",
+          "evidence": "",
           "kind": "ops",
           "lane": "Agent OS",
           "nextAction": "",
@@ -666,24 +651,6 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/1773",
-          "visionLayer": "foundation blocker"
-        },
-        {
-          "domain": "Agent OS",
-          "domainSource": "project",
-          "evidence": "Codex weekly quota 100% used (2026-06-08 08:26 UTC). Gameplay Evolution Review 2026-06-10 08:07 identified PM defect. 3 P0 crons (f66ed36d7be0, 1df5ef0c3835, aed8362e4501) blocked by HTTP 429. Reset: 2026-06-11 08:25 +08.",
-          "kind": "ops",
-          "lane": "Agent OS",
-          "nextAction": "",
-          "number": 1783,
-          "priority": "P0",
-          "projectDomain": "Agent OS",
-          "state": "",
-          "status": "Ready",
-          "title": "P0: Implement Codex weekly quota budget manager \u2014 prevent cross-cron quota exhaustion",
-          "type": "Issue",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/issues/1783",
           "visionLayer": "foundation blocker"
         },
         {
@@ -1008,6 +975,24 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/1478",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "domainSource": "project",
+          "evidence": "2026-06-11T03:25Z Done: PR #1785 merged as 6271111 after gate pass (elapsed 71m, checks green, CodeRabbit approved/SUCCESS, threads resolved/outdated, controller checks PASS); issue #1783 auto-closed.",
+          "kind": "ops",
+          "lane": "Agent OS",
+          "nextAction": "",
+          "number": 1783,
+          "priority": "P0",
+          "projectDomain": "Agent OS",
+          "state": "",
+          "status": "Done",
+          "title": "P0: Implement Codex weekly quota budget manager \u2014 prevent cross-cron quota exhaustion",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/1783",
           "visionLayer": "foundation blocker"
         },
         {
@@ -1476,6 +1461,24 @@
           "type": "PullRequest",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/pull/56",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "domainSource": "project",
+          "evidence": "2026-06-11T03:25Z Done: PR #1785 merged as 6271111 after gate pass (elapsed 71m, checks green, CodeRabbit approved/SUCCESS, threads resolved/outdated, controller checks PASS); issue #1783 auto-closed.",
+          "kind": "ops",
+          "lane": "Agent OS",
+          "nextAction": "",
+          "number": 1785,
+          "priority": "P0",
+          "projectDomain": "Agent OS",
+          "state": "",
+          "status": "Done",
+          "title": "feat: add Codex quota budget guard",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1785",
           "visionLayer": "foundation blocker"
         },
         {
@@ -3695,16 +3698,16 @@
         {
           "domain": "Runtime monitor",
           "domainSource": "project",
-          "evidence": "2026-06-07T09:12Z no-prose gate refresh: latest Gameplay Review lines 434-436 says construction-deadlock postdeploy acceptance still lacks durable buildCarriedEnergy/pendingBuildProgress check; latest E29N57 issue #1758 proves the metric remains relevant.",
+          "evidence": "2026-06-11T19:36Z audit: #1799/#1801/#1803 are merged/deployed; fresh summary still build=0/no sites and direct alert capture timed out. #1752 remains the P0 telemetry/alert guard for site-timeout/build-blocked detection.",
           "kind": "code",
           "lane": "Runtime monitor",
           "nextAction": "",
           "number": 1752,
-          "priority": "P1",
+          "priority": "P0",
           "projectDomain": "Runtime monitor",
           "state": "",
           "status": "Ready",
-          "title": "P1: Add build action result telemetry for construction stalls",
+          "title": "P0: Add build action result telemetry for construction stalls",
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/1752",
@@ -5994,24 +5997,6 @@
           "type": "PullRequest",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/pull/1718",
-          "visionLayer": "territory"
-        },
-        {
-          "domain": "Bot capability",
-          "domainSource": "project",
-          "evidence": "2026-06-09: All 3 owned rooms (E29N55 RCL6, E29N56 RCL4, E29N57 RCL5) show construction suppressed 72h+: build=0, buildCarriedEnergy=0, constructionSiteCount=0, state=no_viable_candidate. Energy adequate (E29N55 1690-2372, E29N56 221K). #1778 merged but didn't fix. Source: runtime-summary captures, conclusion-registry cl-20260608-construction-suppressed. Created #1781.",
-          "kind": "bug",
-          "lane": "Bot capability",
-          "nextAction": "",
-          "number": 1781,
-          "priority": "P1",
-          "projectDomain": "Bot capability",
-          "state": "",
-          "status": "Ready",
-          "title": "P1: Investigate construction-site placement root cause (no_viable_candidate despite valid scores)",
-          "type": "Issue",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/issues/1781",
           "visionLayer": "territory"
         },
         {
@@ -12551,6 +12536,24 @@
         {
           "domain": "Combat",
           "domainSource": "project",
+          "evidence": "2026-06-11T19:47:22Z: Done. PR #1803 merged as aab5a045 and official deploy run 27371505992 succeeded; postdeploy health ok, alert=false, runtime-alert 2026-06-12_01-49-09 exact SILENT.",
+          "kind": "bug",
+          "lane": "Combat",
+          "nextAction": "",
+          "number": 1802,
+          "priority": "P0",
+          "projectDomain": "Combat",
+          "state": "",
+          "status": "Done",
+          "title": "P0: Combat: E29N55 multi-rampart damage recurrence after #1801 deploy",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/1802",
+          "visionLayer": "enemy kills"
+        },
+        {
+          "domain": "Combat",
+          "domainSource": "project",
           "evidence": "Post-closure 2026-05-12T23:25Z: live alert=false, tactical=[SILENT], owned_spawns=1, owned_creeps=7, hostiles=0. Tower remains 0 but is strategic progression under #879/#979, not active defense incident.",
           "kind": "code",
           "lane": "Combat",
@@ -12600,6 +12603,24 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/1125",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Combat",
+          "domainSource": "project",
+          "evidence": "Closed 2026-06-11T16:31Z: PR #1796 merged c47acf6d; post-merge diff-check/typecheck/Jest105/2392/build PASS; deploy run 27361368656 ok=true; postdeploy health ok=true and alert=false at tick 2059306.",
+          "kind": "bug",
+          "lane": "Combat",
+          "nextAction": "",
+          "number": 1795,
+          "priority": "P0",
+          "projectDomain": "Combat",
+          "state": "",
+          "status": "Done",
+          "title": "P0: E29N55 rampart damage alert after #1794 construction deploy",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/1795",
           "visionLayer": "territory"
         },
         {
@@ -12821,6 +12842,24 @@
         {
           "domain": "Combat",
           "domainSource": "project",
+          "evidence": "Closed as cleared transient after recheck bundle recheck-20260611T174820Z: alert=false, health_rc=0, health_gate.ok=true, tactical_response.silent=true/emergency=false; all owned rooms alive (E29N55 1 spawn/12 creeps, E29N57 1/9, E29N56 1/11), hostiles=0, no room_dead/postdeploy_no_owned_spawn.",
+          "kind": "ops",
+          "lane": "Combat",
+          "nextAction": "",
+          "number": 1800,
+          "priority": "P0",
+          "projectDomain": "Combat",
+          "state": "",
+          "status": "Done",
+          "title": "P0:Combat:E29N55 rampart 18,23 dropped to 3501 hits",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/1800",
+          "visionLayer": "enemy kills"
+        },
+        {
+          "domain": "Combat",
+          "domainSource": "project",
           "evidence": "",
           "kind": "ops",
           "lane": "Combat",
@@ -12852,6 +12891,24 @@
           "type": "PullRequest",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/pull/1695",
+          "visionLayer": "enemy kills"
+        },
+        {
+          "domain": "Combat",
+          "domainSource": "project",
+          "evidence": "2026-06-11T19:47:22Z: Merged/deployed. Merge aab5a045; deploy 27371505992 activeWorld matched; postdeploy health ok and alert=false.",
+          "kind": "bug",
+          "lane": "Combat",
+          "nextAction": "",
+          "number": 1803,
+          "priority": "P0",
+          "projectDomain": "Combat",
+          "state": "",
+          "status": "Done",
+          "title": "combat: spread emergency rampart repairs",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1803",
           "visionLayer": "enemy kills"
         },
         {
@@ -12924,6 +12981,24 @@
           "type": "PullRequest",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/pull/1430",
+          "visionLayer": "enemy kills"
+        },
+        {
+          "domain": "Combat",
+          "domainSource": "project",
+          "evidence": "Merged 2026-06-11T16:19Z as c47acf6d after exact-head gate: elapsed 6347s, checks PASS, CodeRabbit no actionable, GraphQL unresolved threads=0, mergeState=CLEAN; post-merge typecheck/Jest/build PASS.",
+          "kind": "code",
+          "lane": "Combat",
+          "nextAction": "",
+          "number": 1796,
+          "priority": "P0",
+          "projectDomain": "Combat",
+          "state": "",
+          "status": "Done",
+          "title": "fix: prioritize urgent rampart repairs before construction recovery",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1796",
           "visionLayer": "enemy kills"
         },
         {
@@ -13595,7 +13670,7 @@
         {
           "domain": "Territory/Economy",
           "domainSource": "project",
-          "evidence": "2026-06-07T07:34Z console runtime-summary-console-20260607T071023Z tick 1890989: all rooms alive/productive; CPU bucket 1805 degraded/lowBucketRecovery; no hostiles.",
+          "evidence": "2026-06-11T04:40Z CPU-bearing console fresh: bucket 1841/1779/1844/1745, pressure degraded with usedOverLimit/lowBucketRecovery; rooms alive/alert=false; construction still suppressed so #1781 follow-up active.",
           "kind": "bug",
           "lane": "Territory/Economy",
           "nextAction": "",
@@ -13608,6 +13683,24 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/1490",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "project",
+          "evidence": "",
+          "kind": "code",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 1781,
+          "priority": "P0",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "In progress",
+          "title": "P0: Recover construction-site seeding and build execution after deploy",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/1781",
           "visionLayer": "territory"
         },
         {
@@ -13631,7 +13724,7 @@
         {
           "domain": "Territory/Economy",
           "domainSource": "project",
-          "evidence": "2026-06-08T00:44Z: PR #1778 open at head 9903e39; prod-ci green, issue-completion gate green after body patch, Gemini exact-head no feedback, reviewThreads=[]; CodeRabbit still PENDING/review in progress; elapsed gate matures at 00:55Z.",
+          "evidence": "2026-06-11T19:36Z fresh summary: E29N56 none=4, E29N57 none=2, no construction sites; no active Codex process. Secondary-room standby remains queued but lower than #1802/#1781.",
           "kind": "bug",
           "lane": "Territory/Economy",
           "nextAction": "",
@@ -14333,6 +14426,78 @@
         {
           "domain": "Territory/Economy",
           "domainSource": "project",
+          "evidence": "PR #1801 merged as 43b9d090 and deployed by official run 27368040595: deploy ok=true, activeWorld main matched, postdeploy health ok=true/alert=false. First postdeploy construction window tick 2062107 still site=0/build=0; acceptance tracked on #1781.",
+          "kind": "code",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 1801,
+          "priority": "P0",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "Done",
+          "title": "Recover construction site seeding after deploy",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1801",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "project",
+          "evidence": "2026-06-11T10:58Z: merged as b91f3ce2 and deployed to official MMO via run 27341755482; deploy artifact ok=true, activeWorld matched main, health gate ok=true, alert=false. Postdeploy acceptance exposed residual candidate_suppressed/no_construction_sites routed back to #1781.",
+          "kind": "code",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 1793,
+          "priority": "P0",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "Done",
+          "title": "construction: assign workers to safe recovery sites",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1793",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "project",
+          "evidence": "2026-06-11T09:11:23Z: PR #1791 merged/deployed. Deploy run 27335916235 succeeded for main 4afcbd20; branch upload and activeWorld matched. It did not satisfy #1781 runtime acceptance, which remains active on follow-up proc_[redacted].",
+          "kind": "bug",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 1791,
+          "priority": "P0",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "Done",
+          "title": "construction: unblock postdeploy site placement residual",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1791",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "project",
+          "evidence": "Merged as 7ecdaefa; official deploy run 27326424358 succeeded and evidence archived. Runtime acceptance remains on issue #1781, not this PR.",
+          "kind": "code",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 1788,
+          "priority": "P0",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "Done",
+          "title": "cpu: keep construction enabled near recovery corridor",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1788",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "project",
           "evidence": "Merged as 36fa83af; deploy run 27052669691 succeeded with activeWorld/main matched, postdeploy health ok=true and alert=false.",
           "kind": "code",
           "lane": "Territory/Economy",
@@ -14729,6 +14894,42 @@
         {
           "domain": "Territory/Economy",
           "domainSource": "project",
+          "evidence": "2026-06-11T04:33Z: DONE. Merged b1ba862d and deployed by official run 27323851603; upload/activeWorld matched sha db8761d5; postdeploy health ok/alert=false. #1781 remains active for runtime acceptance.",
+          "kind": "bug",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 1786,
+          "priority": "P0",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "Done",
+          "title": "fix: allow construction during CPU recovery over-limit ticks",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1786",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "project",
+          "evidence": "Merged as 6941294d and deployed by official run 27329854245 SUCCESS; deploy artifact dc479aef; postdeploy target health OK tick 2045730; issue #1781 remains open for behavior acceptance.",
+          "kind": "code",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 1789,
+          "priority": "P0",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "Done",
+          "title": "fix: allow construction recovery during CPU corridor",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1789",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "project",
           "evidence": "PR #1642 merged/deployed. Deploy run 26903692140 ok=true, commit 743e4b5ffcc7 activeWorld main matched, health gate ok/reasons=[], alert=false. Live Memory: E34N49 candidate allowLongRange=true routeDistance=11 recommendedAction=scout; planned scout intent E29N55->E34N49; scout attempt requested at tick 1750508 updated 1750555. Monitor tick 1750593: E29N55 RCL6, spawn=1, creeps=10, hostiles=0; unrelated P1 cpu_bucket_low routed to #1490/#906/#924.",
           "kind": "code",
           "lane": "Territory/Economy",
@@ -14742,6 +14943,42 @@
           "type": "PullRequest",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/pull/1642",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "project",
+          "evidence": "",
+          "kind": "code",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 1784,
+          "priority": "P0",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "Done",
+          "title": "fix: allow safe construction during CPU recovery",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1784",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "project",
+          "evidence": "2026-06-11T10:03Z: PR #1792 merged as 1de5d9ac and deployed by run 27338988681 success. Sites now appear (site=3/pending=3) but #1781 acceptance continues under residual worker_assignment_gap Codex proc_[redacted].",
+          "kind": "bug",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 1792,
+          "priority": "P0",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "Done",
+          "title": "fix: allow safe construction seed during cpu recovery",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1792",
           "visionLayer": "territory"
         },
         {
@@ -14819,6 +15056,24 @@
         {
           "domain": "Territory/Economy",
           "domainSource": "project",
+          "evidence": "2026-06-11T20:24Z MERGED as 3375e9da. Gate: elapsed 1201s/900s, checks all pass, CodeRabbit exact-head approved/no actionable, Gemini no feedback, threads=0, mergeState=CLEAN, controller verification PASS.",
+          "kind": "code",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 1804,
+          "priority": "P0",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "Done",
+          "title": "fix: recover construction site seeding after rampart acceptance",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1804",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "project",
           "evidence": "2026-06-06T18:03Z Deploy run 27069646426 succeeded for b6557886 (deploy ok, activeWorld matched, health ok, alert=false for target E29N55). Artifact archived under runtime-artifacts/official-screeps-deploy/*-27069646426.json. All-owned acceptance remains with #1715/#1738.",
           "kind": "bug",
           "lane": "Territory/Economy",
@@ -14837,6 +15092,24 @@
         {
           "domain": "Territory/Economy",
           "domainSource": "project",
+          "evidence": "2026-06-11T13:53Z PR #1794 merged as 0f79f815 and official deploy run 27351267179 succeeded; evidence archived under runtime-artifacts/official-screeps-deploy/official-screeps-deploy-27351267179. Postdeploy construction started (site/build tasks), but #1795 rampart alert blocks acceptance.",
+          "kind": "bug",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 1794,
+          "priority": "P0",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "Done",
+          "title": "fix: restore source-container site placement after recovery",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1794",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "project",
           "evidence": "2026-05-22T10:04:36Z: #1322 fixed/closed. #1323 merged as main 0315de1b; official deploy run 26281255793 succeeded. Post-deploy all-owned-room monitor artifact runtime-artifacts/screeps-monitor/runtime-alert-20260522T100247Z-postdeploy-1323/manifest.json: health_rc=0, alert=false, no tactical categories, no room_dead. E29N57 RCL2 has extension constructionSiteCount=1 and pendingBuildProgress=2897 at tick 1230162, owned_spawns=1, owned_creeps=5. E29N56 remains under #1318, not room_dead.",
           "kind": "bug",
           "lane": "Territory/Economy",
@@ -14850,6 +15123,42 @@
           "type": "PullRequest",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/pull/1323",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "project",
+          "evidence": "2026-06-12T01:30+08: merged as cc053304 after elapsed 28m, checks PASS, CodeRabbit approved exact head d3493a58, threads=0, local typecheck/Jest/build PASS.",
+          "kind": "code",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 1799,
+          "priority": "P0",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "Done",
+          "title": "fix: seed residual construction road sites",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1799",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "project",
+          "evidence": "2026-06-11T08:04Z: merged PR #1790 at fa4e06ca after exact-head checks/reviews/threads/elapsed gate; 2026-06-11T08:17Z deploy run 27333534956 queued for merged head.",
+          "kind": "bug",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 1790,
+          "priority": "P0",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "Done",
+          "title": "fix: seed stored-energy construction site after CPU recovery",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1790",
           "visionLayer": "territory"
         },
         {
@@ -22667,7 +22976,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-06-08T00:28Z live canary remains blocked: RL candidate online utility still UNPROVEN, fresh gameplay data shows secondary-room standby issue #1776, and Tencent paid validation requires #1777 plan.",
+          "evidence": "2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after #1802 closed; no paid compute dispatched. Latest E1-lite PASS e1-lite-gate-20260611T190525Z; Loop A RUN_VALIDATED 20260611T190241Z; Loop B UNPROVEN 20260611T190216Z.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -22685,7 +22994,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-06-08T00:28Z autonomous compute cadence no longer disk-blocked; preflight artifacts show computeAttempted=false/scaleOutAttempted=false and paid guard still active; #1776 Codex lane active for gameplay-data quality.",
+          "evidence": "2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after #1802 closed; no paid compute dispatched. Latest E1-lite PASS e1-lite-gate-20260611T190525Z; Loop A RUN_VALIDATED 20260611T190241Z; Loop B UNPROVEN 20260611T190216Z. ASG remains 0/0/0; billing guard ok.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -22703,7 +23012,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-06-08T00:28Z host disk recovered to 52%/83GiB free; no-compute Tencent preflights still blocked by paid_failure_recurrence_guard artifacts steward-postcleanup-preflight-20260608t0028z and allow-preflight-20260608t0030z.",
+          "evidence": "2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after #1802 closed; no paid compute dispatched. Latest E1-lite PASS e1-lite-gate-20260611T190525Z; Loop A RUN_VALIDATED 20260611T190241Z; Loop B UNPROVEN 20260611T190216Z. Training evidence remains foundation/intermediate; no new online KPI landing path until construction acceptance.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -22793,7 +23102,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-06-09: E1 gate e1-gate-20260607T1257Z expired ~00:57Z (~7.5h ago). 200 samples (164 train/36 eval) lost. No experiment card created. Source: conclusion-registry cl-20260608-experiment-card-stale. Created #1782.",
+          "evidence": "2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after #1802 closed; no paid compute dispatched. Latest E1-lite PASS e1-lite-gate-20260611T190525Z; Loop A RUN_VALIDATED 20260611T190241Z; Loop B UNPROVEN 20260611T190216Z.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -22811,7 +23120,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-06-08T00:28Z post-cleanup preflights: steward-postcleanup-preflight-20260608t0028z => post_fix_validation_plan_required_no_compute; allow-preflight => skipped_paid_failure_recurrence_launch_guard; no compute/scale attempted; disk now 52%/83GiB free.",
+          "evidence": "2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after #1802 closed; no paid compute dispatched. Latest E1-lite PASS e1-lite-gate-20260611T190525Z; Loop A RUN_VALIDATED 20260611T190241Z; Loop B UNPROVEN 20260611T190216Z. Tencent preflight remains post_fix_validation_plan_required_no_compute; ASG 0/0/0.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -24089,6 +24398,24 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
+          "evidence": "",
+          "kind": "bug",
+          "lane": "RL flywheel",
+          "nextAction": "",
+          "number": 1798,
+          "priority": "P0",
+          "projectDomain": "RL flywheel",
+          "state": "",
+          "status": "Done",
+          "title": "P0: Repair RL policy advantage ledger Broken pipe output failure",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/1798",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "RL flywheel",
+          "domainSource": "project",
           "evidence": "2026-05-20T17:57Z: PR #1272 merged as 36b975d8 after gate PASS (age>15m, prod-ci+CodeRabbit success, threads resolved, mergeState CLEAN). Main fast-forwarded; post-merge py_compile + unittest 147 OK + pytest scorecard 18 passed + diff-check passed.",
           "kind": "code",
           "lane": "RL flywheel",
@@ -24138,6 +24465,24 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/1769",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "RL flywheel",
+          "domainSource": "project",
+          "evidence": "2026-06-12T01:15+08 scheduled Loop A output clean: 5c869e7d8a1d/2026-06-12_01-15-52.md emitted compact JSON artifact 20260611T171540Z-training-ledger.json; last_status=ok.",
+          "kind": "bug",
+          "lane": "RL flywheel",
+          "nextAction": "",
+          "number": 1797,
+          "priority": "P0",
+          "projectDomain": "RL flywheel",
+          "state": "",
+          "status": "Done",
+          "title": "P0: Repair recurring RL training ledger Broken pipe output failure after #1769",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/1797",
           "visionLayer": "foundation blocker"
         },
         {
@@ -31161,6 +31506,25 @@
           "visionLayer": "foundation blocker"
         },
         {
+          "createdAt": "2026-06-11T05:00:13Z",
+          "domain": "Docs/process",
+          "domainSource": "project",
+          "evidence": "2026-06-11T20:08Z: PR #1787 head 9a588252 still open P2; mergeState=BEHIND, reviewDecision=CHANGES_REQUESTED, issue-completion FAIL, prod-ci PASS, CodeRabbit SUCCESS, unresolved outdated LFS thread PRRT_kwDOSMSsO86IsrYs. Hard P0 is now #1804/#1781, not closed #1802.",
+          "kind": "docs",
+          "lane": "Docs/process",
+          "nextAction": "",
+          "number": 1787,
+          "priority": "P2",
+          "projectDomain": "Docs/process",
+          "state": "",
+          "status": "In review",
+          "title": "chore(roadmap): refresh Pages artifacts",
+          "type": "PullRequest",
+          "updatedAt": "2026-06-11T16:38:46Z",
+          "url": "https://github.com/lanyusea/screeps/pull/1787",
+          "visionLayer": "foundation blocker"
+        },
+        {
           "domain": "Docs/process",
           "domainSource": "project",
           "evidence": "PR #1389 artifact validation ran in pull_request run 26357787655 at exact head 2439313401406f4dd9f3dbc5279f3d02dbdefffe after #1390. Freshness+placeholder checks passed; Project items 1348/1348; Kanban cards 1348; PRs 2; KPI cards 3; runtimeArtifacts matchedFiles=1/runtimeSummaryLines=1/observedDays=1; SQLite metric_points=495. Merged at 2026-05-24T09:53:58Z; Pages deploy 26358094061 succeeded.",
@@ -31884,6 +32248,24 @@
           "domain": "Docs/process",
           "domainSource": "project",
           "evidence": "",
+          "kind": "docs",
+          "lane": "Docs/process",
+          "nextAction": "",
+          "number": 1779,
+          "priority": "P2",
+          "projectDomain": "Docs/process",
+          "state": "",
+          "status": "Done",
+          "title": "chore(roadmap): refresh Pages artifacts",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1779",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Docs/process",
+          "domainSource": "project",
+          "evidence": "",
           "kind": "code",
           "lane": "Docs/process",
           "nextAction": "",
@@ -31909,26 +32291,7 @@
               "status": "Backlog"
             },
             {
-              "cards": [
-                {
-                  "domain": "Agent OS",
-                  "domainSource": "project",
-                  "evidence": "Codex weekly quota 100% used (2026-06-08 08:26 UTC). Gameplay Evolution Review 2026-06-10 08:07 identified PM defect. 3 P0 crons (f66ed36d7be0, 1df5ef0c3835, aed8362e4501) blocked by HTTP 429. Reset: 2026-06-11 08:25 +08.",
-                  "kind": "ops",
-                  "lane": "Agent OS",
-                  "nextAction": "",
-                  "number": 1783,
-                  "priority": "P0",
-                  "projectDomain": "Agent OS",
-                  "state": "",
-                  "status": "Ready",
-                  "title": "P0: Implement Codex weekly quota budget manager \u2014 prevent cross-cron quota exhaustion",
-                  "type": "Issue",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/issues/1783",
-                  "visionLayer": "foundation blocker"
-                }
-              ],
+              "cards": [],
               "status": "Ready"
             },
             {
@@ -31954,7 +32317,7 @@
                 {
                   "domain": "Agent OS",
                   "domainSource": "project",
-                  "evidence": "2026-06-07T09:02Z this scheduler attempted bundled summary->alert->health capture and hit 120s timeout; ps recheck found no screeps-runtime-monitor leftovers. Fresh cached console artifact was used instead.",
+                  "evidence": "2026-06-11T19:36Z controller split monitor summary succeeded but direct alert command timed out at 60s, left empty alert.json, and orphan renderer/alert pids were killed. Empty alert was not treated as healthy.",
                   "kind": "ops",
                   "lane": "Agent OS",
                   "nextAction": "",
@@ -31972,8 +32335,8 @@
                 {
                   "domain": "Agent OS",
                   "domainSource": "project",
-                  "evidence": "2026-06-09: RL steward/continuation worker/runtime alert all failing with HTTP 429 since ~08:00Z. AI provider quota exhausted (both openai-codex and deepseek providers). Source: cron outputs aed8362e4501/f66ed36d7be0/1df5ef0c3835 all show 'RuntimeError: HTTP 429: The usage limit has been reached'. Created #1780.",
-                  "kind": "bug",
+                  "evidence": "2026-06-11T19:31Z audit: cron registry PASS; latest runtime-alert cron output 2026-06-12_01-49-09 was exact [SILENT], and no live HTTP 429 was seen. PR #1785 is merged; keep validation for recurrence.",
+                  "kind": "ops",
                   "lane": "Agent OS",
                   "nextAction": "",
                   "number": 1780,
@@ -32008,7 +32371,7 @@
                 {
                   "domain": "Agent OS",
                   "domainSource": "project",
-                  "evidence": "2026-06-08: Prior two steward outputs after timeout had normal responses; current steward slice recovered #1749 PR and is producing a checkpoint. Final closure requires this cron output to finalize without TimeoutError.",
+                  "evidence": "",
                   "kind": "ops",
                   "lane": "Agent OS",
                   "nextAction": "",
@@ -32354,6 +32717,24 @@
                   "type": "Issue",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/1478",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "domainSource": "project",
+                  "evidence": "2026-06-11T03:25Z Done: PR #1785 merged as 6271111 after gate pass (elapsed 71m, checks green, CodeRabbit approved/SUCCESS, threads resolved/outdated, controller checks PASS); issue #1783 auto-closed.",
+                  "kind": "ops",
+                  "lane": "Agent OS",
+                  "nextAction": "",
+                  "number": 1783,
+                  "priority": "P0",
+                  "projectDomain": "Agent OS",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P0: Implement Codex weekly quota budget manager \u2014 prevent cross-cron quota exhaustion",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/1783",
                   "visionLayer": "foundation blocker"
                 },
                 {
@@ -32822,6 +33203,24 @@
                   "type": "PullRequest",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/pull/56",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "domainSource": "project",
+                  "evidence": "2026-06-11T03:25Z Done: PR #1785 merged as 6271111 after gate pass (elapsed 71m, checks green, CodeRabbit approved/SUCCESS, threads resolved/outdated, controller checks PASS); issue #1783 auto-closed.",
+                  "kind": "ops",
+                  "lane": "Agent OS",
+                  "nextAction": "",
+                  "number": 1785,
+                  "priority": "P0",
+                  "projectDomain": "Agent OS",
+                  "state": "",
+                  "status": "Done",
+                  "title": "feat: add Codex quota budget guard",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1785",
                   "visionLayer": "foundation blocker"
                 },
                 {
@@ -33985,16 +34384,16 @@
                 {
                   "domain": "Runtime monitor",
                   "domainSource": "project",
-                  "evidence": "2026-06-07T09:12Z no-prose gate refresh: latest Gameplay Review lines 434-436 says construction-deadlock postdeploy acceptance still lacks durable buildCarriedEnergy/pendingBuildProgress check; latest E29N57 issue #1758 proves the metric remains relevant.",
+                  "evidence": "2026-06-11T19:36Z audit: #1799/#1801/#1803 are merged/deployed; fresh summary still build=0/no sites and direct alert capture timed out. #1752 remains the P0 telemetry/alert guard for site-timeout/build-blocked detection.",
                   "kind": "code",
                   "lane": "Runtime monitor",
                   "nextAction": "",
                   "number": 1752,
-                  "priority": "P1",
+                  "priority": "P0",
                   "projectDomain": "Runtime monitor",
                   "state": "",
                   "status": "Ready",
-                  "title": "P1: Add build action result telemetry for construction stalls",
+                  "title": "P0: Add build action result telemetry for construction stalls",
                   "type": "Issue",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/1752",
@@ -36178,26 +36577,7 @@
               "status": "Backlog"
             },
             {
-              "cards": [
-                {
-                  "domain": "Bot capability",
-                  "domainSource": "project",
-                  "evidence": "2026-06-09: All 3 owned rooms (E29N55 RCL6, E29N56 RCL4, E29N57 RCL5) show construction suppressed 72h+: build=0, buildCarriedEnergy=0, constructionSiteCount=0, state=no_viable_candidate. Energy adequate (E29N55 1690-2372, E29N56 221K). #1778 merged but didn't fix. Source: runtime-summary captures, conclusion-registry cl-20260608-construction-suppressed. Created #1781.",
-                  "kind": "bug",
-                  "lane": "Bot capability",
-                  "nextAction": "",
-                  "number": 1781,
-                  "priority": "P1",
-                  "projectDomain": "Bot capability",
-                  "state": "",
-                  "status": "Ready",
-                  "title": "P1: Investigate construction-site placement root cause (no_viable_candidate despite valid scores)",
-                  "type": "Issue",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/issues/1781",
-                  "visionLayer": "territory"
-                }
-              ],
+              "cards": [],
               "status": "Ready"
             },
             {
@@ -41730,6 +42110,24 @@
                 {
                   "domain": "Combat",
                   "domainSource": "project",
+                  "evidence": "2026-06-11T19:47:22Z: Done. PR #1803 merged as aab5a045 and official deploy run 27371505992 succeeded; postdeploy health ok, alert=false, runtime-alert 2026-06-12_01-49-09 exact SILENT.",
+                  "kind": "bug",
+                  "lane": "Combat",
+                  "nextAction": "",
+                  "number": 1802,
+                  "priority": "P0",
+                  "projectDomain": "Combat",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P0: Combat: E29N55 multi-rampart damage recurrence after #1801 deploy",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/1802",
+                  "visionLayer": "enemy kills"
+                },
+                {
+                  "domain": "Combat",
+                  "domainSource": "project",
                   "evidence": "Post-closure 2026-05-12T23:25Z: live alert=false, tactical=[SILENT], owned_spawns=1, owned_creeps=7, hostiles=0. Tower remains 0 but is strategic progression under #879/#979, not active defense incident.",
                   "kind": "code",
                   "lane": "Combat",
@@ -41779,6 +42177,24 @@
                   "type": "Issue",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/1125",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Combat",
+                  "domainSource": "project",
+                  "evidence": "Closed 2026-06-11T16:31Z: PR #1796 merged c47acf6d; post-merge diff-check/typecheck/Jest105/2392/build PASS; deploy run 27361368656 ok=true; postdeploy health ok=true and alert=false at tick 2059306.",
+                  "kind": "bug",
+                  "lane": "Combat",
+                  "nextAction": "",
+                  "number": 1795,
+                  "priority": "P0",
+                  "projectDomain": "Combat",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P0: E29N55 rampart damage alert after #1794 construction deploy",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/1795",
                   "visionLayer": "territory"
                 },
                 {
@@ -42000,6 +42416,24 @@
                 {
                   "domain": "Combat",
                   "domainSource": "project",
+                  "evidence": "Closed as cleared transient after recheck bundle recheck-20260611T174820Z: alert=false, health_rc=0, health_gate.ok=true, tactical_response.silent=true/emergency=false; all owned rooms alive (E29N55 1 spawn/12 creeps, E29N57 1/9, E29N56 1/11), hostiles=0, no room_dead/postdeploy_no_owned_spawn.",
+                  "kind": "ops",
+                  "lane": "Combat",
+                  "nextAction": "",
+                  "number": 1800,
+                  "priority": "P0",
+                  "projectDomain": "Combat",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P0:Combat:E29N55 rampart 18,23 dropped to 3501 hits",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/1800",
+                  "visionLayer": "enemy kills"
+                },
+                {
+                  "domain": "Combat",
+                  "domainSource": "project",
                   "evidence": "",
                   "kind": "ops",
                   "lane": "Combat",
@@ -42031,6 +42465,24 @@
                   "type": "PullRequest",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/pull/1695",
+                  "visionLayer": "enemy kills"
+                },
+                {
+                  "domain": "Combat",
+                  "domainSource": "project",
+                  "evidence": "2026-06-11T19:47:22Z: Merged/deployed. Merge aab5a045; deploy 27371505992 activeWorld matched; postdeploy health ok and alert=false.",
+                  "kind": "bug",
+                  "lane": "Combat",
+                  "nextAction": "",
+                  "number": 1803,
+                  "priority": "P0",
+                  "projectDomain": "Combat",
+                  "state": "",
+                  "status": "Done",
+                  "title": "combat: spread emergency rampart repairs",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1803",
                   "visionLayer": "enemy kills"
                 },
                 {
@@ -42103,6 +42555,24 @@
                   "type": "PullRequest",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/pull/1430",
+                  "visionLayer": "enemy kills"
+                },
+                {
+                  "domain": "Combat",
+                  "domainSource": "project",
+                  "evidence": "Merged 2026-06-11T16:19Z as c47acf6d after exact-head gate: elapsed 6347s, checks PASS, CodeRabbit no actionable, GraphQL unresolved threads=0, mergeState=CLEAN; post-merge typecheck/Jest/build PASS.",
+                  "kind": "code",
+                  "lane": "Combat",
+                  "nextAction": "",
+                  "number": 1796,
+                  "priority": "P0",
+                  "projectDomain": "Combat",
+                  "state": "",
+                  "status": "Done",
+                  "title": "fix: prioritize urgent rampart repairs before construction recovery",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1796",
                   "visionLayer": "enemy kills"
                 },
                 {
@@ -42595,7 +43065,7 @@
                 {
                   "domain": "Territory/Economy",
                   "domainSource": "project",
-                  "evidence": "2026-06-07T07:34Z console runtime-summary-console-20260607T071023Z tick 1890989: all rooms alive/productive; CPU bucket 1805 degraded/lowBucketRecovery; no hostiles.",
+                  "evidence": "2026-06-11T04:40Z CPU-bearing console fresh: bucket 1841/1779/1844/1745, pressure degraded with usedOverLimit/lowBucketRecovery; rooms alive/alert=false; construction still suppressed so #1781 follow-up active.",
                   "kind": "bug",
                   "lane": "Territory/Economy",
                   "nextAction": "",
@@ -42608,6 +43078,24 @@
                   "type": "Issue",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/1490",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Territory/Economy",
+                  "domainSource": "project",
+                  "evidence": "",
+                  "kind": "code",
+                  "lane": "Territory/Economy",
+                  "nextAction": "",
+                  "number": 1781,
+                  "priority": "P0",
+                  "projectDomain": "Territory/Economy",
+                  "state": "",
+                  "status": "In progress",
+                  "title": "P0: Recover construction-site seeding and build execution after deploy",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/1781",
                   "visionLayer": "territory"
                 },
                 {
@@ -42631,7 +43119,7 @@
                 {
                   "domain": "Territory/Economy",
                   "domainSource": "project",
-                  "evidence": "2026-06-08T00:44Z: PR #1778 open at head 9903e39; prod-ci green, issue-completion gate green after body patch, Gemini exact-head no feedback, reviewThreads=[]; CodeRabbit still PENDING/review in progress; elapsed gate matures at 00:55Z.",
+                  "evidence": "2026-06-11T19:36Z fresh summary: E29N56 none=4, E29N57 none=2, no construction sites; no active Codex process. Secondary-room standby remains queued but lower than #1802/#1781.",
                   "kind": "bug",
                   "lane": "Territory/Economy",
                   "nextAction": "",
@@ -43342,6 +43830,78 @@
                 {
                   "domain": "Territory/Economy",
                   "domainSource": "project",
+                  "evidence": "PR #1801 merged as 43b9d090 and deployed by official run 27368040595: deploy ok=true, activeWorld main matched, postdeploy health ok=true/alert=false. First postdeploy construction window tick 2062107 still site=0/build=0; acceptance tracked on #1781.",
+                  "kind": "code",
+                  "lane": "Territory/Economy",
+                  "nextAction": "",
+                  "number": 1801,
+                  "priority": "P0",
+                  "projectDomain": "Territory/Economy",
+                  "state": "",
+                  "status": "Done",
+                  "title": "Recover construction site seeding after deploy",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1801",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Territory/Economy",
+                  "domainSource": "project",
+                  "evidence": "2026-06-11T10:58Z: merged as b91f3ce2 and deployed to official MMO via run 27341755482; deploy artifact ok=true, activeWorld matched main, health gate ok=true, alert=false. Postdeploy acceptance exposed residual candidate_suppressed/no_construction_sites routed back to #1781.",
+                  "kind": "code",
+                  "lane": "Territory/Economy",
+                  "nextAction": "",
+                  "number": 1793,
+                  "priority": "P0",
+                  "projectDomain": "Territory/Economy",
+                  "state": "",
+                  "status": "Done",
+                  "title": "construction: assign workers to safe recovery sites",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1793",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Territory/Economy",
+                  "domainSource": "project",
+                  "evidence": "2026-06-11T09:11:23Z: PR #1791 merged/deployed. Deploy run 27335916235 succeeded for main 4afcbd20; branch upload and activeWorld matched. It did not satisfy #1781 runtime acceptance, which remains active on follow-up proc_[redacted].",
+                  "kind": "bug",
+                  "lane": "Territory/Economy",
+                  "nextAction": "",
+                  "number": 1791,
+                  "priority": "P0",
+                  "projectDomain": "Territory/Economy",
+                  "state": "",
+                  "status": "Done",
+                  "title": "construction: unblock postdeploy site placement residual",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1791",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Territory/Economy",
+                  "domainSource": "project",
+                  "evidence": "Merged as 7ecdaefa; official deploy run 27326424358 succeeded and evidence archived. Runtime acceptance remains on issue #1781, not this PR.",
+                  "kind": "code",
+                  "lane": "Territory/Economy",
+                  "nextAction": "",
+                  "number": 1788,
+                  "priority": "P0",
+                  "projectDomain": "Territory/Economy",
+                  "state": "",
+                  "status": "Done",
+                  "title": "cpu: keep construction enabled near recovery corridor",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1788",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Territory/Economy",
+                  "domainSource": "project",
                   "evidence": "Merged as 36fa83af; deploy run 27052669691 succeeded with activeWorld/main matched, postdeploy health ok=true and alert=false.",
                   "kind": "code",
                   "lane": "Territory/Economy",
@@ -43738,6 +44298,42 @@
                 {
                   "domain": "Territory/Economy",
                   "domainSource": "project",
+                  "evidence": "2026-06-11T04:33Z: DONE. Merged b1ba862d and deployed by official run 27323851603; upload/activeWorld matched sha db8761d5; postdeploy health ok/alert=false. #1781 remains active for runtime acceptance.",
+                  "kind": "bug",
+                  "lane": "Territory/Economy",
+                  "nextAction": "",
+                  "number": 1786,
+                  "priority": "P0",
+                  "projectDomain": "Territory/Economy",
+                  "state": "",
+                  "status": "Done",
+                  "title": "fix: allow construction during CPU recovery over-limit ticks",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1786",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Territory/Economy",
+                  "domainSource": "project",
+                  "evidence": "Merged as 6941294d and deployed by official run 27329854245 SUCCESS; deploy artifact dc479aef; postdeploy target health OK tick 2045730; issue #1781 remains open for behavior acceptance.",
+                  "kind": "code",
+                  "lane": "Territory/Economy",
+                  "nextAction": "",
+                  "number": 1789,
+                  "priority": "P0",
+                  "projectDomain": "Territory/Economy",
+                  "state": "",
+                  "status": "Done",
+                  "title": "fix: allow construction recovery during CPU corridor",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1789",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Territory/Economy",
+                  "domainSource": "project",
                   "evidence": "PR #1642 merged/deployed. Deploy run 26903692140 ok=true, commit 743e4b5ffcc7 activeWorld main matched, health gate ok/reasons=[], alert=false. Live Memory: E34N49 candidate allowLongRange=true routeDistance=11 recommendedAction=scout; planned scout intent E29N55->E34N49; scout attempt requested at tick 1750508 updated 1750555. Monitor tick 1750593: E29N55 RCL6, spawn=1, creeps=10, hostiles=0; unrelated P1 cpu_bucket_low routed to #1490/#906/#924.",
                   "kind": "code",
                   "lane": "Territory/Economy",
@@ -43751,6 +44347,42 @@
                   "type": "PullRequest",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/pull/1642",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Territory/Economy",
+                  "domainSource": "project",
+                  "evidence": "",
+                  "kind": "code",
+                  "lane": "Territory/Economy",
+                  "nextAction": "",
+                  "number": 1784,
+                  "priority": "P0",
+                  "projectDomain": "Territory/Economy",
+                  "state": "",
+                  "status": "Done",
+                  "title": "fix: allow safe construction during CPU recovery",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1784",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Territory/Economy",
+                  "domainSource": "project",
+                  "evidence": "2026-06-11T10:03Z: PR #1792 merged as 1de5d9ac and deployed by run 27338988681 success. Sites now appear (site=3/pending=3) but #1781 acceptance continues under residual worker_assignment_gap Codex proc_[redacted].",
+                  "kind": "bug",
+                  "lane": "Territory/Economy",
+                  "nextAction": "",
+                  "number": 1792,
+                  "priority": "P0",
+                  "projectDomain": "Territory/Economy",
+                  "state": "",
+                  "status": "Done",
+                  "title": "fix: allow safe construction seed during cpu recovery",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1792",
                   "visionLayer": "territory"
                 },
                 {
@@ -43828,6 +44460,24 @@
                 {
                   "domain": "Territory/Economy",
                   "domainSource": "project",
+                  "evidence": "2026-06-11T20:24Z MERGED as 3375e9da. Gate: elapsed 1201s/900s, checks all pass, CodeRabbit exact-head approved/no actionable, Gemini no feedback, threads=0, mergeState=CLEAN, controller verification PASS.",
+                  "kind": "code",
+                  "lane": "Territory/Economy",
+                  "nextAction": "",
+                  "number": 1804,
+                  "priority": "P0",
+                  "projectDomain": "Territory/Economy",
+                  "state": "",
+                  "status": "Done",
+                  "title": "fix: recover construction site seeding after rampart acceptance",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1804",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Territory/Economy",
+                  "domainSource": "project",
                   "evidence": "2026-06-06T18:03Z Deploy run 27069646426 succeeded for b6557886 (deploy ok, activeWorld matched, health ok, alert=false for target E29N55). Artifact archived under runtime-artifacts/official-screeps-deploy/*-27069646426.json. All-owned acceptance remains with #1715/#1738.",
                   "kind": "bug",
                   "lane": "Territory/Economy",
@@ -43846,6 +44496,24 @@
                 {
                   "domain": "Territory/Economy",
                   "domainSource": "project",
+                  "evidence": "2026-06-11T13:53Z PR #1794 merged as 0f79f815 and official deploy run 27351267179 succeeded; evidence archived under runtime-artifacts/official-screeps-deploy/official-screeps-deploy-27351267179. Postdeploy construction started (site/build tasks), but #1795 rampart alert blocks acceptance.",
+                  "kind": "bug",
+                  "lane": "Territory/Economy",
+                  "nextAction": "",
+                  "number": 1794,
+                  "priority": "P0",
+                  "projectDomain": "Territory/Economy",
+                  "state": "",
+                  "status": "Done",
+                  "title": "fix: restore source-container site placement after recovery",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1794",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Territory/Economy",
+                  "domainSource": "project",
                   "evidence": "2026-05-22T10:04:36Z: #1322 fixed/closed. #1323 merged as main 0315de1b; official deploy run 26281255793 succeeded. Post-deploy all-owned-room monitor artifact runtime-artifacts/screeps-monitor/runtime-alert-20260522T100247Z-postdeploy-1323/manifest.json: health_rc=0, alert=false, no tactical categories, no room_dead. E29N57 RCL2 has extension constructionSiteCount=1 and pendingBuildProgress=2897 at tick 1230162, owned_spawns=1, owned_creeps=5. E29N56 remains under #1318, not room_dead.",
                   "kind": "bug",
                   "lane": "Territory/Economy",
@@ -43859,6 +44527,42 @@
                   "type": "PullRequest",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/pull/1323",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Territory/Economy",
+                  "domainSource": "project",
+                  "evidence": "2026-06-12T01:30+08: merged as cc053304 after elapsed 28m, checks PASS, CodeRabbit approved exact head d3493a58, threads=0, local typecheck/Jest/build PASS.",
+                  "kind": "code",
+                  "lane": "Territory/Economy",
+                  "nextAction": "",
+                  "number": 1799,
+                  "priority": "P0",
+                  "projectDomain": "Territory/Economy",
+                  "state": "",
+                  "status": "Done",
+                  "title": "fix: seed residual construction road sites",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1799",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Territory/Economy",
+                  "domainSource": "project",
+                  "evidence": "2026-06-11T08:04Z: merged PR #1790 at fa4e06ca after exact-head checks/reviews/threads/elapsed gate; 2026-06-11T08:17Z deploy run 27333534956 queued for merged head.",
+                  "kind": "bug",
+                  "lane": "Territory/Economy",
+                  "nextAction": "",
+                  "number": 1790,
+                  "priority": "P0",
+                  "projectDomain": "Territory/Economy",
+                  "state": "",
+                  "status": "Done",
+                  "title": "fix: seed stored-energy construction site after CPU recovery",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1790",
                   "visionLayer": "territory"
                 },
                 {
@@ -48371,7 +49075,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-06-09: E1 gate e1-gate-20260607T1257Z expired ~00:57Z (~7.5h ago). 200 samples (164 train/36 eval) lost. No experiment card created. Source: conclusion-registry cl-20260608-experiment-card-stale. Created #1782.",
+                  "evidence": "2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after #1802 closed; no paid compute dispatched. Latest E1-lite PASS e1-lite-gate-20260611T190525Z; Loop A RUN_VALIDATED 20260611T190241Z; Loop B UNPROVEN 20260611T190216Z.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -48389,7 +49093,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-06-08T00:28Z post-cleanup preflights: steward-postcleanup-preflight-20260608t0028z => post_fix_validation_plan_required_no_compute; allow-preflight => skipped_paid_failure_recurrence_launch_guard; no compute/scale attempted; disk now 52%/83GiB free.",
+                  "evidence": "2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after #1802 closed; no paid compute dispatched. Latest E1-lite PASS e1-lite-gate-20260611T190525Z; Loop A RUN_VALIDATED 20260611T190241Z; Loop B UNPROVEN 20260611T190216Z. Tencent preflight remains post_fix_validation_plan_required_no_compute; ASG 0/0/0.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -48412,7 +49116,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-06-08T00:28Z live canary remains blocked: RL candidate online utility still UNPROVEN, fresh gameplay data shows secondary-room standby issue #1776, and Tencent paid validation requires #1777 plan.",
+                  "evidence": "2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after #1802 closed; no paid compute dispatched. Latest E1-lite PASS e1-lite-gate-20260611T190525Z; Loop A RUN_VALIDATED 20260611T190241Z; Loop B UNPROVEN 20260611T190216Z.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -48430,7 +49134,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-06-08T00:28Z autonomous compute cadence no longer disk-blocked; preflight artifacts show computeAttempted=false/scaleOutAttempted=false and paid guard still active; #1776 Codex lane active for gameplay-data quality.",
+                  "evidence": "2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after #1802 closed; no paid compute dispatched. Latest E1-lite PASS e1-lite-gate-20260611T190525Z; Loop A RUN_VALIDATED 20260611T190241Z; Loop B UNPROVEN 20260611T190216Z. ASG remains 0/0/0; billing guard ok.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -48448,7 +49152,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-06-08T00:28Z host disk recovered to 52%/83GiB free; no-compute Tencent preflights still blocked by paid_failure_recurrence_guard artifacts steward-postcleanup-preflight-20260608t0028z and allow-preflight-20260608t0030z.",
+                  "evidence": "2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after #1802 closed; no paid compute dispatched. Latest E1-lite PASS e1-lite-gate-20260611T190525Z; Loop A RUN_VALIDATED 20260611T190241Z; Loop B UNPROVEN 20260611T190216Z. Training evidence remains foundation/intermediate; no new online KPI landing path until construction acceptance.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -49663,6 +50367,24 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
+                  "evidence": "",
+                  "kind": "bug",
+                  "lane": "RL flywheel",
+                  "nextAction": "",
+                  "number": 1798,
+                  "priority": "P0",
+                  "projectDomain": "RL flywheel",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P0: Repair RL policy advantage ledger Broken pipe output failure",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/1798",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "RL flywheel",
+                  "domainSource": "project",
                   "evidence": "2026-05-20T17:57Z: PR #1272 merged as 36b975d8 after gate PASS (age>15m, prod-ci+CodeRabbit success, threads resolved, mergeState CLEAN). Main fast-forwarded; post-merge py_compile + unittest 147 OK + pytest scorecard 18 passed + diff-check passed.",
                   "kind": "code",
                   "lane": "RL flywheel",
@@ -49712,6 +50434,24 @@
                   "type": "Issue",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/1769",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "RL flywheel",
+                  "domainSource": "project",
+                  "evidence": "2026-06-12T01:15+08 scheduled Loop A output clean: 5c869e7d8a1d/2026-06-12_01-15-52.md emitted compact JSON artifact 20260611T171540Z-training-ledger.json; last_status=ok.",
+                  "kind": "bug",
+                  "lane": "RL flywheel",
+                  "nextAction": "",
+                  "number": 1797,
+                  "priority": "P0",
+                  "projectDomain": "RL flywheel",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P0: Repair recurring RL training ledger Broken pipe output failure after #1769",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/1797",
                   "visionLayer": "foundation blocker"
                 },
                 {
@@ -56054,7 +56794,27 @@
               "status": "In progress"
             },
             {
-              "cards": [],
+              "cards": [
+                {
+                  "createdAt": "2026-06-11T05:00:13Z",
+                  "domain": "Docs/process",
+                  "domainSource": "project",
+                  "evidence": "2026-06-11T20:08Z: PR #1787 head 9a588252 still open P2; mergeState=BEHIND, reviewDecision=CHANGES_REQUESTED, issue-completion FAIL, prod-ci PASS, CodeRabbit SUCCESS, unresolved outdated LFS thread PRRT_kwDOSMSsO86IsrYs. Hard P0 is now #1804/#1781, not closed #1802.",
+                  "kind": "docs",
+                  "lane": "Docs/process",
+                  "nextAction": "",
+                  "number": 1787,
+                  "priority": "P2",
+                  "projectDomain": "Docs/process",
+                  "state": "",
+                  "status": "In review",
+                  "title": "chore(roadmap): refresh Pages artifacts",
+                  "type": "PullRequest",
+                  "updatedAt": "2026-06-11T16:38:46Z",
+                  "url": "https://github.com/lanyusea/screeps/pull/1787",
+                  "visionLayer": "foundation blocker"
+                }
+              ],
               "status": "In review"
             },
             {
@@ -56693,6 +57453,24 @@
                   "domain": "Docs/process",
                   "domainSource": "project",
                   "evidence": "",
+                  "kind": "docs",
+                  "lane": "Docs/process",
+                  "nextAction": "",
+                  "number": 1779,
+                  "priority": "P2",
+                  "projectDomain": "Docs/process",
+                  "state": "",
+                  "status": "Done",
+                  "title": "chore(roadmap): refresh Pages artifacts",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1779",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Docs/process",
+                  "domainSource": "project",
+                  "evidence": "",
                   "kind": "code",
                   "lane": "Docs/process",
                   "nextAction": "",
@@ -56718,7 +57496,7 @@
       {
         "instrumented": true,
         "label": "Open roadmap issues",
-        "value": 26
+        "value": 25
       },
       {
         "instrumented": true,
@@ -56728,22 +57506,22 @@
       {
         "instrumented": true,
         "label": "Blocked cards",
-        "value": 50
+        "value": 54
       },
       {
         "instrumented": true,
         "label": "Project cards",
-        "value": 1740
+        "value": 1762
       },
       {
         "instrumented": true,
         "label": "In progress",
-        "value": 16
+        "value": 17
       },
       {
         "instrumented": true,
         "label": "In review",
-        "value": 2
+        "value": 3
       }
     ],
     "projectHandoffEvidenceValidation": {
@@ -77946,7 +78724,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-06-08T00:28Z host disk recovered to 52%/83GiB free; no-compute Tencent preflights still blocked by paid_failure_recurrence_guard artifacts steward-postcleanup-preflight-20260608t0028z and allow-preflight-20260608t0030z.",
+        "evidence": "2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after #1802 closed; no paid compute dispatched. Latest E1-lite PASS e1-lite-gate-20260611T190525Z; Loop A RUN_VALIDATED 20260611T190241Z; Loop B UNPROVEN 20260611T190216Z. Training evidence remains foundation/intermediate; no new online KPI landing path until construction acceptance.",
         "kind": "ops",
         "labels": [
           "blocked",
@@ -80198,7 +80976,7 @@
         "blockedBy": "",
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-06-07T09:02Z this scheduler attempted bundled summary->alert->health capture and hit 120s timeout; ps recheck found no screeps-runtime-monitor leftovers. Fresh cached console artifact was used instead.",
+        "evidence": "2026-06-11T19:36Z controller split monitor summary succeeded but direct alert command timed out at 60s, left empty alert.json, and orphan renderer/alert pids were killed. Empty alert was not treated as healthy.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -82334,7 +83112,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-06-08T00:28Z autonomous compute cadence no longer disk-blocked; preflight artifacts show computeAttempted=false/scaleOutAttempted=false and paid guard still active; #1776 Codex lane active for gameplay-data quality.",
+        "evidence": "2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after #1802 closed; no paid compute dispatched. Latest E1-lite PASS e1-lite-gate-20260611T190525Z; Loop A RUN_VALIDATED 20260611T190241Z; Loop B UNPROVEN 20260611T190216Z. ASG remains 0/0/0; billing guard ok.",
         "kind": "ops",
         "labels": [
           "blocked",
@@ -87842,7 +88620,7 @@
         "blockedBy": "",
         "domain": "Territory/Economy",
         "domainSource": "project",
-        "evidence": "2026-06-07T07:34Z console runtime-summary-console-20260607T071023Z tick 1890989: all rooms alive/productive; CPU bucket 1805 degraded/lowBucketRecovery; no hostiles.",
+        "evidence": "2026-06-11T04:40Z CPU-bearing console fresh: bucket 1841/1779/1844/1745, pressure degraded with usedOverLimit/lowBucketRecovery; rooms alive/alert=false; construction still suppressed so #1781 follow-up active.",
         "kind": "bug",
         "labels": [
           "blocked",
@@ -89838,7 +90616,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-06-08T00:28Z live canary remains blocked: RL candidate online utility still UNPROVEN, fresh gameplay data shows secondary-room standby issue #1776, and Tencent paid validation requires #1777 plan.",
+        "evidence": "2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after #1802 closed; no paid compute dispatched. Latest E1-lite PASS e1-lite-gate-20260611T190525Z; Loop A RUN_VALIDATED 20260611T190241Z; Loop B UNPROVEN 20260611T190216Z.",
         "kind": "ops",
         "labels": [
           "blocked",
@@ -93505,11 +94283,11 @@
         "blockedBy": "",
         "domain": "Runtime monitor",
         "domainSource": "project",
-        "evidence": "2026-06-07T09:12Z no-prose gate refresh: latest Gameplay Review lines 434-436 says construction-deadlock postdeploy acceptance still lacks durable buildCarriedEnergy/pendingBuildProgress check; latest E29N57 issue #1758 proves the metric remains relevant.",
+        "evidence": "2026-06-11T19:36Z audit: #1799/#1801/#1803 are merged/deployed; fresh summary still build=0/no sites and direct alert capture timed out. #1752 remains the P0 telemetry/alert guard for site-timeout/build-blocked detection.",
         "kind": "code",
         "labels": [
           "kind:code",
-          "priority:p1",
+          "priority:p0",
           "roadmap",
           "roadmap:phase-c-telemetry",
           "runtime-alert"
@@ -93517,11 +94295,11 @@
         "milestone": "Phase C: Runtime telemetry / monitor gate",
         "nextAction": "",
         "number": 1752,
-        "priority": "P1",
+        "priority": "P0",
         "projectDomain": "Runtime monitor",
         "state": "",
         "status": "Ready",
-        "title": "P1: Add build action result telemetry for construction stalls",
+        "title": "P0: Add build action result telemetry for construction stalls",
         "type": "Issue",
         "updatedAt": "",
         "url": "https://github.com/lanyusea/screeps/issues/1752"
@@ -93960,7 +94738,7 @@
         "blockedBy": "",
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-06-08: Prior two steward outputs after timeout had normal responses; current steward slice recovered #1749 PR and is producing a checkpoint. Final closure requires this cron output to finalize without TimeoutError.",
+        "evidence": "",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -94022,7 +94800,7 @@
         "blockedBy": "",
         "domain": "Territory/Economy",
         "domainSource": "project",
-        "evidence": "2026-06-08T00:44Z: PR #1778 open at head 9903e39; prod-ci green, issue-completion gate green after body patch, Gemini exact-head no feedback, reviewThreads=[]; CodeRabbit still PENDING/review in progress; elapsed gate matures at 00:55Z.",
+        "evidence": "2026-06-11T19:36Z fresh summary: E29N56 none=4, E29N57 none=2, no construction sites; no active Codex process. Secondary-room standby remains queued but lower than #1802/#1781.",
         "kind": "bug",
         "labels": [
           "kind:bug",
@@ -94046,9 +94824,10 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-06-08T00:28Z post-cleanup preflights: steward-postcleanup-preflight-20260608t0028z => post_fix_validation_plan_required_no_compute; allow-preflight => skipped_paid_failure_recurrence_launch_guard; no compute/scale attempted; disk now 52%/83GiB free.",
+        "evidence": "2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after #1802 closed; no paid compute dispatched. Latest E1-lite PASS e1-lite-gate-20260611T190525Z; Loop A RUN_VALIDATED 20260611T190241Z; Loop B UNPROVEN 20260611T190216Z. Tencent preflight remains post_fix_validation_plan_required_no_compute; ASG 0/0/0.",
         "kind": "ops",
         "labels": [
+          "blocked",
           "domain:rl-flywheel",
           "kind:ops",
           "priority:p0",
@@ -94090,8 +94869,8 @@
         "blockedBy": "",
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-06-09: RL steward/continuation worker/runtime alert all failing with HTTP 429 since ~08:00Z. AI provider quota exhausted (both openai-codex and deepseek providers). Source: cron outputs aed8362e4501/f66ed36d7be0/1df5ef0c3835 all show 'RuntimeError: HTTP 429: The usage limit has been reached'. Created #1780.",
-        "kind": "bug",
+        "evidence": "2026-06-11T19:31Z audit: cron registry PASS; latest runtime-alert cron output 2026-06-12_01-49-09 was exact [SILENT], and no live HTTP 429 was seen. PR #1785 is merged; keep validation for recurrence.",
+        "kind": "ops",
         "labels": [
           "kind:bug",
           "priority:p0",
@@ -94111,23 +94890,24 @@
       },
       {
         "blockedBy": "",
-        "domain": "Bot capability",
+        "domain": "Territory/Economy",
         "domainSource": "project",
-        "evidence": "2026-06-09: All 3 owned rooms (E29N55 RCL6, E29N56 RCL4, E29N57 RCL5) show construction suppressed 72h+: build=0, buildCarriedEnergy=0, constructionSiteCount=0, state=no_viable_candidate. Energy adequate (E29N55 1690-2372, E29N56 221K). #1778 merged but didn't fix. Source: runtime-summary captures, conclusion-registry cl-20260608-construction-suppressed. Created #1781.",
-        "kind": "bug",
+        "evidence": "",
+        "kind": "code",
         "labels": [
           "kind:bug",
-          "priority:p1",
+          "priority:p0",
+          "roadmap",
           "roadmap:territory-economy"
         ],
         "milestone": "P1: Territory/Economy gameplay gate",
         "nextAction": "",
         "number": 1781,
-        "priority": "P1",
-        "projectDomain": "Bot capability",
+        "priority": "P0",
+        "projectDomain": "Territory/Economy",
         "state": "",
-        "status": "Ready",
-        "title": "P1: Investigate construction-site placement root cause (no_viable_candidate despite valid scores)",
+        "status": "In progress",
+        "title": "P0: Recover construction-site seeding and build execution after deploy",
         "type": "Issue",
         "updatedAt": "",
         "url": "https://github.com/lanyusea/screeps/issues/1781"
@@ -94136,11 +94916,14 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-06-09: E1 gate e1-gate-20260607T1257Z expired ~00:57Z (~7.5h ago). 200 samples (164 train/36 eval) lost. No experiment card created. Source: conclusion-registry cl-20260608-experiment-card-stale. Created #1782.",
+        "evidence": "2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after #1802 closed; no paid compute dispatched. Latest E1-lite PASS e1-lite-gate-20260611T190525Z; Loop A RUN_VALIDATED 20260611T190241Z; Loop B UNPROVEN 20260611T190216Z.",
         "kind": "ops",
         "labels": [
+          "blocked",
+          "domain:rl-flywheel",
           "kind:ops",
           "priority:p0",
+          "roadmap",
           "roadmap:rl-flywheel"
         ],
         "milestone": "P1: RL strategy flywheel gate",
@@ -94159,31 +94942,485 @@
         "blockedBy": "",
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "Codex weekly quota 100% used (2026-06-08 08:26 UTC). Gameplay Evolution Review 2026-06-10 08:07 identified PM defect. 3 P0 crons (f66ed36d7be0, 1df5ef0c3835, aed8362e4501) blocked by HTTP 429. Reset: 2026-06-11 08:25 +08.",
+        "evidence": "2026-06-11T03:25Z Done: PR #1785 merged as 6271111 after gate pass (elapsed 71m, checks green, CodeRabbit approved/SUCCESS, threads resolved/outdated, controller checks PASS); issue #1783 auto-closed.",
         "kind": "ops",
         "labels": [
           "kind:ops",
           "priority:p0",
+          "roadmap",
           "roadmap:p0-agent-ops"
         ],
-        "milestone": "",
+        "milestone": "P0: Agent OS / Discord visibility gate",
         "nextAction": "",
         "number": 1783,
         "priority": "P0",
         "projectDomain": "Agent OS",
         "state": "",
-        "status": "Ready",
+        "status": "Done",
         "title": "P0: Implement Codex weekly quota budget manager \u2014 prevent cross-cron quota exhaustion",
         "type": "Issue",
         "updatedAt": "",
         "url": "https://github.com/lanyusea/screeps/issues/1783"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Docs/process",
+        "domainSource": "project",
+        "evidence": "",
+        "kind": "docs",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1779,
+        "priority": "P2",
+        "projectDomain": "Docs/process",
+        "state": "",
+        "status": "Done",
+        "title": "chore(roadmap): refresh Pages artifacts",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1779"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "project",
+        "evidence": "",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1784,
+        "priority": "P0",
+        "projectDomain": "Territory/Economy",
+        "state": "",
+        "status": "Done",
+        "title": "fix: allow safe construction during CPU recovery",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1784"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Agent OS",
+        "domainSource": "project",
+        "evidence": "2026-06-11T03:25Z Done: PR #1785 merged as 6271111 after gate pass (elapsed 71m, checks green, CodeRabbit approved/SUCCESS, threads resolved/outdated, controller checks PASS); issue #1783 auto-closed.",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p0",
+          "roadmap",
+          "roadmap:p0-agent-ops"
+        ],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1785,
+        "priority": "P0",
+        "projectDomain": "Agent OS",
+        "state": "",
+        "status": "Done",
+        "title": "feat: add Codex quota budget guard",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1785"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "project",
+        "evidence": "2026-06-11T04:33Z: DONE. Merged b1ba862d and deployed by official run 27323851603; upload/activeWorld matched sha db8761d5; postdeploy health ok/alert=false. #1781 remains active for runtime acceptance.",
+        "kind": "bug",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1786,
+        "priority": "P0",
+        "projectDomain": "Territory/Economy",
+        "state": "",
+        "status": "Done",
+        "title": "fix: allow construction during CPU recovery over-limit ticks",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1786"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Docs/process",
+        "domainSource": "project",
+        "evidence": "2026-06-11T20:08Z: PR #1787 head 9a588252 still open P2; mergeState=BEHIND, reviewDecision=CHANGES_REQUESTED, issue-completion FAIL, prod-ci PASS, CodeRabbit SUCCESS, unresolved outdated LFS thread PRRT_kwDOSMSsO86IsrYs. Hard P0 is now #1804/#1781, not closed #1802.",
+        "kind": "docs",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1787,
+        "priority": "P2",
+        "projectDomain": "Docs/process",
+        "state": "",
+        "status": "In review",
+        "title": "chore(roadmap): refresh Pages artifacts",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1787"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "project",
+        "evidence": "Merged as 7ecdaefa; official deploy run 27326424358 succeeded and evidence archived. Runtime acceptance remains on issue #1781, not this PR.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1788,
+        "priority": "P0",
+        "projectDomain": "Territory/Economy",
+        "state": "",
+        "status": "Done",
+        "title": "cpu: keep construction enabled near recovery corridor",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1788"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "project",
+        "evidence": "Merged as 6941294d and deployed by official run 27329854245 SUCCESS; deploy artifact dc479aef; postdeploy target health OK tick 2045730; issue #1781 remains open for behavior acceptance.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1789,
+        "priority": "P0",
+        "projectDomain": "Territory/Economy",
+        "state": "",
+        "status": "Done",
+        "title": "fix: allow construction recovery during CPU corridor",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1789"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "project",
+        "evidence": "2026-06-11T08:04Z: merged PR #1790 at fa4e06ca after exact-head checks/reviews/threads/elapsed gate; 2026-06-11T08:17Z deploy run 27333534956 queued for merged head.",
+        "kind": "bug",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1790,
+        "priority": "P0",
+        "projectDomain": "Territory/Economy",
+        "state": "",
+        "status": "Done",
+        "title": "fix: seed stored-energy construction site after CPU recovery",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1790"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "project",
+        "evidence": "2026-06-11T09:11:23Z: PR #1791 merged/deployed. Deploy run 27335916235 succeeded for main 4afcbd20; branch upload and activeWorld matched. It did not satisfy #1781 runtime acceptance, which remains active on follow-up proc_[redacted].",
+        "kind": "bug",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1791,
+        "priority": "P0",
+        "projectDomain": "Territory/Economy",
+        "state": "",
+        "status": "Done",
+        "title": "construction: unblock postdeploy site placement residual",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1791"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "project",
+        "evidence": "2026-06-11T10:03Z: PR #1792 merged as 1de5d9ac and deployed by run 27338988681 success. Sites now appear (site=3/pending=3) but #1781 acceptance continues under residual worker_assignment_gap Codex proc_[redacted].",
+        "kind": "bug",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1792,
+        "priority": "P0",
+        "projectDomain": "Territory/Economy",
+        "state": "",
+        "status": "Done",
+        "title": "fix: allow safe construction seed during cpu recovery",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1792"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "project",
+        "evidence": "2026-06-11T10:58Z: merged as b91f3ce2 and deployed to official MMO via run 27341755482; deploy artifact ok=true, activeWorld matched main, health gate ok=true, alert=false. Postdeploy acceptance exposed residual candidate_suppressed/no_construction_sites routed back to #1781.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1793,
+        "priority": "P0",
+        "projectDomain": "Territory/Economy",
+        "state": "",
+        "status": "Done",
+        "title": "construction: assign workers to safe recovery sites",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1793"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "project",
+        "evidence": "2026-06-11T13:53Z PR #1794 merged as 0f79f815 and official deploy run 27351267179 succeeded; evidence archived under runtime-artifacts/official-screeps-deploy/official-screeps-deploy-27351267179. Postdeploy construction started (site/build tasks), but #1795 rampart alert blocks acceptance.",
+        "kind": "bug",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1794,
+        "priority": "P0",
+        "projectDomain": "Territory/Economy",
+        "state": "",
+        "status": "Done",
+        "title": "fix: restore source-container site placement after recovery",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1794"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Combat",
+        "domainSource": "project",
+        "evidence": "Closed 2026-06-11T16:31Z: PR #1796 merged c47acf6d; post-merge diff-check/typecheck/Jest105/2392/build PASS; deploy run 27361368656 ok=true; postdeploy health ok=true and alert=false at tick 2059306.",
+        "kind": "bug",
+        "labels": [
+          "kind:incident",
+          "priority:p0",
+          "roadmap",
+          "roadmap:combat",
+          "runtime-alert"
+        ],
+        "milestone": "P1: Territory/Economy gameplay gate",
+        "nextAction": "",
+        "number": 1795,
+        "priority": "P0",
+        "projectDomain": "Combat",
+        "state": "",
+        "status": "Done",
+        "title": "P0: E29N55 rampart damage alert after #1794 construction deploy",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/1795"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Combat",
+        "domainSource": "project",
+        "evidence": "Merged 2026-06-11T16:19Z as c47acf6d after exact-head gate: elapsed 6347s, checks PASS, CodeRabbit no actionable, GraphQL unresolved threads=0, mergeState=CLEAN; post-merge typecheck/Jest/build PASS.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1796,
+        "priority": "P0",
+        "projectDomain": "Combat",
+        "state": "",
+        "status": "Done",
+        "title": "fix: prioritize urgent rampart repairs before construction recovery",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1796"
+      },
+      {
+        "blockedBy": "",
+        "domain": "RL flywheel",
+        "domainSource": "project",
+        "evidence": "2026-06-12T01:15+08 scheduled Loop A output clean: 5c869e7d8a1d/2026-06-12_01-15-52.md emitted compact JSON artifact 20260611T171540Z-training-ledger.json; last_status=ok.",
+        "kind": "bug",
+        "labels": [
+          "domain:rl-flywheel",
+          "kind:bug",
+          "priority:p0",
+          "roadmap",
+          "roadmap:rl-flywheel"
+        ],
+        "milestone": "P1: RL strategy flywheel gate",
+        "nextAction": "",
+        "number": 1797,
+        "priority": "P0",
+        "projectDomain": "RL flywheel",
+        "state": "",
+        "status": "Done",
+        "title": "P0: Repair recurring RL training ledger Broken pipe output failure after #1769",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/1797"
+      },
+      {
+        "blockedBy": "",
+        "domain": "RL flywheel",
+        "domainSource": "project",
+        "evidence": "",
+        "kind": "bug",
+        "labels": [
+          "domain:rl-flywheel",
+          "kind:bug",
+          "priority:p0",
+          "roadmap",
+          "roadmap:rl-flywheel"
+        ],
+        "milestone": "P1: RL strategy flywheel gate",
+        "nextAction": "",
+        "number": 1798,
+        "priority": "P0",
+        "projectDomain": "RL flywheel",
+        "state": "",
+        "status": "Done",
+        "title": "P0: Repair RL policy advantage ledger Broken pipe output failure",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/1798"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "project",
+        "evidence": "2026-06-12T01:30+08: merged as cc053304 after elapsed 28m, checks PASS, CodeRabbit approved exact head d3493a58, threads=0, local typecheck/Jest/build PASS.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1799,
+        "priority": "P0",
+        "projectDomain": "Territory/Economy",
+        "state": "",
+        "status": "Done",
+        "title": "fix: seed residual construction road sites",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1799"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Combat",
+        "domainSource": "project",
+        "evidence": "Closed as cleared transient after recheck bundle recheck-20260611T174820Z: alert=false, health_rc=0, health_gate.ok=true, tactical_response.silent=true/emergency=false; all owned rooms alive (E29N55 1 spawn/12 creeps, E29N57 1/9, E29N56 1/11), hostiles=0, no room_dead/postdeploy_no_owned_spawn.",
+        "kind": "ops",
+        "labels": [
+          "kind:incident",
+          "priority:p0",
+          "roadmap",
+          "roadmap:combat",
+          "runtime-alert"
+        ],
+        "milestone": "Phase E: Official MMO deployment gate",
+        "nextAction": "",
+        "number": 1800,
+        "priority": "P0",
+        "projectDomain": "Combat",
+        "state": "",
+        "status": "Done",
+        "title": "P0:Combat:E29N55 rampart 18,23 dropped to 3501 hits",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/1800"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "project",
+        "evidence": "PR #1801 merged as 43b9d090 and deployed by official run 27368040595: deploy ok=true, activeWorld main matched, postdeploy health ok=true/alert=false. First postdeploy construction window tick 2062107 still site=0/build=0; acceptance tracked on #1781.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1801,
+        "priority": "P0",
+        "projectDomain": "Territory/Economy",
+        "state": "",
+        "status": "Done",
+        "title": "Recover construction site seeding after deploy",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1801"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Combat",
+        "domainSource": "project",
+        "evidence": "2026-06-11T19:47:22Z: Done. PR #1803 merged as aab5a045 and official deploy run 27371505992 succeeded; postdeploy health ok, alert=false, runtime-alert 2026-06-12_01-49-09 exact SILENT.",
+        "kind": "bug",
+        "labels": [
+          "kind:incident",
+          "priority:p0",
+          "roadmap",
+          "roadmap:combat",
+          "runtime-alert"
+        ],
+        "milestone": "Phase E: Official MMO deployment gate",
+        "nextAction": "",
+        "number": 1802,
+        "priority": "P0",
+        "projectDomain": "Combat",
+        "state": "",
+        "status": "Done",
+        "title": "P0: Combat: E29N55 multi-rampart damage recurrence after #1801 deploy",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/1802"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Combat",
+        "domainSource": "project",
+        "evidence": "2026-06-11T19:47:22Z: Merged/deployed. Merge aab5a045; deploy 27371505992 activeWorld matched; postdeploy health ok and alert=false.",
+        "kind": "bug",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1803,
+        "priority": "P0",
+        "projectDomain": "Combat",
+        "state": "",
+        "status": "Done",
+        "title": "combat: spread emergency rampart repairs",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1803"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "project",
+        "evidence": "2026-06-11T20:24Z MERGED as 3375e9da. Gate: elapsed 1201s/900s, checks all pass, CodeRabbit exact-head approved/no actionable, Gemini no feedback, threads=0, mergeState=CLEAN, controller verification PASS.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1804,
+        "priority": "P0",
+        "projectDomain": "Territory/Economy",
+        "state": "",
+        "status": "Done",
+        "title": "fix: recover construction site seeding after rampart acceptance",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1804"
       }
     ],
     "projectItemsCompleteness": {
       "complete": true,
       "limit": 2000,
-      "returnedCount": 1740,
-      "totalCount": 1740
+      "returnedCount": 1762,
+      "totalCount": 1762
     },
     "projectItemsSource": "live",
     "projectTextFieldHydration": {
@@ -94203,7 +95440,7 @@
           "observedKeys": []
         }
       },
-      "itemsInspected": 1740,
+      "itemsInspected": 1762,
       "source": "gh project item-list"
     },
     "pullRequests": [
@@ -94214,22 +95451,22 @@
           "success": 3,
           "total": 4
         },
-        "createdAt": "2026-06-08T05:02:49Z",
+        "createdAt": "2026-06-11T05:00:13Z",
         "domain": "Bot capability",
         "domainSource": "heuristic",
         "isDraft": false,
         "kind": "code",
         "labels": [],
         "milestone": "",
-        "number": 1779,
+        "number": 1787,
         "priority": "P1",
-        "reviewDecision": "",
+        "reviewDecision": "CHANGES_REQUESTED",
         "state": "OPEN",
         "status": "In review",
         "title": "chore(roadmap): refresh Pages artifacts",
         "type": "PullRequest",
-        "updatedAt": "2026-06-10T16:17:54Z",
-        "url": "https://github.com/lanyusea/screeps/pull/1779"
+        "updatedAt": "2026-06-11T16:38:46Z",
+        "url": "https://github.com/lanyusea/screeps/pull/1787"
       }
     ],
     "roadmapCards": [
@@ -94251,7 +95488,7 @@
       {
         "domain": "Territory/Economy",
         "domainSource": "project",
-        "evidence": "2026-06-07T07:34Z console runtime-summary-console-20260607T071023Z tick 1890989: all rooms alive/productive; CPU bucket 1805 degraded/lowBucketRecovery; no hostiles.",
+        "evidence": "2026-06-11T04:40Z CPU-bearing console fresh: bucket 1841/1779/1844/1745, pressure degraded with usedOverLimit/lowBucketRecovery; rooms alive/alert=false; construction still suppressed so #1781 follow-up active.",
         "milestone": "P1: Territory/Economy gameplay gate",
         "nextAction": "",
         "number": 1490,
@@ -94266,7 +95503,7 @@
       {
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-06-07T09:02Z this scheduler attempted bundled summary->alert->health capture and hit 120s timeout; ps recheck found no screeps-runtime-monitor leftovers. Fresh cached console artifact was used instead.",
+        "evidence": "2026-06-11T19:36Z controller split monitor summary succeeded but direct alert command timed out at 60s, left empty alert.json, and orphan renderer/alert pids were killed. Empty alert was not treated as healthy.",
         "milestone": "P0: Agent OS / Discord visibility gate",
         "nextAction": "",
         "number": 1135,
@@ -94296,7 +95533,7 @@
       {
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-06-09: RL steward/continuation worker/runtime alert all failing with HTTP 429 since ~08:00Z. AI provider quota exhausted (both openai-codex and deepseek providers). Source: cron outputs aed8362e4501/f66ed36d7be0/1df5ef0c3835 all show 'RuntimeError: HTTP 429: The usage limit has been reached'. Created #1780.",
+        "evidence": "2026-06-11T19:31Z audit: cron registry PASS; latest runtime-alert cron output 2026-06-12_01-49-09 was exact [SILENT], and no live HTTP 429 was seen. PR #1785 is merged; keep validation for recurrence.",
         "milestone": "P0: Agent OS / Discord visibility gate",
         "nextAction": "",
         "number": 1780,
@@ -94311,7 +95548,7 @@
       {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-06-08T00:28Z live canary remains blocked: RL candidate online utility still UNPROVEN, fresh gameplay data shows secondary-room standby issue #1776, and Tencent paid validation requires #1777 plan.",
+        "evidence": "2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after #1802 closed; no paid compute dispatched. Latest E1-lite PASS e1-lite-gate-20260611T190525Z; Loop A RUN_VALIDATED 20260611T190241Z; Loop B UNPROVEN 20260611T190216Z.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1583,
@@ -94339,9 +95576,24 @@
         "visionLayer": "foundation blocker"
       },
       {
+        "domain": "Territory/Economy",
+        "domainSource": "project",
+        "evidence": "",
+        "milestone": "P1: Territory/Economy gameplay gate",
+        "nextAction": "",
+        "number": 1781,
+        "priority": "P0",
+        "projectDomain": "Territory/Economy",
+        "status": "In progress",
+        "title": "P0: Recover construction-site seeding and build execution after deploy",
+        "type": "Issue",
+        "url": "https://github.com/lanyusea/screeps/issues/1781",
+        "visionLayer": "territory"
+      },
+      {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-06-08T00:28Z autonomous compute cadence no longer disk-blocked; preflight artifacts show computeAttempted=false/scaleOutAttempted=false and paid guard still active; #1776 Codex lane active for gameplay-data quality.",
+        "evidence": "2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after #1802 closed; no paid compute dispatched. Latest E1-lite PASS e1-lite-gate-20260611T190525Z; Loop A RUN_VALIDATED 20260611T190241Z; Loop B UNPROVEN 20260611T190216Z. ASG remains 0/0/0; billing guard ok.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1233,
@@ -94356,7 +95608,7 @@
       {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-06-08T00:28Z host disk recovered to 52%/83GiB free; no-compute Tencent preflights still blocked by paid_failure_recurrence_guard artifacts steward-postcleanup-preflight-20260608t0028z and allow-preflight-20260608t0030z.",
+        "evidence": "2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after #1802 closed; no paid compute dispatched. Latest E1-lite PASS e1-lite-gate-20260611T190525Z; Loop A RUN_VALIDATED 20260611T190241Z; Loop B UNPROVEN 20260611T190216Z. Training evidence remains foundation/intermediate; no new online KPI landing path until construction acceptance.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1032,
@@ -94371,7 +95623,7 @@
       {
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-06-08: Prior two steward outputs after timeout had normal responses; current steward slice recovered #1749 PR and is producing a checkpoint. Final closure requires this cron output to finalize without TimeoutError.",
+        "evidence": "",
         "milestone": "P0: Agent OS / Discord visibility gate",
         "nextAction": "",
         "number": 1773,
@@ -94397,21 +95649,6 @@
         "type": "Issue",
         "url": "https://github.com/lanyusea/screeps/issues/1731",
         "visionLayer": "resources"
-      },
-      {
-        "domain": "RL flywheel",
-        "domainSource": "heuristic",
-        "evidence": "PR #1718 merged efd1ced9 and deployed to Seasonal activeWorld; deploy artifact e9s28-dropped-energy-deploy/20260606T071718Z shows ok=true, artifact hash 39684877, activeWorld match, persistentNoImpact=true. Live proof artifact e9s28-dropped-energy-proof/20260606T071859Z sampled to tick 92210: E9S28 has invader, no friendly creeps, no dropped resources, no containers, source container sites still 0 progress.",
-        "milestone": "Seasonal World: smoke readiness gate",
-        "nextAction": "",
-        "number": 1700,
-        "priority": "P0",
-        "projectDomain": "",
-        "status": "In review",
-        "title": "P1: Seasonal E9S28 reserve-first remote mining and road bootstrap",
-        "type": "Issue",
-        "url": "https://github.com/lanyusea/screeps/issues/1700",
-        "visionLayer": "territory"
       }
     ],
     "seededFallbackIssueCount": 0,
@@ -94543,7 +95780,7 @@
             "categoryLabel": "Resources / Economy",
             "description": "Energy held in room stores in the latest runtime KPI window.",
             "details": {},
-            "formattedValue": "735983",
+            "formattedValue": "978588",
             "instrumented": true,
             "key": "stored_energy",
             "label": "Stored energy",
@@ -94554,7 +95791,7 @@
             "source": "runtime-summary resource fields",
             "status": "observed",
             "unit": "energy",
-            "value": 735983
+            "value": 978588
           },
           {
             "category": "resources",
@@ -94579,7 +95816,7 @@
             "categoryLabel": "Resources / Economy",
             "description": "Energy currently carried by workers.",
             "details": {},
-            "formattedValue": "1814",
+            "formattedValue": "1698",
             "instrumented": true,
             "key": "worker_carried_energy",
             "label": "Worker carried energy",
@@ -94590,7 +95827,7 @@
             "source": "runtime-summary resource fields",
             "status": "observed",
             "unit": "energy",
-            "value": 1814
+            "value": 1698
           },
           {
             "category": "resources",
@@ -95066,13 +96303,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-06-05T20:13:41Z",
           "status": "not instrumented",
           "value": null
@@ -95123,7 +96353,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -95137,6 +96367,13 @@
             "worldId": "persistent"
           },
           "sourceKind": "runtime-summary-artifact",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-06-11T20:35:39Z",
           "status": "not instrumented",
           "value": null
         }
@@ -95145,13 +96382,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-06-05T20:13:41Z",
           "status": "not instrumented",
           "value": null
@@ -95202,7 +96432,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -95216,6 +96446,13 @@
             "worldId": "persistent"
           },
           "sourceKind": "runtime-summary-artifact",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-06-11T20:35:39Z",
           "status": "not instrumented",
           "value": null
         }
@@ -95224,13 +96461,6 @@
         {
           "instrumented": true,
           "observed": false,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
           "sampledAt": "2026-06-05T20:13:41Z",
           "status": "not observed",
           "value": null
@@ -95281,7 +96511,7 @@
           "instrumented": true,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -95295,6 +96525,13 @@
             "worldId": "persistent"
           },
           "sourceKind": "runtime-summary-artifact",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-06-11T20:35:39Z",
           "status": "not observed",
           "value": null
         }
@@ -95303,13 +96540,6 @@
         {
           "instrumented": true,
           "observed": false,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
           "sampledAt": "2026-06-05T20:13:41Z",
           "status": "not observed",
           "value": null
@@ -95360,7 +96590,7 @@
           "instrumented": true,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -95374,6 +96604,13 @@
             "worldId": "persistent"
           },
           "sourceKind": "runtime-summary-artifact",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-06-11T20:35:39Z",
           "status": "not observed",
           "value": null
         }
@@ -95382,13 +96619,6 @@
         {
           "instrumented": true,
           "observed": false,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
           "sampledAt": "2026-06-05T20:13:41Z",
           "status": "not observed",
           "value": null
@@ -95439,7 +96669,7 @@
           "instrumented": true,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -95455,16 +96685,16 @@
           "sourceKind": "runtime-summary-artifact",
           "status": "not observed",
           "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-06-11T20:35:39Z",
+          "status": "not observed",
+          "value": null
         }
       ],
       "controller_level_sum": [
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "observed",
-          "value": 15.0
-        },
         {
           "instrumented": true,
           "observed": true,
@@ -95518,7 +96748,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -95534,16 +96764,16 @@
           "sourceKind": "runtime-summary-artifact",
           "status": "observed",
           "value": 15
-        }
-      ],
-      "controller_progress_delta": [
+        },
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-05T15:28:44Z",
+          "sampledAt": "2026-06-11T20:35:39Z",
           "status": "observed",
-          "value": 0.0
-        },
+          "value": 15.0
+        }
+      ],
+      "controller_progress_delta": [
         {
           "instrumented": true,
           "observed": true,
@@ -95597,7 +96827,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -95613,16 +96843,16 @@
           "sourceKind": "runtime-summary-artifact",
           "status": "observed",
           "value": 0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-06-11T20:35:39Z",
+          "status": "observed",
+          "value": 0.0
         }
       ],
       "cpu_bucket": [
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "not instrumented",
-          "value": null
-        },
         {
           "instrumented": false,
           "observed": false,
@@ -95676,7 +96906,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -95690,6 +96920,13 @@
             "worldId": "persistent"
           },
           "sourceKind": "runtime-summary-artifact",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-06-11T20:35:39Z",
           "status": "not instrumented",
           "value": null
         }
@@ -95698,13 +96935,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-06-05T20:13:41Z",
           "status": "not instrumented",
           "value": null
@@ -95755,7 +96985,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -95769,6 +96999,13 @@
             "worldId": "persistent"
           },
           "sourceKind": "runtime-summary-artifact",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-06-11T20:35:39Z",
           "status": "not instrumented",
           "value": null
         }
@@ -95777,13 +97014,6 @@
         {
           "instrumented": true,
           "observed": false,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
           "sampledAt": "2026-06-05T20:13:41Z",
           "status": "not observed",
           "value": null
@@ -95834,7 +97064,7 @@
           "instrumented": true,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -95848,6 +97078,13 @@
             "worldId": "persistent"
           },
           "sourceKind": "runtime-summary-artifact",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-06-11T20:35:39Z",
           "status": "not observed",
           "value": null
         }
@@ -95856,13 +97093,6 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
           "sampledAt": "2026-06-05T20:13:41Z",
           "status": "observed",
           "value": 0.0
@@ -95913,7 +97143,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -95929,16 +97159,16 @@
           "sourceKind": "runtime-summary-artifact",
           "status": "observed",
           "value": 0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-06-11T20:35:39Z",
+          "status": "observed",
+          "value": 0.0
         }
       ],
       "enemy_kills": [
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "not instrumented",
-          "value": null
-        },
         {
           "instrumented": false,
           "observed": false,
@@ -95992,7 +97222,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -96006,6 +97236,13 @@
             "worldId": "persistent"
           },
           "sourceKind": "runtime-summary-artifact",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-06-11T20:35:39Z",
           "status": "not instrumented",
           "value": null
         }
@@ -96014,13 +97251,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-06-05T20:13:41Z",
           "status": "not instrumented",
           "value": null
@@ -96071,7 +97301,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -96085,6 +97315,13 @@
             "worldId": "persistent"
           },
           "sourceKind": "runtime-summary-artifact",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-06-11T20:35:39Z",
           "status": "not instrumented",
           "value": null
         }
@@ -96093,13 +97330,6 @@
         {
           "instrumented": true,
           "observed": false,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
           "sampledAt": "2026-06-05T20:13:41Z",
           "status": "not observed",
           "value": null
@@ -96150,7 +97380,7 @@
           "instrumented": true,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -96164,6 +97394,13 @@
             "worldId": "persistent"
           },
           "sourceKind": "runtime-summary-artifact",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-06-11T20:35:39Z",
           "status": "not observed",
           "value": null
         }
@@ -96172,13 +97409,6 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
           "sampledAt": "2026-06-05T20:13:41Z",
           "status": "observed",
           "value": 0.0
@@ -96229,7 +97459,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -96245,19 +97475,19 @@
           "sourceKind": "runtime-summary-artifact",
           "status": "observed",
           "value": 0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-06-11T20:35:39Z",
+          "status": "observed",
+          "value": 0.0
         }
       ],
       "hostile_structures": [
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
           "sampledAt": "2026-06-05T20:13:41Z",
           "status": "observed",
           "value": 0.0
@@ -96308,7 +97538,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -96324,16 +97554,16 @@
           "sourceKind": "runtime-summary-artifact",
           "status": "observed",
           "value": 0
-        }
-      ],
-      "kpi_artifact_files": [
+        },
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-05T15:28:44Z",
+          "sampledAt": "2026-06-11T20:35:39Z",
           "status": "observed",
-          "value": 1.0
-        },
+          "value": 0.0
+        }
+      ],
+      "kpi_artifact_files": [
         {
           "instrumented": true,
           "observed": true,
@@ -96387,7 +97617,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -96403,16 +97633,16 @@
           "sourceKind": "runtime-summary-artifact",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-06-11T20:35:39Z",
+          "status": "observed",
+          "value": 1.0
         }
       ],
       "objects_destroyed": [
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "not observed",
-          "value": null
-        },
         {
           "instrumented": true,
           "observed": false,
@@ -96466,7 +97696,7 @@
           "instrumented": true,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -96480,6 +97710,13 @@
             "worldId": "persistent"
           },
           "sourceKind": "runtime-summary-artifact",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-06-11T20:35:39Z",
           "status": "not observed",
           "value": null
         }
@@ -96488,13 +97725,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-06-05T20:13:41Z",
           "status": "not instrumented",
           "value": null
@@ -96545,7 +97775,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -96561,16 +97791,16 @@
           "sourceKind": "runtime-summary-artifact",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-06-11T20:35:39Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "owned_room_delta": [
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "observed",
-          "value": 0.0
-        },
         {
           "instrumented": true,
           "observed": true,
@@ -96624,7 +97854,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -96640,16 +97870,16 @@
           "sourceKind": "runtime-summary-artifact",
           "status": "observed",
           "value": 0
-        }
-      ],
-      "owned_rooms": [
+        },
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-05T15:28:44Z",
+          "sampledAt": "2026-06-11T20:35:39Z",
           "status": "observed",
-          "value": 3.0
-        },
+          "value": 0.0
+        }
+      ],
+      "owned_rooms": [
         {
           "instrumented": true,
           "observed": true,
@@ -96703,7 +97933,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -96719,16 +97949,16 @@
           "sourceKind": "runtime-summary-artifact",
           "status": "observed",
           "value": 3
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-06-11T20:35:39Z",
+          "status": "observed",
+          "value": 3.0
         }
       ],
       "reserved_remote_rooms": [
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "not instrumented",
-          "value": null
-        },
         {
           "instrumented": false,
           "observed": false,
@@ -96782,7 +98012,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -96796,6 +98026,13 @@
             "worldId": "persistent"
           },
           "sourceKind": "runtime-summary-artifact",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-06-11T20:35:39Z",
           "status": "not instrumented",
           "value": null
         }
@@ -96804,13 +98041,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-06-05T20:13:41Z",
           "status": "not instrumented",
           "value": null
@@ -96861,7 +98091,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -96877,16 +98107,16 @@
           "sourceKind": "runtime-summary-artifact",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-06-11T20:35:39Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "runtime_summary_samples": [
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "observed",
-          "value": 1.0
-        },
         {
           "instrumented": true,
           "observed": true,
@@ -96940,7 +98170,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -96956,16 +98186,16 @@
           "sourceKind": "runtime-summary-artifact",
           "status": "observed",
           "value": 1
-        }
-      ],
-      "source_count": [
+        },
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-05T15:28:44Z",
+          "sampledAt": "2026-06-11T20:35:39Z",
           "status": "observed",
-          "value": 4.0
-        },
+          "value": 1.0
+        }
+      ],
+      "source_count": [
         {
           "instrumented": true,
           "observed": true,
@@ -97019,7 +98249,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -97035,16 +98265,16 @@
           "sourceKind": "runtime-summary-artifact",
           "status": "observed",
           "value": 4
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-06-11T20:35:39Z",
+          "status": "observed",
+          "value": 4.0
         }
       ],
       "spawn_queue_pressure": [
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "not instrumented",
-          "value": null
-        },
         {
           "instrumented": false,
           "observed": false,
@@ -97098,7 +98328,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -97112,6 +98342,13 @@
             "worldId": "persistent"
           },
           "sourceKind": "runtime-summary-artifact",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-06-11T20:35:39Z",
           "status": "not instrumented",
           "value": null
         }
@@ -97120,13 +98357,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-06-05T20:13:41Z",
           "status": "not instrumented",
           "value": null
@@ -97177,7 +98407,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -97193,16 +98423,16 @@
           "sourceKind": "runtime-summary-artifact",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-06-11T20:35:39Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "stored_energy": [
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "observed",
-          "value": 6834.0
-        },
         {
           "instrumented": true,
           "observed": true,
@@ -97256,7 +98486,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -97271,17 +98501,17 @@
           },
           "sourceKind": "runtime-summary-artifact",
           "status": "observed",
-          "value": 735983
-        }
-      ],
-      "stored_energy_delta": [
+          "value": 978588
+        },
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-05T15:28:44Z",
+          "sampledAt": "2026-06-11T20:35:39Z",
           "status": "observed",
-          "value": 0.0
-        },
+          "value": 978588.0
+        }
+      ],
+      "stored_energy_delta": [
         {
           "instrumented": true,
           "observed": true,
@@ -97335,7 +98565,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -97351,16 +98581,16 @@
           "sourceKind": "runtime-summary-artifact",
           "status": "observed",
           "value": 0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-06-11T20:35:39Z",
+          "status": "observed",
+          "value": 0.0
         }
       ],
       "telemetry_silence_minutes": [
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "not instrumented",
-          "value": null
-        },
         {
           "instrumented": false,
           "observed": false,
@@ -97414,7 +98644,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -97428,6 +98658,13 @@
             "worldId": "persistent"
           },
           "sourceKind": "runtime-summary-artifact",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-06-11T20:35:39Z",
           "status": "not instrumented",
           "value": null
         }
@@ -97436,13 +98673,6 @@
         {
           "instrumented": true,
           "observed": false,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
           "sampledAt": "2026-06-05T20:13:41Z",
           "status": "not observed",
           "value": null
@@ -97493,7 +98723,7 @@
           "instrumented": true,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -97509,16 +98739,16 @@
           "sourceKind": "runtime-summary-artifact",
           "status": "not observed",
           "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-06-11T20:35:39Z",
+          "status": "not observed",
+          "value": null
         }
       ],
       "worker_carried_energy": [
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "observed",
-          "value": 1404.0
-        },
         {
           "instrumented": true,
           "observed": true,
@@ -97572,7 +98802,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -97587,17 +98817,17 @@
           },
           "sourceKind": "runtime-summary-artifact",
           "status": "observed",
-          "value": 1814
+          "value": 1698
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-06-11T20:35:39Z",
+          "status": "observed",
+          "value": 1698.0
         }
       ],
       "worker_recovery_state": [
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-05T15:28:44Z",
-          "status": "not instrumented",
-          "value": null
-        },
         {
           "instrumented": false,
           "observed": false,
@@ -97651,7 +98881,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-10T20:45:49Z",
+          "sampledAt": "2026-06-11T20:35:38Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -97665,6 +98895,13 @@
             "worldId": "persistent"
           },
           "sourceKind": "runtime-summary-artifact",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-06-11T20:35:39Z",
           "status": "not instrumented",
           "value": null
         }
@@ -97723,7 +98960,7 @@
     "contract": "Owner-approved roadmap-portrait-kpi-kanban-v5 presentation contract from Discord message/image 1498175235797811291.",
     "domainKanban": [
       {
-        "activeItems": 6,
+        "activeItems": 5,
         "itemLimit": 4,
         "items": [
           {
@@ -97736,7 +98973,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/1028"
           },
           {
-            "description": "In progress \u00b7 Agent OS \u00b7 2026-06-07T09:02Z this scheduler attempted bundled summary->alert->health capture an...",
+            "description": "In progress \u00b7 Agent OS \u00b7 2026-06-11T19:36Z controller split monitor summary succeeded but direct alert comman...",
             "domain": "Agent OS",
             "number": 1135,
             "priority": "P0",
@@ -97754,7 +98991,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/1191"
           },
           {
-            "description": "In progress \u00b7 Agent OS \u00b7 2026-06-08: Prior two steward outputs after timeout had normal responses; current st...",
+            "description": "In progress \u00b7 Agent OS \u00b7 2026-06-11T02:05:27Z P0: Stop RL flywheel steward timeout recurrence",
             "domain": "Agent OS",
             "number": 1773,
             "priority": "P0",
@@ -97778,12 +99015,12 @@
         "itemLimit": 4,
         "items": [
           {
-            "description": "Ready \u00b7 Runtime monitor \u00b7 2026-06-07T09:12Z no-prose gate refresh: latest Gameplay Review lines 434-436 says...",
+            "description": "Ready \u00b7 Runtime monitor \u00b7 2026-06-11T19:36Z audit: #1799/#1801/#1803 are merged/deployed; fresh summary still...",
             "domain": "Runtime monitor",
             "number": 1752,
-            "priority": "P1",
+            "priority": "P0",
             "status": "Ready",
-            "title": "#1752 P1: Add build action result telemetry for construction stalls",
+            "title": "#1752 P0: Add build action result telemetry for construction stalls",
             "url": "https://github.com/lanyusea/screeps/issues/1752"
           },
           {
@@ -97807,21 +99044,11 @@
         "visibleItems": 0
       },
       {
-        "activeItems": 1,
+        "activeItems": 0,
         "itemLimit": 4,
-        "items": [
-          {
-            "description": "Ready \u00b7 Bot capability \u00b7 2026-06-09: All 3 owned rooms (E29N55 RCL6, E29N56 RCL4, E29N57 RCL5) show construct...",
-            "domain": "Bot capability",
-            "number": 1781,
-            "priority": "P1",
-            "status": "Ready",
-            "title": "#1781 P1: Investigate construction-site placement root cause (no_viab...",
-            "url": "https://github.com/lanyusea/screeps/issues/1781"
-          }
-        ],
+        "items": [],
         "title": "Bot capability",
-        "visibleItems": 1
+        "visibleItems": 0
       },
       {
         "activeItems": 0,
@@ -97831,17 +99058,26 @@
         "visibleItems": 0
       },
       {
-        "activeItems": 3,
+        "activeItems": 4,
         "itemLimit": 4,
         "items": [
           {
-            "description": "In progress \u00b7 Territory/Economy \u00b7 2026-06-07T07:34Z console runtime-summary-console-20260607T071023Z tick 189...",
+            "description": "In progress \u00b7 Territory/Economy \u00b7 2026-06-11T04:40Z CPU-bearing console fresh: bucket 1841/1779/1844/1745, pr...",
             "domain": "Territory/Economy",
             "number": 1490,
             "priority": "P0",
             "status": "In progress",
             "title": "#1490 P0: CPU bucket critical recurrence after #1433 in official MMO...",
             "url": "https://github.com/lanyusea/screeps/issues/1490"
+          },
+          {
+            "description": "In progress \u00b7 Territory/Economy \u00b7 2026-06-11T20:31:17Z P0: Recover construction-site seeding and build execut...",
+            "domain": "Territory/Economy",
+            "number": 1781,
+            "priority": "P0",
+            "status": "In progress",
+            "title": "#1781 P0: Recover construction-site seeding and build execution after...",
+            "url": "https://github.com/lanyusea/screeps/issues/1781"
           },
           {
             "description": "In progress \u00b7 Territory/Economy \u00b7 2026-06-07T07:34Z E29N56 tick 1890989: spawns=1, workers=3 assigned/product...",
@@ -97853,7 +99089,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/1664"
           },
           {
-            "description": "In progress \u00b7 Territory/Economy \u00b7 2026-06-08T00:44Z: PR #1778 open at head 9903e39; prod-ci green, issue-comp...",
+            "description": "In progress \u00b7 Territory/Economy \u00b7 2026-06-11T19:36Z fresh summary: E29N56 none=4, E29N57 none=2, no construct...",
             "domain": "Territory/Economy",
             "number": 1776,
             "priority": "P1",
@@ -97863,7 +99099,7 @@
           }
         ],
         "title": "Territory/Economy",
-        "visibleItems": 3
+        "visibleItems": 4
       },
       {
         "activeItems": 0,
@@ -97877,7 +99113,7 @@
         "itemLimit": 4,
         "items": [
           {
-            "description": "In progress \u00b7 RL flywheel \u00b7 2026-06-08T00:28Z host disk recovered to 52%/83GiB free; no-compute Tencent prefl...",
+            "description": "In progress \u00b7 RL flywheel \u00b7 2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after...",
             "domain": "RL flywheel",
             "number": 1032,
             "priority": "P0",
@@ -97886,7 +99122,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/1032"
           },
           {
-            "description": "In progress \u00b7 RL flywheel \u00b7 2026-06-08T00:28Z autonomous compute cadence no longer disk-blocked; preflight ar...",
+            "description": "In progress \u00b7 RL flywheel \u00b7 2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after...",
             "domain": "RL flywheel",
             "number": 1233,
             "priority": "P0",
@@ -97895,7 +99131,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/1233"
           },
           {
-            "description": "In progress \u00b7 RL flywheel \u00b7 2026-06-08T00:28Z live canary remains blocked: RL candidate online utility still...",
+            "description": "In progress \u00b7 RL flywheel \u00b7 2026-06-11T19:51:07Z: RL held by active #1781 construction acceptance lane after...",
             "domain": "RL flywheel",
             "number": 1583,
             "priority": "P0",
@@ -97917,24 +99153,34 @@
         "visibleItems": 4
       },
       {
-        "activeItems": 0,
+        "activeItems": 1,
         "itemLimit": 4,
-        "items": [],
+        "items": [
+          {
+            "description": "In review \u00b7 Docs/process \u00b7 2026-06-11T20:08Z: PR #1787 head 9a588252 still open P2; mergeState=BEHIND, review...",
+            "domain": "Docs/process",
+            "number": 1787,
+            "priority": "P2",
+            "status": "In review",
+            "title": "#1787 chore(roadmap): refresh Pages artifacts",
+            "url": "https://github.com/lanyusea/screeps/pull/1787"
+          }
+        ],
         "title": "Docs/process",
-        "visibleItems": 0
+        "visibleItems": 1
       }
     ],
     "id": "roadmap-portrait-kpi-kanban-v5",
     "kpiCards": [
       {
         "dates": [
-          "6/5",
           "6/6",
           "6/7",
           "6/8",
           "6/9",
           "6/10",
-          "6/11"
+          "6/11",
+          "6/12"
         ],
         "footer": "History collecting (5/7 days observed; insufficient for a complete 7d trend); missing buckets stay blank.",
         "history": {
@@ -97944,11 +99190,11 @@
             "6/10"
           ],
           "observedDateLabels": [
-            "6/5",
             "6/6",
             "6/7",
             "6/8",
-            "6/11"
+            "6/11",
+            "6/12"
           ],
           "observedDays": 5,
           "source": {
@@ -97995,18 +99241,18 @@
               "observed",
               "observed",
               "observed",
+              "missing",
+              "missing",
               "observed",
-              "missing",
-              "missing",
               "observed"
             ],
             "values": [
               3,
               3,
               3,
+              null,
+              null,
               3,
-              null,
-              null,
               3
             ],
             "width": 4
@@ -98019,18 +99265,18 @@
               "observed",
               "observed",
               "observed",
+              "missing",
+              "missing",
               "observed",
-              "missing",
-              "missing",
               "observed"
             ],
             "values": [
               15,
               15,
               15,
+              null,
+              null,
               15,
-              null,
-              null,
               15
             ],
             "width": 4
@@ -98044,18 +99290,18 @@
               "observed",
               "observed",
               "observed",
+              "missing",
+              "missing",
               "observed",
-              "missing",
-              "missing",
               "observed"
             ],
             "values": [
               0,
               0,
               0,
+              null,
+              null,
               0,
-              null,
-              null,
               0
             ],
             "width": 3
@@ -98071,13 +99317,13 @@
       },
       {
         "dates": [
-          "6/5",
           "6/6",
           "6/7",
           "6/8",
           "6/9",
           "6/10",
-          "6/11"
+          "6/11",
+          "6/12"
         ],
         "footer": "History collecting (5/7 days observed; insufficient for a complete 7d trend); missing buckets stay blank.",
         "history": {
@@ -98087,11 +99333,11 @@
             "6/10"
           ],
           "observedDateLabels": [
-            "6/5",
             "6/6",
             "6/7",
             "6/8",
-            "6/11"
+            "6/11",
+            "6/12"
           ],
           "observedDays": 5,
           "source": {
@@ -98127,7 +99373,7 @@
           "windowDays": 7
         },
         "key": "resources",
-        "max": 800000,
+        "max": 1000000,
         "pill": "energy",
         "series": [
           {
@@ -98138,19 +99384,19 @@
               "observed",
               "observed",
               "observed",
+              "missing",
+              "missing",
               "observed",
-              "missing",
-              "missing",
               "observed"
             ],
             "values": [
-              6834,
               8307,
               106743,
               125156,
               null,
               null,
-              735983
+              735983,
+              978588
             ],
             "width": 2
           },
@@ -98162,9 +99408,9 @@
               "not observed",
               "not observed",
               "not observed",
+              "missing",
+              "missing",
               "not observed",
-              "missing",
-              "missing",
               "not observed"
             ],
             "values": [
@@ -98187,19 +99433,19 @@
               "observed",
               "observed",
               "observed",
+              "missing",
+              "missing",
               "observed",
-              "missing",
-              "missing",
               "observed"
             ],
             "values": [
-              1404,
               996,
               887,
               1259,
               null,
               null,
-              1814
+              1814,
+              1698
             ],
             "width": 3
           }
@@ -98207,20 +99453,20 @@
         "subtitle": "stored energy \u00b7 harvest delta \u00b7 carried energy",
         "ticks": [
           0,
-          400000.0,
-          800000
+          500000.0,
+          1000000
         ],
         "title": "Resources"
       },
       {
         "dates": [
-          "6/5",
           "6/6",
           "6/7",
           "6/8",
           "6/9",
           "6/10",
-          "6/11"
+          "6/11",
+          "6/12"
         ],
         "footer": "History collecting (5/7 days observed; insufficient for a complete 7d trend); missing buckets stay blank.",
         "history": {
@@ -98230,11 +99476,11 @@
             "6/10"
           ],
           "observedDateLabels": [
-            "6/5",
             "6/6",
             "6/7",
             "6/8",
-            "6/11"
+            "6/11",
+            "6/12"
           ],
           "observedDays": 5,
           "source": {
@@ -98281,9 +99527,9 @@
               "not instrumented",
               "not instrumented",
               "not instrumented",
+              "missing",
+              "missing",
               "not instrumented",
-              "missing",
-              "missing",
               "not instrumented"
             ],
             "values": [
@@ -98305,18 +99551,18 @@
               "observed",
               "observed",
               "observed",
+              "missing",
+              "missing",
               "observed",
-              "missing",
-              "missing",
               "observed"
             ],
             "values": [
               0,
               0,
               0,
+              null,
+              null,
               0,
-              null,
-              null,
               0
             ],
             "width": 4
@@ -98330,9 +99576,9 @@
               "not instrumented",
               "not instrumented",
               "not instrumented",
+              "missing",
+              "missing",
               "not instrumented",
-              "missing",
-              "missing",
               "not instrumented"
             ],
             "values": [
@@ -98358,28 +99604,28 @@
     ],
     "processCards": [
       {
-        "delta": "+6",
+        "delta": "+28",
         "detail": "git rev-list --count HEAD",
         "label": "Commits",
-        "rawValue": 1049,
+        "rawValue": 1077,
         "source": "git rev-list --count HEAD",
-        "value": 1049
-      },
-      {
-        "delta": "+7",
-        "detail": "26 open",
-        "label": "Issues",
-        "rawValue": 855,
-        "source": "github",
-        "value": 855
+        "value": 1077
       },
       {
         "delta": "+5",
-        "detail": "910 merged",
-        "label": "PRs",
-        "rawValue": 928,
+        "detail": "25 open",
+        "label": "Issues",
+        "rawValue": 860,
         "source": "github",
-        "value": 928
+        "value": 860
+      },
+      {
+        "delta": "+16",
+        "detail": "926 merged",
+        "label": "PRs",
+        "rawValue": 944,
+        "source": "github",
+        "value": 944
       },
       {
         "delta": "n/a",
@@ -98407,8 +99653,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-06-10T20:45:49Z",
-            "start": "2026-06-03T20:45:49Z"
+            "end": "2026-06-11T20:35:39Z",
+            "start": "2026-06-04T20:35:39Z"
           }
         },
         "source": "unavailable",
@@ -98440,8 +99686,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-06-10T20:45:49Z",
-            "start": "2026-06-03T20:45:49Z"
+            "end": "2026-06-11T20:35:39Z",
+            "start": "2026-06-04T20:35:39Z"
           }
         },
         "source": "unavailable",
@@ -98473,8 +99719,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-06-10T20:45:49Z",
-            "start": "2026-06-03T20:45:49Z"
+            "end": "2026-06-11T20:35:39Z",
+            "start": "2026-06-04T20:35:39Z"
           }
         },
         "source": "local cache",
@@ -98506,8 +99752,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-06-10T20:45:49Z",
-            "start": "2026-06-03T20:45:49Z"
+            "end": "2026-06-11T20:35:39Z",
+            "start": "2026-06-04T20:35:39Z"
           }
         },
         "source": "local cache",
@@ -98539,8 +99785,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-06-10T20:45:49Z",
-            "start": "2026-06-03T20:45:49Z"
+            "end": "2026-06-11T20:35:39Z",
+            "start": "2026-06-04T20:35:39Z"
           }
         },
         "source": "local cache",
@@ -98575,8 +99821,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-06-10T20:45:49Z",
-            "start": "2026-06-03T20:45:49Z"
+            "end": "2026-06-11T20:35:39Z",
+            "start": "2026-06-04T20:35:39Z"
           }
         },
         "source": "local cache",
@@ -98608,8 +99854,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-06-10T20:45:49Z",
-            "start": "2026-06-03T20:45:49Z"
+            "end": "2026-06-11T20:35:39Z",
+            "start": "2026-06-04T20:35:39Z"
           }
         },
         "source": "local cache",
@@ -98618,16 +99864,16 @@
     ],
     "roadmapCards": [
       {
-        "activeItems": 6,
+        "activeItems": 5,
         "domain": "Agent OS",
-        "doneItems": 94,
+        "doneItems": 96,
         "goal": "Keep autonomous scheduling, routing, review, and handoff operations healthy.",
         "kanbanItemLimit": 4,
         "next": "Current: #1028 In progress - 2026-06-04T05:20Z gate repair: Gameplay Review's prose-only gaps...",
-        "progress": 94,
-        "status": "100 Project items \u00b7 6 non-done \u00b7 4 shown in board \u00b7 94 done",
+        "progress": 95,
+        "status": "101 Project items \u00b7 5 non-done \u00b7 4 shown in board \u00b7 96 done",
         "title": "Agent OS",
-        "totalItems": 100,
+        "totalItems": 101,
         "url": "https://github.com/lanyusea/screeps/issues/1028",
         "visibleActiveItems": 4
       },
@@ -98651,7 +99897,7 @@
         "doneItems": 96,
         "goal": "Turn live Screeps telemetry into reliable KPI, alert, and report evidence.",
         "kanbanItemLimit": 4,
-        "next": "Current: #1752 Ready - 2026-06-07T09:12Z no-prose gate refresh: latest Gameplay Review lines...",
+        "next": "Current: #1752 Ready - 2026-06-11T19:36Z audit: #1799/#1801/#1803 are merged/deployed; fresh...",
         "progress": 98,
         "status": "98 Project items \u00b7 2 non-done \u00b7 96 done",
         "title": "Runtime monitor",
@@ -98674,46 +99920,46 @@
         "visibleActiveItems": 0
       },
       {
-        "activeItems": 1,
+        "activeItems": 0,
         "domain": "Bot capability",
         "doneItems": 305,
         "goal": "Ship general gameplay behavior that advances the bot beyond single-slice fixes.",
         "kanbanItemLimit": 4,
-        "next": "Current: #1781 Ready - 2026-06-09: All 3 owned rooms (E29N55 RCL6, E29N56 RCL4, E29N57 RCL5)...",
+        "next": "No active item; latest tracked: #362 Done - P0: add Overmind-inspired bootstrap mode and expl...",
         "progress": 100,
-        "status": "306 Project items \u00b7 1 non-done \u00b7 305 done",
+        "status": "305 Project items \u00b7 0 non-done \u00b7 305 done",
         "title": "Bot capability",
-        "totalItems": 306,
-        "url": "https://github.com/lanyusea/screeps/issues/1781",
-        "visibleActiveItems": 1
+        "totalItems": 305,
+        "url": "https://github.com/lanyusea/screeps/issues/362",
+        "visibleActiveItems": 0
       },
       {
         "activeItems": 0,
         "domain": "Combat",
-        "doneItems": 47,
+        "doneItems": 52,
         "goal": "Protect survival, hostile response, and defense/combat readiness.",
         "kanbanItemLimit": 4,
         "next": "No active item; latest tracked: #977 Done - Post-closure 2026-05-12T23:25Z: live alert=false,...",
         "progress": 100,
-        "status": "47 Project items \u00b7 0 non-done \u00b7 47 done",
+        "status": "52 Project items \u00b7 0 non-done \u00b7 52 done",
         "title": "Combat",
-        "totalItems": 47,
+        "totalItems": 52,
         "url": "https://github.com/lanyusea/screeps/issues/977",
         "visibleActiveItems": 0
       },
       {
-        "activeItems": 3,
+        "activeItems": 4,
         "domain": "Territory/Economy",
-        "doneItems": 307,
+        "doneItems": 319,
         "goal": "Advance expansion, controller pressure, worker efficiency, and resource throughput.",
         "kanbanItemLimit": 4,
-        "next": "Current: #1490 In progress - 2026-06-07T07:34Z console runtime-summary-console-20260607T07102...",
+        "next": "Current: #1490 In progress - 2026-06-11T04:40Z CPU-bearing console fresh: bucket 1841/1779/18...",
         "progress": 99,
-        "status": "310 Project items \u00b7 3 non-done \u00b7 307 done",
+        "status": "323 Project items \u00b7 4 non-done \u00b7 319 done",
         "title": "Territory/Economy",
-        "totalItems": 310,
+        "totalItems": 323,
         "url": "https://github.com/lanyusea/screeps/issues/1490",
-        "visibleActiveItems": 3
+        "visibleActiveItems": 4
       },
       {
         "activeItems": 0,
@@ -98732,14 +99978,14 @@
       {
         "activeItems": 8,
         "domain": "RL flywheel",
-        "doneItems": 419,
+        "doneItems": 421,
         "goal": "Drive offline/simulator/data/training/validation work for safe strategy self-evolution.",
         "kanbanItemLimit": 4,
-        "next": "Current: #1032 In progress - 2026-06-08T00:28Z host disk recovered to 52%/83GiB free; no-comp...",
+        "next": "Current: #1032 In progress - 2026-06-11T19:51:07Z: RL held by active #1781 construction accep...",
         "progress": 98,
-        "status": "427 Project items \u00b7 8 non-done \u00b7 4 shown in board \u00b7 419 done",
+        "status": "429 Project items \u00b7 8 non-done \u00b7 4 shown in board \u00b7 421 done",
         "title": "RL flywheel",
-        "totalItems": 427,
+        "totalItems": 429,
         "url": "https://github.com/lanyusea/screeps/issues/1032",
         "visibleActiveItems": 4
       }
@@ -98757,8 +100003,8 @@
       "skippedFileCount": 0
     },
     "window": {
-      "firstTick": 2028454,
-      "latestTick": 2028454
+      "firstTick": 2065849,
+      "latestTick": 2065849
     }
   },
   "schemaVersion": 1,

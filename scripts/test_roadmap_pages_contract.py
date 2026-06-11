@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -112,6 +113,24 @@ class RoadmapPagesContractTests(unittest.TestCase):
         self.assertIn('echo "changed=false" >> "$GITHUB_OUTPUT"', text)
         self.assertIn("if: steps.commit.outputs.changed == 'false'", text)
         self.assertIn('gh api -X POST "repos/${GITHUB_REPOSITORY}/pages/builds" --silent', text)
+
+    def test_roadmap_kpi_sqlite_is_not_lfs_tracked(self) -> None:
+        path = Path("docs/roadmap-kpi.sqlite")
+
+        attrs = subprocess.run(
+            ["git", "check-attr", "filter", "diff", "merge", "--", str(path)],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        header = (REPO_ROOT / path).read_bytes()[:64]
+
+        self.assertNotIn("filter: lfs", attrs)
+        self.assertNotIn("diff: lfs", attrs)
+        self.assertNotIn("merge: lfs", attrs)
+        self.assertTrue(header.startswith(b"SQLite format 3\000"))
+        self.assertFalse(header.startswith(b"version https://git-lfs.github.com/spec/v1"))
 
     def test_roadmap_pages_refresh_collects_live_runtime_summary_before_generation(self) -> None:
         text = self.read(Path(".github/workflows/roadmap-pages-refresh.yml"))
