@@ -528,9 +528,15 @@ function isWorkerAssignmentGapRecoverySelection(
   }
 
   const allowUpgradeRecovery = !isControllerDowngradeGuardActive(creep.room);
+  const allowSelectedRepairRecovery = currentTask?.type === 'repair' && selectedTask?.type === 'repair';
   return (
     isWorkerAssignmentGapRecoveryTask(creep, currentTask, allowUpgradeRecovery, { allowRepair: true }) &&
-    isWorkerAssignmentGapRecoveryTask(creep, selectedTask, allowUpgradeRecovery)
+    isWorkerAssignmentGapRecoveryTask(
+      creep,
+      selectedTask,
+      allowUpgradeRecovery,
+      allowSelectedRepairRecovery ? { allowRepair: true } : {}
+    )
   );
 }
 
