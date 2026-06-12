@@ -8631,6 +8631,89 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(payload["status"], runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS)
         self.assertEqual(payload["launchGuard"]["activeGuard"], "paid_failure_recurrence_guard")
 
+    def test_main_exits_nonzero_when_consumed_validation_plan_required(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD):
+                write_tencent_failure_summary(artifact_root, f"tencent-pg-room-busy-{index}")
+            write_post_fix_validation_readiness_timeout_summary(
+                artifact_root,
+                "postfix-validation-run-20260601t231342z",
+            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            blocked_after_guard = AssertionError("main reached paid-compute path")
+            with (
+                mock.patch.object(runner, "validate_static_inputs", return_value=None),
+                mock.patch.object(
+                    runner,
+                    "paid_failure_recurrence_known_fix_status",
+                    return_value={
+                        "signature": runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+                        "issue": "#1501",
+                        "pullRequest": "#1504",
+                        "mergeCommit": "95f960b2",
+                        "present": True,
+                        "evidence": "merge commit 95f960b2 is reachable from HEAD",
+                    },
+                ),
+                mock.patch.object(runner.Controller, "run_billing_guard", side_effect=blocked_after_guard),
+                mock.patch.object(runner.Controller, "scale_up_and_wait", side_effect=blocked_after_guard),
+                mock.patch.object(runner.Controller, "run_remote_training", side_effect=blocked_after_guard),
+                mock.patch.object(runner.sys, "stdout", stdout),
+                mock.patch.object(runner.sys, "stderr", stderr),
+            ):
+                exit_code = runner.main(
+                    [
+                        "run-single",
+                        "--run-id",
+                        "new-run",
+                        "--artifact-root",
+                        str(artifact_root),
+                        "--training-approach",
+                        "policy_gradient",
+                        "--scenario-id",
+                        runner.MULTI_TIER_SCENARIO_ID,
+                        "--ticks",
+                        str(runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS),
+                        "--workers",
+                        "5",
+                        "--scale-environments",
+                        "5",
+                        "--repetitions",
+                        "20",
+                        "--training-timeout-seconds",
+                        "3600",
+                        "--postfix-validation-signature",
+                        runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+                    ]
+                )
+
+            summary = json.loads((artifact_root / "new-run" / "controller-summary.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 4)
+        self.assertEqual(stdout.getvalue(), "")
+        payload = json.loads(stderr.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertEqual(
+            payload["status"],
+            runner.PAID_FAILURE_RECURRENCE_CONSUMED_FAILURE_PLAN_REQUIRED_FINAL_STATUS,
+        )
+        self.assertEqual(
+            summary["finalStatus"],
+            runner.PAID_FAILURE_RECURRENCE_CONSUMED_FAILURE_PLAN_REQUIRED_FINAL_STATUS,
+        )
+        self.assertFalse(summary["execution"]["computeAttempted"])
+        self.assertFalse(summary["execution"]["scaleOutAttempted"])
+        self.assertFalse(summary["execution"]["remoteTrainingAttempted"])
+        self.assertTrue(summary["execution"]["validationPlanRequired"])
+        self.assertEqual(
+            summary["outputs"]["validationPlanHandoff"]["status"],
+            runner.PAID_FAILURE_RECURRENCE_CONSUMED_FAILURE_PLAN_REQUIRED_FINAL_STATUS,
+        )
+        self.assertTrue(summary["outputs"]["validationPlanHandoff"]["requested"])
+        self.assertEqual(summary["outputs"]["launchGuard"]["activeGuard"], "paid_failure_recurrence_guard")
+
     def test_main_treats_closed_stdout_as_delivery_only_after_completed_summary(self) -> None:
         class FakeController:
             def __init__(self, args: argparse.Namespace, run_id: str, artifact_dir: Path) -> None:

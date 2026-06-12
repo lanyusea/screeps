@@ -6756,6 +6756,7 @@ def main(argv: list[str] | None = None) -> int:
         E1S1_REPEAT_GUARD_FINAL_STATUS,
         PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS,
         PAID_FAILURE_RECURRENCE_VALIDATION_PLAN_REQUIRED_FINAL_STATUS,
+        PAID_FAILURE_RECURRENCE_CONSUMED_FAILURE_PLAN_REQUIRED_FINAL_STATUS,
     }:
         screeps_cli_io.write_json_line(
             sys.stderr,
