@@ -57,6 +57,44 @@ class RlExperimentCardTest(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def e1_lite_gate_payload(
+        self,
+        *,
+        gate_id: str = "e1-lite-gate-20260612T124640Z",
+        run_id: str = "rl-shadow-eval-20260612T124640Z",
+        status: str = "pass",
+        readiness_status: str = "pass",
+        sample_count: int = 100,
+        live_effect: bool = False,
+        official_mmo_writes: bool = False,
+    ) -> dict[str, object]:
+        return {
+            "type": card_helper.SOURCE_GATE_LITE_TYPE,
+            "gateId": gate_id,
+            "runId": run_id,
+            "createdAt": "2026-06-12T12:46:43Z",
+            "status": status,
+            "readiness": {
+                "runId": run_id,
+                "status": readiness_status,
+                "sampleCount": sample_count,
+                "splitCounts": {"train": 37, "eval": 63},
+                "checks": [
+                    {
+                        "name": "minimum_samples",
+                        "status": readiness_status,
+                        "actual": sample_count,
+                        "required": 20,
+                    }
+                ],
+            },
+            "safety": {
+                "liveEffect": live_effect,
+                "officialMmoWrites": official_mmo_writes,
+                "officialMmoWritesAllowed": False,
+            },
+        }
+
     def test_generated_card_is_training_runner_valid(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-3d29e8b9397d",
@@ -1802,6 +1840,139 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(summary["source_gate"]["gate_id"], gate_id)
         self.assertEqual(summary["source_gate"]["dataset_run_id"], dataset_run_id)
+
+    def test_dataset_gate_selection_scans_e1_lite_gate_outputs_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_root = root / "runtime-artifacts"
+            gate_id = "e1-lite-gate-20260612T124640Z"
+            run_id = "rl-shadow-eval-20260612T124640Z"
+            gate_path = runtime_root / "rl-control-loop" / "gate-outputs" / gate_id / "gate-report.json"
+            gate_path.parent.mkdir(parents=True)
+            gate_path.write_text(
+                json.dumps(self.e1_lite_gate_payload(gate_id=gate_id, run_id=run_id)),
+                encoding="utf-8",
+            )
+
+            reports = card_helper.scan_dataset_gate_reports([runtime_root], gate_id=gate_id)
+            selected = card_helper.select_accepted_dataset_gate(
+                runtime_root,
+                gate_id,
+                reference_time="2026-06-12T13:00:00Z",
+                max_age_hours=card_helper.E1_GATE_FRESHNESS_HOURS,
+            )
+
+        self.assertEqual(len(reports), 1)
+        self.assertTrue(reports[0]["acceptable"])
+        self.assertEqual(reports[0]["classification"], "accepted")
+        self.assertEqual(reports[0]["dataset_run_id"], run_id)
+        self.assertEqual(reports[0]["sample_count"], 100)
+        self.assertEqual(reports[0]["split_counts"], {"train": 37, "eval": 63})
+        self.assertEqual(selected["gate_id"], gate_id)
+        self.assertEqual(selected["dataset_run_id"], run_id)
+        self.assertTrue(
+            selected["gate_report_path"].endswith(
+                f"rl-control-loop/gate-outputs/{gate_id}/gate-report.json"
+            )
+        )
+        self.assertEqual(selected["sample_count"], 100)
+        self.assertEqual(selected["split_counts"], {"train": 37, "eval": 63})
+        self.assertTrue(selected["gate_report_ok"])
+        self.assertEqual(selected["quality_acceptance_rate"], 1.0)
+
+    def test_loop_a_local_fallback_generates_card_from_e1_lite_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_root = root / "runtime-artifacts"
+            gate_id = "e1-lite-gate-20260612T124640Z"
+            run_id = "rl-shadow-eval-20260612T124640Z"
+            gate_path = runtime_root / "rl-control-loop" / "gate-outputs" / gate_id / "gate-report.json"
+            output_path = runtime_root / "rl-experiment-cards" / "experiment_card.json"
+            gate_path.parent.mkdir(parents=True)
+            gate_path.write_text(
+                json.dumps(self.e1_lite_gate_payload(gate_id=gate_id, run_id=run_id)),
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            with mock.patch.object(card_helper, "utc_now_iso", return_value="2026-06-12T13:00:00Z"):
+                exit_code = card_helper.main(
+                    [
+                        "--loop-a-local-fallback",
+                        "--from-latest-accepted-dataset",
+                        "--source-gate-id",
+                        gate_id,
+                        "--dataset-gate-root",
+                        str(runtime_root),
+                        "--require-multi-tier-scenario",
+                        "--authorize-scalar-weighted-reward",
+                        "--code-commit",
+                        "8" * 40,
+                        "--created-at",
+                        "2026-06-12T13:00:00Z",
+                        "--output",
+                        str(output_path),
+                    ],
+                    stdout=stdout,
+                    stderr=io.StringIO(),
+                    repo_root=REPO_ROOT,
+                )
+            summary = json.loads(stdout.getvalue())
+            generated = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(generated["dataset_run_id"], run_id)
+        self.assertEqual(generated["source_gate"]["gate_id"], gate_id)
+        self.assertEqual(generated["source_gate"]["dataset_run_id"], run_id)
+        self.assertTrue(
+            generated["source_gate"]["gate_report_path"].endswith(
+                f"rl-control-loop/gate-outputs/{gate_id}/gate-report.json"
+            )
+        )
+        self.assertEqual(generated["source_gate"]["sample_count"], 100)
+        self.assertEqual(generated["source_gate"]["split_counts"], {"train": 37, "eval": 63})
+        self.assertTrue(generated["source_gate"]["gate_report_ok"])
+        self.assertEqual(summary["source_gate"], generated["source_gate"])
+        self.assertEqual(generated["training_approach"], "policy_gradient")
+        self.assertEqual(generated["scenario"]["scenario_id"], card_helper.MULTI_TIER_SCENARIO_ID)
+        self.assertTrue(generated["reward_model"]["scalar_weighted_sum_authorized"])
+        card_helper.validate_card(generated)
+        runner.validate_experiment_card(generated)
+        self.assertTrue(card_helper.is_loop_a_card_available_for_training(generated))
+
+    def test_e1_lite_gate_rejects_unsafe_or_non_pass_reports(self) -> None:
+        cases = (
+            ("unsafe-live-effect", {"live_effect": True}, "unsafe_lite_gate"),
+            ("unsafe-official-mmo-writes", {"official_mmo_writes": True}, "unsafe_lite_gate"),
+            ("non-pass-readiness", {"readiness_status": "fail"}, "lite_readiness_not_pass"),
+            ("non-pass-status", {"status": "fail"}, "lite_gate_status_not_pass"),
+        )
+        for suffix, overrides, classification in cases:
+            with self.subTest(suffix=suffix):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    root = Path(temp_dir)
+                    runtime_root = root / "runtime-artifacts"
+                    gate_id = f"e1-lite-gate-20260612T124640Z-{suffix}"
+                    gate_path = (
+                        runtime_root
+                        / "rl-control-loop"
+                        / "gate-outputs"
+                        / gate_id
+                        / "gate-report.json"
+                    )
+                    gate_path.parent.mkdir(parents=True)
+                    gate_path.write_text(
+                        json.dumps(self.e1_lite_gate_payload(gate_id=gate_id, **overrides)),
+                        encoding="utf-8",
+                    )
+
+                    reports = card_helper.scan_dataset_gate_reports([runtime_root], gate_id=gate_id)
+
+                    self.assertEqual(len(reports), 1)
+                    self.assertFalse(reports[0]["acceptable"])
+                    self.assertEqual(reports[0]["classification"], classification)
+                    with self.assertRaisesRegex(card_helper.CardValidationError, "no accepted dataset gate"):
+                        card_helper.select_accepted_dataset_gate(runtime_root, gate_id)
 
     def test_fresh_dataset_gate_selection_requires_reference_time(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

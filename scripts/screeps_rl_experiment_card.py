@@ -60,7 +60,9 @@ LOOP_A_CARD_SUPPLY_STATES = (LOOP_A_CARD_SUPPLY_AVAILABLE, LOOP_A_CARD_SUPPLY_CO
 LOOP_A_CARD_SUFFIX_ENTROPY_BYTES = 3
 LOOP_A_CARD_SUFFIX_ENTROPY_RE = re.compile(r"^[0-9a-f]{6}$")
 SOURCE_GATE_TYPE = "screeps-rl-dataset-evaluation-gate"
+SOURCE_GATE_LITE_TYPE = "screeps-rl-dataset-evaluation-gate-lite"
 DATASET_GATE_REPORT_FILENAME = "gate_report.json"
+DATASET_GATE_REPORT_FILENAMES = (DATASET_GATE_REPORT_FILENAME, "gate-report.json")
 DEFAULT_STRATEGY_VARIANTS = (
     "construction-priority.incumbent.v1",
     "construction-priority.territory-shadow.v1",
@@ -85,6 +87,11 @@ DEFAULT_DATASET_GATE_ROOT = REPO_ROOT / "runtime-artifacts" / "rl-dataset-gates"
 DEFAULT_CONTROL_LOOP_GATE_ROOT = REPO_ROOT / "runtime-artifacts" / "rl-control-loop"
 DEFAULT_GATE_DATA_ROOT = REPO_ROOT / "gate-data"
 DEFAULT_DATASET_GATE_ROOTS = (DEFAULT_DATASET_GATE_ROOT, DEFAULT_CONTROL_LOOP_GATE_ROOT, DEFAULT_GATE_DATA_ROOT)
+DEFAULT_SHARED_DATASET_GATE_ROOTS = (
+    Path("/root/screeps/runtime-artifacts/rl-dataset-gates"),
+    Path("/root/screeps/runtime-artifacts/rl-control-loop"),
+    Path("/root/screeps/gate-data"),
+)
 DEFAULT_TRAINING_REPORT_ROOT = REPO_ROOT / "runtime-artifacts" / "rl-training"
 DEFAULT_LOOP_A_LOCAL_FALLBACK_CARD_PATH = DEFAULT_EXPERIMENT_CARD_DIR / "experiment_card.json"
 DEFAULT_STRATEGY_REGISTRY_PATH = REPO_ROOT / "prod" / "src" / "strategy" / "strategyRegistry.ts"
@@ -1764,7 +1771,7 @@ def select_accepted_dataset_gate(
                     dataset_run_id=run_id,
                     gate_report_path=path,
                     created_at=created_at or None,
-                    gate_report_ok=payload.get("ok") is True,
+                    gate_report_ok=dataset_gate_report_ok(payload, path),
                     acceptance_rate=dataset_gate_acceptance_rate(payload),
                     dataset_gate_status=dataset_gate_status(payload),
                     shadow_evaluation_status=shadow_evaluation_status(payload),
@@ -1847,7 +1854,7 @@ def dataset_gate_report_info(payload: Any, path: Path, *, reference_time: dateti
             acceptable = False
     usable = (
         isinstance(payload, dict)
-        and payload.get("type") == SOURCE_GATE_TYPE
+        and supported_dataset_gate_report_type(payload)
         and run_id is not None
         and isinstance(sample_count, int)
         and sample_count > 0
@@ -1890,7 +1897,7 @@ def dataset_gate_report_is_stale(report: JsonObject, max_age_hours: float) -> bo
 
 
 def dataset_gate_report_classification(payload: JsonObject, path: Path, *, acceptable: bool) -> str:
-    if payload.get("type") != SOURCE_GATE_TYPE:
+    if not supported_dataset_gate_report_type(payload):
         return "not_dataset_gate_report"
     sample_count = dataset_gate_sample_count(payload)
     if sample_count == 0:
@@ -1901,6 +1908,14 @@ def dataset_gate_report_classification(payload: JsonObject, path: Path, *, accep
         return "missing_dataset_run_id"
     if acceptable:
         return "accepted"
+    if payload.get("type") == SOURCE_GATE_LITE_TYPE:
+        if payload.get("status") != "pass":
+            return "lite_gate_status_not_pass"
+        readiness_status = lite_gate_readiness_status(payload)
+        if readiness_status != "pass":
+            return "lite_readiness_not_pass"
+        if not lite_gate_safety_allows_offline_only(payload):
+            return "unsafe_lite_gate"
     acceptance_rate = dataset_gate_acceptance_rate(payload)
     if acceptance_rate is not None and acceptance_rate < DEGRADED_E1_GATE_MIN_ACCEPTANCE_RATE:
         return "acceptance_below_threshold"
@@ -2050,10 +2065,13 @@ def iter_canonical_dataset_gate_report_paths(gate_roots: Sequence[Path]) -> list
         if not root.exists():
             continue
         scan_roots = [root, root / "gate-data"]
+        if root.name == "rl-control-loop":
+            scan_roots.append(root / "gate-outputs")
         if root.name == "runtime-artifacts":
             for child_name in ("rl-dataset-gates", "rl-control-loop"):
                 scan_roots.append(root / child_name)
             scan_roots.append(root / "rl-control-loop" / "gate-data")
+            scan_roots.append(root / "rl-control-loop" / "gate-outputs")
         seen_scan_roots: set[Path] = set()
         for scan_root in scan_roots:
             if scan_root in seen_scan_roots or not scan_root.exists():
@@ -2070,7 +2088,7 @@ def child_gate_report_paths(root: Path) -> list[Path]:
         children = sorted(root.iterdir())
     except OSError:
         return []
-    return [child / DATASET_GATE_REPORT_FILENAME for child in children]
+    return [child / filename for child in children for filename in DATASET_GATE_REPORT_FILENAMES]
 
 
 def is_canonical_dataset_gate_report_path(path: Path, gate_root: Path) -> bool:
@@ -2078,21 +2096,25 @@ def is_canonical_dataset_gate_report_path(path: Path, gate_root: Path) -> bool:
         relative_path = path.relative_to(gate_root)
     except ValueError:
         return False
-    if relative_path.name != DATASET_GATE_REPORT_FILENAME:
+    if relative_path.name not in DATASET_GATE_REPORT_FILENAMES:
         return False
     if len(relative_path.parts) == 2:
         return relative_path.parts[0] != "gate-data"
     if len(relative_path.parts) == 3:
-        return relative_path.parts[0] in {"rl-dataset-gates", "rl-control-loop", "gate-data"}
+        return relative_path.parts[0] in {"rl-dataset-gates", "rl-control-loop", "gate-data", "gate-outputs"}
     return (
         len(relative_path.parts) == 4
         and relative_path.parts[0] == "rl-control-loop"
-        and relative_path.parts[1] == "gate-data"
+        and relative_path.parts[1] in {"gate-data", "gate-outputs"}
     )
 
 
 def is_acceptable_dataset_gate_report(payload: Any, path: Path | None = None) -> bool:
-    if not isinstance(payload, dict) or payload.get("type") != SOURCE_GATE_TYPE:
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("type") == SOURCE_GATE_LITE_TYPE:
+        return is_acceptable_e1_lite_gate_report(payload, path)
+    if payload.get("type") != SOURCE_GATE_TYPE:
         return False
     if is_e1_postmerge_dataset_gate_report(payload, path):
         if payload.get("ok") is True:
@@ -2106,6 +2128,8 @@ def is_acceptable_dataset_gate_report(payload: Any, path: Path | None = None) ->
 
 
 def dataset_gate_quality_rank(payload: JsonObject, path: Path | None = None) -> int:
+    if is_acceptable_e1_lite_gate_report(payload, path):
+        return 2
     if is_fully_accepted_e1_current_gate(payload):
         return 2
     if is_e1_postmerge_dataset_gate_report(payload, path) and payload.get("ok") is True:
@@ -2113,6 +2137,63 @@ def dataset_gate_quality_rank(payload: JsonObject, path: Path | None = None) -> 
     if is_degraded_e1_gate_acceptable(payload, path):
         return 1
     return 0
+
+
+def supported_dataset_gate_report_type(payload: JsonObject) -> bool:
+    return payload.get("type") in {SOURCE_GATE_TYPE, SOURCE_GATE_LITE_TYPE}
+
+
+def dataset_gate_report_ok(payload: JsonObject, path: Path | None = None) -> bool:
+    if payload.get("ok") is True:
+        return True
+    return is_acceptable_e1_lite_gate_report(payload, path)
+
+
+def is_acceptable_e1_lite_gate_report(payload: JsonObject, path: Path | None = None) -> bool:
+    if payload.get("type") != SOURCE_GATE_LITE_TYPE:
+        return False
+    if payload.get("status") != "pass":
+        return False
+    if not gate_report_path_matches_payload(payload, path):
+        return False
+    readiness = payload.get("readiness")
+    if not isinstance(readiness, dict) or readiness.get("status") != "pass":
+        return False
+    run_id = payload.get("runId")
+    if not isinstance(run_id, str) or not run_id:
+        return False
+    try:
+        validate_dataset_run_id(run_id)
+    except CardValidationError:
+        return False
+    readiness_run_id = readiness.get("runId")
+    if isinstance(readiness_run_id, str) and readiness_run_id and readiness_run_id != run_id:
+        return False
+    sample_count = dataset_gate_sample_count(payload)
+    if not isinstance(sample_count, int) or sample_count <= 0:
+        return False
+    return lite_gate_safety_allows_offline_only(payload)
+
+
+def lite_gate_readiness_status(payload: JsonObject) -> str | None:
+    readiness = payload.get("readiness")
+    status = readiness.get("status") if isinstance(readiness, dict) else None
+    return status if isinstance(status, str) else None
+
+
+def lite_gate_safety_allows_offline_only(payload: JsonObject) -> bool:
+    safety = payload.get("safety")
+    if not isinstance(safety, dict):
+        return False
+    for field in ("liveEffect", "officialMmoWrites"):
+        if safety.get(field) is not False:
+            return False
+    if "officialMmoWritesAllowed" in safety and safety.get("officialMmoWritesAllowed") is not False:
+        return False
+    for field in SAFETY_FALSE_FIELDS:
+        if field in payload and payload.get(field) is not False:
+            return False
+    return True
 
 
 def is_fully_accepted_e1_current_gate(payload: JsonObject) -> bool:
@@ -2235,6 +2316,8 @@ def dataset_gate_status(payload: JsonObject) -> str | None:
     status = dataset_gate.get("status") if isinstance(dataset_gate, dict) else None
     if status is None:
         status = payload.get("datasetGateStatus")
+    if status is None and payload.get("type") == SOURCE_GATE_LITE_TYPE:
+        status = payload.get("status")
     return status if isinstance(status, str) else None
 
 
@@ -2263,6 +2346,9 @@ def dataset_gate_sample_count(payload: JsonObject) -> int | None:
     dataset_gate = payload.get("datasetGate")
     if isinstance(dataset_gate, dict) and isinstance(dataset_gate.get("sampleCount"), int):
         return dataset_gate["sampleCount"]
+    readiness = payload.get("readiness")
+    if isinstance(readiness, dict) and isinstance(readiness.get("sampleCount"), int):
+        return readiness["sampleCount"]
     quality = payload.get("quality_checks")
     if not isinstance(quality, dict):
         quality = payload.get("qualityChecks")
@@ -2279,6 +2365,7 @@ def dataset_gate_split_counts(payload: JsonObject) -> JsonObject | None:
         payload.get("splitCounts", payload.get("split_counts")),
         payload.get("dataset"),
         payload.get("datasetGate"),
+        payload.get("readiness"),
     ):
         split_counts = raw
         if isinstance(raw, dict) and not (
@@ -2333,6 +2420,8 @@ def dataset_gate_acceptance_rate(payload: JsonObject) -> float | None:
         return explicit
     if payload.get("ok") is True:
         return 1.0
+    if is_acceptable_e1_lite_gate_report(payload):
+        return 1.0
     return None
 
 
@@ -2355,6 +2444,14 @@ def accepted_dataset_run_id(payload: JsonObject) -> str | None:
         if isinstance(direct, str) and direct:
             validate_dataset_run_id(direct)
             return direct
+    if payload.get("type") == SOURCE_GATE_LITE_TYPE:
+        for raw in (payload, payload.get("readiness")):
+            if not isinstance(raw, dict):
+                continue
+            run_id = raw.get("runId")
+            if isinstance(run_id, str) and run_id:
+                validate_dataset_run_id(run_id)
+                return run_id
     dataset = payload.get("dataset")
     if isinstance(dataset, dict):
         run_id = dataset.get("runId")
@@ -3000,10 +3097,14 @@ def resolve_dataset_gate_roots(gate_root: Path | None, repo: Path) -> list[Path]
     if gate_root is not None:
         expanded = gate_root.expanduser()
         return [expanded if expanded.is_absolute() else (repo / expanded)]
-    return [
+    roots = [
         repo / root.relative_to(REPO_ROOT)
         for root in DEFAULT_DATASET_GATE_ROOTS
     ]
+    for root in DEFAULT_SHARED_DATASET_GATE_ROOTS:
+        if root.exists() and root not in roots:
+            roots.append(root)
+    return roots
 
 
 def build_parser() -> argparse.ArgumentParser:
