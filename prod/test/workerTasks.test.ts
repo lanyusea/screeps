@@ -320,6 +320,29 @@ function setCpuBucket(bucket: number): void {
   };
 }
 
+function setCpuSample({
+  bucket = 10_000,
+  limit = 70,
+  tickLimit = 500,
+  used = 0
+}: {
+  bucket?: number;
+  limit?: number;
+  tickLimit?: number;
+  used?: number;
+} = {}): void {
+  const globalScope = globalThis as unknown as { Game?: Partial<Game> };
+  globalScope.Game = {
+    ...(globalScope.Game ?? {}),
+    cpu: {
+      getUsed: jest.fn().mockReturnValue(used),
+      limit,
+      bucket,
+      tickLimit
+    } as unknown as CPU
+  };
+}
+
 function makePreHarvestSource(
   id: string,
   x: number,
@@ -15673,6 +15696,137 @@ describe('selectWorkerTask', () => {
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
     expect(creep.memory.workerTaskSelectionStandby).toBeUndefined();
+  });
+
+  it('keeps a full-buffer secondary-room loaded worker upgrading during non-critical CPU shedding', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      progress: 530_739,
+      progressTotal: 1_215_000,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 70_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      controller,
+      energyAvailable: 1_800,
+      energyCapacityAvailable: 1_800
+    });
+    const repairWorker = makeLoadedWorker(room, { type: 'repair', targetId: 'road1' as Id<Structure> });
+    const upgradeWorker = makeLoadedWorker(room, {
+      type: 'upgrade',
+      targetId: 'controller1' as Id<StructureController>
+    });
+    const creep = {
+      name: 'worker-E29N57-2090163',
+      memory: { role: 'worker', colony: 'E29N57' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(100),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({
+      RepairWorker: repairWorker,
+      UpgradeWorker: upgradeWorker,
+      'worker-E29N57-2090163': creep
+    });
+    setCpuSample({ used: 95, limit: 70, bucket: 1_841 });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('keeps healthy full-buffer secondary-room loaded workers upgrading after construction clears', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 70_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      controller,
+      energyAvailable: 1_800,
+      energyCapacityAvailable: 1_800
+    });
+    const creep = {
+      name: 'HealthyLoadedWorker',
+      memory: { role: 'worker', colony: 'E29N57' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(100),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({
+      Upgrader: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }),
+      HealthyLoadedWorker: creep
+    });
+    setCpuSample();
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('does not spend full-buffer surplus workers on post-construction upgrades during critical CPU bucket', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 70_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      controller,
+      energyAvailable: 1_800,
+      energyCapacityAvailable: 1_800
+    });
+    const creep = {
+      name: 'CriticalBucketLoadedWorker',
+      memory: { role: 'worker', colony: 'E29N57' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(100),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({
+      Upgrader: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }),
+      CriticalBucketLoadedWorker: creep
+    });
+    setCpuSample({ used: 95, limit: 70, bucket: 50 });
+
+    expect(selectWorkerTask(creep)).toBeNull();
+  });
+
+  it('keeps spawn-floor refill before post-construction upgrades during non-critical CPU shedding', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 70_000
+    } as StructureController;
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 100);
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      controller,
+      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY - 50,
+      energyCapacityAvailable: 1_800,
+      myStructures: [spawn as AnyOwnedStructure]
+    });
+    const creep = {
+      name: 'SpawnFloorWorker',
+      memory: { role: 'worker', colony: 'E29N57' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(100),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ SpawnFloorWorker: creep });
+    setCpuSample({ used: 95, limit: 70, bucket: 1_841 });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
   it('withdraws stored energy for post-construction RCL2 controller progress when one worker is already upgrading', () => {
