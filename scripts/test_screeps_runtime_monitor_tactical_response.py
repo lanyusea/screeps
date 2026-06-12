@@ -942,6 +942,137 @@ class AlertCommandFailurePayloadTest(unittest.TestCase):
         self.assertNotIn("abcdef123456", payload["error"])
 
 
+class PostdeployConstructionAcceptanceTest(unittest.TestCase):
+    def health_gate_for_room(self, room: dict[str, object]) -> dict[str, object]:
+        return monitor.evaluate_postdeploy_health_gate(
+            {
+                "ok": True,
+                "mode": "summary",
+                "room_summaries": [
+                    {
+                        "room": "shardX/E26S49",
+                        "owner": "owner",
+                        "owned_creeps": 2,
+                        "owned_spawns": 1,
+                        **room,
+                    }
+                ],
+            },
+            {"ok": True, "mode": "alert", "alert": False, "reasons": []},
+        )
+
+    def test_construction_acceptance_blocks_backlog_without_build_execution(self) -> None:
+        health = self.health_gate_for_room(
+            {
+                "constructionSiteCount": 2,
+                "pendingBuildProgress": 700,
+                "buildCarriedEnergy": 0,
+                "taskCounts": {"build": 0, "upgrade": 1},
+                "buildBlockedReason": "worker_assignment_gap",
+            }
+        )
+
+        self.assertTrue(health["ok"])
+        acceptance = health["construction_acceptance"]
+        self.assertFalse(acceptance["ok"])
+        self.assertEqual(acceptance["status"], "blocked")
+        self.assertEqual(acceptance["blocked_count"], 1)
+        self.assertEqual(acceptance["rooms"][0]["reason"], "worker_assignment_gap")
+
+    def test_construction_acceptance_passes_with_build_execution_evidence(self) -> None:
+        cases = (
+            ({"buildCarriedEnergy": 25, "taskCounts": {"build": 0}}, "build_energy_carried"),
+            ({"buildCarriedEnergy": 0, "constructionActivity": {"buildProgress": 5}}, "build_progress_observed"),
+            ({"buildCarriedEnergy": 0, "taskCounts": {"build": 1}}, "build_task_visible"),
+        )
+
+        for evidence, expected_reason in cases:
+            with self.subTest(expected_reason=expected_reason):
+                health = self.health_gate_for_room(
+                    {
+                        "constructionSiteCount": 1,
+                        "pendingBuildProgress": 300,
+                        **evidence,
+                    }
+                )
+
+                acceptance = health["construction_acceptance"]
+                self.assertTrue(acceptance["ok"])
+                self.assertEqual(acceptance["status"], "pass")
+                self.assertEqual(acceptance["rooms"][0]["reason"], expected_reason)
+
+    def test_construction_acceptance_passes_when_no_backlog_is_visible(self) -> None:
+        health = self.health_gate_for_room(
+            {
+                "constructionSiteCount": 0,
+                "pendingBuildProgress": 0,
+                "buildCarriedEnergy": 0,
+                "buildBlockedReason": "no_construction_sites",
+            }
+        )
+
+        acceptance = health["construction_acceptance"]
+        self.assertTrue(acceptance["ok"])
+        self.assertEqual(acceptance["status"], "pass")
+        self.assertEqual(acceptance["rooms"][0]["reason"], "no_construction_backlog")
+
+    def test_construction_acceptance_marks_missing_telemetry_pending_not_pass(self) -> None:
+        health = self.health_gate_for_room({})
+
+        self.assertTrue(health["ok"])
+        acceptance = health["construction_acceptance"]
+        self.assertFalse(acceptance["ok"])
+        self.assertEqual(acceptance["status"], "pending")
+        self.assertEqual(acceptance["pending_count"], 1)
+        self.assertEqual(
+            acceptance["rooms"][0]["missing"],
+            ["constructionSiteCount", "pendingBuildProgress"],
+        )
+
+    def test_construction_acceptance_uses_runtime_summary_artifact_fields(self) -> None:
+        payload = {
+            "type": "runtime-summary",
+            "tick": 1200,
+            "rooms": [
+                {
+                    "roomName": "E26S49",
+                    "shard": "shardX",
+                    "constructionSiteCount": 0,
+                    "pendingBuildProgress": 0,
+                    "buildCarriedEnergy": 0,
+                    "buildBlockedReason": "no_construction_sites",
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact = Path(temp_dir) / "runtime-summary-monitor-20260612T000000Z.log"
+            artifact.write_text(monitor.RUNTIME_SUMMARY_PREFIX + json.dumps(payload) + "\n", encoding="utf-8")
+
+            health = monitor.evaluate_postdeploy_health_gate(
+                {
+                    "ok": True,
+                    "mode": "summary",
+                    "runtime_summary_artifact": str(artifact),
+                    "room_summaries": [
+                        {
+                            "room": "shardX/E26S49",
+                            "name": "E26S49",
+                            "owner": "owner",
+                            "owned_creeps": 2,
+                            "owned_spawns": 1,
+                        }
+                    ],
+                },
+                {"ok": True, "mode": "alert", "alert": False, "reasons": []},
+            )
+
+        acceptance = health["construction_acceptance"]
+        self.assertTrue(acceptance["ok"])
+        self.assertEqual(acceptance["status"], "pass")
+        self.assertEqual(acceptance["rooms"][0]["reason"], "no_construction_backlog")
+
+
 class TacticalResponseBridgeTest(unittest.TestCase):
     def test_no_alert_fixture_is_machine_readable_silent(self) -> None:
         report = monitor.build_tactical_response_report(NO_ALERT_FIXTURE)
