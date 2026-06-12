@@ -246,6 +246,126 @@ def make_owned_worker_room_snapshot(room: str, tick: int) -> monitor.RoomSnapsho
     )
 
 
+def make_owned_room_snapshot(room: str, tick: int, worker_count: int = 4) -> monitor.RoomSnapshot:
+    objects: dict[str, dict[str, object]] = {
+        "spawn1": {
+            "type": "spawn",
+            "my": True,
+            "owner": {"username": "lanyusea"},
+            "x": 17,
+            "y": 24,
+            "hits": 5000,
+            "hitsMax": 5000,
+        },
+        "ctrl": {
+            "type": "controller",
+            "my": True,
+            "owner": {"username": "lanyusea"},
+            "level": 5,
+            "x": 5,
+            "y": 36,
+        },
+        "extension1": {
+            "type": "extension",
+            "my": True,
+            "owner": {"username": "lanyusea"},
+            "x": 18,
+            "y": 24,
+            "hits": 1000,
+            "hitsMax": 1000,
+        },
+    }
+    for index in range(worker_count):
+        objects[f"worker{index}"] = {
+            "type": "creep",
+            "my": True,
+            "owner": {"username": "lanyusea"},
+            "name": f"worker-{room}-{index}",
+            "memory": {"role": "worker"},
+        }
+    return monitor.RoomSnapshot(
+        ref=monitor.RoomRef("shardX", room),
+        terrain="0" * monitor.TERRAIN_CELLS,
+        objects=monitor.normalize_objects(objects),
+        tick=tick,
+        owner="lanyusea",
+        info={"energyAvailable": 1800},
+        expected_owner="lanyusea",
+    )
+
+
+def none_task_runtime_room(
+    room: str,
+    tick: int,
+    *,
+    worker_count: int = 4,
+    none_count: int = 2,
+    idle_reason_counts: dict[str, int] | None = None,
+) -> dict[str, object]:
+    productive_count = max(0, worker_count - none_count)
+    repair_count = min(1, productive_count)
+    upgrade_count = max(0, productive_count - repair_count)
+    reasons = idle_reason_counts or {
+        "controller_upgrade_saturated_standby": 0,
+        "cpu_shed_assignment_skipped": 1 if none_count else 0,
+        "no_task_available": max(0, none_count - 1),
+        "role_body_unavailable": 0,
+        "room_snapshot_missing_creep_memory": 0,
+        "task_assignment_not_observed": 0,
+    }
+    idle_workers = [
+        {
+            "name": f"worker-{room}-idle-{index}",
+            "reason": "cpu_shed_assignment_skipped" if index == 0 else "no_task_available",
+            "carriedEnergy": 100 if index > 0 else 0,
+            "freeCapacity": 0 if index > 0 else 100,
+            "dispatchReason": "no_selected_task_idle",
+            "dispatchTick": tick,
+        }
+        for index in range(none_count)
+    ]
+    return {
+        "roomName": room,
+        "shard": "shardX",
+        monitor.RUNTIME_SUMMARY_TICK_METADATA_KEY: tick,
+        "workerCount": worker_count,
+        "workerAssignmentEvidenceAvailable": True,
+        "workerAssignmentEvidence": {
+            "source": "runtime-summary",
+            "available": True,
+            "tick": tick,
+            "workerCount": worker_count,
+            "assignedTaskCount": productive_count,
+            "productiveAssignmentCount": productive_count,
+            "unassignedWorkerCount": none_count,
+            "idleReasonCounts": reasons,
+            "idleWorkers": idle_workers,
+        },
+        "taskCounts": {
+            "harvest": 0,
+            "pickup": 0,
+            "withdraw": 0,
+            "transfer": 0,
+            "build": 0,
+            "repair": repair_count,
+            "upgrade": upgrade_count,
+            "none": none_count,
+        },
+        "constructionSiteCount": 0,
+        "constructionDeadlockTicks": 0,
+        "resources": {
+            "productiveEnergy": {
+                "workerAssignmentEvidenceAvailable": True,
+                "assignedWorkerCount": productive_count,
+                "constructionSiteCount": 0,
+                "constructionDeadlockTicks": 0,
+                "pendingBuildProgress": 0,
+                "buildBlockedReason": "no_construction_sites",
+            }
+        },
+    }
+
+
 def worker_deadlock_runtime_summary_payload(
     room: str,
     tick: int,
@@ -881,6 +1001,255 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(report["severity"], "none")
         self.assertIsNone(report["priority"])
         self.assertEqual(report["scheduler"]["recommended_output"], "[SILENT]")
+
+    def test_owned_room_none_task_ratio_healthy_room_stays_silent(self) -> None:
+        snapshot = make_owned_room_snapshot("E29N56", 2090237, worker_count=5)
+        runtime_room = none_task_runtime_room(
+            "E29N56",
+            2090237,
+            worker_count=5,
+            none_count=1,
+            idle_reason_counts={
+                "controller_upgrade_saturated_standby": 0,
+                "cpu_shed_assignment_skipped": 0,
+                "no_task_available": 1,
+                "role_body_unavailable": 0,
+                "room_snapshot_missing_creep_memory": 0,
+                "task_assignment_not_observed": 0,
+            },
+        )
+
+        emitted, suppressed, next_state = monitor.evaluate_room_alert(
+            snapshot,
+            {
+                "baseline_established": True,
+                "owner": "lanyusea",
+                "rule_counts": {
+                    monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND: {
+                        "start_tick": 2090000,
+                        "last_tick": 2090100,
+                        "consecutive_ticks": 100,
+                        "consecutive_captures": 2,
+                    }
+                },
+            },
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(emitted, [])
+        self.assertEqual(suppressed, [])
+        self.assertEqual(next_state["rule_counts"][monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND], 0)
+
+    def test_owned_room_sustained_none_task_ratio_alerts_without_room_dead(self) -> None:
+        first_tick = 2090100
+        second_tick = 2090237
+        first_snapshot = make_owned_room_snapshot("E29N57", first_tick, worker_count=4)
+        second_snapshot = make_owned_room_snapshot("E29N57", second_tick, worker_count=4)
+
+        first_emitted, first_suppressed, first_state = monitor.evaluate_room_alert(
+            first_snapshot,
+            {"baseline_established": True, "owner": "lanyusea"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=none_task_runtime_room("E29N57", first_tick, worker_count=4, none_count=2),
+        )
+        self.assertEqual(first_emitted, [])
+        self.assertEqual(first_suppressed, [])
+        self.assertEqual(
+            first_state["rule_counts"][monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND],
+            {
+                "start_tick": first_tick,
+                "last_tick": first_tick,
+                "consecutive_ticks": 0,
+                "consecutive_captures": 1,
+            },
+        )
+
+        second_emitted, second_suppressed, second_state = monitor.evaluate_room_alert(
+            second_snapshot,
+            first_state,
+            now=200,
+            debounce_seconds=300,
+            runtime_room_summary=none_task_runtime_room("E29N57", second_tick, worker_count=4, none_count=2),
+        )
+
+        self.assertEqual(second_suppressed, [])
+        self.assertNotIn("room_dead", [reason["kind"] for reason in second_emitted])
+        reason = next(
+            reason
+            for reason in second_emitted
+            if reason["kind"] == monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND
+        )
+        self.assertEqual(reason["room"], "shardX/E29N57")
+        self.assertEqual(reason["severity"], "high")
+        self.assertEqual(reason["priority"], "P1")
+        self.assertEqual(reason["workerCount"], 4)
+        self.assertEqual(reason["noneTaskWorkerCount"], 2)
+        self.assertEqual(reason["noneTaskWorkerRatio"], 0.5)
+        self.assertEqual(reason["idleReasonCounts"]["cpu_shed_assignment_skipped"], 1)
+        self.assertEqual(reason["idleReasonCounts"]["no_task_available"], 1)
+        self.assertEqual(reason["start_tick"], first_tick)
+        self.assertEqual(reason["current_tick"], second_tick)
+        self.assertEqual(reason["consecutive_ticks"], second_tick - first_tick)
+        self.assertEqual(reason["consecutiveCaptures"], 2)
+        self.assertEqual(reason["metadata"]["related_issues"], ["#1767", "#1776", "#906"])
+        self.assertIn("next_action", reason)
+        self.assertFalse(reason["owner_ping"])
+        self.assertEqual(
+            second_state["rule_counts"][monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND]["consecutive_ticks"],
+            second_tick - first_tick,
+        )
+
+        tactical = monitor.build_tactical_response_report(
+            {"ok": True, "mode": "alert", "alert": True, "reasons": [reason], "rooms": ["shardX/E29N57"]}
+        )
+        self.assertTrue(tactical["emergency"])
+        self.assertEqual(tactical["severity"], "high")
+        self.assertEqual(tactical["priority"], "P1")
+        self.assertEqual(tactical["categories"], [monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND])
+        self.assertEqual(tactical["triggers"][0]["decision"], "codex_hotfix")
+        self.assertEqual(tactical["triggers"][0]["metadata"]["routes_to"][0]["issue"], "#1767")
+
+        health = monitor.evaluate_postdeploy_health_gate(
+            {
+                "ok": True,
+                "mode": "summary",
+                "room_summaries": [
+                    {"room": "shardX/E29N57", "owner": "lanyusea", "owned_creeps": 4, "owned_spawns": 1}
+                ],
+            },
+            {"ok": True, "mode": "alert", "alert": True, "reasons": [reason]},
+        )
+        self.assertFalse(health["ok"])
+        self.assertEqual([item["kind"] for item in health["reasons"]], ["postdeploy_active_alert"])
+        self.assertEqual(health["reasons"][0]["source"]["kind"], monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND)
+
+    def test_owned_room_same_tick_none_task_ratio_state_is_idempotent(self) -> None:
+        tick = 2090237
+        previous_ratio_state = {
+            "start_tick": tick - 150,
+            "last_tick": tick,
+            "consecutive_ticks": 150,
+            "consecutive_captures": 1,
+        }
+
+        emitted, suppressed, next_state = monitor.evaluate_room_alert(
+            make_owned_room_snapshot("E29N57", tick, worker_count=4),
+            {
+                "baseline_established": True,
+                "owner": "lanyusea",
+                "rule_counts": {monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND: previous_ratio_state},
+            },
+            now=200,
+            debounce_seconds=300,
+            runtime_room_summary=none_task_runtime_room("E29N57", tick, worker_count=4, none_count=2),
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertNotIn(monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND, [reason["kind"] for reason in emitted])
+        self.assertEqual(
+            next_state["rule_counts"][monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND],
+            previous_ratio_state,
+        )
+
+    def test_owned_room_none_task_console_capture_window_requires_fresh_latest_capture(self) -> None:
+        room = "E29N57"
+        ticks = [1630662, 1630800]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            for index, tick in enumerate(ticks, start=1):
+                (runtime_dir / f"runtime-summary-console-20260601T00000{index}Z.log").write_text(
+                    "#runtime-summary "
+                    + json.dumps(
+                        {
+                            "type": "runtime-summary",
+                            "tick": tick,
+                            "rooms": [none_task_runtime_room(room, tick, worker_count=4, none_count=2)],
+                        }
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+            warnings: list[str] = []
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room=room)],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        runtime_room = runtime_rooms[f"shardX/{room}"]
+        self.assertEqual(
+            runtime_room[monitor.RUNTIME_SUMMARY_CAPTURE_HISTORY_METADATA_KEY][0]["runtimeSummaryTick"],
+            ticks[-1],
+        )
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            make_owned_room_snapshot(room, ticks[-1] + 25, worker_count=4),
+            {"baseline_established": True, "owner": "lanyusea"},
+            now=200,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertNotIn(monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND, [reason["kind"] for reason in emitted])
+
+    def test_owned_room_one_off_cpu_shed_none_task_ratio_stays_silent(self) -> None:
+        snapshot = make_owned_room_snapshot("E29N57", 2090237, worker_count=4)
+        runtime_room = none_task_runtime_room(
+            "E29N57",
+            2090237,
+            worker_count=4,
+            none_count=2,
+            idle_reason_counts={
+                "controller_upgrade_saturated_standby": 0,
+                "cpu_shed_assignment_skipped": 2,
+                "no_task_available": 0,
+                "role_body_unavailable": 0,
+                "room_snapshot_missing_creep_memory": 0,
+                "task_assignment_not_observed": 0,
+            },
+        )
+
+        emitted, suppressed, next_state = monitor.evaluate_room_alert(
+            snapshot,
+            {"baseline_established": True, "owner": "lanyusea"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(emitted, [])
+        self.assertEqual(suppressed, [])
+        self.assertEqual(
+            next_state["rule_counts"][monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND]["consecutive_captures"],
+            1,
+        )
+
+    def test_none_task_ratio_ignored_when_room_is_not_owned(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef("shardX", "E29N57"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects({}),
+            tick=2090237,
+            owner=None,
+            info={},
+        )
+
+        emitted, suppressed, next_state = monitor.evaluate_room_alert(
+            snapshot,
+            {},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=none_task_runtime_room("E29N57", 2090237, worker_count=4, none_count=4),
+        )
+
+        self.assertEqual(emitted, [])
+        self.assertEqual(suppressed, [])
+        self.assertEqual(next_state["rule_counts"][monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND], 0)
 
     def test_energy_buffer_unhealthy_alerts_on_second_consecutive_capture(self) -> None:
         snapshot = make_snapshot(
