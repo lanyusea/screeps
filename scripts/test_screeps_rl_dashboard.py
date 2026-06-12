@@ -357,6 +357,53 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertIsNone(card_supply["cardSupply"]["consumed_at"])
         self.assertIsNone(card_supply["cardSupply"]["consumed_by_report_id"])
 
+    def test_completed_training_keeps_newer_standalone_card_pending(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            card = card_helper.build_card(
+                dataset_run_id="rl-current-standalone",
+                code_commit="2" * 40,
+                training_approach="policy_gradient",
+                created_at="2026-05-20T18:04:00Z",
+                scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+                require_multi_tier_scenario=True,
+                loop_a_card_supply=True,
+            )
+            write_json(artifact_root / "rl-experiment-cards" / "experiment_card.json", card)
+            standalone_candidates = dashboard.discover_standalone_card_supply_candidates(
+                artifact_root,
+                warnings=[],
+                repo_root=root,
+            )
+            training = dashboard.training_execution(
+                loaded_artifact(
+                    artifact_root / "rl-control-loop" / "training-ledger.json",
+                    {
+                        "type": "screeps-rl-training-execution-ledger",
+                        "status": "RUN_VALIDATED",
+                        "trainingDidRun": True,
+                        "trainingReportIds": ["older-training-report"],
+                    },
+                ),
+                standalone_card_supply=standalone_candidates[0],
+                standalone_card_supply_candidates=standalone_candidates,
+            )
+
+        card_supply = training["cardSupply"]
+        pending_card_supply = card_supply["pendingCardSupply"]
+        self.assertTrue(training["hasComputeEvidence"])
+        self.assertEqual(card_supply["status"], "DEGRADED")
+        self.assertEqual(
+            card_supply["classification"],
+            "TRAINING_RAN_WITHOUT_STRUCTURED_CARD_SUPPLY_EVIDENCE",
+        )
+        self.assertIsNone(card_supply["source"])
+        self.assertEqual(pending_card_supply["status"], "PRIMARY_SATISFIED")
+        self.assertEqual(pending_card_supply["source"], "standalone_experiment_card")
+        self.assertEqual(pending_card_supply["cardId"], card["card_id"])
+        self.assertEqual(pending_card_supply["cardSupply"]["state"], "available")
+
     def test_not_run_prefers_tencent_supply_over_newer_standalone_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

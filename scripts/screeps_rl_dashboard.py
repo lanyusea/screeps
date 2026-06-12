@@ -62,6 +62,7 @@ CARD_SUPPLY_BLOCKER_MARKERS = (
     "cardpipelinestalled",
     "nostandaloneexperimentcard",
     "nounconsumedexperimentcard",
+    "experimentcardstate",
     "standaloneexperimentcard",
     "standalonecardsupply",
     "cardsupplystarvation",
@@ -72,6 +73,7 @@ CARD_SUPPLY_BLOCKER_FIELD_MARKERS = (
     "cardpipelinestalled",
     "nostandaloneexperimentcard",
     "nounconsumedexperimentcard",
+    "experimentcardstate",
     "standalonecardsupply",
     "cardsupplystarvation",
 )
@@ -834,6 +836,26 @@ def blocked_card_supply_summary(reason: str | None = None) -> JsonObject:
         "severity": "P0",
         "reason": reason or "No valid standalone or Tencent internal policy-gradient card supply evidence.",
     }
+
+
+def training_ran_without_structured_card_supply_summary(
+    pending_card_supply: JsonObject | None = None,
+) -> JsonObject:
+    summary: JsonObject = {
+        "status": "DEGRADED",
+        "classification": "TRAINING_RAN_WITHOUT_STRUCTURED_CARD_SUPPLY_EVIDENCE",
+        "source": None,
+        "severity": "P2",
+        "fallbackStatus": "DEGRADED",
+        "fallbackSeverity": "P2",
+        "reason": (
+            "Training ran, but no structured safety-validated Tencent or standalone card evidence was found "
+            "for dashboard reconciliation."
+        ),
+    }
+    if pending_card_supply is not None:
+        summary["pendingCardSupply"] = dict(pending_card_supply)
+    return summary
 
 
 def tencent_summary_run_id(payload: JsonObject, path: Path) -> str:
@@ -1831,14 +1853,60 @@ def best_available_supplied_card_supply(
                 standalone_card_supply,
                 standalone_card_supply_candidates,
             )
-        )
+    )
     return available_supply
+
+
+def card_supply_created_timestamp(card_supply: JsonObject) -> datetime | None:
+    supply = as_dict(card_supply.get("cardSupply"))
+    return parse_iso_datetime(
+        text_value(card_supply.get("createdAt"))
+        or text_value(first_present(supply, ("created_at", "createdAt")))
+    )
+
+
+def card_supply_newer_than(card_supply: JsonObject, timestamp: datetime | None) -> bool:
+    created = card_supply_created_timestamp(card_supply)
+    return created is not None and timestamp is not None and created > timestamp
+
+
+def best_available_supplied_card_supply_newer_than(
+    timestamp: datetime | None,
+    *,
+    standalone_card_supply: JsonObject | None = None,
+    standalone_card_supply_candidates: Sequence[JsonObject] | None = None,
+    tencent_internal_card_supply: JsonObject | None = None,
+    tencent_internal_card_supply_candidates: Sequence[JsonObject] | None = None,
+) -> JsonObject | None:
+    tencent_candidates = [
+        candidate
+        for candidate in combined_tencent_card_supply_candidates(
+            tencent_internal_card_supply,
+            tencent_internal_card_supply_candidates,
+        )
+        if card_supply_available_for_training(candidate) and card_supply_newer_than(candidate, timestamp)
+    ]
+    if tencent_candidates:
+        return max(tencent_candidates, key=card_supply_candidate_key)
+
+    fallback_candidates = [
+        candidate
+        for candidate in combined_card_supply_candidates(
+            standalone_card_supply,
+            standalone_card_supply_candidates,
+        )
+        if card_supply_available_for_training(candidate) and card_supply_newer_than(candidate, timestamp)
+    ]
+    if not fallback_candidates:
+        return None
+    return max(fallback_candidates, key=card_supply_candidate_key)
 
 
 def reconcile_card_supply_for_training(
     payload: JsonObject,
     *,
     latest_path: Path | None,
+    latest_timestamp: datetime | None = None,
     standalone_card_supply: JsonObject | None = None,
     standalone_card_supply_candidates: Sequence[JsonObject] | None = None,
     tencent_internal_card_supply: JsonObject | None,
@@ -1879,19 +1947,17 @@ def reconcile_card_supply_for_training(
         matching_supply = matching_tencent_card_supply_for_training(payload, tencent_candidates)
         if matching_supply is not None:
             return dict(matching_supply)
+        newer_supply = best_available_supplied_card_supply_newer_than(
+            latest_timestamp or (artifact_timestamp(latest_path, payload) if latest_path is not None else None),
+            standalone_card_supply=standalone_card_supply,
+            standalone_card_supply_candidates=standalone_card_supply_candidates,
+            tencent_internal_card_supply=tencent_internal_card_supply,
+            tencent_internal_card_supply_candidates=tencent_internal_card_supply_candidates,
+        )
+        if newer_supply is not None:
+            return training_ran_without_structured_card_supply_summary(newer_supply)
     if training_did_run:
-        return {
-            "status": "DEGRADED",
-            "classification": "TRAINING_RAN_WITHOUT_STRUCTURED_CARD_SUPPLY_EVIDENCE",
-            "source": None,
-            "severity": "P2",
-            "fallbackStatus": "DEGRADED",
-            "fallbackSeverity": "P2",
-            "reason": (
-                "Training ran, but no structured safety-validated Tencent or standalone card evidence was found "
-                "for dashboard reconciliation."
-            ),
-        }
+        return training_ran_without_structured_card_supply_summary()
     return blocked_card_supply_summary()
 
 
@@ -1952,6 +2018,7 @@ def training_execution(
     card_supply = reconcile_card_supply_for_training(
         payload,
         latest_path=latest_training.path,
+        latest_timestamp=latest_training.timestamp,
         standalone_card_supply=standalone_card_supply,
         standalone_card_supply_candidates=standalone_card_supply_candidates,
         tencent_internal_card_supply=tencent_internal_card_supply,
