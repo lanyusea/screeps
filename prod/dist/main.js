@@ -34983,7 +34983,10 @@ function selectWorkerAssignmentGapRecoveryConstructionSite(creep) {
     return null;
   }
   const sites = creep.room.find(FIND_CONSTRUCTION_SITES);
-  return (_b = sites.filter((site) => site.my !== false).filter((site) => !isBuildTargetSuppressedForWorker(creep, site)).filter((site) => canSpendWorkerEnergyOnConstructionSite(creep, site)).sort((left, right) => compareRoomObjectsByRangeAndId2(creep, left, right))[0]) != null ? _b : null;
+  return (_b = sites.filter((site) => site.my !== false).filter((site) => !isBuildTargetSuppressedForWorker(creep, site)).filter((site) => canSpendWorkerEnergyOnAssignmentGapRecoveryConstructionSite(creep, site)).sort((left, right) => compareRoomObjectsByRangeAndId2(creep, left, right))[0]) != null ? _b : null;
+}
+function canSpendWorkerEnergyOnAssignmentGapRecoveryConstructionSite(creep, site) {
+  return canSpendWorkerEnergyOnConstructionSite(creep, site) || hasCoveredStoredEnergyForAssignmentGapRecoveryConstruction(creep, site);
 }
 function shouldAllowAssignmentGapRecoveryBuildWorker(creep, currentTask, selectedTask, constructionSite) {
   if (!hasOtherSameRoomBuildAssignment(creep)) {
@@ -35070,11 +35073,51 @@ function hasSafeAssignmentGapRecoveryConstructionEnergy(creep, recoveryTask) {
   if (spawnReservationTarget) {
     return shouldDeferSpawnReservationRefillForProductiveWork(creep, recoveryTask, spawnReservationTarget);
   }
-  return !hasActiveSpawningSpawn2(creep.room) && (hasHealthyRoomEnergyBuffer2(creep.room) || hasStoredEnergyForAssignmentGapRecoveryConstruction(creep.room));
+  return !hasActiveSpawningSpawn2(creep.room) && (hasHealthyRoomEnergyBuffer2(creep.room) || hasStoredEnergyForAssignmentGapRecoveryConstruction(creep.room) || hasCoveredStoredEnergyForAssignmentGapRecoveryConstruction(creep, getTaskTarget(recoveryTask)));
 }
 function hasStoredEnergyForAssignmentGapRecoveryConstruction(room) {
   const energyAvailable = getRoomEnergyAvailable13(room);
   return energyAvailable !== null && energyAvailable >= MINIMUM_WORKER_SPAWN_ENERGY && getRoomStoredEnergyAvailableForConstruction(room) >= CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY;
+}
+function hasCoveredStoredEnergyForAssignmentGapRecoveryConstruction(creep, site) {
+  var _a2;
+  return getUsedTransferEnergy(creep) > 0 && isCriticalConstructionSite(site) && site.my !== false && ((_a2 = creep.room.controller) == null ? void 0 : _a2.my) === true && !hasActiveSpawningSpawn2(creep.room) && !isControllerDowngradeGuardActive2(creep.room) && getRoomStoredEnergyAvailableForConstruction(creep.room) >= CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY && isMinimumWorkerSpawnEnergyFloorCoveredForAssignmentGapRecovery(creep);
+}
+function isMinimumWorkerSpawnEnergyFloorCoveredForAssignmentGapRecovery(creep) {
+  const energyAvailable = getRoomEnergyAvailable13(creep.room);
+  if (energyAvailable === null) {
+    return false;
+  }
+  const energyGap = Math.max(0, MINIMUM_WORKER_SPAWN_ENERGY - energyAvailable);
+  return energyGap === 0 || getOtherSameRoomImmediateSpawnRefillEnergy(creep) >= energyGap;
+}
+function getOtherSameRoomImmediateSpawnRefillEnergy(creep) {
+  const remainingCapacityByTargetId = /* @__PURE__ */ new Map();
+  return getRoomOwnedCreeps3(creep.room).reduce((total, worker) => {
+    var _a2, _b;
+    if (isSameCreep4(worker, creep) || !isProductiveSameRoomWorker2(worker, creep.room)) {
+      return total;
+    }
+    const task = (_a2 = worker.memory) == null ? void 0 : _a2.task;
+    if ((task == null ? void 0 : task.type) !== "transfer") {
+      return total;
+    }
+    const target = getTaskTarget(task);
+    if (getTransferSinkPriority(target) < 2) {
+      return total;
+    }
+    const carriedEnergy = getUsedTransferEnergy(worker);
+    if (carriedEnergy <= 0) {
+      return total;
+    }
+    const targetId = getObjectId10(target);
+    const remainingCapacity = targetId ? (_b = remainingCapacityByTargetId.get(targetId)) != null ? _b : getFreeTransferEnergyCapacity(target) : getFreeTransferEnergyCapacity(target);
+    const coveredEnergy = Math.min(carriedEnergy, Math.max(0, remainingCapacity));
+    if (targetId) {
+      remainingCapacityByTargetId.set(targetId, Math.max(0, remainingCapacity - coveredEnergy));
+    }
+    return total + coveredEnergy;
+  }, 0);
 }
 function isCriticalSpawnRefillTask(task) {
   return (task == null ? void 0 : task.type) === "transfer" && getTransferSinkPriority(getTaskTarget(task)) >= 3;
@@ -35982,7 +36025,9 @@ function shouldPreemptEnergyAcquisitionTaskForProductiveBacklog(creep, task, sel
   }
   if (selectedTask.type === "build") {
     const constructionSite = getTaskTarget(selectedTask);
-    return Boolean(constructionSite && canSpendWorkerEnergyOnConstructionSite(creep, constructionSite));
+    return Boolean(
+      constructionSite && canSpendWorkerEnergyOnAssignmentGapRecoveryConstructionSite(creep, constructionSite)
+    );
   }
   if (selectedTask.type === "repair") {
     const repairTarget = getTaskTarget(selectedTask);
@@ -36541,7 +36586,7 @@ function classifyBuildActionPrecheck(creep, target) {
   if (getActiveWorkParts3(creep) <= 0) {
     return { result: "failed_no_work", returnCode: getErrNoBodyPartCode() };
   }
-  if (!canSpendWorkerEnergyOnConstructionSite(creep, target)) {
+  if (!canSpendWorkerEnergyOnAssignmentGapRecoveryConstructionSite(creep, target)) {
     return { result: "suppressed_by_policy", returnCode: ERR_NOT_ENOUGH_RESOURCES_CODE2 };
   }
   return null;
