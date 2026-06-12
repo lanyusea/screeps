@@ -838,6 +838,26 @@ def blocked_card_supply_summary(reason: str | None = None) -> JsonObject:
     }
 
 
+def training_ran_without_structured_card_supply_summary(
+    pending_card_supply: JsonObject | None = None,
+) -> JsonObject:
+    summary: JsonObject = {
+        "status": "DEGRADED",
+        "classification": "TRAINING_RAN_WITHOUT_STRUCTURED_CARD_SUPPLY_EVIDENCE",
+        "source": None,
+        "severity": "P2",
+        "fallbackStatus": "DEGRADED",
+        "fallbackSeverity": "P2",
+        "reason": (
+            "Training ran, but no structured safety-validated Tencent or standalone card evidence was found "
+            "for dashboard reconciliation."
+        ),
+    }
+    if pending_card_supply is not None:
+        summary["pendingCardSupply"] = dict(pending_card_supply)
+    return summary
+
+
 def tencent_summary_run_id(payload: JsonObject, path: Path) -> str:
     return text_value(payload.get("runId")) or path.parent.name
 
@@ -1935,20 +1955,9 @@ def reconcile_card_supply_for_training(
             tencent_internal_card_supply_candidates=tencent_internal_card_supply_candidates,
         )
         if newer_supply is not None:
-            return dict(newer_supply)
+            return training_ran_without_structured_card_supply_summary(newer_supply)
     if training_did_run:
-        return {
-            "status": "DEGRADED",
-            "classification": "TRAINING_RAN_WITHOUT_STRUCTURED_CARD_SUPPLY_EVIDENCE",
-            "source": None,
-            "severity": "P2",
-            "fallbackStatus": "DEGRADED",
-            "fallbackSeverity": "P2",
-            "reason": (
-                "Training ran, but no structured safety-validated Tencent or standalone card evidence was found "
-                "for dashboard reconciliation."
-            ),
-        }
+        return training_ran_without_structured_card_supply_summary()
     return blocked_card_supply_summary()
 
 

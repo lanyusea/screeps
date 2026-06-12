@@ -905,6 +905,15 @@ def card_supply_available_for_guarded_training(card_supply: JsonObject) -> bool:
     return static_dashboard.card_supply_available_for_training(card_supply)
 
 
+def pending_card_supply_for_guarded_training(card_supply: JsonObject) -> JsonObject:
+    pending_card_supply = as_dict(card_supply.get("pendingCardSupply"))
+    if card_supply_available_for_guarded_training(pending_card_supply):
+        return pending_card_supply
+    if card_supply_available_for_guarded_training(card_supply):
+        return card_supply
+    return {}
+
+
 def selected_card_supply(summary: JsonObject) -> JsonObject:
     return as_dict(as_dict(summary.get("training")).get("cardSupply"))
 
@@ -1823,7 +1832,8 @@ def training_anomalies(
     gate = as_dict(dashboard.get("gate"))
     anomalies: list[JsonObject] = []
     stale_e1_gate_resolved = selected_gate_resolves_e1_stale_anomaly(dashboard)
-    current_card_supply = selected_card_supply(dashboard)
+    selected_supply = selected_card_supply(dashboard)
+    current_card_supply = pending_card_supply_for_guarded_training(selected_supply) or selected_supply
     if not gate:
         anomalies.append(
             {
@@ -1871,12 +1881,13 @@ def training_anomalies(
 
 def next_training_capability_action(previous: JsonObject | None, training: JsonObject, did_run: bool) -> str:
     card_supply = as_dict(training.get("cardSupply"))
+    pending_card_supply = pending_card_supply_for_guarded_training(card_supply)
     previous_action = text_value((previous or {}).get("nextTrainingCapabilityAction"))
     if (
-        (not did_run or stale_card_supply_action(previous_action, card_supply))
-        and card_supply_available_for_guarded_training(card_supply)
+        pending_card_supply
+        and (not did_run or stale_card_supply_action(previous_action, pending_card_supply))
     ):
-        return guard_held_card_supply_next_action(card_supply)
+        return guard_held_card_supply_next_action(pending_card_supply)
     if previous_action:
         return previous_action
     deployment_blocker = training_online_deployment_blocker(training)
@@ -1943,17 +1954,16 @@ def build_training_ledger(
     )
     anomalies = training_anomalies(summary, previous, repo_root, reward_decision_id=reward_decision_id)
     card_supply = as_dict(training.get("cardSupply"))
-    pending_experiment_card = pending_experiment_card_record(card_supply, repo_root)
-    experiment_card_id = (
-        pending_experiment_card.get("cardId")
-        if pending_experiment_card is not None
-        else training_artifacts.get("experimentCard")
-    )
-    experiment_card_path = (
-        pending_experiment_card.get("path")
-        if pending_experiment_card is not None
-        else training_artifacts.get("experimentCardPath")
-    )
+    pending_card_supply = pending_card_supply_for_guarded_training(card_supply)
+    pending_experiment_card = pending_experiment_card_record(pending_card_supply, repo_root)
+    if pending_experiment_card is not None and not did_run:
+        experiment_card_id = pending_experiment_card.get("cardId")
+        experiment_card_path = pending_experiment_card.get("path")
+        experiment_card_status = pending_experiment_card.get("status")
+    else:
+        experiment_card_id = training_artifacts.get("experimentCard")
+        experiment_card_path = training_artifacts.get("experimentCardPath")
+        experiment_card_status = training_artifacts.get("experimentCardStatus")
 
     return {
         "type": TRAINING_LEDGER_TYPE,
@@ -2008,9 +2018,7 @@ def build_training_ledger(
         "trainingArtifacts": {
             "experimentCard": experiment_card_id,
             "experimentCardPath": experiment_card_path,
-            "experimentCardStatus": (
-                pending_experiment_card.get("status") if pending_experiment_card is not None else None
-            ),
+            "experimentCardStatus": experiment_card_status,
             "pendingExperimentCard": pending_experiment_card,
             "cardSupply": as_dict(pending_experiment_card.get("cardSupply")) if pending_experiment_card is not None else None,
             "simulatorRunIds": training_artifacts.get("simulatorRunIds", []),
