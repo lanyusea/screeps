@@ -589,6 +589,7 @@ function runClaimedRoomConstructionForCpuBudget(
     creeps,
     strategyRegistry: options.strategyRegistry,
     runtimeStrategyConstructionEnabled: options.runtimeStrategyConstructionEnabled,
+    emitConstructionBlockerDiagnostics: true,
     onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
   };
   const activeConstructionOptions =
@@ -598,12 +599,12 @@ function runClaimedRoomConstructionForCpuBudget(
 
   if (deferred) {
     const result = planDeferredClaimedRoomCapacityConstruction(colony, activeConstructionOptions);
-    recordRecoveryConstructionPlacementTelemetry(telemetryEvents, result.placements, result.blockedPlacements, mode);
+    recordConstructionPlacementTelemetry(telemetryEvents, result.placements, result.blockedPlacements, mode);
     return;
   }
 
   const result = planClaimedRoomConstruction(colony, activeConstructionOptions);
-  recordRecoveryConstructionPlacementTelemetry(telemetryEvents, result.placements, result.blockedPlacements, mode);
+  recordConstructionPlacementTelemetry(telemetryEvents, result.placements, result.blockedPlacements, mode);
 }
 
 function selectConstructionCpuMode(cpuBudget: RuntimeCpuBudget): ConstructionCpuMode {
@@ -633,16 +634,12 @@ function buildCpuRecoveryConstructionSeedOptions(
   };
 }
 
-function recordRecoveryConstructionPlacementTelemetry(
+function recordConstructionPlacementTelemetry(
   telemetryEvents: RuntimeTelemetryEvent[],
   placements: ConstructionPlannerPlacement[],
   blockedPlacements: ConstructionPlannerBlockedPlacement[],
   mode: ConstructionCpuMode
 ): void {
-  if (mode !== 'recoverySeed') {
-    return;
-  }
-
   for (const placement of placements) {
     telemetryEvents.push({
       type: 'constructionPlacement',
@@ -650,7 +647,7 @@ function recordRecoveryConstructionPlacementTelemetry(
       priority: placement.priority,
       structureType: String(placement.structureType),
       result: placement.result,
-      mode: 'recoverySeed',
+      mode,
       ...(placement.x !== undefined ? { x: placement.x } : {}),
       ...(placement.y !== undefined ? { y: placement.y } : {})
     });
@@ -662,10 +659,11 @@ function recordRecoveryConstructionPlacementTelemetry(
       roomName: placement.roomName,
       priority: placement.priority,
       structureType: String(placement.structureType),
-      mode: 'recoverySeed',
+      mode,
       blockedReason: placement.blockedReason,
       ...(placement.result !== undefined ? { result: placement.result } : {}),
       ...(placement.candidate ? { candidate: placement.candidate } : {}),
+      ...(placement.details ? { details: placement.details } : {}),
       ...(placement.x !== undefined ? { x: placement.x } : {}),
       ...(placement.y !== undefined ? { y: placement.y } : {})
     });

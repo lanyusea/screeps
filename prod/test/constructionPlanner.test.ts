@@ -1348,6 +1348,50 @@ describe('owned room construction planner', () => {
     expect(room.createConstructionSite).not.toHaveBeenCalled();
   });
 
+  it('reports the residual road worker-coverage gate with its threshold', () => {
+    installOpenTerrain();
+    const source = makeSource('source-a', 35, 35);
+    const { room, colony } = makeColony({
+      controllerLevel: 6,
+      energyAvailable: 0,
+      energyCapacityAvailable: 2_300,
+      structures: makeRecoveredRcl6ResidualConstructionStructures(source),
+      sources: [source],
+      pathsByTarget: {}
+    });
+
+    const result = planConstructionForColony(colony, {
+      respectRoomEnergyBuffer: true,
+      strategyRegistry: DEFAULT_STRATEGY_REGISTRY,
+      runtimeStrategyConstructionEnabled: true,
+      runtimeStrategyConstructionFallbackPriorities: false,
+      emitConstructionBlockerDiagnostics: true,
+      maxPlacementsPerRoom: 1,
+      maxContainerSitesPerTick: 1,
+      maxPendingContainerSites: 1,
+      roadOptions: {
+        maxSitesPerTick: 1,
+        maxPendingRoadSites: 1,
+        maxTargetsPerTick: 1
+      }
+    });
+
+    expect(result.placements).toEqual([]);
+    expect(result.blockedPlacements).toEqual([
+      {
+        priority: 'road',
+        roomName: 'W1N1',
+        structureType: TEST_GLOBALS.STRUCTURE_ROAD,
+        blockedReason: 'residual_road_seed_worker_coverage_missing',
+        details: {
+          workerCoverageCount: 0,
+          workerCoverageMinimum: 1
+        }
+      }
+    ]);
+    expect(room.createConstructionSite).not.toHaveBeenCalled();
+  });
+
   it('does not seed the residual stored-energy road under visible hostile pressure', () => {
     installOpenTerrain();
     const source = makeSource('source-a', 35, 35);

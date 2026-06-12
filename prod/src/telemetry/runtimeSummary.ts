@@ -15,6 +15,7 @@ import {
   type ConstructionPriorityUrgency
 } from '../construction/constructionPriority';
 import type {
+  ConstructionPlannerBlockerDetails,
   ConstructionPlannerBlockerReason,
   ConstructionPlannerCandidateDiagnostic
 } from '../construction/planner';
@@ -141,11 +142,15 @@ type RuntimeBuildBlockedReason =
 type RuntimeConstructionActivityState =
   | 'active'
   | 'candidate_suppressed'
+  | 'planner_blocked'
   | 'no_viable_candidate';
 type RuntimeConstructionActivityReason =
   | 'build_progress_observed'
   | 'build_energy_carried'
   | 'site_backlog_visible'
+  | 'site_placement_observed'
+  | 'site_placement_failed'
+  | 'planner_blocked'
   | 'cpu_shed'
   | 'energy_buffer_blocked'
   | 'spawn_reserving_energy'
@@ -308,7 +313,8 @@ export interface RuntimeConstructionPlacementTelemetryEvent {
   result?: ScreepsReturnCode;
   blockedReason?: ConstructionPlannerBlockerReason;
   candidate?: ConstructionPlannerCandidateDiagnostic;
-  mode: 'recoverySeed';
+  details?: ConstructionPlannerBlockerDetails;
+  mode: 'normal' | 'recoverySeed';
   x?: number;
   y?: number;
 }
@@ -670,6 +676,7 @@ interface RuntimeConstructionActivitySummary {
   buildBlockedReason?: RuntimeBuildBlockedReason;
   workerAssignmentBlockedDetail?: RuntimeWorkerAssignmentBlockedDetail;
   candidate?: RuntimeConstructionActivityCandidateSummary;
+  planner?: RuntimeConstructionActivityPlannerSummary;
   cpuPressure?: RuntimeCpuPressure;
   cpuReasons?: RuntimeCpuPressureReason[];
 }
@@ -680,6 +687,17 @@ interface RuntimeConstructionActivityCandidateSummary {
   score: number;
   urgency: ConstructionPriorityUrgency;
   policyAction?: ConstructionPriorityPolicyAction;
+}
+
+interface RuntimeConstructionActivityPlannerSummary {
+  mode: RuntimeConstructionPlacementTelemetryEvent['mode'];
+  priority: string;
+  structureType: string;
+  result?: ScreepsReturnCode;
+  blockedReason?: ConstructionPlannerBlockerReason;
+  details?: ConstructionPlannerBlockerDetails;
+  x?: number;
+  y?: number;
 }
 
 type RuntimeConstructionScoringSkipReason =
@@ -1074,6 +1092,7 @@ export function emitRuntimeSummary(
 
   creepsByColony ??= groupCreepsByColony(creeps, colonies);
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
+  const constructionPlacementEventsByRoom = groupConstructionPlacementEventsByRoom(events);
   const persistOccupationRecommendations = options.persistOccupationRecommendations !== false;
   const includeOptionalSummary = !cpuBudget.lowCpuLimit && !shouldShedNonessentialCpuWork(cpuBudget);
   const includeConstructionScoring = shouldRunConstructionCpuWork(cpuBudget);
@@ -1086,6 +1105,7 @@ export function emitRuntimeSummary(
       shouldBuildStructureSnapshot(tick),
       options.strategyRegistry,
       options.onStrategyRegistryRuntimeUse,
+      constructionPlacementEventsByRoom.get(colony.room.name) ?? [],
       includeOptionalSummary,
       includeConstructionScoring,
       cpuBudget
@@ -1185,6 +1205,23 @@ function groupCreepsByColony(creeps: Creep[], colonies: ColonySnapshot[]): Map<s
   return creepsByColony;
 }
 
+function groupConstructionPlacementEventsByRoom(
+  events: RuntimeTelemetryEvent[]
+): Map<string, RuntimeConstructionPlacementTelemetryEvent[]> {
+  const eventsByRoom = new Map<string, RuntimeConstructionPlacementTelemetryEvent[]>();
+  for (const event of events) {
+    if (event.type !== 'constructionPlacement') {
+      continue;
+    }
+
+    const roomEvents = eventsByRoom.get(event.roomName) ?? [];
+    roomEvents.push(event);
+    eventsByRoom.set(event.roomName, roomEvents);
+  }
+
+  return eventsByRoom;
+}
+
 function addCreepToColonyGroup(creepsByColony: Map<string, Creep[]>, colonyName: string, creep: Creep): void {
   const colonyCreeps = creepsByColony.get(colonyName) ?? [];
   colonyCreeps.push(creep);
@@ -1235,6 +1272,7 @@ function summarizeRoom(
   includeStructureSnapshot: boolean,
   strategyRegistry: StrategyRegistryEntry[] | undefined,
   onStrategyRegistryRuntimeUse: ((entry: StrategyRegistryEntry) => void) | undefined,
+  constructionPlacementEvents: RuntimeConstructionPlacementTelemetryEvent[],
   includeOptionalSummary: boolean,
   includeConstructionScoring: boolean,
   cpuBudget: RuntimeCpuBudget
@@ -1281,6 +1319,7 @@ function summarizeRoom(
     resourcesWithoutActivity.productiveEnergy,
     constructionPriority,
     eventMetrics.resources,
+    selectLatestConstructionPlacementEvent(constructionPlacementEvents),
     cpuBudget
   );
   const resources: RuntimeResourceSummary = {
@@ -1533,10 +1572,14 @@ function summarizeConstructionActivity(
   productiveEnergy: RuntimeProductiveEnergySummary,
   constructionPriority: RuntimeConstructionPrioritySummary,
   events: RuntimeResourceEventSummary | undefined,
+  constructionPlacementEvent: RuntimeConstructionPlacementTelemetryEvent | undefined,
   cpuBudget: RuntimeCpuBudget
 ): RuntimeConstructionActivitySummary {
   const buildProgress = Math.max(0, Math.ceil(events?.builtProgress ?? 0));
   const candidate = selectViableConstructionActivityCandidate(constructionPriority);
+  const planner = constructionPlacementEvent
+    ? summarizeConstructionPlacementEvent(constructionPlacementEvent)
+    : undefined;
   const common = {
     source: 'runtime-summary' as const,
     constructionSiteCount: productiveEnergy.constructionSiteCount,
@@ -1551,6 +1594,7 @@ function summarizeConstructionActivity(
       ? { workerAssignmentBlockedDetail: productiveEnergy.workerAssignmentBlockedDetail }
       : {}),
     ...(candidate ? { candidate } : {}),
+    ...(planner ? { planner } : {}),
     ...(cpuBudget.pressure !== 'normal' ? { cpuPressure: cpuBudget.pressure } : {}),
     ...(cpuBudget.reasons.length > 0 ? { cpuReasons: cpuBudget.reasons } : {})
   };
@@ -1580,6 +1624,40 @@ function summarizeConstructionActivity(
       accepted: true,
       reason: selectConstructionActivitySuppressedReason(productiveEnergy, cpuBudget)
     };
+  }
+
+  if (
+    constructionPlacementEvent &&
+    productiveEnergy.constructionSiteCount <= 0 &&
+    productiveEnergy.pendingBuildProgress <= 0
+  ) {
+    const placementResult = constructionPlacementEvent.result;
+    if (constructionPlacementEvent.blockedReason) {
+      return {
+        ...common,
+        state: 'planner_blocked',
+        accepted: false,
+        reason: 'planner_blocked'
+      };
+    }
+
+    if (placementResult === 0) {
+      return {
+        ...common,
+        state: 'active',
+        accepted: true,
+        reason: 'site_placement_observed'
+      };
+    }
+
+    if (placementResult !== undefined) {
+      return {
+        ...common,
+        state: 'planner_blocked',
+        accepted: false,
+        reason: 'site_placement_failed'
+      };
+    }
   }
 
   if (productiveEnergy.constructionSiteCount > 0 && productiveEnergy.pendingBuildProgress <= 0) {
@@ -1614,6 +1692,27 @@ function summarizeConstructionActivity(
     state: 'no_viable_candidate',
     accepted: false,
     reason: 'no_viable_candidate'
+  };
+}
+
+function selectLatestConstructionPlacementEvent(
+  events: RuntimeConstructionPlacementTelemetryEvent[]
+): RuntimeConstructionPlacementTelemetryEvent | undefined {
+  return events[events.length - 1];
+}
+
+function summarizeConstructionPlacementEvent(
+  event: RuntimeConstructionPlacementTelemetryEvent
+): RuntimeConstructionActivityPlannerSummary {
+  return {
+    mode: event.mode,
+    priority: event.priority,
+    structureType: event.structureType,
+    ...(event.result !== undefined ? { result: event.result } : {}),
+    ...(event.blockedReason ? { blockedReason: event.blockedReason } : {}),
+    ...(event.details ? { details: event.details } : {}),
+    ...(event.x !== undefined ? { x: event.x } : {}),
+    ...(event.y !== undefined ? { y: event.y } : {})
   };
 }
 

@@ -87,6 +87,20 @@ export type ConstructionPlannerBlockerReason =
   | 'residual_road_seed_no_candidate'
   | 'residual_road_seed_rejected';
 
+export interface ConstructionPlannerBlockerDetails {
+  successfulPlacementCount?: number;
+  maxPlacementsPerRoom?: number;
+  pendingConstructionSiteCount?: number;
+  storedEnergyAvailableForConstruction?: number;
+  storedEnergyMinimum?: number;
+  remainingStructureCapacity?: number;
+  workerCoverageCount?: number;
+  workerCoverageMinimum?: number;
+  hostileThreatCount?: number;
+  rcl?: number;
+  ownedSpawnCount?: number;
+}
+
 export interface ConstructionPlannerCandidateDiagnostic {
   buildItem: string;
   buildType: string;
@@ -101,6 +115,7 @@ export interface ConstructionPlannerBlockedPlacement {
   structureType: BuildableStructureConstant;
   blockedReason: ConstructionPlannerBlockerReason;
   candidate?: ConstructionPlannerCandidateDiagnostic;
+  details?: ConstructionPlannerBlockerDetails;
   result?: ScreepsReturnCode;
   x?: number;
   y?: number;
@@ -169,6 +184,11 @@ interface ResidualRoadSeedPlan {
   anchors: CandidatePosition[];
   lookups: ResidualRoadSeedLookups;
   roomName: string;
+}
+
+interface ResidualRoadSeedBlocker {
+  reason: ConstructionPlannerBlockerReason;
+  details?: ConstructionPlannerBlockerDetails;
 }
 
 interface SpawnPlacementResult {
@@ -690,7 +710,7 @@ function planResidualStoredEnergyRoadSeed(
 
   const blocker = getResidualStoredEnergyRoadSeedBlocker(colony, result, budgetState, options);
   if (blocker) {
-    recordBlockedPlacement(result, 'road', blocker, options);
+    recordBlockedPlacement(result, 'road', blocker.reason, options, { details: blocker.details });
     return;
   }
 
@@ -742,44 +762,86 @@ function getResidualStoredEnergyRoadSeedBlocker(
   result: RoomConstructionPlannerResult,
   budgetState: ConstructionBudgetState,
   options: ConstructionPlannerOptions
-): ConstructionPlannerBlockerReason | null {
+): ResidualRoadSeedBlocker | null {
   if (hasReachedPlacementLimit(result, options)) {
-    return 'residual_road_seed_placement_limit_reached';
+    return {
+      reason: 'residual_road_seed_placement_limit_reached',
+      details: {
+        successfulPlacementCount: countSuccessfulPlacements(result),
+        maxPlacementsPerRoom: getMaxPlacementsPerRoom(options)
+      }
+    };
   }
 
-  if (countPendingRoomConstructionSites(colony.room) > 0) {
-    return 'residual_road_seed_existing_site';
+  const pendingConstructionSiteCount = countPendingRoomConstructionSites(colony.room);
+  if (pendingConstructionSiteCount > 0) {
+    return {
+      reason: 'residual_road_seed_existing_site',
+      details: { pendingConstructionSiteCount }
+    };
   }
 
-  if (!shouldUseStoredEnergyConstructionSeedSlot(colony.room, budgetState)) {
-    return 'residual_road_seed_stored_energy_unavailable';
+  const storedEnergyAvailableForConstruction = getRoomStoredEnergyAvailableForConstruction(colony.room);
+  if (
+    budgetState.energyReserved > 0 ||
+    storedEnergyAvailableForConstruction < CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY
+  ) {
+    return {
+      reason: 'residual_road_seed_stored_energy_unavailable',
+      details: {
+        storedEnergyAvailableForConstruction,
+        storedEnergyMinimum: CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY,
+        pendingConstructionSiteCount,
+        successfulPlacementCount: countSuccessfulPlacements(result)
+      }
+    };
   }
 
-  if (!hasRemainingStructureCapacity(colony.room, 'road')) {
-    return 'residual_road_seed_road_capacity_full';
+  const remainingStructureCapacity = getRemainingStructureCapacity(colony.room, 'road');
+  if (remainingStructureCapacity <= 0) {
+    return {
+      reason: 'residual_road_seed_road_capacity_full',
+      details: { remainingStructureCapacity }
+    };
   }
 
-  if (!hasResidualConstructionWorkerCoverage(colony.room, options.creeps)) {
-    return 'residual_road_seed_worker_coverage_missing';
+  const workerCoverageCount = countResidualConstructionWorkerCoverage(colony.room, options.creeps);
+  if (workerCoverageCount < MIN_RESIDUAL_CONSTRUCTION_SEED_WORKERS) {
+    return {
+      reason: 'residual_road_seed_worker_coverage_missing',
+      details: {
+        workerCoverageCount,
+        workerCoverageMinimum: MIN_RESIDUAL_CONSTRUCTION_SEED_WORKERS
+      }
+    };
   }
 
-  if (!isResidualConstructionSeedRoomSafe(colony)) {
-    return 'residual_road_seed_room_unsafe';
+  const hostileThreatCount = countVisibleHostileThreats(colony.room);
+  const rcl = getOwnedRoomRcl(colony.room);
+  if (!isResidualConstructionSeedRoomSafe(colony, hostileThreatCount, rcl)) {
+    return {
+      reason: 'residual_road_seed_room_unsafe',
+      details: {
+        hostileThreatCount,
+        rcl,
+        ownedSpawnCount: countExistingStructures(colony.room, 'spawn') + colony.spawns.length
+      }
+    };
   }
 
   return null;
 }
 
-function hasResidualConstructionWorkerCoverage(room: Room, creeps: Creep[] | undefined): boolean {
-  return (
-    hasResidualConstructionWorkerEvidence(room.name, creeps) ||
-    hasResidualConstructionWorkerEvidence(room.name, findRoomObjects<Creep>(room, 'FIND_MY_CREEPS'))
+function countResidualConstructionWorkerCoverage(room: Room, creeps: Creep[] | undefined): number {
+  return Math.max(
+    countResidualConstructionWorkerEvidence(room.name, creeps),
+    countResidualConstructionWorkerEvidence(room.name, findRoomObjects<Creep>(room, 'FIND_MY_CREEPS'))
   );
 }
 
-function hasResidualConstructionWorkerEvidence(roomName: string, creeps: Creep[] | undefined): boolean {
-  if (!creeps || creeps.length < MIN_RESIDUAL_CONSTRUCTION_SEED_WORKERS) {
-    return false;
+function countResidualConstructionWorkerEvidence(roomName: string, creeps: Creep[] | undefined): number {
+  if (!creeps || creeps.length === 0) {
+    return 0;
   }
 
   let workers = 0;
@@ -790,11 +852,11 @@ function hasResidualConstructionWorkerEvidence(roomName: string, creeps: Creep[]
 
     workers += 1;
     if (workers >= MIN_RESIDUAL_CONSTRUCTION_SEED_WORKERS) {
-      return true;
+      return workers;
     }
   }
 
-  return false;
+  return workers;
 }
 
 function isResidualConstructionWorker(roomName: string, creep: Creep): boolean {
@@ -808,13 +870,17 @@ function isResidualConstructionWorker(roomName: string, creep: Creep): boolean {
   );
 }
 
-function isResidualConstructionSeedRoomSafe(colony: ColonySnapshot): boolean {
+function isResidualConstructionSeedRoomSafe(
+  colony: ColonySnapshot,
+  hostileThreatCount = countVisibleHostileThreats(colony.room),
+  rcl = getOwnedRoomRcl(colony.room)
+): boolean {
   const room = colony.room;
   return (
     room.controller?.my === true &&
-    getOwnedRoomRcl(room) >= 2 &&
+    rcl >= 2 &&
     hasOwnedSpawn(colony) &&
-    countVisibleHostileThreats(room) <= 0
+    hostileThreatCount <= 0
   );
 }
 
@@ -1709,6 +1775,7 @@ function recordBlockedPlacement(
   options: ConstructionPlannerOptions,
   context: {
     candidate?: ConstructionPriorityScore;
+    details?: ConstructionPlannerBlockerDetails;
     position?: CandidatePosition;
     result?: ScreepsReturnCode;
   } = {}
@@ -1723,6 +1790,7 @@ function recordBlockedPlacement(
     structureType: getStructureConstant(PRIORITY_STRUCTURE_TYPES[priority]),
     blockedReason,
     ...(context.candidate ? { candidate: toConstructionPlannerCandidateDiagnostic(context.candidate) } : {}),
+    ...(context.details ? { details: context.details } : {}),
     ...(context.result !== undefined ? { result: context.result } : {}),
     ...(context.position ? { x: context.position.x, y: context.position.y } : {})
   });
@@ -1761,7 +1829,11 @@ function hasReachedPlacementLimit(
     return false;
   }
 
-  return result.placements.filter((placement) => placement.result === getOkCode()).length >= maxPlacements;
+  return countSuccessfulPlacements(result) >= maxPlacements;
+}
+
+function countSuccessfulPlacements(result: RoomConstructionPlannerResult): number {
+  return result.placements.filter((placement) => placement.result === getOkCode()).length;
 }
 
 function getMaxPlacementsPerRoom(options: ConstructionPlannerOptions): number {

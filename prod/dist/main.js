@@ -14994,7 +14994,7 @@ function planResidualStoredEnergyRoadSeed(colony, result, budgetState, options) 
   }
   const blocker = getResidualStoredEnergyRoadSeedBlocker(colony, result, budgetState, options);
   if (blocker) {
-    recordBlockedPlacement(result, "road", blocker, options);
+    recordBlockedPlacement(result, "road", blocker.reason, options, { details: blocker.details });
     return;
   }
   const seedPlan = createResidualRoadSeedPlan(colony.room, colony);
@@ -15037,31 +15037,73 @@ function planResidualStoredEnergyRoadSeed(colony, result, budgetState, options) 
 }
 function getResidualStoredEnergyRoadSeedBlocker(colony, result, budgetState, options) {
   if (hasReachedPlacementLimit(result, options)) {
-    return "residual_road_seed_placement_limit_reached";
+    return {
+      reason: "residual_road_seed_placement_limit_reached",
+      details: {
+        successfulPlacementCount: countSuccessfulPlacements(result),
+        maxPlacementsPerRoom: getMaxPlacementsPerRoom(options)
+      }
+    };
   }
-  if (countPendingRoomConstructionSites(colony.room) > 0) {
-    return "residual_road_seed_existing_site";
+  const pendingConstructionSiteCount = countPendingRoomConstructionSites(colony.room);
+  if (pendingConstructionSiteCount > 0) {
+    return {
+      reason: "residual_road_seed_existing_site",
+      details: { pendingConstructionSiteCount }
+    };
   }
-  if (!shouldUseStoredEnergyConstructionSeedSlot(colony.room, budgetState)) {
-    return "residual_road_seed_stored_energy_unavailable";
+  const storedEnergyAvailableForConstruction = getRoomStoredEnergyAvailableForConstruction(colony.room);
+  if (budgetState.energyReserved > 0 || storedEnergyAvailableForConstruction < CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY) {
+    return {
+      reason: "residual_road_seed_stored_energy_unavailable",
+      details: {
+        storedEnergyAvailableForConstruction,
+        storedEnergyMinimum: CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY,
+        pendingConstructionSiteCount,
+        successfulPlacementCount: countSuccessfulPlacements(result)
+      }
+    };
   }
-  if (!hasRemainingStructureCapacity(colony.room, "road")) {
-    return "residual_road_seed_road_capacity_full";
+  const remainingStructureCapacity = getRemainingStructureCapacity(colony.room, "road");
+  if (remainingStructureCapacity <= 0) {
+    return {
+      reason: "residual_road_seed_road_capacity_full",
+      details: { remainingStructureCapacity }
+    };
   }
-  if (!hasResidualConstructionWorkerCoverage(colony.room, options.creeps)) {
-    return "residual_road_seed_worker_coverage_missing";
+  const workerCoverageCount = countResidualConstructionWorkerCoverage(colony.room, options.creeps);
+  if (workerCoverageCount < MIN_RESIDUAL_CONSTRUCTION_SEED_WORKERS) {
+    return {
+      reason: "residual_road_seed_worker_coverage_missing",
+      details: {
+        workerCoverageCount,
+        workerCoverageMinimum: MIN_RESIDUAL_CONSTRUCTION_SEED_WORKERS
+      }
+    };
   }
-  if (!isResidualConstructionSeedRoomSafe(colony)) {
-    return "residual_road_seed_room_unsafe";
+  const hostileThreatCount = countVisibleHostileThreats(colony.room);
+  const rcl = getOwnedRoomRcl6(colony.room);
+  if (!isResidualConstructionSeedRoomSafe(colony, hostileThreatCount, rcl)) {
+    return {
+      reason: "residual_road_seed_room_unsafe",
+      details: {
+        hostileThreatCount,
+        rcl,
+        ownedSpawnCount: countExistingStructures(colony.room, "spawn") + colony.spawns.length
+      }
+    };
   }
   return null;
 }
-function hasResidualConstructionWorkerCoverage(room, creeps) {
-  return hasResidualConstructionWorkerEvidence(room.name, creeps) || hasResidualConstructionWorkerEvidence(room.name, findRoomObjects18(room, "FIND_MY_CREEPS"));
+function countResidualConstructionWorkerCoverage(room, creeps) {
+  return Math.max(
+    countResidualConstructionWorkerEvidence(room.name, creeps),
+    countResidualConstructionWorkerEvidence(room.name, findRoomObjects18(room, "FIND_MY_CREEPS"))
+  );
 }
-function hasResidualConstructionWorkerEvidence(roomName, creeps) {
-  if (!creeps || creeps.length < MIN_RESIDUAL_CONSTRUCTION_SEED_WORKERS) {
-    return false;
+function countResidualConstructionWorkerEvidence(roomName, creeps) {
+  if (!creeps || creeps.length === 0) {
+    return 0;
   }
   let workers = 0;
   for (const creep of creeps) {
@@ -15070,10 +15112,10 @@ function hasResidualConstructionWorkerEvidence(roomName, creeps) {
     }
     workers += 1;
     if (workers >= MIN_RESIDUAL_CONSTRUCTION_SEED_WORKERS) {
-      return true;
+      return workers;
     }
   }
-  return false;
+  return workers;
 }
 function isResidualConstructionWorker(roomName, creep) {
   var _a2;
@@ -15082,10 +15124,10 @@ function isResidualConstructionWorker(roomName, creep) {
   const creepRoomName = (_a2 = creep.room) == null ? void 0 : _a2.name;
   return memory.role === "worker" && (memory.colony === roomName || creepRoomName === roomName) && (typeof ttl !== "number" || ttl > 0);
 }
-function isResidualConstructionSeedRoomSafe(colony) {
+function isResidualConstructionSeedRoomSafe(colony, hostileThreatCount = countVisibleHostileThreats(colony.room), rcl = getOwnedRoomRcl6(colony.room)) {
   var _a2;
   const room = colony.room;
-  return ((_a2 = room.controller) == null ? void 0 : _a2.my) === true && getOwnedRoomRcl6(room) >= 2 && hasOwnedSpawn(colony) && countVisibleHostileThreats(room) <= 0;
+  return ((_a2 = room.controller) == null ? void 0 : _a2.my) === true && rcl >= 2 && hasOwnedSpawn(colony) && hostileThreatCount <= 0;
 }
 function countVisibleHostileThreats(room) {
   return findRoomObjects18(room, "FIND_HOSTILE_CREEPS").length + findRoomObjects18(room, "FIND_HOSTILE_STRUCTURES").length;
@@ -15740,6 +15782,7 @@ function recordBlockedPlacement(result, priority, blockedReason, options, contex
     structureType: getStructureConstant6(PRIORITY_STRUCTURE_TYPES[priority]),
     blockedReason,
     ...context.candidate ? { candidate: toConstructionPlannerCandidateDiagnostic(context.candidate) } : {},
+    ...context.details ? { details: context.details } : {},
     ...context.result !== void 0 ? { result: context.result } : {},
     ...context.position ? { x: context.position.x, y: context.position.y } : {}
   });
@@ -15765,7 +15808,10 @@ function hasReachedPlacementLimit(result, options) {
   if (maxPlacements === Number.MAX_SAFE_INTEGER) {
     return false;
   }
-  return result.placements.filter((placement) => placement.result === getOkCode5()).length >= maxPlacements;
+  return countSuccessfulPlacements(result) >= maxPlacements;
+}
+function countSuccessfulPlacements(result) {
+  return result.placements.filter((placement) => placement.result === getOkCode5()).length;
 }
 function getMaxPlacementsPerRoom(options) {
   const value = options.maxPlacementsPerRoom;
@@ -42115,12 +42161,13 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
   }
   creepsByColony != null ? creepsByColony : creepsByColony = groupCreepsByColony(creeps, colonies);
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
+  const constructionPlacementEventsByRoom = groupConstructionPlacementEventsByRoom(events);
   const persistOccupationRecommendations = options.persistOccupationRecommendations !== false;
   const includeOptionalSummary = !cpuBudget.lowCpuLimit && !shouldShedNonessentialCpuWork(cpuBudget);
   const includeConstructionScoring = shouldRunConstructionCpuWork(cpuBudget);
   const rooms = colonies.map(
     (colony) => {
-      var _a2, _b;
+      var _a2, _b, _c;
       return summarizeRoom(
         colony,
         (_a2 = creepsByColony.get(colony.room.name)) != null ? _a2 : [],
@@ -42129,6 +42176,7 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
         shouldBuildStructureSnapshot(tick),
         options.strategyRegistry,
         options.onStrategyRegistryRuntimeUse,
+        (_c = constructionPlacementEventsByRoom.get(colony.room.name)) != null ? _c : [],
         includeOptionalSummary,
         includeConstructionScoring,
         cpuBudget
@@ -42195,6 +42243,19 @@ function groupCreepsByColony(creeps, colonies) {
   }
   return creepsByColony;
 }
+function groupConstructionPlacementEventsByRoom(events) {
+  var _a2;
+  const eventsByRoom = /* @__PURE__ */ new Map();
+  for (const event of events) {
+    if (event.type !== "constructionPlacement") {
+      continue;
+    }
+    const roomEvents = (_a2 = eventsByRoom.get(event.roomName)) != null ? _a2 : [];
+    roomEvents.push(event);
+    eventsByRoom.set(event.roomName, roomEvents);
+  }
+  return eventsByRoom;
+}
 function addCreepToColonyGroup(creepsByColony, colonyName, creep) {
   var _a2;
   const colonyCreeps = (_a2 = creepsByColony.get(colonyName)) != null ? _a2 : [];
@@ -42228,7 +42289,7 @@ function buildRoomEventMetricsByRoom(colonies, refillTargetIdsByRoom) {
   }
   return eventMetricsByRoom;
 }
-function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, eventMetrics, includeStructureSnapshot, strategyRegistry, onStrategyRegistryRuntimeUse, includeOptionalSummary, includeConstructionScoring, cpuBudget) {
+function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, eventMetrics, includeStructureSnapshot, strategyRegistry, onStrategyRegistryRuntimeUse, constructionPlacementEvents, includeOptionalSummary, includeConstructionScoring, cpuBudget) {
   const tick = getGameTime34();
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === "worker");
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
@@ -42267,6 +42328,7 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     resourcesWithoutActivity.productiveEnergy,
     constructionPriority,
     eventMetrics.resources,
+    selectLatestConstructionPlacementEvent(constructionPlacementEvents),
     cpuBudget
   );
   const resources = {
@@ -42455,10 +42517,11 @@ function summarizeWorkerAssignmentBlockedRoomFields(productiveEnergy) {
     ...productiveEnergy.workerAssignmentBlockedWorkers ? { workerAssignmentBlockedWorkers: productiveEnergy.workerAssignmentBlockedWorkers } : {}
   };
 }
-function summarizeConstructionActivity(productiveEnergy, constructionPriority, events, cpuBudget) {
+function summarizeConstructionActivity(productiveEnergy, constructionPriority, events, constructionPlacementEvent, cpuBudget) {
   var _a2;
   const buildProgress = Math.max(0, Math.ceil((_a2 = events == null ? void 0 : events.builtProgress) != null ? _a2 : 0));
   const candidate = selectViableConstructionActivityCandidate(constructionPriority);
+  const planner = constructionPlacementEvent ? summarizeConstructionPlacementEvent(constructionPlacementEvent) : void 0;
   const common = {
     source: "runtime-summary",
     constructionSiteCount: productiveEnergy.constructionSiteCount,
@@ -42469,6 +42532,7 @@ function summarizeConstructionActivity(productiveEnergy, constructionPriority, e
     ...productiveEnergy.buildBlockedReason ? { buildBlockedReason: productiveEnergy.buildBlockedReason } : {},
     ...productiveEnergy.workerAssignmentBlockedDetail ? { workerAssignmentBlockedDetail: productiveEnergy.workerAssignmentBlockedDetail } : {},
     ...candidate ? { candidate } : {},
+    ...planner ? { planner } : {},
     ...cpuBudget.pressure !== "normal" ? { cpuPressure: cpuBudget.pressure } : {},
     ...cpuBudget.reasons.length > 0 ? { cpuReasons: cpuBudget.reasons } : {}
   };
@@ -42495,6 +42559,33 @@ function summarizeConstructionActivity(productiveEnergy, constructionPriority, e
       accepted: true,
       reason: selectConstructionActivitySuppressedReason(productiveEnergy, cpuBudget)
     };
+  }
+  if (constructionPlacementEvent && productiveEnergy.constructionSiteCount <= 0 && productiveEnergy.pendingBuildProgress <= 0) {
+    const placementResult = constructionPlacementEvent.result;
+    if (constructionPlacementEvent.blockedReason) {
+      return {
+        ...common,
+        state: "planner_blocked",
+        accepted: false,
+        reason: "planner_blocked"
+      };
+    }
+    if (placementResult === 0) {
+      return {
+        ...common,
+        state: "active",
+        accepted: true,
+        reason: "site_placement_observed"
+      };
+    }
+    if (placementResult !== void 0) {
+      return {
+        ...common,
+        state: "planner_blocked",
+        accepted: false,
+        reason: "site_placement_failed"
+      };
+    }
   }
   if (productiveEnergy.constructionSiteCount > 0 && productiveEnergy.pendingBuildProgress <= 0) {
     return {
@@ -42525,6 +42616,21 @@ function summarizeConstructionActivity(productiveEnergy, constructionPriority, e
     state: "no_viable_candidate",
     accepted: false,
     reason: "no_viable_candidate"
+  };
+}
+function selectLatestConstructionPlacementEvent(events) {
+  return events[events.length - 1];
+}
+function summarizeConstructionPlacementEvent(event) {
+  return {
+    mode: event.mode,
+    priority: event.priority,
+    structureType: event.structureType,
+    ...event.result !== void 0 ? { result: event.result } : {},
+    ...event.blockedReason ? { blockedReason: event.blockedReason } : {},
+    ...event.details ? { details: event.details } : {},
+    ...event.x !== void 0 ? { x: event.x } : {},
+    ...event.y !== void 0 ? { y: event.y } : {}
   };
 }
 function selectViableConstructionActivityCandidate(constructionPriority) {
@@ -52807,16 +52913,17 @@ function runClaimedRoomConstructionForCpuBudget(colony, creeps, options, telemet
     creeps,
     strategyRegistry: options.strategyRegistry,
     runtimeStrategyConstructionEnabled: options.runtimeStrategyConstructionEnabled,
+    emitConstructionBlockerDiagnostics: true,
     onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
   };
   const activeConstructionOptions = mode === "recoverySeed" ? buildCpuRecoveryConstructionSeedOptions(constructionOptions) : constructionOptions;
   if (deferred) {
     const result2 = planDeferredClaimedRoomCapacityConstruction(colony, activeConstructionOptions);
-    recordRecoveryConstructionPlacementTelemetry(telemetryEvents, result2.placements, result2.blockedPlacements, mode);
+    recordConstructionPlacementTelemetry(telemetryEvents, result2.placements, result2.blockedPlacements, mode);
     return;
   }
   const result = planClaimedRoomConstruction(colony, activeConstructionOptions);
-  recordRecoveryConstructionPlacementTelemetry(telemetryEvents, result.placements, result.blockedPlacements, mode);
+  recordConstructionPlacementTelemetry(telemetryEvents, result.placements, result.blockedPlacements, mode);
 }
 function selectConstructionCpuMode(cpuBudget) {
   return shouldShedNonessentialCpuWork(cpuBudget) && shouldRunConstructionCpuWork(cpuBudget) ? "recoverySeed" : "normal";
@@ -52840,10 +52947,7 @@ function buildCpuRecoveryConstructionSeedOptions(options) {
     }
   };
 }
-function recordRecoveryConstructionPlacementTelemetry(telemetryEvents, placements, blockedPlacements, mode) {
-  if (mode !== "recoverySeed") {
-    return;
-  }
+function recordConstructionPlacementTelemetry(telemetryEvents, placements, blockedPlacements, mode) {
   for (const placement of placements) {
     telemetryEvents.push({
       type: "constructionPlacement",
@@ -52851,7 +52955,7 @@ function recordRecoveryConstructionPlacementTelemetry(telemetryEvents, placement
       priority: placement.priority,
       structureType: String(placement.structureType),
       result: placement.result,
-      mode: "recoverySeed",
+      mode,
       ...placement.x !== void 0 ? { x: placement.x } : {},
       ...placement.y !== void 0 ? { y: placement.y } : {}
     });
@@ -52862,10 +52966,11 @@ function recordRecoveryConstructionPlacementTelemetry(telemetryEvents, placement
       roomName: placement.roomName,
       priority: placement.priority,
       structureType: String(placement.structureType),
-      mode: "recoverySeed",
+      mode,
       blockedReason: placement.blockedReason,
       ...placement.result !== void 0 ? { result: placement.result } : {},
       ...placement.candidate ? { candidate: placement.candidate } : {},
+      ...placement.details ? { details: placement.details } : {},
       ...placement.x !== void 0 ? { x: placement.x } : {},
       ...placement.y !== void 0 ? { y: placement.y } : {}
     });
