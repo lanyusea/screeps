@@ -281,7 +281,7 @@ def build_issue_body(raw: JsonObject, *, source_artifact: str, repo: str, root: 
             "- [ ] GitHub issue and Project fields are current.",
             "- [ ] Implementation preserves no-secret policy.",
             "- [ ] If `prod/` changes, Codex authors the code commit and `npm run typecheck`, `npm test -- --runInBand`, and `npm run build` pass from `prod/`.",
-            "- [ ] PR is in Project `screeps` and passes the automated review gate.",
+            "- [ ] PR is in Project `screeps` and passes the automated review gate, or records an exact-head CodeRabbit/Gemini reliability bypass.",
             "- [ ] Runtime/private/monitor evidence is attached when release or gameplay KPI movement is claimed.",
         ]
     )

@@ -58,13 +58,13 @@ A task is **not done** if its code/docs/tests are complete but its GitHub issue,
 
 ## Review and merge gate
 
-The owner decision on 2026-04-26 is to use the automated review口径 for this repository. A formal GitHub approving review is **not** required unless a later owner decision changes this contract.
+The owner decision on 2026-04-26 is to use the automated review口径 for this repository. Owner decision `1514861910908993646` adds that CodeRabbit/Gemini review can be skipped when it is unreliable. A formal GitHub approving review is **not** required unless a later owner decision changes this contract.
 
 A PR may be merged only after all of these are true:
 
 1. The PR has waited at least 15 minutes after creation.
 2. Required checks are green, including `Verify prod TypeScript, Jest, and bundle` when applicable.
-3. Automated review signals have no blocking findings: CodeRabbit/Gemini are successful, have no critical unresolved feedback, or explicitly report no feedback.
+3. Automated review signals have no blocking findings: CodeRabbit/Gemini are successful, have no critical unresolved feedback, explicitly report no feedback, or have a recorded reliability bypass for unreliable/unavailable/rate-limited/skipped/stale/non-substantive review on the exact PR head.
 4. All GitHub review threads/discussions are resolved or verified as outdated/non-blocking.
 5. The linked issue and PR Project items have current `Status`, `Evidence`, and `Next action` fields.
 6. A QA/acceptance-check pass returns `PASS` for meaningful deliverables.
