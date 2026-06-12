@@ -59,6 +59,7 @@ export interface ConstructionPlannerOptions {
   strategyRegistry?: StrategyRegistryEntry[];
   runtimeStrategyConstructionEnabled?: boolean;
   runtimeStrategyConstructionFallbackPriorities?: boolean;
+  emitConstructionBlockerDiagnostics?: boolean;
   onStrategyRegistryRuntimeUse?: (entry: StrategyRegistryEntry) => void;
 }
 
@@ -72,6 +73,39 @@ export interface ConstructionPlannerPlacement {
   y?: number;
 }
 
+export type ConstructionPlannerBlockerReason =
+  | 'accepted_runtime_rampart_capacity_full'
+  | 'accepted_runtime_rampart_energy_buffer_blocked'
+  | 'accepted_runtime_rampart_no_uncovered_anchor'
+  | 'residual_road_seed_existing_site'
+  | 'residual_road_seed_placement_limit_reached'
+  | 'residual_road_seed_stored_energy_unavailable'
+  | 'residual_road_seed_road_capacity_full'
+  | 'residual_road_seed_worker_coverage_missing'
+  | 'residual_road_seed_room_unsafe'
+  | 'residual_road_seed_terrain_unavailable'
+  | 'residual_road_seed_no_candidate'
+  | 'residual_road_seed_rejected';
+
+export interface ConstructionPlannerCandidateDiagnostic {
+  buildItem: string;
+  buildType: string;
+  room: string;
+  score: number;
+  urgency: string;
+}
+
+export interface ConstructionPlannerBlockedPlacement {
+  priority: ConstructionPlannerPriority;
+  roomName: string;
+  structureType: BuildableStructureConstant;
+  blockedReason: ConstructionPlannerBlockerReason;
+  candidate?: ConstructionPlannerCandidateDiagnostic;
+  result?: ScreepsReturnCode;
+  x?: number;
+  y?: number;
+}
+
 export interface RoomConstructionPlannerResult {
   roomName: string;
   rcl: number;
@@ -79,11 +113,13 @@ export interface RoomConstructionPlannerResult {
   energyBudget: number;
   energyReserved: number;
   placements: ConstructionPlannerPlacement[];
+  blockedPlacements: ConstructionPlannerBlockedPlacement[];
 }
 
 export interface ConstructionPlannerResult {
   rooms: RoomConstructionPlannerResult[];
   placements: ConstructionPlannerPlacement[];
+  blockedPlacements: ConstructionPlannerBlockedPlacement[];
   energyBudget: number;
   energyReserved: number;
 }
@@ -215,6 +251,7 @@ export function runConstructionPlanner(options: ConstructionPlannerOptions = {})
   return {
     rooms,
     placements: rooms.flatMap((room) => room.placements),
+    blockedPlacements: rooms.flatMap((room) => room.blockedPlacements),
     energyBudget: rooms.reduce((total, room) => total + room.energyBudget, 0),
     energyReserved: rooms.reduce((total, room) => total + room.energyReserved, 0)
   };
@@ -237,7 +274,8 @@ export function planConstructionForColony(
     energyAvailable,
     energyBudget: budgetState.energyBudget,
     energyReserved: 0,
-    placements: []
+    placements: [],
+    blockedPlacements: []
   };
 
   if (
@@ -414,7 +452,8 @@ export function planCapacityBootstrapExtensionForColony(
     energyAvailable,
     energyBudget: budgetState.energyBudget,
     energyReserved: 0,
-    placements: []
+    placements: [],
+    blockedPlacements: []
   };
 
   if (
@@ -645,18 +684,34 @@ function planResidualStoredEnergyRoadSeed(
   budgetState: ConstructionBudgetState,
   options: ConstructionPlannerOptions
 ): void {
-  if (!shouldPlanResidualStoredEnergyRoadSeed(colony, result, budgetState, options)) {
+  if (result.placements.length > 0) {
+    return;
+  }
+
+  const blocker = getResidualStoredEnergyRoadSeedBlocker(colony, result, budgetState, options);
+  if (blocker) {
+    recordBlockedPlacement(result, 'road', blocker, options);
     return;
   }
 
   const seedPlan = createResidualRoadSeedPlan(colony.room, colony);
   if (!seedPlan) {
+    recordBlockedPlacement(result, 'road', 'residual_road_seed_terrain_unavailable', options);
     return;
   }
 
+  let lastRejected: { result: ScreepsReturnCode; position: CandidatePosition } | null = null;
   for (let attempt = 0; attempt < RESIDUAL_ROAD_SEED_MAX_PLACEMENT_ATTEMPTS; attempt += 1) {
     const position = selectResidualRoadSeedPosition(seedPlan);
     if (!position) {
+      if (lastRejected) {
+        recordBlockedPlacement(result, 'road', 'residual_road_seed_rejected', options, {
+          result: lastRejected.result,
+          position: lastRejected.position
+        });
+      } else {
+        recordBlockedPlacement(result, 'road', 'residual_road_seed_no_candidate', options);
+      }
       return;
     }
 
@@ -670,24 +725,49 @@ function planResidualStoredEnergyRoadSeed(
       return;
     }
 
+    lastRejected = { result: placementResult, position };
     seedPlan.lookups.blockingPositions.add(getPositionKey(position));
+  }
+
+  if (lastRejected) {
+    recordBlockedPlacement(result, 'road', 'residual_road_seed_rejected', options, {
+      result: lastRejected.result,
+      position: lastRejected.position
+    });
   }
 }
 
-function shouldPlanResidualStoredEnergyRoadSeed(
+function getResidualStoredEnergyRoadSeedBlocker(
   colony: ColonySnapshot,
   result: RoomConstructionPlannerResult,
   budgetState: ConstructionBudgetState,
   options: ConstructionPlannerOptions
-): boolean {
-  return (
-    result.placements.length <= 0 &&
-    !hasReachedPlacementLimit(result, options) &&
-    shouldUseStoredEnergyConstructionSeedSlot(colony.room, budgetState) &&
-    hasRemainingStructureCapacity(colony.room, 'road') &&
-    hasResidualConstructionWorkerCoverage(colony.room, options.creeps) &&
-    isResidualConstructionSeedRoomSafe(colony)
-  );
+): ConstructionPlannerBlockerReason | null {
+  if (hasReachedPlacementLimit(result, options)) {
+    return 'residual_road_seed_placement_limit_reached';
+  }
+
+  if (countPendingRoomConstructionSites(colony.room) > 0) {
+    return 'residual_road_seed_existing_site';
+  }
+
+  if (!shouldUseStoredEnergyConstructionSeedSlot(colony.room, budgetState)) {
+    return 'residual_road_seed_stored_energy_unavailable';
+  }
+
+  if (!hasRemainingStructureCapacity(colony.room, 'road')) {
+    return 'residual_road_seed_road_capacity_full';
+  }
+
+  if (!hasResidualConstructionWorkerCoverage(colony.room, options.creeps)) {
+    return 'residual_road_seed_worker_coverage_missing';
+  }
+
+  if (!isResidualConstructionSeedRoomSafe(colony)) {
+    return 'residual_road_seed_room_unsafe';
+  }
+
+  return null;
 }
 
 function hasResidualConstructionWorkerCoverage(room: Room, creeps: Creep[] | undefined): boolean {
@@ -1197,7 +1277,7 @@ function planAcceptedRuntimeConstructionCandidateSeed(
   }
 
   if (candidate.buildType === 'rampart') {
-    planAcceptedRuntimeRampartSeed(colony, result, budgetState, options);
+    planAcceptedRuntimeRampartSeed(candidate, colony, result, budgetState, options);
   }
 }
 
@@ -1213,21 +1293,32 @@ function isAcceptedRuntimeConstructionBuildCandidate(
 }
 
 function planAcceptedRuntimeRampartSeed(
+  candidate: ConstructionPriorityScore,
   colony: ColonySnapshot,
   result: RoomConstructionPlannerResult,
   budgetState: ConstructionBudgetState,
   options: ConstructionPlannerOptions
 ): void {
   const room = colony.room;
-  if (
-    !hasRemainingStructureCapacity(room, 'rampart') ||
-    !canReserveConstructionEnergy(room, budgetState, 'rampart', options)
-  ) {
+  if (!hasRemainingStructureCapacity(room, 'rampart')) {
+    recordBlockedPlacement(result, 'rampart', 'accepted_runtime_rampart_capacity_full', options, {
+      candidate
+    });
+    return;
+  }
+
+  if (!canReserveConstructionEnergy(room, budgetState, 'rampart', options)) {
+    recordBlockedPlacement(result, 'rampart', 'accepted_runtime_rampart_energy_buffer_blocked', options, {
+      candidate
+    });
     return;
   }
 
   const position = selectAcceptedRuntimeRampartSeedPosition(room, colony);
   if (!position) {
+    recordBlockedPlacement(result, 'rampart', 'accepted_runtime_rampart_no_uncovered_anchor', options, {
+      candidate
+    });
     return;
   }
 
@@ -1609,6 +1700,44 @@ function recordPlacement(
     energyReserved,
     ...(position ? { x: position.x, y: position.y } : {})
   });
+}
+
+function recordBlockedPlacement(
+  result: RoomConstructionPlannerResult,
+  priority: ConstructionPlannerPriority,
+  blockedReason: ConstructionPlannerBlockerReason,
+  options: ConstructionPlannerOptions,
+  context: {
+    candidate?: ConstructionPriorityScore;
+    position?: CandidatePosition;
+    result?: ScreepsReturnCode;
+  } = {}
+): void {
+  if (options.emitConstructionBlockerDiagnostics !== true) {
+    return;
+  }
+
+  result.blockedPlacements.push({
+    priority,
+    roomName: result.roomName,
+    structureType: getStructureConstant(PRIORITY_STRUCTURE_TYPES[priority]),
+    blockedReason,
+    ...(context.candidate ? { candidate: toConstructionPlannerCandidateDiagnostic(context.candidate) } : {}),
+    ...(context.result !== undefined ? { result: context.result } : {}),
+    ...(context.position ? { x: context.position.x, y: context.position.y } : {})
+  });
+}
+
+function toConstructionPlannerCandidateDiagnostic(
+  candidate: ConstructionPriorityScore
+): ConstructionPlannerCandidateDiagnostic {
+  return {
+    buildItem: candidate.buildItem,
+    buildType: candidate.buildType,
+    room: candidate.room,
+    score: candidate.score,
+    urgency: candidate.urgency
+  };
 }
 
 function hasBlockingPlacementFailure(result: RoomConstructionPlannerResult): boolean {

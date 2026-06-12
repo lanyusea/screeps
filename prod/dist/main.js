@@ -14726,7 +14726,8 @@ function planConstructionForColony(colony, options = {}) {
     energyAvailable,
     energyBudget: budgetState.energyBudget,
     energyReserved: 0,
-    placements: []
+    placements: [],
+    blockedPlacements: []
   };
   if (rcl <= 0 || typeof room.createConstructionSite !== "function" || getMaxPlacementsPerRoom(options) <= 0) {
     return result;
@@ -14865,7 +14866,8 @@ function planCapacityBootstrapExtensionForColony(colony, options = {}) {
     energyAvailable,
     energyBudget: budgetState.energyBudget,
     energyReserved: 0,
-    placements: []
+    placements: [],
+    blockedPlacements: []
   };
   if (rcl !== 2 || typeof room.createConstructionSite !== "function" || !hasSpawnCoverage2(colony) || !hasRemainingStructureCapacity(room, "extension")) {
     return result;
@@ -14987,16 +14989,31 @@ function planStorage(colony, result, budgetState, options) {
   }
 }
 function planResidualStoredEnergyRoadSeed(colony, result, budgetState, options) {
-  if (!shouldPlanResidualStoredEnergyRoadSeed(colony, result, budgetState, options)) {
+  if (result.placements.length > 0) {
+    return;
+  }
+  const blocker = getResidualStoredEnergyRoadSeedBlocker(colony, result, budgetState, options);
+  if (blocker) {
+    recordBlockedPlacement(result, "road", blocker, options);
     return;
   }
   const seedPlan = createResidualRoadSeedPlan(colony.room, colony);
   if (!seedPlan) {
+    recordBlockedPlacement(result, "road", "residual_road_seed_terrain_unavailable", options);
     return;
   }
+  let lastRejected = null;
   for (let attempt = 0; attempt < RESIDUAL_ROAD_SEED_MAX_PLACEMENT_ATTEMPTS; attempt += 1) {
     const position = selectResidualRoadSeedPosition(seedPlan);
     if (!position) {
+      if (lastRejected) {
+        recordBlockedPlacement(result, "road", "residual_road_seed_rejected", options, {
+          result: lastRejected.result,
+          position: lastRejected.position
+        });
+      } else {
+        recordBlockedPlacement(result, "road", "residual_road_seed_no_candidate", options);
+      }
       return;
     }
     const placementResult = colony.room.createConstructionSite(
@@ -15008,11 +15025,36 @@ function planResidualStoredEnergyRoadSeed(colony, result, budgetState, options) 
       recordPlacement(result, budgetState, "road", placementResult, options, position);
       return;
     }
+    lastRejected = { result: placementResult, position };
     seedPlan.lookups.blockingPositions.add(getPositionKey7(position));
   }
+  if (lastRejected) {
+    recordBlockedPlacement(result, "road", "residual_road_seed_rejected", options, {
+      result: lastRejected.result,
+      position: lastRejected.position
+    });
+  }
 }
-function shouldPlanResidualStoredEnergyRoadSeed(colony, result, budgetState, options) {
-  return result.placements.length <= 0 && !hasReachedPlacementLimit(result, options) && shouldUseStoredEnergyConstructionSeedSlot(colony.room, budgetState) && hasRemainingStructureCapacity(colony.room, "road") && hasResidualConstructionWorkerCoverage(colony.room, options.creeps) && isResidualConstructionSeedRoomSafe(colony);
+function getResidualStoredEnergyRoadSeedBlocker(colony, result, budgetState, options) {
+  if (hasReachedPlacementLimit(result, options)) {
+    return "residual_road_seed_placement_limit_reached";
+  }
+  if (countPendingRoomConstructionSites(colony.room) > 0) {
+    return "residual_road_seed_existing_site";
+  }
+  if (!shouldUseStoredEnergyConstructionSeedSlot(colony.room, budgetState)) {
+    return "residual_road_seed_stored_energy_unavailable";
+  }
+  if (!hasRemainingStructureCapacity(colony.room, "road")) {
+    return "residual_road_seed_road_capacity_full";
+  }
+  if (!hasResidualConstructionWorkerCoverage(colony.room, options.creeps)) {
+    return "residual_road_seed_worker_coverage_missing";
+  }
+  if (!isResidualConstructionSeedRoomSafe(colony)) {
+    return "residual_road_seed_room_unsafe";
+  }
+  return null;
 }
 function hasResidualConstructionWorkerCoverage(room, creeps) {
   return hasResidualConstructionWorkerEvidence(room.name, creeps) || hasResidualConstructionWorkerEvidence(room.name, findRoomObjects18(room, "FIND_MY_CREEPS"));
@@ -15383,7 +15425,7 @@ function planAcceptedRuntimeConstructionCandidateSeed(candidate, colony, result,
     return;
   }
   if (candidate.buildType === "rampart") {
-    planAcceptedRuntimeRampartSeed(colony, result, budgetState, options);
+    planAcceptedRuntimeRampartSeed(candidate, colony, result, budgetState, options);
   }
 }
 function isAcceptedRuntimeConstructionBuildCandidate(candidate) {
@@ -15391,13 +15433,25 @@ function isAcceptedRuntimeConstructionBuildCandidate(candidate) {
     candidate && candidate.score > 0 && !candidate.blocked && candidate.policyAction === "build"
   );
 }
-function planAcceptedRuntimeRampartSeed(colony, result, budgetState, options) {
+function planAcceptedRuntimeRampartSeed(candidate, colony, result, budgetState, options) {
   const room = colony.room;
-  if (!hasRemainingStructureCapacity(room, "rampart") || !canReserveConstructionEnergy(room, budgetState, "rampart", options)) {
+  if (!hasRemainingStructureCapacity(room, "rampart")) {
+    recordBlockedPlacement(result, "rampart", "accepted_runtime_rampart_capacity_full", options, {
+      candidate
+    });
+    return;
+  }
+  if (!canReserveConstructionEnergy(room, budgetState, "rampart", options)) {
+    recordBlockedPlacement(result, "rampart", "accepted_runtime_rampart_energy_buffer_blocked", options, {
+      candidate
+    });
     return;
   }
   const position = selectAcceptedRuntimeRampartSeedPosition(room, colony);
   if (!position) {
+    recordBlockedPlacement(result, "rampart", "accepted_runtime_rampart_no_uncovered_anchor", options, {
+      candidate
+    });
     return;
   }
   const placementResult = room.createConstructionSite(
@@ -15675,6 +15729,29 @@ function recordPlacement(result, budgetState, priority, placementResult, options
     energyReserved,
     ...position ? { x: position.x, y: position.y } : {}
   });
+}
+function recordBlockedPlacement(result, priority, blockedReason, options, context = {}) {
+  if (options.emitConstructionBlockerDiagnostics !== true) {
+    return;
+  }
+  result.blockedPlacements.push({
+    priority,
+    roomName: result.roomName,
+    structureType: getStructureConstant6(PRIORITY_STRUCTURE_TYPES[priority]),
+    blockedReason,
+    ...context.candidate ? { candidate: toConstructionPlannerCandidateDiagnostic(context.candidate) } : {},
+    ...context.result !== void 0 ? { result: context.result } : {},
+    ...context.position ? { x: context.position.x, y: context.position.y } : {}
+  });
+}
+function toConstructionPlannerCandidateDiagnostic(candidate) {
+  return {
+    buildItem: candidate.buildItem,
+    buildType: candidate.buildType,
+    room: candidate.room,
+    score: candidate.score,
+    urgency: candidate.urgency
+  };
 }
 function hasBlockingPlacementFailure(result) {
   const lastPlacement = result.placements[result.placements.length - 1];
@@ -16182,6 +16259,7 @@ function createEmptyClaimedRoomConstructionResult(colony, reason) {
     energyBudget: 0,
     energyReserved: 0,
     placements: [],
+    blockedPlacements: [],
     active: reason !== "inactive",
     yielded: true,
     yieldReason: reason
@@ -52662,11 +52740,11 @@ function runClaimedRoomConstructionForCpuBudget(colony, creeps, options, telemet
   const activeConstructionOptions = mode === "recoverySeed" ? buildCpuRecoveryConstructionSeedOptions(constructionOptions) : constructionOptions;
   if (deferred) {
     const result2 = planDeferredClaimedRoomCapacityConstruction(colony, activeConstructionOptions);
-    recordRecoveryConstructionPlacementTelemetry(telemetryEvents, result2.placements, mode);
+    recordRecoveryConstructionPlacementTelemetry(telemetryEvents, result2.placements, result2.blockedPlacements, mode);
     return;
   }
   const result = planClaimedRoomConstruction(colony, activeConstructionOptions);
-  recordRecoveryConstructionPlacementTelemetry(telemetryEvents, result.placements, mode);
+  recordRecoveryConstructionPlacementTelemetry(telemetryEvents, result.placements, result.blockedPlacements, mode);
 }
 function selectConstructionCpuMode(cpuBudget) {
   return shouldShedNonessentialCpuWork(cpuBudget) && shouldRunConstructionCpuWork(cpuBudget) ? "recoverySeed" : "normal";
@@ -52678,6 +52756,7 @@ function buildCpuRecoveryConstructionSeedOptions(options) {
     strategyRegistry: (_a2 = options.strategyRegistry) != null ? _a2 : DEFAULT_STRATEGY_REGISTRY,
     runtimeStrategyConstructionEnabled: true,
     runtimeStrategyConstructionFallbackPriorities: false,
+    emitConstructionBlockerDiagnostics: true,
     includePostClaimRamparts: true,
     maxPlacementsPerRoom: 1,
     maxContainerSitesPerTick: 1,
@@ -52689,7 +52768,7 @@ function buildCpuRecoveryConstructionSeedOptions(options) {
     }
   };
 }
-function recordRecoveryConstructionPlacementTelemetry(telemetryEvents, placements, mode) {
+function recordRecoveryConstructionPlacementTelemetry(telemetryEvents, placements, blockedPlacements, mode) {
   if (mode !== "recoverySeed") {
     return;
   }
@@ -52701,6 +52780,20 @@ function recordRecoveryConstructionPlacementTelemetry(telemetryEvents, placement
       structureType: String(placement.structureType),
       result: placement.result,
       mode: "recoverySeed",
+      ...placement.x !== void 0 ? { x: placement.x } : {},
+      ...placement.y !== void 0 ? { y: placement.y } : {}
+    });
+  }
+  for (const placement of blockedPlacements) {
+    telemetryEvents.push({
+      type: "constructionPlacement",
+      roomName: placement.roomName,
+      priority: placement.priority,
+      structureType: String(placement.structureType),
+      mode: "recoverySeed",
+      blockedReason: placement.blockedReason,
+      ...placement.result !== void 0 ? { result: placement.result } : {},
+      ...placement.candidate ? { candidate: placement.candidate } : {},
       ...placement.x !== void 0 ? { x: placement.x } : {},
       ...placement.y !== void 0 ? { y: placement.y } : {}
     });

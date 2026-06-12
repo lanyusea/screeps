@@ -43,6 +43,7 @@ export function runClaimedRoomConstructionPlanner(
     activeRoomNames: rooms.filter((room) => room.active).map((room) => room.roomName),
     yieldedRoomNames: rooms.filter((room) => room.yielded).map((room) => room.roomName),
     placements: rooms.flatMap((room) => room.placements),
+    blockedPlacements: rooms.flatMap((room) => room.blockedPlacements),
     energyBudget: rooms.reduce((total, room) => total + room.energyBudget, 0),
     energyReserved: rooms.reduce((total, room) => total + room.energyReserved, 0)
   };
@@ -119,6 +120,7 @@ function createEmptyClaimedRoomConstructionResult(
     energyBudget: 0,
     energyReserved: 0,
     placements: [],
+    blockedPlacements: [],
     active: reason !== 'inactive',
     yielded: true,
     yieldReason: reason
