@@ -410,7 +410,8 @@ function findRoomStructures(room: Room): AnyStructure[] {
   const structures: AnyStructure[] = [];
   for (const structure of [
     ...findRoomObjects<AnyStructure>(room, 'FIND_MY_STRUCTURES'),
-    ...findRoomObjects<AnyStructure>(room, 'FIND_STRUCTURES')
+    ...findRoomObjects<AnyStructure>(room, 'FIND_STRUCTURES'),
+    ...getDirectRoomStoreStructures(room)
   ]) {
     const stableId = getObjectId(structure);
     if (stableId && seenIds.has(stableId)) {
@@ -424,6 +425,20 @@ function findRoomStructures(room: Room): AnyStructure[] {
   }
 
   return structures;
+}
+
+function getDirectRoomStoreStructures(room: Room): AnyStructure[] {
+  const roomStores = room as Room & {
+    storage?: StructureStorage | null;
+    terminal?: StructureTerminal | null;
+  };
+  const directStores: Array<StructureStorage | StructureTerminal | null | undefined> = [
+    roomStores.storage,
+    roomStores.terminal
+  ];
+  return directStores.filter(
+    (structure): structure is StructureStorage | StructureTerminal => structure !== undefined && structure !== null
+  );
 }
 
 function findRoomObjects<T>(room: Room, globalName: FindConstantGlobal): T[] {
@@ -452,14 +467,14 @@ function getStoredEnergy(target: unknown): number {
     } | null
   )?.store;
   const energyResource = getEnergyResource();
-  const usedCapacity = store?.getUsedCapacity?.(energyResource);
-  if (typeof usedCapacity === 'number' && Number.isFinite(usedCapacity)) {
-    return Math.max(0, usedCapacity);
-  }
-
   const storedEnergy = store?.[energyResource];
   if (typeof storedEnergy === 'number' && Number.isFinite(storedEnergy)) {
     return Math.max(0, storedEnergy);
+  }
+
+  const usedCapacity = store?.getUsedCapacity?.(energyResource);
+  if (typeof usedCapacity === 'number' && Number.isFinite(usedCapacity)) {
+    return Math.max(0, usedCapacity);
   }
 
   const legacyEnergy = (target as { energy?: unknown } | null)?.energy;
