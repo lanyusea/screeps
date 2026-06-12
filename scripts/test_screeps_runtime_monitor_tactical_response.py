@@ -972,7 +972,7 @@ class PostdeployConstructionAcceptanceTest(unittest.TestCase):
             }
         )
 
-        self.assertTrue(health["ok"])
+        self.assertFalse(health["ok"])
         acceptance = health["construction_acceptance"]
         self.assertFalse(acceptance["ok"])
         self.assertEqual(acceptance["status"], "blocked")
@@ -983,7 +983,6 @@ class PostdeployConstructionAcceptanceTest(unittest.TestCase):
         cases = (
             ({"buildCarriedEnergy": 25, "taskCounts": {"build": 0}}, "build_energy_carried"),
             ({"buildCarriedEnergy": 0, "constructionActivity": {"buildProgress": 5}}, "build_progress_observed"),
-            ({"buildCarriedEnergy": 0, "taskCounts": {"build": 1}}, "build_task_visible"),
         )
 
         for evidence, expected_reason in cases:
@@ -996,10 +995,38 @@ class PostdeployConstructionAcceptanceTest(unittest.TestCase):
                     }
                 )
 
+                self.assertTrue(health["ok"])
                 acceptance = health["construction_acceptance"]
                 self.assertTrue(acceptance["ok"])
                 self.assertEqual(acceptance["status"], "pass")
                 self.assertEqual(acceptance["rooms"][0]["reason"], expected_reason)
+
+    def test_construction_acceptance_does_not_pass_on_build_assignment_alone(self) -> None:
+        cases = (
+            (
+                {"buildCarriedEnergy": 0, "constructionActivity": {"buildProgress": 0}, "taskCounts": {"build": 1}},
+                "blocked",
+                "no_build_execution",
+            ),
+            ({"taskCounts": {"build": 1}}, "pending", "missing_build_execution_telemetry"),
+        )
+
+        for evidence, expected_status, expected_reason in cases:
+            with self.subTest(expected_status=expected_status, expected_reason=expected_reason):
+                health = self.health_gate_for_room(
+                    {
+                        "constructionSiteCount": 1,
+                        "pendingBuildProgress": 300,
+                        **evidence,
+                    }
+                )
+
+                self.assertFalse(health["ok"])
+                acceptance = health["construction_acceptance"]
+                self.assertFalse(acceptance["ok"])
+                self.assertEqual(acceptance["status"], expected_status)
+                self.assertEqual(acceptance["rooms"][0]["reason"], expected_reason)
+                self.assertEqual(acceptance["rooms"][0]["build"], 1)
 
     def test_construction_acceptance_passes_when_no_backlog_is_visible(self) -> None:
         health = self.health_gate_for_room(
@@ -1011,6 +1038,7 @@ class PostdeployConstructionAcceptanceTest(unittest.TestCase):
             }
         )
 
+        self.assertTrue(health["ok"])
         acceptance = health["construction_acceptance"]
         self.assertTrue(acceptance["ok"])
         self.assertEqual(acceptance["status"], "pass")
@@ -1019,7 +1047,7 @@ class PostdeployConstructionAcceptanceTest(unittest.TestCase):
     def test_construction_acceptance_marks_missing_telemetry_pending_not_pass(self) -> None:
         health = self.health_gate_for_room({})
 
-        self.assertTrue(health["ok"])
+        self.assertFalse(health["ok"])
         acceptance = health["construction_acceptance"]
         self.assertFalse(acceptance["ok"])
         self.assertEqual(acceptance["status"], "pending")
@@ -1068,9 +1096,48 @@ class PostdeployConstructionAcceptanceTest(unittest.TestCase):
             )
 
         acceptance = health["construction_acceptance"]
+        self.assertTrue(health["ok"])
         self.assertTrue(acceptance["ok"])
         self.assertEqual(acceptance["status"], "pass")
         self.assertEqual(acceptance["rooms"][0]["reason"], "no_construction_backlog")
+
+    def test_health_gate_command_fails_when_construction_acceptance_is_blocked(self) -> None:
+        summary_payload = {
+            "ok": True,
+            "mode": "summary",
+            "room_summaries": [
+                {
+                    "room": "shardX/E26S49",
+                    "owner": "owner",
+                    "owned_creeps": 2,
+                    "owned_spawns": 1,
+                    "constructionSiteCount": 1,
+                    "pendingBuildProgress": 300,
+                    "buildCarriedEnergy": 0,
+                    "constructionActivity": {"buildProgress": 0},
+                    "taskCounts": {"build": 1},
+                }
+            ],
+        }
+        alert_payload = {"ok": True, "mode": "alert", "alert": False, "reasons": []}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            summary_path = Path(temp_dir) / "summary.json"
+            alert_path = Path(temp_dir) / "alert.json"
+            summary_path.write_text(json.dumps(summary_payload), encoding="utf-8")
+            alert_path.write_text(json.dumps(alert_payload), encoding="utf-8")
+
+            args = types.SimpleNamespace(summary=str(summary_path), alert=str(alert_path))
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                rc = monitor.command_health_gate(args)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(rc, 1)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["reasons"], [])
+        self.assertFalse(payload["construction_acceptance"]["ok"])
+        self.assertEqual(payload["construction_acceptance"]["status"], "blocked")
+        self.assertEqual(payload["construction_acceptance"]["rooms"][0]["reason"], "no_build_execution")
 
 
 class TacticalResponseBridgeTest(unittest.TestCase):
@@ -2345,6 +2412,8 @@ class TacticalResponseBridgeTest(unittest.TestCase):
                 "spawns": 1,
                 "owner": "owner",
                 "cpuBucket": 9000,
+                "constructionSiteCount": 0,
+                "pendingBuildProgress": 0,
             },
             {
                 "room": "shardX/E26S49",
@@ -2353,6 +2422,8 @@ class TacticalResponseBridgeTest(unittest.TestCase):
                 "creeps": 1,
                 "spawns": 1,
                 "owner": "owner",
+                "constructionSiteCount": 0,
+                "pendingBuildProgress": 0,
             },
         ):
             with self.subTest(room_summary=room_summary):

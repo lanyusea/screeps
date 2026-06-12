@@ -7214,24 +7214,15 @@ def postdeploy_construction_acceptance_room(room: dict[str, Any]) -> dict[str, A
             "message": f"{room_name}: construction acceptance passed with build progress",
         }
 
-    if build_count is not None and build_count > 0:
-        return {
-            **result,
-            "ok": True,
-            "status": "pass",
-            "reason": "build_task_visible",
-            "message": f"{room_name}: construction acceptance passed with a visible build task",
-        }
-
-    if build_carried_energy is None and build_progress is None and build_count is None:
+    if build_carried_energy is None and build_progress is None:
         return {
             **result,
             "ok": False,
             "status": "pending",
             "reason": "missing_build_execution_telemetry",
             "message": (
-                f"{room_name}: construction backlog is visible, but buildCarriedEnergy/buildProgress/build task "
-                "telemetry is missing"
+                f"{room_name}: construction backlog is visible, but buildCarriedEnergy/buildProgress telemetry "
+                "is missing"
             ),
         }
 
@@ -7242,8 +7233,7 @@ def postdeploy_construction_acceptance_room(room: dict[str, Any]) -> dict[str, A
         "status": "blocked",
         "reason": blocked_reason,
         "message": (
-            f"{room_name}: construction backlog is visible without build progress, carried build energy, "
-            "or a visible build task"
+            f"{room_name}: construction backlog is visible without build progress or carried build energy"
         ),
     }
 
@@ -7364,7 +7354,11 @@ def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_paylo
                     }
                 )
     construction_acceptance = evaluate_postdeploy_construction_acceptance(room_summaries)
-    return {"ok": not reasons, "reasons": reasons, "construction_acceptance": construction_acceptance}
+    return {
+        "ok": not reasons and construction_acceptance.get("ok") is True,
+        "reasons": reasons,
+        "construction_acceptance": construction_acceptance,
+    }
 
 
 def command_health_gate(args: argparse.Namespace) -> int:
