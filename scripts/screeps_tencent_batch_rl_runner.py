@@ -97,6 +97,9 @@ E1S1_REPEAT_GUARD_NEXT_ACTION = (
 PAID_FAILURE_RECURRENCE_GUARD_TYPE = "screeps-tencent-batch-rl-paid-failure-recurrence-guard"
 PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS = "skipped_paid_failure_recurrence_launch_guard"
 PAID_FAILURE_RECURRENCE_VALIDATION_PLAN_REQUIRED_FINAL_STATUS = "post_fix_validation_plan_required_no_compute"
+PAID_FAILURE_RECURRENCE_CONSUMED_FAILURE_PLAN_REQUIRED_FINAL_STATUS = (
+    "new_bounded_validation_plan_required_after_consumed_failure"
+)
 PAID_FAILURE_RECURRENCE_VALIDATION_PLAN_HANDOFF_TYPE = (
     "screeps-tencent-batch-rl-post-fix-validation-plan-handoff"
 )
@@ -1187,11 +1190,16 @@ class Controller:
             "status": handoff["status"],
             "signature": handoff["signature"],
             "requiresExplicitValidationSignature": handoff["requiresExplicitValidationSignature"],
+            "requested": handoff.get("requested") is True,
+            "requestedSignatures": copy.deepcopy(handoff.get("requestedSignatures")),
             "noCompute": True,
             "paidRunAttempted": False,
             "reason": handoff.get("reason"),
             "nextAction": handoff.get("nextAction"),
         }
+        consumed_failure = dict_value(handoff.get("consumedFailure"))
+        if consumed_failure is not None:
+            summary["consumedFailure"] = copy.deepcopy(consumed_failure)
         self.result["validationPlanHandoff"] = summary
         return summary
 
@@ -1273,7 +1281,7 @@ class Controller:
         if not guard["blocked"]:
             return False
         if validation_plan_handoff is not None:
-            self.final_status = PAID_FAILURE_RECURRENCE_VALIDATION_PLAN_REQUIRED_FINAL_STATUS
+            self.final_status = paid_failure_validation_plan_handoff_final_status(validation_plan_handoff)
         elif guard.get("activeGuard") == "paid_failure_recurrence_guard":
             self.final_status = PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS
         else:
@@ -3271,7 +3279,7 @@ def paid_failure_guard_requires_explicit_validation_plan(guard: dict[str, Any]) 
     if validation is None or text_value(validation.get("status")) != "consumed":
         return False
     if validation.get("requested") is True:
-        return False
+        return paid_failure_consumed_validation_needs_new_bounded_plan(validation)
     recovery = dict_value(validation.get("recoveryEligibility"))
     if recovery is None:
         return False
@@ -3279,6 +3287,117 @@ def paid_failure_guard_requires_explicit_validation_plan(guard: dict[str, Any]) 
         return False
     reason = text_value(recovery.get("reason")) or ""
     return "explicit post-fix validation signature" in reason
+
+
+def paid_failure_consumed_validation_needs_new_bounded_plan(validation: dict[str, Any]) -> bool:
+    consumed_failure = paid_failure_consumed_validation_failure_summary(validation)
+    if consumed_failure is None:
+        return False
+    return (
+        text_value(consumed_failure.get("failureClassification")) == "private_server_http_readiness_timeout"
+        or text_value(consumed_failure.get("remoteTrainingTimeoutReason")) == "private_server_http_readiness"
+    )
+
+
+def paid_failure_validation_plan_handoff_final_status(handoff: dict[str, Any]) -> str:
+    if text_value(handoff.get("status")) == PAID_FAILURE_RECURRENCE_CONSUMED_FAILURE_PLAN_REQUIRED_FINAL_STATUS:
+        return PAID_FAILURE_RECURRENCE_CONSUMED_FAILURE_PLAN_REQUIRED_FINAL_STATUS
+    return PAID_FAILURE_RECURRENCE_VALIDATION_PLAN_REQUIRED_FINAL_STATUS
+
+
+def paid_failure_consumed_validation_failure_summary(
+    validation: dict[str, Any],
+) -> dict[str, Any] | None:
+    prior = dict_value(validation.get("priorAttempt"))
+    if prior is None:
+        return None
+    run_id = text_value(prior.get("runId"))
+    final_status = text_value(prior.get("finalStatus"))
+    if final_status != "failed":
+        return None
+    progress = dict_value(prior.get("partialSimulatorProgress"))
+    failure_classification = None
+    notable_runs = progress.get("notableRunSummaries") if progress is not None else None
+    if isinstance(notable_runs, list):
+        for notable in notable_runs:
+            notable_run = dict_value(notable)
+            if notable_run is None:
+                continue
+            failure = dict_value(notable_run.get("failure"))
+            if failure is None:
+                continue
+            failure_classification = text_value(failure.get("classification"))
+            if failure_classification is not None:
+                break
+    remote_timeout_reason = text_value(prior.get("remoteTrainingTimeoutReason"))
+    if failure_classification is None and remote_timeout_reason == "private_server_http_readiness":
+        failure_classification = "private_server_http_readiness_timeout"
+    summary: dict[str, Any] = {
+        "priorAttemptRunId": run_id,
+        "summaryPath": text_value(prior.get("summaryPath")),
+        "finalStatus": final_status,
+        "remoteTrainingFailureClass": text_value(prior.get("remoteTrainingFailureClass")),
+        "remoteTrainingTimeoutReason": remote_timeout_reason,
+        "failureClassification": failure_classification,
+    }
+    if progress is not None:
+        for key in (
+            "completedEnvironmentRows",
+            "successfulEnvironmentRows",
+            "failedEnvironmentRows",
+            "ticksRun",
+        ):
+            value = progress.get(key)
+            if value is not None:
+                summary[key] = copy.deepcopy(value)
+    return summary
+
+
+def paid_failure_validation_plan_handoff_reason(
+    guard: dict[str, Any],
+    validation: dict[str, Any],
+    recovery: dict[str, Any],
+    consumed_failure: dict[str, Any] | None,
+) -> str | None:
+    if validation.get("requested") is True and consumed_failure is not None:
+        run_id = text_value(consumed_failure.get("priorAttemptRunId")) or "the prior post-fix validation"
+        failure = text_value(consumed_failure.get("failureClassification"))
+        if failure is None:
+            failure = text_value(consumed_failure.get("remoteTrainingTimeoutReason")) or "a failed consumed validation"
+        return (
+            "explicit post-fix validation signature was requested, but prior post-fix validation "
+            f"{run_id} already consumed the slot and failed with {failure}"
+        )
+    return text_value(recovery.get("reason")) or text_value(guard.get("reason"))
+
+
+def paid_failure_validation_plan_handoff_next_action(
+    guard: dict[str, Any],
+    validation: dict[str, Any],
+    consumed_failure: dict[str, Any] | None,
+) -> str | None:
+    if validation.get("requested") is True and consumed_failure is not None:
+        run_id = text_value(consumed_failure.get("priorAttemptRunId")) or "the prior post-fix validation"
+        failure = text_value(consumed_failure.get("failureClassification"))
+        timeout_reason = text_value(consumed_failure.get("remoteTrainingTimeoutReason"))
+        if failure == "private_server_http_readiness_timeout" or timeout_reason == "private_server_http_readiness":
+            successful = consumed_failure.get("successfulEnvironmentRows")
+            failed = consumed_failure.get("failedEnvironmentRows")
+            row_evidence = ""
+            if successful is not None and failed is not None:
+                row_evidence = f" after {successful} successful and {failed} failed environment row(s)"
+            return (
+                "select a new bounded validation plan for local/no-compute private-server HTTP readiness diagnostics "
+                f"before any paid Tencent rerun; consumed validation {run_id} failed with "
+                f"private_server_http_readiness_timeout{row_evidence}; paid compute remains held until "
+                "the new plan and guard evidence are verified"
+            )
+        return (
+            f"select a new bounded validation plan for local/no-compute diagnostics before any paid Tencent rerun; "
+            f"consumed validation {run_id} failed, and paid compute remains held until the new plan "
+            "and guard evidence are verified"
+        )
+    return text_value(guard.get("nextAction"))
 
 
 def build_paid_failure_validation_plan_handoff(
@@ -3299,18 +3418,33 @@ def build_paid_failure_validation_plan_handoff(
         or text_value(evidence.get("activeSignature"))
         or PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE
     )
-    return {
+    consumed_failure = paid_failure_consumed_validation_failure_summary(validation)
+    status = (
+        PAID_FAILURE_RECURRENCE_CONSUMED_FAILURE_PLAN_REQUIRED_FINAL_STATUS
+        if validation.get("requested") is True and consumed_failure is not None
+        else "validation_plan_required"
+    )
+    handoff = {
         "type": PAID_FAILURE_RECURRENCE_VALIDATION_PLAN_HANDOFF_TYPE,
         "schemaVersion": 1,
         "runId": run_id,
         "createdAt": utc_now_iso(),
-        "status": "validation_plan_required",
+        "status": status,
         "signature": signature,
         "guardStatus": text_value(guard.get("status")),
-        "reason": text_value(recovery.get("reason")) or text_value(guard.get("reason")),
-        "nextAction": text_value(guard.get("nextAction")),
+        "reason": paid_failure_validation_plan_handoff_reason(
+            guard,
+            validation,
+            recovery,
+            consumed_failure,
+        ),
+        "nextAction": paid_failure_validation_plan_handoff_next_action(
+            guard,
+            validation,
+            consumed_failure,
+        ),
         "requiresExplicitValidationSignature": True,
-        "requested": False,
+        "requested": validation.get("requested") is True,
         "requestedSignatures": validation.get("requestedSignatures")
         if isinstance(validation.get("requestedSignatures"), list)
         else [],
@@ -3336,6 +3470,9 @@ def build_paid_failure_validation_plan_handoff(
             "scaleOutAttempted": False,
         },
     }
+    if consumed_failure is not None:
+        handoff["consumedFailure"] = consumed_failure
+    return handoff
 
 
 def paid_failure_current_validation_plan(args: argparse.Namespace) -> dict[str, Any]:
@@ -4182,6 +4319,15 @@ def paid_failure_recurrence_next_action(
     if status == "consumed":
         prior = dict_value(validation.get("priorAttempt")) or {}
         recovery = dict_value(validation.get("recoveryEligibility")) or {}
+        if validation.get("requested") is True and paid_failure_consumed_validation_needs_new_bounded_plan(validation):
+            consumed_failure = paid_failure_consumed_validation_failure_summary(validation)
+            next_action = paid_failure_validation_plan_handoff_next_action(
+                {},
+                validation,
+                consumed_failure,
+            )
+            if next_action is not None:
+                return f"{base}; {next_action}"
         recovery_class = text_value(recovery.get("recoveryClass"))
         if recovery_class in {"remote_training_timeout", "remote_training_timeout_after_recovery"}:
             run_id = (
