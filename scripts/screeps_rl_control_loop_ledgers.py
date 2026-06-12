@@ -173,6 +173,13 @@ def text_value(value: Any) -> str | None:
     return None
 
 
+def first_present(mapping: JsonObject, keys: Sequence[str]) -> Any:
+    for key in keys:
+        if key in mapping:
+            return mapping[key]
+    return None
+
+
 def number_value(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
@@ -823,10 +830,17 @@ def dashboard_summary(repo_root: Path, artifact_root: Path, created_at: str, max
         max_files_per_root=max_files_per_root,
     )
     gate = static_dashboard.latest_gate(gate_infos)
+    standalone_card_supply_candidates = static_dashboard.discover_standalone_card_supply_candidates(
+        artifact_root,
+        warnings=warnings,
+        repo_root=repo_root,
+    )
+    standalone_card_supply = standalone_card_supply_candidates[0] if standalone_card_supply_candidates else None
     simulator = bounded_simulator_health(latest_training)
     training = static_dashboard.training_execution(
         latest_training,
-        standalone_card_supply_candidates=[],
+        standalone_card_supply=standalone_card_supply,
+        standalone_card_supply_candidates=standalone_card_supply_candidates,
         tencent_internal_card_supply_candidates=[],
     )
     policy = static_dashboard.policy_advantage(latest_policy, latest_metrics, training=training)
@@ -853,6 +867,10 @@ def dashboard_summary(repo_root: Path, artifact_root: Path, created_at: str, max
             **source_scan,
             "gateScan": gate_scan,
             "rootTrainingReportScan": root_training_report_scan,
+            "standaloneCardSupply": {
+                "candidateCount": len(standalone_card_supply_candidates),
+                "selected": repo_display_path((standalone_card_supply or {}).get("path"), repo_root),
+            },
             "mode": "bounded-control-loop-ledger-producer",
         },
     }
@@ -881,6 +899,94 @@ def latest_artifact_absolute_path(dashboard: JsonObject, key: str, repo_root: Pa
 def latest_artifact_path(dashboard: JsonObject, key: str, repo_root: Path) -> str | None:
     artifacts = as_dict(dashboard.get("artifacts"))
     return repo_display_path(artifacts.get(key), repo_root)
+
+
+def card_supply_available_for_guarded_training(card_supply: JsonObject) -> bool:
+    return static_dashboard.card_supply_available_for_training(card_supply)
+
+
+def selected_card_supply(summary: JsonObject) -> JsonObject:
+    return as_dict(as_dict(summary.get("training")).get("cardSupply"))
+
+
+def card_supply_reference(card_supply: JsonObject) -> str:
+    card_id = text_value(card_supply.get("cardId")) or "the selected Loop A card"
+    card_path = text_value(card_supply.get("path"))
+    if card_path:
+        return f"{card_id} at {card_path}"
+    return card_id
+
+
+def guard_held_card_supply_evidence(card_supply: JsonObject) -> str:
+    return (
+        f"Paid compute is held pending #1233 guard clearance; Loop A card "
+        f"{card_supply_reference(card_supply)} remains available and unconsumed for the next guarded training attempt."
+    )
+
+
+def guard_held_card_supply_next_action(card_supply: JsonObject) -> str:
+    return (
+        f"Keep paid compute held until #1233 guard clearance records an explicit allowed validation signature; "
+        f"then consume {card_supply_reference(card_supply)} in the next guarded Loop A training attempt. "
+        "Do not create a duplicate card while this supply remains available."
+    )
+
+
+def stale_experiment_card_not_consumed_anomaly(item: JsonObject, current_card_supply: JsonObject) -> bool:
+    if item.get("code") != "EXPERIMENT_CARD_NOT_CONSUMED":
+        return False
+    if not card_supply_available_for_guarded_training(current_card_supply):
+        return False
+    current_card_id = text_value(current_card_supply.get("cardId"))
+    if current_card_id is None:
+        return True
+    return current_card_id not in screeps_cli_io.canonical_json(json_safe(item))
+
+
+def card_supply_path(card_supply: JsonObject, repo_root: Path) -> Path | None:
+    raw_path = text_value(card_supply.get("path"))
+    if raw_path is None:
+        return None
+    path = Path(raw_path)
+    if not path.is_absolute():
+        path = repo_root / path
+    return path
+
+
+def pending_experiment_card_record(card_supply: JsonObject, repo_root: Path) -> JsonObject | None:
+    if not card_supply_available_for_guarded_training(card_supply):
+        return None
+    path = card_supply_path(card_supply, repo_root)
+    card = load_json(path) if path is not None else None
+    supply = as_dict(card_supply.get("cardSupply"))
+    record: JsonObject = {
+        "status": "available_pending_guarded_training",
+        "cardId": text_value(card_supply.get("cardId")),
+        "path": repo_display_path(path if path is not None else card_supply.get("path"), repo_root),
+        "source": text_value(card_supply.get("source")),
+        "classification": text_value(card_supply.get("classification")),
+        "createdAt": text_value(card_supply.get("createdAt")),
+        "datasetRunId": text_value(card_supply.get("datasetRunId")),
+        "trainingApproach": text_value(card_supply.get("trainingApproach")),
+        "availableForTraining": supply.get("available_for_training") is True,
+        "consumedAt": supply.get("consumed_at"),
+        "consumedByReportId": supply.get("consumed_by_report_id"),
+        "cardSupply": supply,
+    }
+    if card is not None:
+        safety = as_dict(card.get("safety"))
+        if safety:
+            record["safety"] = {
+                "liveEffect": safety.get("liveEffect"),
+                "officialMmoWrites": safety.get("officialMmoWrites"),
+                "officialMmoWritesAllowed": safety.get("officialMmoWritesAllowed"),
+                "conservative_actions_only": safety.get("conservative_actions_only"),
+                "ood_rejection": safety.get("ood_rejection"),
+            }
+        source_gate = first_present(card, ("source_gate", "sourceGate"))
+        if isinstance(source_gate, dict):
+            record["sourceGate"] = source_gate
+    return record
 
 
 def field_from(payload: JsonObject | None, key: str, fallback: Any) -> Any:
@@ -1706,6 +1812,7 @@ def training_anomalies(
     gate = as_dict(dashboard.get("gate"))
     anomalies: list[JsonObject] = []
     stale_e1_gate_resolved = selected_gate_resolves_e1_stale_anomaly(dashboard)
+    current_card_supply = selected_card_supply(dashboard)
     if not gate:
         anomalies.append(
             {
@@ -1722,11 +1829,14 @@ def training_anomalies(
     if not training.get("hasComputeEvidence"):
         code = "TRAINING_LEDGER_MISSING" if not training.get("hasData") else "TRAINING_COMPUTE_EVIDENCE_MISSING"
         evidence_path = latest_artifact_path(dashboard, "trainingLedger", repo_root)
+        evidence = text_value(training.get("blocker")) or "No bounded training compute evidence was found."
+        if card_supply_available_for_guarded_training(current_card_supply):
+            evidence = guard_held_card_supply_evidence(current_card_supply)
         anomalies.append(
             {
                 "severity": "P0",
                 "code": code,
-                "evidence": text_value(training.get("blocker")) or "No bounded training compute evidence was found.",
+                "evidence": evidence,
                 "handoffRequired": True,
                 "handoffSeverity": "P0",
                 "blockerClass": "rl_training_artifact_gap",
@@ -1741,12 +1851,17 @@ def training_anomalies(
             continue
         if stale_e1_gate_resolved and item.get("code") == "E1_GATE_STALE":
             continue
+        if stale_experiment_card_not_consumed_anomaly(item, current_card_supply):
+            continue
         if item.get("code") not in {anomaly["code"] for anomaly in anomalies}:
             anomalies.append(item)
     return anomalies[:12]
 
 
 def next_training_capability_action(previous: JsonObject | None, training: JsonObject, did_run: bool) -> str:
+    card_supply = as_dict(training.get("cardSupply"))
+    if not did_run and card_supply_available_for_guarded_training(card_supply):
+        return guard_held_card_supply_next_action(card_supply)
     previous_action = text_value((previous or {}).get("nextTrainingCapabilityAction"))
     if previous_action:
         return previous_action
@@ -1813,6 +1928,18 @@ def build_training_ledger(
         repo_root=repo_root,
     )
     anomalies = training_anomalies(summary, previous, repo_root, reward_decision_id=reward_decision_id)
+    card_supply = as_dict(training.get("cardSupply"))
+    pending_experiment_card = pending_experiment_card_record(card_supply, repo_root)
+    experiment_card_id = (
+        pending_experiment_card.get("cardId")
+        if pending_experiment_card is not None
+        else training_artifacts.get("experimentCard")
+    )
+    experiment_card_path = (
+        pending_experiment_card.get("path")
+        if pending_experiment_card is not None
+        else training_artifacts.get("experimentCardPath")
+    )
 
     return {
         "type": TRAINING_LEDGER_TYPE,
@@ -1865,8 +1992,13 @@ def build_training_ledger(
             "policyUpdateNote": iteration.get("policyUpdateNote") or "bounded artifact producer did not launch training",
         },
         "trainingArtifacts": {
-            "experimentCard": training_artifacts.get("experimentCard"),
-            "experimentCardPath": training_artifacts.get("experimentCardPath"),
+            "experimentCard": experiment_card_id,
+            "experimentCardPath": experiment_card_path,
+            "experimentCardStatus": (
+                pending_experiment_card.get("status") if pending_experiment_card is not None else None
+            ),
+            "pendingExperimentCard": pending_experiment_card,
+            "cardSupply": as_dict(pending_experiment_card.get("cardSupply")) if pending_experiment_card is not None else None,
             "simulatorRunIds": training_artifacts.get("simulatorRunIds", []),
             "trainingReportIds": training_artifacts.get("trainingReportIds", []),
             "candidatePolicyIds": training_artifacts.get("candidatePolicyIds", []),
@@ -1874,6 +2006,8 @@ def build_training_ledger(
             "rewardDecisionArtifactPath": reward_decision_artifact_path,
             "latestTrainingLedger": latest_artifact_path(summary, "trainingLedger", repo_root),
         },
+        "cardSupply": card_supply,
+        "pendingExperimentCard": pending_experiment_card,
         "anomalies": anomalies,
         "nextTrainingCapabilityAction": next_training_capability_action(previous, training, did_run),
         "metricsFields": {

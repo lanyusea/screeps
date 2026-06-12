@@ -1813,6 +1813,28 @@ def matching_tencent_card_supply_for_training(
     return max(matches, key=training_card_supply_candidate_key)
 
 
+def best_available_supplied_card_supply(
+    *,
+    standalone_card_supply: JsonObject | None = None,
+    standalone_card_supply_candidates: Sequence[JsonObject] | None = None,
+    tencent_internal_card_supply: JsonObject | None = None,
+    tencent_internal_card_supply_candidates: Sequence[JsonObject] | None = None,
+) -> JsonObject | None:
+    tencent_candidates = combined_tencent_card_supply_candidates(
+        tencent_internal_card_supply,
+        tencent_internal_card_supply_candidates,
+    )
+    available_supply = best_available_tencent_card_supply(tencent_candidates)
+    if available_supply is None:
+        available_supply = best_available_card_supply(
+            combined_card_supply_candidates(
+                standalone_card_supply,
+                standalone_card_supply_candidates,
+            )
+        )
+    return available_supply
+
+
 def reconcile_card_supply_for_training(
     payload: JsonObject,
     *,
@@ -1845,14 +1867,12 @@ def reconcile_card_supply_for_training(
     if not training_did_run:
         if training_claims_compute:
             return blocked_card_supply_summary(text_value(compute_evidence.get("blocker")))
-        available_supply = best_available_tencent_card_supply(tencent_candidates)
-        if available_supply is None:
-            available_supply = best_available_card_supply(
-                combined_card_supply_candidates(
-                    standalone_card_supply,
-                    standalone_card_supply_candidates,
-                )
-            )
+        available_supply = best_available_supplied_card_supply(
+            standalone_card_supply=standalone_card_supply,
+            standalone_card_supply_candidates=standalone_card_supply_candidates,
+            tencent_internal_card_supply=tencent_internal_card_supply,
+            tencent_internal_card_supply_candidates=tencent_internal_card_supply_candidates,
+        )
         if available_supply is not None:
             return dict(available_supply)
     else:
@@ -1884,6 +1904,18 @@ def training_execution(
     tencent_internal_card_supply_candidates: Sequence[JsonObject] | None = None,
 ) -> JsonObject:
     if latest_training is None:
+        supplied_card = best_available_supplied_card_supply(
+            standalone_card_supply=standalone_card_supply,
+            standalone_card_supply_candidates=standalone_card_supply_candidates,
+            tencent_internal_card_supply=tencent_internal_card_supply,
+            tencent_internal_card_supply_candidates=tencent_internal_card_supply_candidates,
+        )
+        card_supply = (
+            dict(supplied_card)
+            if supplied_card is not None
+            else blocked_card_supply_summary("No training ledger found.")
+        )
+        blocker = None if card_supply_available_for_training(card_supply) else "No training ledger found."
         return {
             "hasData": False,
             "status": "N/A",
@@ -1891,9 +1923,9 @@ def training_execution(
             "episodes": None,
             "policyUpdates": None,
             "timestamp": None,
-            "blocker": "No training ledger found.",
+            "blocker": blocker,
             "latestPath": None,
-            "cardSupply": blocked_card_supply_summary("No training ledger found."),
+            "cardSupply": card_supply,
             "hasComputeEvidence": False,
             "computeEvidence": {
                 "hasCompute": False,
