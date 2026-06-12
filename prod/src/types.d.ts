@@ -61,6 +61,7 @@ declare global {
     workerTaskPolicyShadow?: WorkerTaskPolicyShadowMemory;
     workerEnergyCriticalPolicy?: WorkerEnergyCriticalPolicyMemory;
     workerDispatchDiagnostic?: WorkerDispatchDiagnosticMemory;
+    buildActionTelemetry?: WorkerBuildActionTelemetryMemory;
     seasonScoreCollection?: SeasonScoreCollectionDiagnosticMemory;
     seasonScoreCollector?: CreepSeasonScoreCollectorMemory;
     energyDropoffOptimization?: WorkerEnergyDropoffOptimizationMemory;
@@ -1251,6 +1252,21 @@ declare global {
     spawnReservationTargetId?: string;
     assignedTask?: CreepTaskMemory['type'];
     assignedTargetId?: string;
+  }
+
+  type WorkerBuildActionResult =
+    | 'succeeded'
+    | 'failed_no_energy'
+    | 'failed_no_work'
+    | 'failed_no_path'
+    | 'failed_site_invalid'
+    | 'suppressed_by_policy';
+
+  interface WorkerBuildActionTelemetryMemory {
+    resultCounts?: Partial<Record<WorkerBuildActionResult, number>>;
+    lastResult?: WorkerBuildActionResult;
+    lastTargetId?: string;
+    lastTick?: number;
   }
 
   type SeasonScoreCollectionDiagnosticState = 'assigned' | 'blocked';

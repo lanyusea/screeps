@@ -1614,6 +1614,102 @@ describe('runtime telemetry summaries', () => {
     });
   });
 
+  it('emits build action result telemetry with room counts and worker classifications', () => {
+    const workers = [
+      makeWorker(
+        {
+          role: 'worker',
+          colony: 'W1N1',
+          buildActionTelemetry: {
+            resultCounts: { succeeded: 1 },
+            lastResult: 'succeeded',
+            lastTargetId: 'site-success',
+            lastTick: RUNTIME_SUMMARY_INTERVAL - 1
+          }
+        },
+        0,
+        'BuilderSuccess'
+      ),
+      makeWorker(
+        {
+          role: 'worker',
+          colony: 'W1N1',
+          buildActionTelemetry: {
+            resultCounts: { failed_no_path: 2, suppressed_by_policy: 1 },
+            lastResult: 'suppressed_by_policy',
+            lastTargetId: 'site-blocked',
+            lastTick: RUNTIME_SUMMARY_INTERVAL
+          }
+        },
+        50,
+        'BuilderBlocked'
+      )
+    ];
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      creeps: workers
+    });
+
+    emitRuntimeSummary([colony], workers);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.buildActionResults).toEqual({
+      source: 'runtime-summary',
+      buildActionResult: 'failed_no_path',
+      actionCount: 4,
+      buildFailCount: 3,
+      suppressedCount: 1,
+      resultCounts: {
+        succeeded: 1,
+        failed_no_energy: 0,
+        failed_no_work: 0,
+        failed_no_path: 2,
+        failed_site_invalid: 0,
+        suppressed_by_policy: 1
+      },
+      workers: [
+        {
+          name: 'BuilderBlocked',
+          buildActionResult: 'suppressed_by_policy',
+          actionCount: 3,
+          buildFailCount: 3,
+          suppressedCount: 1,
+          resultCounts: {
+            succeeded: 0,
+            failed_no_energy: 0,
+            failed_no_work: 0,
+            failed_no_path: 2,
+            failed_site_invalid: 0,
+            suppressed_by_policy: 1
+          },
+          lastTargetId: 'site-blocked',
+          lastTick: RUNTIME_SUMMARY_INTERVAL
+        },
+        {
+          name: 'BuilderSuccess',
+          buildActionResult: 'succeeded',
+          actionCount: 1,
+          buildFailCount: 0,
+          suppressedCount: 0,
+          resultCounts: {
+            succeeded: 1,
+            failed_no_energy: 0,
+            failed_no_work: 0,
+            failed_no_path: 0,
+            failed_site_invalid: 0,
+            suppressed_by_policy: 0
+          },
+          lastTargetId: 'site-success',
+          lastTick: RUNTIME_SUMMARY_INTERVAL - 1
+        }
+      ]
+    });
+    expect(JSON.stringify(room.buildActionResults)).not.toMatch(/token|secret/i);
+    expect(workers.map((worker) => worker.memory.buildActionTelemetry)).toEqual([undefined, undefined]);
+  });
+
   it('tracks construction deadlock ticks and resets on build assignment or cleared sites', () => {
     const constructionSites = [
       { id: 'extension-site', structureType: TEST_GLOBALS.STRUCTURE_EXTENSION, progress: 0, progressTotal: 50 }
