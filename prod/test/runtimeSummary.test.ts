@@ -1911,6 +1911,139 @@ describe('runtime telemetry summaries', () => {
     expect(productiveEnergy.constructionActivity).toEqual(room.constructionActivity);
   });
 
+  it('reports a construction planner blocker instead of a generic no viable candidate state', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false
+    });
+    (colony.room.controller as StructureController).level = 1;
+
+    emitRuntimeSummary(
+      [colony],
+      [],
+      [
+        {
+          type: 'constructionPlacement',
+          roomName: 'W1N1',
+          priority: 'road',
+          structureType: TEST_GLOBALS.STRUCTURE_ROAD,
+          mode: 'normal',
+          blockedReason: 'residual_road_seed_worker_coverage_missing',
+          details: {
+            workerCoverageCount: 0,
+            workerCoverageMinimum: 1
+          }
+        }
+      ]
+    );
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    const productiveEnergy = (room.resources as Record<string, Record<string, unknown>>).productiveEnergy;
+    expect(room.constructionActivity).toMatchObject({
+      source: 'runtime-summary',
+      state: 'planner_blocked',
+      accepted: false,
+      reason: 'planner_blocked',
+      constructionSiteCount: 0,
+      pendingBuildProgress: 0,
+      buildCarriedEnergy: 0,
+      buildProgress: 0,
+      workerAssignmentEvidenceAvailable: true,
+      buildBlockedReason: 'no_construction_sites',
+      planner: {
+        mode: 'normal',
+        priority: 'road',
+        structureType: TEST_GLOBALS.STRUCTURE_ROAD,
+        blockedReason: 'residual_road_seed_worker_coverage_missing',
+        details: {
+          workerCoverageCount: 0,
+          workerCoverageMinimum: 1
+        }
+      }
+    });
+    expect(productiveEnergy.constructionActivity).toEqual(room.constructionActivity);
+  });
+
+  it('does not emit an immediate runtime summary for a normal construction planner blocker', () => {
+    const colony = makeColony({
+      time: 1,
+      includeEventLog: false
+    });
+
+    const summary = emitRuntimeSummary(
+      [colony],
+      [],
+      [
+        {
+          type: 'constructionPlacement',
+          roomName: 'W1N1',
+          priority: 'road',
+          structureType: TEST_GLOBALS.STRUCTURE_ROAD,
+          mode: 'normal',
+          blockedReason: 'residual_road_seed_existing_site',
+          details: { pendingConstructionSiteCount: 1 }
+        }
+      ]
+    );
+
+    expect(summary).toBeUndefined();
+    expect(
+      logSpy.mock.calls.some(
+        ([message]) => typeof message === 'string' && message.startsWith(RUNTIME_SUMMARY_PREFIX)
+      )
+    ).toBe(false);
+  });
+
+  it('reports a successful construction placement as active while the new site is not yet visible', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false
+    });
+
+    emitRuntimeSummary(
+      [colony],
+      [],
+      [
+        {
+          type: 'constructionPlacement',
+          roomName: 'W1N1',
+          priority: 'road',
+          structureType: TEST_GLOBALS.STRUCTURE_ROAD,
+          mode: 'normal',
+          result: 0 as ScreepsReturnCode,
+          x: 18,
+          y: 23
+        }
+      ]
+    );
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    const productiveEnergy = (room.resources as Record<string, Record<string, unknown>>).productiveEnergy;
+    expect(room.constructionActivity).toMatchObject({
+      source: 'runtime-summary',
+      state: 'active',
+      accepted: true,
+      reason: 'site_placement_observed',
+      constructionSiteCount: 0,
+      pendingBuildProgress: 0,
+      buildCarriedEnergy: 0,
+      buildProgress: 0,
+      workerAssignmentEvidenceAvailable: true,
+      buildBlockedReason: 'no_construction_sites',
+      planner: {
+        mode: 'normal',
+        priority: 'road',
+        structureType: TEST_GLOBALS.STRUCTURE_ROAD,
+        result: 0,
+        x: 18,
+        y: 23
+      }
+    });
+    expect(productiveEnergy.constructionActivity).toEqual(room.constructionActivity);
+  });
+
   it('distinguishes visible construction sites without pending progress from absent construction sites', () => {
     const colony = makeColony({
       time: RUNTIME_SUMMARY_INTERVAL,
@@ -4435,6 +4568,25 @@ describe('runtime telemetry summaries', () => {
       damagedCriticalStructureCount: 1,
       tick: RUNTIME_SUMMARY_INTERVAL
     };
+    const normalConstructionBlockerEvent: RuntimeTelemetryEvent = {
+      type: 'constructionPlacement',
+      roomName: 'W1N1',
+      priority: 'road',
+      structureType: TEST_GLOBALS.STRUCTURE_ROAD,
+      mode: 'normal',
+      blockedReason: 'residual_road_seed_existing_site',
+      details: { pendingConstructionSiteCount: 1 }
+    };
+    const normalConstructionPlacementEvent: RuntimeTelemetryEvent = {
+      type: 'constructionPlacement',
+      roomName: 'W1N1',
+      priority: 'road',
+      structureType: TEST_GLOBALS.STRUCTURE_ROAD,
+      mode: 'normal',
+      result: 0 as ScreepsReturnCode,
+      x: 12,
+      y: 13
+    };
 
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [], lowBucketBudget)).toBe(false);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL * 5, [], lowBucketBudget)).toBe(true);
@@ -4456,6 +4608,9 @@ describe('runtime telemetry summaries', () => {
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [spawnEvent], overLimitBudget)).toBe(false);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL * 5, [spawnEvent], overLimitBudget)).toBe(true);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [safeModeEvent], overLimitBudget)).toBe(true);
+    expect(shouldEmitRuntimeSummary(1, [normalConstructionBlockerEvent])).toBe(false);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [normalConstructionBlockerEvent])).toBe(true);
+    expect(shouldEmitRuntimeSummary(1, [normalConstructionPlacementEvent])).toBe(true);
   });
 
   it('reports construction-priority runtime use from runtime summary scoring', () => {
