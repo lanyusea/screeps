@@ -875,6 +875,12 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       }
     }
 
+    const postConstructionControllerProgressEnergyTask =
+      selectPostConstructionControllerProgressEnergyAcquisitionTask(creep, creep.room.controller);
+    if (postConstructionControllerProgressEnergyTask) {
+      return postConstructionControllerProgressEnergyTask;
+    }
+
     if (controllerSigningTask && !bootstrapNonCriticalWorkSuppressed) {
       return controllerSigningTask;
     }
@@ -8425,6 +8431,78 @@ function shouldStandbySurplusWorkerInsteadOfAcquiring(
   }
 
   return !hasPostConstructionControllerUpgradeEnergy(creep, controller);
+}
+
+function selectPostConstructionControllerProgressEnergyAcquisitionTask(
+  creep: Creep,
+  controller: StructureController | undefined
+): Extract<CreepTaskMemory, { type: 'harvest' | 'withdraw' }> | null {
+  if (!shouldAcquireEnergyForPostConstructionControllerProgress(creep, controller)) {
+    return null;
+  }
+
+  const storage = selectPostConstructionControllerProgressStorageSource(creep);
+  if (storage) {
+    return { type: 'withdraw', targetId: storage.id as Id<AnyStoreStructure> };
+  }
+
+  return selectWorkerHarvestTask(creep, {
+    allowPreHarvest: false,
+    ignoreHarvestAssignments: true
+  });
+}
+
+function shouldAcquireEnergyForPostConstructionControllerProgress(
+  creep: Creep,
+  controller: StructureController | undefined
+): controller is StructureController {
+  return (
+    getFreeEnergyCapacity(creep) > 0 &&
+    getActiveWorkParts(creep) > 0 &&
+    controller?.my === true &&
+    isPostConstructionControllerProgressTarget(controller) &&
+    !hasVisibleHostilePresence(creep.room) &&
+    !hasVisibleOwnedConstructionDemand(creep.room) &&
+    !hasNonControllerWorkerEnergyDemand(creep)
+  );
+}
+
+function selectPostConstructionControllerProgressStorageSource(creep: Creep): StructureStorage | null {
+  const storage = getVisibleRoomStorage(creep.room);
+  if (!storage) {
+    return null;
+  }
+
+  const storedEnergy = getStoredEnergy(storage);
+  const withdrawAmount = Math.min(
+    getFreeEnergyCapacity(creep),
+    getStorageEnergyAvailableForWithdrawal(creep.room, storage, storedEnergy)
+  );
+  if (withdrawAmount <= 0 || !withdrawFromStorage(creep.room, withdrawAmount, storage, storedEnergy)) {
+    return null;
+  }
+
+  const context: StoredEnergySourceContext = {
+    creepOwnerUsername: getCreepOwnerUsername(creep),
+    hasHostilePresence: false,
+    room: creep.room
+  };
+  return isSafeStoredEnergySource(storage as AnyStructure, context) ? storage : null;
+}
+
+function getVisibleRoomStorage(room: Room): StructureStorage | null {
+  const directStorage = (room as Room & { storage?: StructureStorage }).storage;
+  if (directStorage && matchesStructureType(directStorage.structureType, 'STRUCTURE_STORAGE', 'storage')) {
+    return directStorage;
+  }
+
+  return (
+    findVisibleRoomStructures(room)
+      .filter((structure): structure is StructureStorage =>
+        matchesStructureType(structure.structureType, 'STRUCTURE_STORAGE', 'storage')
+      )
+      .sort((left, right) => String(left.id).localeCompare(String(right.id)))[0] ?? null
+  );
 }
 
 function hasNonControllerWorkerEnergyDemand(creep: Creep): boolean {
