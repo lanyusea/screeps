@@ -54,11 +54,18 @@ class FakeWebsocketsModule:
         return FakeWebsocketConnection(self.websocket)
 
 
+class BrokenStdout(io.StringIO):
+    def write(self, text: str) -> int:
+        raise BrokenPipeError()
+
+
 class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
     def test_filters_only_exact_runtime_telemetry_lines(self) -> None:
         lines = [
             "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":1}\n",
+            "#runtime-summary {&#x22;type&#x22;:&#x22;runtime-summary&#x22;,&#x22;tick&#x22;:6}\n",
             "#cpu-summary {\"used\":6.5,\"bucket\":9000,\"pressure\":\"normal\"}\n",
+            "#cpu-summary {&#x22;used&#x22;:7.5,&#x22;bucket&#x22;:8000}\n",
             "noise #runtime-summary {\"type\":\"runtime-summary\",\"tick\":2}\n",
             "noise #cpu-summary {\"bucket\":0}\n",
             "\"#runtime-summary {\\\"type\\\":\\\"runtime-summary\\\",\\\"tick\\\":3}\"\n",
@@ -76,7 +83,9 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
             accepted,
             [
                 "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":1}\n",
+                "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":6}\n",
                 "#cpu-summary {\"used\":6.5,\"bucket\":9000,\"pressure\":\"normal\"}\n",
+                "#cpu-summary {\"used\":7.5,\"bucket\":8000}\n",
                 "#runtime-summary {bad json}\n",
                 "#cpu-summary {bad json}\n",
                 "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":5}\n",
@@ -106,6 +115,9 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
             self.assertEqual(result.input_paths, [str(input_path)])
             self.assertEqual(result.input_line_count, 5)
             self.assertEqual(result.persisted_line_count, 2)
+            self.assertEqual(result.runtime_summary_line_count, 0)
+            self.assertEqual(result.cpu_summary_line_count, 2)
+            self.assertEqual(result.capture_status, capture.CAPTURE_STATUS_CPU_ONLY)
             self.assertEqual(result.skipped_line_count, 3)
             self.assertEqual(result.output_path, out_dir / "capture.log")
             self.assertEqual(
@@ -138,6 +150,9 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
             self.assertEqual(result.input_paths, [str(input_path)])
             self.assertEqual(result.input_line_count, 4)
             self.assertEqual(result.persisted_line_count, 2)
+            self.assertEqual(result.runtime_summary_line_count, 2)
+            self.assertEqual(result.cpu_summary_line_count, 0)
+            self.assertEqual(result.capture_status, capture.CAPTURE_STATUS_CLEAN_RUNTIME_SUMMARY)
             self.assertEqual(result.skipped_line_count, 2)
             self.assertEqual(result.output_path, out_dir / "capture.log")
             self.assertEqual(
@@ -310,6 +325,10 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
             report = json.loads(output.getvalue())
 
         self.assertEqual(exit_code, 0)
+        self.assertEqual(report["captureStatus"], capture.CAPTURE_STATUS_CLEAN_RUNTIME_SUMMARY)
+        self.assertTrue(report["captureOk"])
+        self.assertEqual(report["runtimeSummaryLineCount"], 1)
+        self.assertEqual(report["cpuSummaryLineCount"], 0)
         self.assertEqual(report["persistedLineCount"], 1)
         self.assertEqual(report["skippedLineCount"], 0)
         self.assertEqual(report["inputPaths"], ["-"])
@@ -453,15 +472,143 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
                 )
 
             report = json.loads(output.getvalue())
+            status_path = Path(temp_dir) / "runtime-artifacts" / "runtime-summary-console" / capture.DEFAULT_STATUS_ARTIFACT_NAME
+            status = json.loads(status_path.read_text(encoding="utf-8"))
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(error.getvalue(), "")
+        self.assertEqual(report["captureStatus"], capture.CAPTURE_STATUS_CLEAN_RUNTIME_SUMMARY)
+        self.assertEqual(report["statusPath"], str(status_path))
         self.assertEqual(report["persistedLineCount"], 1)
         self.assertEqual(report["requestedChannels"], ["console", "console:shardX"])
         self.assertEqual(report["websocketUrl"], "wss://screeps.com/socket/websocket")
+        self.assertEqual(status["type"], "screeps-runtime-summary-console-capture-status")
+        self.assertEqual(status["schemaVersion"], capture.STATUS_SCHEMA_VERSION)
+        self.assertEqual(status["processStatus"], "completed")
+        self.assertEqual(status["exitCode"], 0)
+        self.assertEqual(status["captureStatus"], capture.CAPTURE_STATUS_CLEAN_RUNTIME_SUMMARY)
+        self.assertTrue(status["captureOk"])
+        self.assertEqual(status["runtimeSummaryLineCount"], 1)
+        self.assertEqual(status["cpuSummaryLineCount"], 0)
+        self.assertEqual(status["statusPath"], str(status_path))
+        self.assertIn("outer_cron_finalization", status["finalizationHint"])
         self.assertEqual(websocket.sent, [f"auth {secret}", "subscribe console", "subscribe console:shardX"])
         self.assertNotIn(secret, output.getvalue())
         self.assertNotIn("#runtime-summary", output.getvalue())
+
+    def test_cli_status_line_reports_cpu_only_live_capture_and_writes_sidecar(self) -> None:
+        secret = "SECRET_TOKEN_VALUE"
+        websocket = FakeWebSocket(
+            [
+                "auth ok",
+                json.dumps(
+                    [
+                        "console",
+                        {
+                            "messages": {
+                                "log": [
+                                    "#cpu-summary {&#x22;used&#x22;:13.1,&#x22;bucket&#x22;:1775}",
+                                    "noise",
+                                ]
+                            }
+                        },
+                    ]
+                ),
+            ]
+        )
+        websockets_module = FakeWebsocketsModule(websocket)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_dir = Path(temp_dir) / "runtime-artifacts" / "runtime-summary-console"
+            output = io.StringIO()
+            error = io.StringIO()
+            with (
+                mock.patch.dict(capture.os.environ, {capture.AUTH_TOKEN_ENV: secret}),
+                mock.patch.object(capture, "import_websockets_module", return_value=websockets_module),
+            ):
+                exit_code = capture.main(
+                    [
+                        "--live-official-console",
+                        "--out-dir",
+                        str(out_dir),
+                        "--artifact-name",
+                        "live-cpu.log",
+                        "--format",
+                        "status-line",
+                        "--live-timeout-seconds",
+                        "4",
+                        "--live-max-messages",
+                        "1",
+                    ],
+                    stdout=output,
+                    stderr=error,
+                )
+
+            status_path = out_dir / capture.DEFAULT_STATUS_ARTIFACT_NAME
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+            artifact_text = (out_dir / "live-cpu.log").read_text(encoding="utf-8").strip()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(error.getvalue(), "")
+        self.assertEqual(
+            output.getvalue().strip(),
+            (
+                "CAPTURE_STATUS status=cpu_only runtime=0 cpu=1 persisted=1 input=2 "
+                "messages=1 output=live-cpu.log status_file=runtime-summary-console-status.json"
+            ),
+        )
+        self.assertEqual(status["captureStatus"], capture.CAPTURE_STATUS_CPU_ONLY)
+        self.assertFalse(status["captureOk"])
+        self.assertEqual(status["runtimeSummaryLineCount"], 0)
+        self.assertEqual(status["cpuSummaryLineCount"], 1)
+        self.assertEqual(artifact_text, "#cpu-summary {\"used\":13.1,\"bucket\":1775}")
+        self.assertNotIn(secret, json.dumps(status, sort_keys=True))
+
+    def test_live_official_console_timeout_without_messages_writes_no_messages_status(self) -> None:
+        secret = "SECRET_TOKEN_VALUE"
+        websocket = FakeWebSocket(["auth ok"])
+        websockets_module = FakeWebsocketsModule(websocket)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_dir = Path(temp_dir) / "runtime-artifacts" / "runtime-summary-console"
+            output = io.StringIO()
+            error = io.StringIO()
+            with (
+                mock.patch.dict(capture.os.environ, {capture.AUTH_TOKEN_ENV: secret}),
+                mock.patch.object(capture, "import_websockets_module", return_value=websockets_module),
+            ):
+                exit_code = capture.main(
+                    [
+                        "--live-official-console",
+                        "--out-dir",
+                        str(out_dir),
+                        "--artifact-name",
+                        "empty.log",
+                        "--live-timeout-seconds",
+                        "4",
+                        "--live-max-messages",
+                        "10",
+                    ],
+                    stdout=output,
+                    stderr=error,
+                )
+
+            report = json.loads(output.getvalue())
+            status_path = out_dir / capture.DEFAULT_STATUS_ARTIFACT_NAME
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(error.getvalue(), "")
+        self.assertEqual(report["captureStatus"], capture.CAPTURE_STATUS_NO_MESSAGES)
+        self.assertFalse(report["captureOk"])
+        self.assertEqual(report["inputLineCount"], 0)
+        self.assertEqual(report["persistedLineCount"], 0)
+        self.assertEqual(report["outputPath"], None)
+        self.assertEqual(report["receivedMessageCount"], 0)
+        self.assertEqual(status["processStatus"], "completed")
+        self.assertEqual(status["captureStatus"], capture.CAPTURE_STATUS_NO_MESSAGES)
+        self.assertFalse(status["captureOk"])
+        self.assertFalse((out_dir / "empty.log").exists())
 
     def test_live_official_console_timeout_without_match_does_not_write_artifact(self) -> None:
         websocket = FakeWebSocket(
@@ -496,10 +643,12 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
             self.assertEqual(result.output_path, None)
             self.assertFalse(out_dir.exists())
             self.assertEqual(result.metadata()["receivedMessageCount"], 1)
+            self.assertEqual(result.capture_status, capture.CAPTURE_STATUS_NO_RUNTIME_TELEMETRY)
 
     def test_live_official_console_missing_websockets_package_reports_sanitized_error(self) -> None:
         secret = "SECRET_TOKEN_VALUE"
         with tempfile.TemporaryDirectory() as temp_dir:
+            out_dir = Path(temp_dir) / "runtime-artifacts" / "runtime-summary-console"
             output = io.StringIO()
             error = io.StringIO()
             with (
@@ -514,7 +663,7 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
                     [
                         "--live-official-console",
                         "--out-dir",
-                        str(Path(temp_dir) / "runtime-artifacts" / "runtime-summary-console"),
+                        str(out_dir),
                         "--live-timeout-seconds",
                         "1",
                         "--live-max-messages",
@@ -524,10 +673,43 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
                     stderr=error,
                 )
 
+            status_path = out_dir / capture.DEFAULT_STATUS_ARTIFACT_NAME
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+
         self.assertEqual(exit_code, 1)
         self.assertEqual(output.getvalue(), "")
         self.assertIn("websockets", error.getvalue())
         self.assertNotIn(secret, error.getvalue())
+        self.assertEqual(status["processStatus"], "capture_error")
+        self.assertEqual(status["exitCode"], 1)
+        self.assertEqual(status["captureStatus"], capture.CAPTURE_STATUS_ERROR)
+        self.assertIn("websockets", status["error"])
+        self.assertNotIn(secret, json.dumps(status, sort_keys=True))
+
+    def test_cli_broken_stdout_still_leaves_completed_status_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            status_path = Path(temp_dir) / "capture-status.json"
+            error = io.StringIO()
+            exit_code = capture.main(
+                [
+                    "--status-file",
+                    str(status_path),
+                    "--out-dir",
+                    str(Path(temp_dir) / "runtime-artifacts" / "runtime-summary-console"),
+                    "--artifact-name",
+                    "stdin.log",
+                ],
+                stdin=io.StringIO("#runtime-summary {\"type\":\"runtime-summary\",\"tick\":1}\n"),
+                stdout=BrokenStdout(),
+                stderr=error,
+            )
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(error.getvalue(), "")
+        self.assertEqual(status["processStatus"], "completed")
+        self.assertEqual(status["captureStatus"], capture.CAPTURE_STATUS_CLEAN_RUNTIME_SUMMARY)
+        self.assertEqual(status["exitCode"], 0)
 
 
 if __name__ == "__main__":
