@@ -1126,6 +1126,77 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual([item["kind"] for item in health["reasons"]], ["postdeploy_active_alert"])
         self.assertEqual(health["reasons"][0]["source"]["kind"], monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND)
 
+    def test_owned_room_same_tick_none_task_ratio_state_is_idempotent(self) -> None:
+        tick = 2090237
+        previous_ratio_state = {
+            "start_tick": tick - 150,
+            "last_tick": tick,
+            "consecutive_ticks": 150,
+            "consecutive_captures": 1,
+        }
+
+        emitted, suppressed, next_state = monitor.evaluate_room_alert(
+            make_owned_room_snapshot("E29N57", tick, worker_count=4),
+            {
+                "baseline_established": True,
+                "owner": "lanyusea",
+                "rule_counts": {monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND: previous_ratio_state},
+            },
+            now=200,
+            debounce_seconds=300,
+            runtime_room_summary=none_task_runtime_room("E29N57", tick, worker_count=4, none_count=2),
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertNotIn(monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND, [reason["kind"] for reason in emitted])
+        self.assertEqual(
+            next_state["rule_counts"][monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND],
+            previous_ratio_state,
+        )
+
+    def test_owned_room_none_task_console_capture_window_requires_fresh_latest_capture(self) -> None:
+        room = "E29N57"
+        ticks = [1630662, 1630800]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            for index, tick in enumerate(ticks, start=1):
+                (runtime_dir / f"runtime-summary-console-20260601T00000{index}Z.log").write_text(
+                    "#runtime-summary "
+                    + json.dumps(
+                        {
+                            "type": "runtime-summary",
+                            "tick": tick,
+                            "rooms": [none_task_runtime_room(room, tick, worker_count=4, none_count=2)],
+                        }
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+            warnings: list[str] = []
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room=room)],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        runtime_room = runtime_rooms[f"shardX/{room}"]
+        self.assertEqual(
+            runtime_room[monitor.RUNTIME_SUMMARY_CAPTURE_HISTORY_METADATA_KEY][0]["runtimeSummaryTick"],
+            ticks[-1],
+        )
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            make_owned_room_snapshot(room, ticks[-1] + 25, worker_count=4),
+            {"baseline_established": True, "owner": "lanyusea"},
+            now=200,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertNotIn(monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND, [reason["kind"] for reason in emitted])
+
     def test_owned_room_one_off_cpu_shed_none_task_ratio_stays_silent(self) -> None:
         snapshot = make_owned_room_snapshot("E29N57", 2090237, worker_count=4)
         runtime_room = none_task_runtime_room(

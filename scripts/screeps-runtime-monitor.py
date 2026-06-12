@@ -2980,6 +2980,17 @@ def owned_room_none_task_ratio_previous_state(value: Any) -> dict[str, int]:
 def owned_room_none_task_ratio_next_state(previous_state: dict[str, int], current_tick: int) -> dict[str, int]:
     previous_start_tick = previous_state.get("start_tick")
     previous_last_tick = previous_state.get("last_tick")
+    if previous_start_tick is not None and previous_last_tick is not None and current_tick <= previous_last_tick:
+        previous_captures = previous_state.get("consecutive_captures")
+        previous_ticks = previous_state.get("consecutive_ticks")
+        return {
+            "start_tick": previous_start_tick,
+            "last_tick": previous_last_tick,
+            "consecutive_ticks": (
+                previous_ticks if previous_ticks is not None else max(0, previous_last_tick - previous_start_tick)
+            ),
+            "consecutive_captures": previous_captures if previous_captures is not None else 1,
+        }
     if previous_start_tick is None or previous_last_tick is None or current_tick < previous_last_tick:
         start_tick = current_tick
         consecutive_captures = 1
@@ -3020,6 +3031,8 @@ def owned_room_none_task_capture_window_evidence(
 ) -> tuple[dict[str, Any], dict[str, int]] | None:
     captures = owned_room_none_task_consecutive_captures(runtime_room)
     if len(captures) < OWNED_ROOM_NONE_TASK_WORKER_RATIO_REQUIRED_CONSECUTIVE_CAPTURES:
+        return None
+    if not worker_assignment_capture_window_is_fresh(captures, current_tick_value):
         return None
     state = owned_room_none_task_capture_state(captures, current_tick_value)
     if state["consecutive_ticks"] < OWNED_ROOM_NONE_TASK_WORKER_RATIO_REQUIRED_TICKS:
@@ -3105,7 +3118,7 @@ def detect_owned_room_none_task_worker_ratio_reason(
     state = owned_room_none_task_ratio_next_state(previous_state, current_tick)
     evidence["consecutiveCaptures"] = state["consecutive_captures"]
     evidence["thresholdCaptures"] = OWNED_ROOM_NONE_TASK_WORKER_RATIO_REQUIRED_CONSECUTIVE_CAPTURES
-    if current_tick == previous_last_tick:
+    if previous_last_tick is not None and current_tick <= previous_last_tick:
         return None, state
     if (
         state["consecutive_ticks"] >= OWNED_ROOM_NONE_TASK_WORKER_RATIO_REQUIRED_TICKS
