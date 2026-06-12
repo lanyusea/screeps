@@ -7292,6 +7292,7 @@ def build_harness_manifest(
     throughput_samples: Sequence[ThroughputSample] = (),
     estimated_worker_room_ticks_per_second: float = 0.0,
     max_file_bytes: int = dataset_export.DEFAULT_MAX_FILE_BYTES,
+    use_default_paths: bool = True,
     repo_root: Path | None = None,
 ) -> JsonObject:
     repo = repo_root or REPO_ROOT
@@ -7303,6 +7304,7 @@ def build_harness_manifest(
         excluded_roots=[resolved_out_dir],
         excluded_directory_names=HARNESS_EXCLUDED_DIRECTORY_NAMES,
         binary_file_extensions=HARNESS_BINARY_FILE_EXTENSIONS,
+        use_default_paths=use_default_paths,
     )
     metadata = collect_local_metadata(scan)
     throughput = build_throughput_evidence(
@@ -8514,8 +8516,17 @@ def build_parser() -> argparse.ArgumentParser:
         "paths",
         nargs="*",
         help=(
-            "Files or directories to scan. Defaults to /root/screeps/runtime-artifacts, "
-            "/root/.hermes/cron/output, and repo-local runtime-artifacts."
+            "Files or directories to scan. When omitted, dry-run writes an empty-source manifest unless "
+            "--scan-default-artifacts is set."
+        ),
+    )
+    dry.add_argument(
+        "--scan-default-artifacts",
+        action="store_true",
+        help=(
+            "When no paths are supplied, scan the historical default artifact roots "
+            "(/root/screeps/runtime-artifacts, /root/.hermes/cron/output, and repo-local runtime-artifacts). "
+            "This can be slow on hosts with large artifact archives."
         ),
     )
     dry.add_argument(
@@ -8772,6 +8783,7 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout) -> int:
             throughput_samples=args.throughput_sample,
             estimated_worker_room_ticks_per_second=args.estimate_worker_room_ticks_per_second,
             max_file_bytes=args.max_file_bytes,
+            use_default_paths=args.scan_default_artifacts,
         )
         stdout.write(json.dumps(summary, indent=2, sort_keys=True, ensure_ascii=True))
         stdout.write("\n")

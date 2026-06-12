@@ -332,6 +332,71 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         self.assertIn(".git", kwargs["excluded_directory_names"])
         self.assertIn(".png", kwargs["binary_file_extensions"])
 
+    def test_cli_dry_run_without_paths_writes_manifest_without_default_artifact_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            out_dir = root / "out"
+            empty_scan = harness.dataset_export.ScanResult(input_paths=[])
+            output = io.StringIO()
+
+            with mock.patch(
+                "screeps_rl_simulator_harness.dataset_export.collect_artifact_records",
+                return_value=empty_scan,
+            ) as collect:
+                exit_code = harness.main(
+                    [
+                        "dry-run",
+                        "--out-dir",
+                        str(out_dir),
+                        "--manifest-id",
+                        "no-path-diagnostic",
+                        "--bot-commit",
+                        "a" * 40,
+                        "--workers",
+                        "1",
+                        "--rooms-per-worker",
+                        "1",
+                    ],
+                    stdout=output,
+                )
+
+            manifest = read_json(out_dir / "no-path-diagnostic" / "simulator_harness_manifest.json")
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(collect.call_args.args[0], [])
+        self.assertFalse(collect.call_args.kwargs["use_default_paths"])
+        self.assertEqual(manifest["sources"]["sourceFileCount"], 0)
+        self.assertFalse(manifest["safety"]["liveEffect"])
+        self.assertFalse(manifest["safety"]["officialMmoWrites"])
+        self.assertIn('"manifestId": "no-path-diagnostic"', output.getvalue())
+
+    def test_cli_dry_run_can_opt_into_default_artifact_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            out_dir = root / "out"
+            empty_scan = harness.dataset_export.ScanResult(input_paths=[])
+
+            with mock.patch(
+                "screeps_rl_simulator_harness.dataset_export.collect_artifact_records",
+                return_value=empty_scan,
+            ) as collect:
+                exit_code = harness.main(
+                    [
+                        "dry-run",
+                        "--scan-default-artifacts",
+                        "--out-dir",
+                        str(out_dir),
+                        "--manifest-id",
+                        "default-scan-diagnostic",
+                        "--bot-commit",
+                        "b" * 40,
+                    ],
+                    stdout=io.StringIO(),
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(collect.call_args.kwargs["use_default_paths"])
+
     def test_cli_dry_run_and_self_test_are_offline_and_secret_free(self) -> None:
         secret = "dryrunsecret123456"
         with tempfile.TemporaryDirectory() as temp_dir:
