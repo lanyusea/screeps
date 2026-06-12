@@ -734,6 +734,144 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
         self.assertNotIn(old_card_id, payload["nextTrainingCapabilityAction"])
         self.assertNotIn("e1-console-gate-20260607T1257Z", payload["nextTrainingCapabilityAction"])
 
+    def test_training_ledger_preserves_prior_run_and_reports_newer_pending_card_supply(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            old_card_id = "rl-exp-rl-e93cefe304b9-7d410885d4ee-20260607T022517692025Z298f1b"
+            old_report_id = f"{old_card_id}-66d35f80af1e"
+            fresh_gate = card_helper.source_gate_block(
+                gate_id="e1-lite-gate-20260612T140705Z",
+                dataset_run_id="rl-shadow-eval-20260612T140705Z-0b0ad170a80d",
+                gate_report_path=artifact_root / "rl-dataset-gates" / "e1-lite-gate-20260612T140705Z" / "gate_report.json",
+                created_at="2026-06-12T14:07:05Z",
+                gate_report_ok=True,
+                acceptance_rate=1.0,
+                dataset_gate_status="pass",
+                shadow_evaluation_status="pass",
+                sample_count=99,
+                split_counts={"train": 46, "eval": 53},
+            )
+            fresh_card = card_helper.build_card(
+                dataset_run_id="rl-shadow-eval-20260612T140705Z-0b0ad170a80d",
+                code_commit="a" * 40,
+                training_approach="policy_gradient",
+                created_at="2026-06-12T14:23:03Z",
+                loop_a_card_supply=True,
+                source_gate=fresh_gate,
+            )
+            write_json(
+                artifact_root / "rl-dataset-gates" / "e1-lite-gate-20260612T140705Z" / "gate_report.json",
+                {
+                    "type": "screeps-rl-dataset-evaluation-gate",
+                    "ok": True,
+                    "gateId": "e1-lite-gate-20260612T140705Z",
+                    "createdAt": "2026-06-12T14:07:05Z",
+                    "dataset": {"runId": "rl-shadow-eval-20260612T140705Z-0b0ad170a80d", "sampleCount": 99},
+                    "datasetGate": {"status": "pass", "sampleCount": 99},
+                    "quality_checks": {"status": "pass", "samples_accepted": 99, "samples_rejected": 0},
+                    "blockingReasons": [],
+                },
+            )
+            write_json(artifact_root / "rl-experiment-cards" / "experiment_card.json", fresh_card)
+            write_json(
+                artifact_root / "rl-control-loop" / "20260611T154648Z-training-ledger.json",
+                {
+                    "type": ledgers.TRAINING_LEDGER_TYPE,
+                    "createdAt": "2026-06-11T15:46:48Z",
+                    "status": "RUN_VALIDATED",
+                    "trainingDidRun": True,
+                    "trainingArtifacts": {
+                        "experimentCard": old_card_id,
+                        "experimentCardPath": "runtime-artifacts/rl-experiment-cards/experiment_card.json",
+                        "simulatorRunIds": [old_report_id],
+                        "trainingReportIds": [old_report_id],
+                        "candidatePolicyIds": ["construction-priority.pg.risk-aware-seed.v1"],
+                    },
+                    "environmentExecution": {
+                        "environmentCountRequested": 80,
+                        "started": 80,
+                        "completed": 80,
+                        "failed": 0,
+                        "successRate": 1.0,
+                    },
+                    "iterationExecution": {
+                        "simulatorTicksRequested": 200000,
+                        "simulatorTicksRun": 160000,
+                        "episodesRun": 80,
+                        "candidateEvaluationIterations": 4,
+                        "policyUpdateIterations": 1,
+                    },
+                    "metricsFields": {
+                        "envCompleted": 80,
+                        "ticksRun": 160000,
+                        "episodes": 80,
+                        "policyUpdateIterations": 1,
+                        "trainingReportIds": [old_report_id],
+                    },
+                    "anomalies": [
+                        {
+                            "severity": "P2",
+                            "code": "EXPERIMENT_CARD_NOT_CONSUMED",
+                            "evidence": f"Old training report exists but old card is still available: {old_card_id}",
+                            "handoffRequired": False,
+                        }
+                    ],
+                    "nextTrainingCapabilityAction": (
+                        f"Resolve old experiment card state for {old_card_id} before continuing."
+                    ),
+                },
+            )
+            output = root / "out" / "training-ledger.json"
+
+            exit_code = ledgers.main(
+                [
+                    "training-ledger",
+                    "--repo-root",
+                    str(root),
+                    "--artifact-root",
+                    str(artifact_root),
+                    "--output",
+                    str(output),
+                    "--created-at",
+                    "2026-06-12T18:03:06Z",
+                    "--max-files-per-root",
+                    "8",
+                ],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+            payload = read_json(output)
+
+        anomaly_codes = {item["code"] for item in payload["anomalies"]}
+        pending = payload["pendingExperimentCard"]
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["status"], "RUN_VALIDATED")
+        self.assertTrue(payload["trainingDidRun"])
+        self.assertEqual(payload["environmentExecution"]["completed"], 80)
+        self.assertEqual(payload["trainingArtifacts"]["trainingReportIds"], [old_report_id])
+        self.assertEqual(payload["metricsFields"]["trainingReportIds"], [old_report_id])
+        self.assertTrue(payload["trainingArtifacts"]["latestTrainingLedger"].endswith("20260611T154648Z-training-ledger.json"))
+        self.assertEqual(payload["trainingArtifacts"]["experimentCard"], old_card_id)
+        self.assertEqual(payload["trainingArtifacts"]["experimentCardPath"], "runtime-artifacts/rl-experiment-cards/experiment_card.json")
+        self.assertIsNone(payload["trainingArtifacts"]["experimentCardStatus"])
+        self.assertEqual(payload["trainingArtifacts"]["pendingExperimentCard"], pending)
+        self.assertIsNotNone(payload["trainingArtifacts"]["cardSupply"])
+        self.assertEqual(payload["cardSupply"]["status"], "DEGRADED")
+        self.assertEqual(
+            payload["cardSupply"]["classification"],
+            "TRAINING_RAN_WITHOUT_STRUCTURED_CARD_SUPPLY_EVIDENCE",
+        )
+        self.assertEqual(payload["cardSupply"]["pendingCardSupply"]["source"], "standalone_experiment_card")
+        self.assertEqual(payload["cardSupply"]["pendingCardSupply"]["cardId"], fresh_card["card_id"])
+        self.assertEqual(payload["cardSupply"]["pendingCardSupply"]["cardSupply"]["state"], "available")
+        self.assertTrue(payload["cardSupply"]["pendingCardSupply"]["cardSupply"]["available_for_training"])
+        self.assertEqual(pending["cardId"], fresh_card["card_id"])
+        self.assertTrue(pending["availableForTraining"])
+        self.assertNotIn("EXPERIMENT_CARD_NOT_CONSUMED", anomaly_codes)
+        self.assertNotIn(old_card_id, json.dumps(payload["anomalies"], sort_keys=True))
+        self.assertNotIn(old_card_id, payload["nextTrainingCapabilityAction"])
+
     def test_training_ledger_ingests_root_level_local2w_training_report(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
