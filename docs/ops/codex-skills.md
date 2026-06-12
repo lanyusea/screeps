@@ -112,12 +112,12 @@ Controller workflow:
    - `OWNER_DECISION` — would change strategy, reward policy, live deployment, secrets, or another owner-controlled choice.
 5. For `FIX`, keep changes in the PR branch, commit with the required Codex author, push, then rerun controller verification and exact-head QA.
 6. For `RESOLVE_FALSE_POSITIVE`, `RESOLVE_STALE_OR_OUTDATED`, or `ADVISORY_ONLY`, post concise evidence when useful and resolve the GitHub review thread/comment with GraphQL/`gh` after verifying it is safe. Do not add code just to appease a non-critical bot suggestion.
-7. Do not merge while CodeRabbit/Gemini is pending, while a fresh top-level review body contains untriaged actionable language, or while unresolved active review threads remain.
+7. Per owner decision `1514861910908993646`, the controller may bypass CodeRabbit/Gemini when that reviewer is unreliable, unavailable, rate-limited, skipped, stale, stuck pending without substantive output, or otherwise non-substantive for the exact PR head. Record reviewer, head SHA, reason, required-check status, review-thread state, and QA/controller judgment in PR/Project evidence. Do not merge while a credible active automated finding remains untriaged/unresolved or while unresolved active review threads remain.
 
 Prompt clause for Codex review-fix runs:
 
 ```text
-Triage the automated review feedback first. Not every CodeRabbit/Gemini finding is valid, reasonable, necessary, or worth changing. For each finding, record `source/thread`, `classification`, `criticality`, `evidence`, `action`, and `verification`, then classify it as FIX, RESOLVE_FALSE_POSITIVE, RESOLVE_STALE_OR_OUTDATED, ADVISORY_ONLY, or OWNER_DECISION. Only implement FIX items that are valid, actionable, and critical under AGENTS.md; otherwise explain the evidence the controller should use to resolve the thread/comment without code churn.
+Triage the automated review feedback first. Not every CodeRabbit/Gemini finding is valid, reasonable, necessary, or worth changing. For each substantive finding, record `source/thread`, `classification`, `criticality`, `evidence`, `action`, and `verification`, then classify it as FIX, RESOLVE_FALSE_POSITIVE, RESOLVE_STALE_OR_OUTDATED, ADVISORY_ONLY, or OWNER_DECISION. Only implement FIX items that are valid, actionable, and critical under AGENTS.md; otherwise explain the evidence the controller should use to resolve the thread/comment without code churn. If the reviewer output itself is unreliable/unavailable/rate-limited/skipped/stale/non-substantive, say so explicitly with exact-head evidence so the controller can record a reliability bypass.
 ```
 
 ## Skill 4 — Screeps operations/documentation updates

@@ -133,7 +133,7 @@ Transient one-shot jobs must have an expiry condition and tracking issue. They s
 - Reporter state files and old cron outputs are caches/history, not rules authority.
 - When scanning cron output, ignore prompt/system/skill sections unless explicitly auditing historical prompt drift.
 - Cron runs must not recursively schedule new cron jobs.
-- PR-draining/continuation cron prompts must include the CodeRabbit assertive-mode triage rule: use Codex to classify each automated review finding before choosing a patch or thread/comment resolution, and never merge with pending/untriaged CodeRabbit/Gemini feedback.
+- PR-draining/continuation cron prompts must include the CodeRabbit assertive-mode triage rule: use Codex to classify each automated review finding before choosing a patch or thread/comment resolution, and never merge with credible untriaged CodeRabbit/Gemini feedback. Per owner decision `1514861910908993646`, unreliable/unavailable/rate-limited/skipped/stale/non-substantive CodeRabbit/Gemini review may be bypassed only with exact-head PR/Project evidence; required checks, review threads, QA, Project state, and elapsed window still apply.
 - Cron prompt updates require a pre-change snapshot and post-change `cronjob list` verification.
 - Long-lived recurring Screeps jobs should be configured as `forever` or with a very high repeat horizon. A finite `999` cap on critical recurring jobs is abnormal because it can silently stop automation after enough successful runs.
 - Repo/worktree-manipulating cron jobs must keep a stable current directory. Use `/root/screeps` as the default controller cwd, prefer `git -C <path>` or subshells over persistent `cd`, and return to `/root/screeps` before deleting any linked worktree.
