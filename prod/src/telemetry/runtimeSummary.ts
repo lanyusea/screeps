@@ -1642,6 +1642,10 @@ function isConstructionActivitySuppressed(
   productiveEnergy: RuntimeProductiveEnergySummary,
   cpuBudget: RuntimeCpuBudget
 ): boolean {
+  if (!shouldRunConstructionCpuWork(cpuBudget)) {
+    return true;
+  }
+
   if (productiveEnergy.constructionSiteCount <= 0 && productiveEnergy.pendingBuildProgress <= 0) {
     return false;
   }
@@ -1658,7 +1662,7 @@ function selectConstructionActivitySuppressedReason(
   productiveEnergy: RuntimeProductiveEnergySummary,
   cpuBudget: RuntimeCpuBudget
 ): RuntimeConstructionActivityReason {
-  if (shouldShedNonessentialCpuWork(cpuBudget)) {
+  if (!shouldRunConstructionCpuWork(cpuBudget) || shouldShedNonessentialCpuWork(cpuBudget)) {
     return 'cpu_shed';
   }
 
