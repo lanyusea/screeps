@@ -514,6 +514,100 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
         self.assertEqual(payload["trainingArtifacts"]["latestTrainingLedger"], None)
         self.assertIn("TRAINING_LEDGER_MISSING", {item["code"] for item in payload["anomalies"]})
 
+    def test_training_ledger_preserves_pending_loop_a_card_supply_without_prior_ledger(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            fresh_gate = card_helper.source_gate_block(
+                gate_id="e1-lite-gate-20260612T140705Z",
+                dataset_run_id="rl-shadow-eval-20260612T140705Z-0b0ad170a80d",
+                gate_report_path=(
+                    artifact_root
+                    / "rl-dataset-gates"
+                    / "e1-lite-gate-20260612T140705Z"
+                    / "gate_report.json"
+                ),
+                created_at="2026-06-12T14:07:05Z",
+                gate_report_ok=True,
+                acceptance_rate=1.0,
+                dataset_gate_status="pass",
+                shadow_evaluation_status="pass",
+                sample_count=99,
+                split_counts={"train": 46, "eval": 53},
+            )
+            fresh_card = card_helper.build_card(
+                dataset_run_id="rl-shadow-eval-20260612T140705Z-0b0ad170a80d",
+                code_commit="a" * 40,
+                training_approach="policy_gradient",
+                created_at="2026-06-12T14:23:03Z",
+                loop_a_card_supply=True,
+                source_gate=fresh_gate,
+            )
+            write_json(
+                artifact_root / "rl-dataset-gates" / "e1-lite-gate-20260612T140705Z" / "gate_report.json",
+                {
+                    "type": "screeps-rl-dataset-evaluation-gate",
+                    "ok": True,
+                    "gateId": "e1-lite-gate-20260612T140705Z",
+                    "createdAt": "2026-06-12T14:07:05Z",
+                    "dataset": {"runId": "rl-shadow-eval-20260612T140705Z-0b0ad170a80d", "sampleCount": 99},
+                    "datasetGate": {"status": "pass", "sampleCount": 99},
+                    "quality_checks": {"status": "pass", "samples_accepted": 99, "samples_rejected": 0},
+                    "blockingReasons": [],
+                },
+            )
+            write_json(artifact_root / "rl-experiment-cards" / "experiment_card.json", fresh_card)
+            output = root / "out" / "training-ledger.json"
+
+            exit_code = ledgers.main(
+                [
+                    "training-ledger",
+                    "--repo-root",
+                    str(root),
+                    "--artifact-root",
+                    str(artifact_root),
+                    "--output",
+                    str(output),
+                    "--created-at",
+                    "2026-06-12T16:20:00Z",
+                    "--max-files-per-root",
+                    "8",
+                ],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+            payload = read_json(output)
+
+        anomaly_codes = {item["code"] for item in payload["anomalies"]}
+        training_gap = next(item for item in payload["anomalies"] if item["code"] == "TRAINING_LEDGER_MISSING")
+        pending = payload["pendingExperimentCard"]
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["status"], "NOT_RUN")
+        self.assertFalse(payload["trainingDidRun"])
+        self.assertEqual(payload["trainingArtifacts"]["latestTrainingLedger"], None)
+        self.assertEqual(payload["trainingArtifacts"]["experimentCard"], fresh_card["card_id"])
+        self.assertEqual(payload["trainingArtifacts"]["experimentCardPath"], "runtime-artifacts/rl-experiment-cards/experiment_card.json")
+        self.assertEqual(payload["trainingArtifacts"]["experimentCardStatus"], "available_pending_guarded_training")
+        self.assertEqual(payload["trainingArtifacts"]["pendingExperimentCard"], pending)
+        self.assertEqual(payload["cardSupply"]["cardId"], fresh_card["card_id"])
+        self.assertEqual(payload["cardSupply"]["cardSupply"]["state"], "available")
+        self.assertTrue(payload["cardSupply"]["cardSupply"]["available_for_training"])
+        self.assertIsNone(payload["cardSupply"]["cardSupply"]["consumed_at"])
+        self.assertIsNone(payload["cardSupply"]["cardSupply"]["consumed_by_report_id"])
+        self.assertEqual(pending["cardId"], fresh_card["card_id"])
+        self.assertEqual(pending["sourceGate"]["gate_id"], "e1-lite-gate-20260612T140705Z")
+        self.assertEqual(pending["sourceGate"]["sample_count"], 99)
+        self.assertEqual(pending["sourceGate"]["split_counts"], {"train": 46, "eval": 53})
+        self.assertFalse(pending["safety"]["liveEffect"])
+        self.assertFalse(pending["safety"]["officialMmoWrites"])
+        self.assertFalse(pending["safety"]["officialMmoWritesAllowed"])
+        self.assertIn("TRAINING_LEDGER_MISSING", anomaly_codes)
+        self.assertIn("#1233", training_gap["evidence"])
+        self.assertIn(fresh_card["card_id"], training_gap["evidence"])
+        self.assertIn("#1233", payload["nextTrainingCapabilityAction"])
+        self.assertIn(fresh_card["card_id"], payload["nextTrainingCapabilityAction"])
+        self.assertNotIn("No training ledger found", payload["nextTrainingCapabilityAction"])
+
     def test_training_ledger_records_fresh_pending_loop_a_card_supply_when_compute_is_held(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
