@@ -110,6 +110,11 @@ WORKER_ASSIGNMENT_GAP_RECOVERY_TICK_TOLERANCE = 0
 WORKER_ASSIGNMENT_STALL_KIND = "worker_assignment_stall"
 WORKER_ASSIGNMENT_STALL_REQUIRED_TICKS = 100
 WORKER_ASSIGNMENT_STALL_REQUIRED_CONSECUTIVE_CAPTURES = 4
+OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND = "owned_room_none_task_worker_ratio_sustained"
+OWNED_ROOM_NONE_TASK_WORKER_RATIO_THRESHOLD = 0.5
+OWNED_ROOM_NONE_TASK_WORKER_COUNT_THRESHOLD = 2
+OWNED_ROOM_NONE_TASK_WORKER_RATIO_REQUIRED_TICKS = 100
+OWNED_ROOM_NONE_TASK_WORKER_RATIO_REQUIRED_CONSECUTIVE_CAPTURES = 2
 RUNTIME_SUMMARY_CAPTURE_HISTORY_LIMIT = 12
 RUNTIME_SUMMARY_TICK_METADATA_KEY = "__runtimeSummaryTick"
 RUNTIME_SUMMARY_ARTIFACT_TIMESTAMP_METADATA_KEY = "__runtimeSummaryArtifactTimestamp"
@@ -267,6 +272,11 @@ WORKER_ASSIGNMENT_STALL_ROUTES = [
     {"issue": "#1573", "topic": "worker_deadlock_alert"},
     {"issue": "#906", "topic": "gameplay_behavior_metric"},
 ]
+OWNED_ROOM_NONE_TASK_WORKER_RATIO_ROUTES = [
+    {"issue": "#1767", "topic": "runtime_monitor_alert"},
+    {"issue": "#1776", "topic": "secondary_room_standby_behavior"},
+    {"issue": "#906", "topic": "gameplay_behavior_metric"},
+]
 
 ROOM_SIZE = 50
 TERRAIN_CELLS = ROOM_SIZE * ROOM_SIZE
@@ -413,6 +423,22 @@ TACTICAL_CATEGORY_RULES: dict[str, dict[str, Any]] = {
             "routes_to": WORKER_ASSIGNMENT_STALL_ROUTES,
         },
     },
+    OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND: {
+        "severity": "high",
+        "decision": "codex_hotfix",
+        "actions": ["capture_runtime_context", "inspect_resource_state", "start_hotfix_gate"],
+        "metadata": {
+            "metric": "taskCounts.none / workerCount",
+            "related_issues": [str(route["issue"]) for route in OWNED_ROOM_NONE_TASK_WORKER_RATIO_ROUTES],
+            "thresholds": {
+                "P1_ratio": OWNED_ROOM_NONE_TASK_WORKER_RATIO_THRESHOLD,
+                "P1_none_workers": OWNED_ROOM_NONE_TASK_WORKER_COUNT_THRESHOLD,
+                "P1_ticks": OWNED_ROOM_NONE_TASK_WORKER_RATIO_REQUIRED_TICKS,
+                "P1_consecutive_captures": OWNED_ROOM_NONE_TASK_WORKER_RATIO_REQUIRED_CONSECUTIVE_CAPTURES,
+            },
+            "routes_to": OWNED_ROOM_NONE_TASK_WORKER_RATIO_ROUTES,
+        },
+    },
     "downgrade_risk": {
         "severity": "high",
         "decision": "owner_action_or_codex_hotfix",
@@ -529,6 +555,7 @@ TACTICAL_REASON_CATEGORY_MAP = {
     EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND: [EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND],
     WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND: [WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND],
     WORKER_ASSIGNMENT_STALL_KIND: [WORKER_ASSIGNMENT_STALL_KIND],
+    OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND: [OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND],
     "postdeploy_no_owned_spawn": ["spawn_collapse"],
     "owned_spawns=0": ["spawn_collapse"],
     "controller_downgrade_risk": ["downgrade_risk"],
@@ -1488,6 +1515,20 @@ def worker_assignment_stall_metadata() -> dict[str, Any]:
             "P2_consecutive_captures": WORKER_ASSIGNMENT_STALL_REQUIRED_CONSECUTIVE_CAPTURES,
         },
         "routes_to": [dict(route) for route in WORKER_ASSIGNMENT_STALL_ROUTES],
+    }
+
+
+def owned_room_none_task_worker_ratio_metadata() -> dict[str, Any]:
+    return {
+        "metric": "taskCounts.none / workerCount",
+        "related_issues": [str(route["issue"]) for route in OWNED_ROOM_NONE_TASK_WORKER_RATIO_ROUTES],
+        "thresholds": {
+            "P1_ratio": OWNED_ROOM_NONE_TASK_WORKER_RATIO_THRESHOLD,
+            "P1_none_workers": OWNED_ROOM_NONE_TASK_WORKER_COUNT_THRESHOLD,
+            "P1_ticks": OWNED_ROOM_NONE_TASK_WORKER_RATIO_REQUIRED_TICKS,
+            "P1_consecutive_captures": OWNED_ROOM_NONE_TASK_WORKER_RATIO_REQUIRED_CONSECUTIVE_CAPTURES,
+        },
+        "routes_to": [dict(route) for route in OWNED_ROOM_NONE_TASK_WORKER_RATIO_ROUTES],
     }
 
 
@@ -2752,6 +2793,328 @@ def worker_assignment_capture_window_evidence(
     return evidence, worker_assignment_capture_state(captures, evidence.get("runtimeSummaryTick"))
 
 
+def runtime_worker_summary_tick(room: dict[str, Any] | None) -> int | None:
+    if not isinstance(room, dict):
+        return None
+    for value in (
+        room.get(RUNTIME_SUMMARY_TICK_METADATA_KEY),
+        nested_value(room, "workerAssignmentEvidence", "tick"),
+        room.get("tick"),
+    ):
+        tick = tick_number(value)
+        if tick is not None:
+            return tick
+    return None
+
+
+def runtime_worker_count_from_summary(room: dict[str, Any] | None) -> int | float | None:
+    if not isinstance(room, dict):
+        return None
+    worker_count = first_number_value(
+        room,
+        ("workerCount",),
+        ("workerAssignmentEvidence", "workerCount"),
+        ("resources", "productiveEnergy", "workerCount"),
+        ("productiveEnergy", "workerCount"),
+    )
+    if worker_count is not None:
+        return max(0, worker_count)
+
+    task_counts = as_dict(room.get("taskCounts"))
+    counted_workers = sum(value for value in (number_value(item) for item in task_counts.values()) if value is not None)
+    return counted_workers if counted_workers > 0 else None
+
+
+def runtime_none_task_worker_count(room: dict[str, Any] | None) -> int | float | None:
+    if not isinstance(room, dict):
+        return None
+    none_count = runtime_task_count(room, "none")
+    if none_count is not None:
+        return max(0, none_count)
+    fallback_count = first_number_value(
+        room,
+        ("workerAssignmentEvidence", "unassignedWorkerCount"),
+        ("resources", "productiveEnergy", "unassignedWorkerCount"),
+        ("productiveEnergy", "unassignedWorkerCount"),
+        ("unassignedWorkerCount",),
+    )
+    return max(0, fallback_count) if fallback_count is not None else None
+
+
+def runtime_assigned_task_count(room: dict[str, Any] | None) -> int | float | None:
+    if not isinstance(room, dict):
+        return None
+    assigned = first_number_value(
+        room,
+        ("workerAssignmentEvidence", "assignedTaskCount"),
+        ("assignedTaskCount",),
+    )
+    if assigned is not None:
+        return assigned
+    worker_count = runtime_worker_count_from_summary(room)
+    none_count = runtime_none_task_worker_count(room)
+    if worker_count is None or none_count is None:
+        return None
+    return max(0, worker_count - none_count)
+
+
+def runtime_idle_reason_counts(room: dict[str, Any] | None) -> dict[str, int | float]:
+    if not isinstance(room, dict):
+        return {}
+    counts = as_dict(nested_value(room, "workerAssignmentEvidence", "idleReasonCounts"))
+    if not counts:
+        counts = as_dict(room.get("idleReasonCounts"))
+    result: dict[str, int | float] = {}
+    for key, value in counts.items():
+        if not isinstance(key, str) or not key:
+            continue
+        count = number_value(value)
+        if count is not None:
+            result[key] = count
+    return result
+
+
+def sanitized_idle_worker(worker: Any) -> dict[str, Any] | None:
+    if not isinstance(worker, dict):
+        return None
+    result: dict[str, Any] = {}
+    for key in ("name", "reason", "dispatchReason"):
+        value = worker.get(key)
+        if isinstance(value, str) and value:
+            result[key] = short_text(value, MAX_CREEP_MEMORY_ASSIGNMENT_STRING_LENGTH)
+    for key in ("carriedEnergy", "freeCapacity", "dispatchTick"):
+        value = number_value(worker.get(key))
+        if value is not None:
+            result[key] = value
+    return result or None
+
+
+def runtime_idle_workers(room: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(room, dict):
+        return []
+    for candidate in (
+        nested_value(room, "workerAssignmentEvidence", "idleWorkers"),
+        room.get("idleWorkers"),
+    ):
+        if not isinstance(candidate, list):
+            continue
+        workers = [sanitized for item in candidate if (sanitized := sanitized_idle_worker(item)) is not None]
+        if workers:
+            return workers[:MAX_WORKER_ASSIGNMENT_BLOCKED_WORKERS]
+    return []
+
+
+def owned_room_none_task_worker_ratio_evidence(runtime_room: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(runtime_room, dict):
+        return None
+    if not runtime_worker_assignment_evidence_available(runtime_room):
+        return None
+
+    worker_count = runtime_worker_count_from_summary(runtime_room)
+    none_count = runtime_none_task_worker_count(runtime_room)
+    if worker_count is None or none_count is None or worker_count <= 0 or none_count <= 0:
+        return None
+
+    none_ratio = none_count / worker_count
+    if (
+        none_count < OWNED_ROOM_NONE_TASK_WORKER_COUNT_THRESHOLD
+        or none_ratio < OWNED_ROOM_NONE_TASK_WORKER_RATIO_THRESHOLD
+    ):
+        return None
+
+    task_counts = dict(as_dict(runtime_room.get("taskCounts")))
+    evidence: dict[str, Any] = {
+        "workerCount": worker_count,
+        "noneTaskWorkerCount": none_count,
+        "noneTaskWorkerRatio": round(none_ratio, 3),
+        "noneTaskWorkerRatioThreshold": OWNED_ROOM_NONE_TASK_WORKER_RATIO_THRESHOLD,
+        "noneTaskWorkerCountThreshold": OWNED_ROOM_NONE_TASK_WORKER_COUNT_THRESHOLD,
+        "assignedTaskCount": runtime_assigned_task_count(runtime_room),
+        "productiveAssignmentCount": runtime_productive_assignment_count(runtime_room),
+        "task_counts": task_counts,
+        "idleReasonCounts": runtime_idle_reason_counts(runtime_room),
+        "runtimeSummaryTick": runtime_worker_summary_tick(runtime_room),
+    }
+    idle_workers = runtime_idle_workers(runtime_room)
+    if idle_workers:
+        evidence["idleWorkers"] = idle_workers
+    artifact_timestamp = runtime_room.get(RUNTIME_SUMMARY_ARTIFACT_TIMESTAMP_METADATA_KEY)
+    if isinstance(artifact_timestamp, (int, float, str)) and artifact_timestamp:
+        evidence["runtimeSummaryArtifactTimestamp"] = artifact_timestamp
+    artifact_path = runtime_room.get(RUNTIME_SUMMARY_ARTIFACT_PATH_METADATA_KEY)
+    if isinstance(artifact_path, str) and artifact_path:
+        evidence["runtimeSummaryArtifactPath"] = artifact_path
+    artifact_line = number_value(runtime_room.get(RUNTIME_SUMMARY_ARTIFACT_LINE_METADATA_KEY))
+    if artifact_line is not None:
+        evidence["runtimeSummaryArtifactLine"] = int(artifact_line)
+    return evidence
+
+
+def owned_room_none_task_capture_matches(capture: dict[str, Any]) -> bool:
+    return owned_room_none_task_worker_ratio_evidence(capture) is not None
+
+
+def owned_room_none_task_consecutive_captures(runtime_room: dict[str, Any] | None) -> list[dict[str, Any]]:
+    captures = runtime_summary_capture_history(runtime_room)
+    if not captures:
+        return []
+    consecutive: list[dict[str, Any]] = []
+    for capture in captures:
+        if not owned_room_none_task_capture_matches(capture):
+            break
+        consecutive.append(capture)
+    return consecutive
+
+
+def owned_room_none_task_ratio_previous_state(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, int] = {}
+    for key in ("start_tick", "last_tick", "consecutive_ticks", "consecutive_captures"):
+        tick = tick_number(value.get(key))
+        if tick is not None:
+            result[key] = tick
+    return result
+
+
+def owned_room_none_task_ratio_next_state(previous_state: dict[str, int], current_tick: int) -> dict[str, int]:
+    previous_start_tick = previous_state.get("start_tick")
+    previous_last_tick = previous_state.get("last_tick")
+    if previous_start_tick is None or previous_last_tick is None or current_tick < previous_last_tick:
+        start_tick = current_tick
+        consecutive_captures = 1
+    else:
+        start_tick = previous_start_tick
+        previous_captures = previous_state.get("consecutive_captures")
+        consecutive_captures = (previous_captures if previous_captures is not None else 1) + 1
+    return {
+        "start_tick": start_tick,
+        "last_tick": current_tick,
+        "consecutive_ticks": max(0, current_tick - start_tick),
+        "consecutive_captures": consecutive_captures,
+    }
+
+
+def owned_room_none_task_capture_state(captures: list[dict[str, Any]], current_tick_value: Any) -> dict[str, int]:
+    current_tick = tick_number(captures[0].get("runtimeSummaryTick")) if captures else None
+    start_tick = tick_number(captures[-1].get("runtimeSummaryTick")) if captures else None
+    if current_tick is None:
+        current_tick = tick_number(current_tick_value)
+    if start_tick is None:
+        start_tick = current_tick
+    if current_tick is None:
+        current_tick = start_tick if start_tick is not None else 0
+    if start_tick is None:
+        start_tick = current_tick
+    return {
+        "start_tick": start_tick,
+        "last_tick": current_tick,
+        "consecutive_ticks": max(0, current_tick - start_tick),
+        "consecutive_captures": len(captures),
+    }
+
+
+def owned_room_none_task_capture_window_evidence(
+    runtime_room: dict[str, Any] | None,
+    current_tick_value: Any,
+) -> tuple[dict[str, Any], dict[str, int]] | None:
+    captures = owned_room_none_task_consecutive_captures(runtime_room)
+    if len(captures) < OWNED_ROOM_NONE_TASK_WORKER_RATIO_REQUIRED_CONSECUTIVE_CAPTURES:
+        return None
+    state = owned_room_none_task_capture_state(captures, current_tick_value)
+    if state["consecutive_ticks"] < OWNED_ROOM_NONE_TASK_WORKER_RATIO_REQUIRED_TICKS:
+        return None
+    evidence = owned_room_none_task_worker_ratio_evidence(runtime_room)
+    if evidence is None:
+        evidence = owned_room_none_task_worker_ratio_evidence(captures[0])
+    if evidence is None:
+        return None
+    evidence["consecutiveCaptures"] = len(captures)
+    evidence["thresholdCaptures"] = OWNED_ROOM_NONE_TASK_WORKER_RATIO_REQUIRED_CONSECUTIVE_CAPTURES
+    evidence["runtimeSummaryCaptures"] = captures
+    evidence["runtimeSummaryCapturePaths"] = worker_assignment_capture_paths(captures)
+    return evidence, state
+
+
+def build_owned_room_none_task_worker_ratio_reason(
+    ref: RoomRef,
+    evidence: dict[str, Any],
+    state: dict[str, int],
+) -> dict[str, Any]:
+    consecutive_captures = number_value(evidence.get("consecutiveCaptures"))
+    capture_duration = (
+        f"across {format_energy_value(consecutive_captures)} consecutive runtime-summary captures "
+        f"over {state['consecutive_ticks']} ticks"
+        if consecutive_captures is not None
+        else f"for {state['consecutive_ticks']} ticks"
+    )
+    return {
+        "kind": OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND,
+        "room": ref.key,
+        "shard": ref.shard,
+        "room_name": ref.room,
+        "severity": "high",
+        "priority": "P1",
+        **evidence,
+        "start_tick": state["start_tick"],
+        "current_tick": state["last_tick"],
+        "consecutive_ticks": state["consecutive_ticks"],
+        "consecutiveCaptures": state["consecutive_captures"],
+        "threshold": OWNED_ROOM_NONE_TASK_WORKER_RATIO_THRESHOLD,
+        "next_action": (
+            "Codex triage: inspect owned-room worker assignment and standby behavior; verify "
+            "taskCounts.none falls below the sustained ratio threshold in fresh runtime-summary captures."
+        ),
+        "owner_ping": False,
+        "metadata": owned_room_none_task_worker_ratio_metadata(),
+        "message": (
+            f"{OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND} in {ref.key}: "
+            f"taskCounts.none={format_energy_value(evidence.get('noneTaskWorkerCount'))}/"
+            f"{format_energy_value(evidence.get('workerCount'))} "
+            f"({evidence.get('noneTaskWorkerRatio')}) {capture_duration}; "
+            f"idleReasonCounts={evidence.get('idleReasonCounts') or {}}."
+        ),
+        "signature": f"{OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND}:{ref.key}",
+    }
+
+
+def detect_owned_room_none_task_worker_ratio_reason(
+    ref: RoomRef,
+    runtime_room: dict[str, Any] | None,
+    previous_rule_state: Any,
+    current_tick_value: Any,
+) -> tuple[dict[str, Any] | None, dict[str, int] | int]:
+    capture_window = owned_room_none_task_capture_window_evidence(runtime_room, current_tick_value)
+    if capture_window is not None:
+        evidence, state = capture_window
+        return build_owned_room_none_task_worker_ratio_reason(ref, evidence, state), state
+
+    evidence = owned_room_none_task_worker_ratio_evidence(runtime_room)
+    if evidence is None:
+        return None, 0
+
+    current_tick = tick_number(evidence.get("runtimeSummaryTick"))
+    if current_tick is None:
+        current_tick = tick_number(current_tick_value)
+    if current_tick is None:
+        preserved_state = owned_room_none_task_ratio_previous_state(previous_rule_state)
+        return None, preserved_state or 0
+
+    previous_state = owned_room_none_task_ratio_previous_state(previous_rule_state)
+    previous_last_tick = previous_state.get("last_tick")
+    state = owned_room_none_task_ratio_next_state(previous_state, current_tick)
+    evidence["consecutiveCaptures"] = state["consecutive_captures"]
+    evidence["thresholdCaptures"] = OWNED_ROOM_NONE_TASK_WORKER_RATIO_REQUIRED_CONSECUTIVE_CAPTURES
+    if current_tick == previous_last_tick:
+        return None, state
+    if (
+        state["consecutive_ticks"] >= OWNED_ROOM_NONE_TASK_WORKER_RATIO_REQUIRED_TICKS
+        and state["consecutive_captures"] >= OWNED_ROOM_NONE_TASK_WORKER_RATIO_REQUIRED_CONSECUTIVE_CAPTURES
+    ):
+        return build_owned_room_none_task_worker_ratio_reason(ref, evidence, state), state
+    return None, state
+
+
 def build_worker_assignment_stall_reason(
     ref: RoomRef,
     evidence: dict[str, Any],
@@ -3073,6 +3436,17 @@ def evaluate_room_alert(
     rule_counts[WORKER_ASSIGNMENT_STALL_KIND] = worker_assignment_stall_state
     if worker_assignment_stall_candidate is not None:
         detected.append(worker_assignment_stall_candidate)
+
+    previous_none_task_ratio_state = rule_counts.get(OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND)
+    none_task_ratio_candidate, none_task_ratio_state = detect_owned_room_none_task_worker_ratio_reason(
+        snapshot.ref,
+        runtime_room_summary if owned_room_for_worker_alerts else None,
+        previous_none_task_ratio_state,
+        snapshot.tick,
+    )
+    rule_counts[OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND] = none_task_ratio_state
+    if none_task_ratio_candidate is not None:
+        detected.append(none_task_ratio_candidate)
 
     previous_worker_assignment_gap_state = rule_counts.get(WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND)
     worker_assignment_gap_candidate, worker_assignment_gap_state = detect_worker_assignment_gap_sustained_reason(
@@ -4777,6 +5151,18 @@ def runtime_summary_capture_history_entry(room: dict[str, Any]) -> dict[str, Any
     productive_assignment_count = runtime_productive_assignment_count(room)
     if productive_assignment_count is not None:
         entry["productiveAssignmentCount"] = productive_assignment_count
+    assigned_task_count = runtime_assigned_task_count(room)
+    if assigned_task_count is not None:
+        entry["assignedTaskCount"] = assigned_task_count
+    none_task_worker_count = runtime_none_task_worker_count(room)
+    if none_task_worker_count is not None:
+        entry["noneTaskWorkerCount"] = none_task_worker_count
+    idle_reason_counts = runtime_idle_reason_counts(room)
+    if idle_reason_counts:
+        entry["idleReasonCounts"] = idle_reason_counts
+    idle_workers = runtime_idle_workers(room)
+    if idle_workers:
+        entry["idleWorkers"] = idle_workers
     blocked_detail = runtime_worker_assignment_blocked_detail(room)
     if blocked_detail is not None:
         entry["workerAssignmentBlockedDetail"] = blocked_detail
