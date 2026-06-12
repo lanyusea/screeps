@@ -1141,7 +1141,7 @@ export function shouldEmitRuntimeSummary(
     return tick > 0 && tick % DEGRADED_RUNTIME_SUMMARY_INTERVAL === 0;
   }
 
-  if (events.length > 0) {
+  if (hasImmediateRuntimeSummaryEvent(events)) {
     return true;
   }
 
@@ -1149,6 +1149,16 @@ export function shouldEmitRuntimeSummary(
     ? DEGRADED_RUNTIME_SUMMARY_INTERVAL
     : RUNTIME_SUMMARY_INTERVAL;
   return tick > 0 && tick % interval === 0;
+}
+
+function hasImmediateRuntimeSummaryEvent(events: RuntimeTelemetryEvent[]): boolean {
+  return events.some((event) => {
+    if (event.type !== 'constructionPlacement') {
+      return true;
+    }
+
+    return event.mode !== 'normal' || event.blockedReason === undefined;
+  });
 }
 
 function hasCriticalRuntimeSummaryEvent(events: RuntimeTelemetryEvent[]): boolean {

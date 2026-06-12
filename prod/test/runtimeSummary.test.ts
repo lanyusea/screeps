@@ -4538,6 +4538,25 @@ describe('runtime telemetry summaries', () => {
       damagedCriticalStructureCount: 1,
       tick: RUNTIME_SUMMARY_INTERVAL
     };
+    const normalConstructionBlockerEvent: RuntimeTelemetryEvent = {
+      type: 'constructionPlacement',
+      roomName: 'W1N1',
+      priority: 'road',
+      structureType: TEST_GLOBALS.STRUCTURE_ROAD,
+      mode: 'normal',
+      blockedReason: 'residual_road_seed_existing_site',
+      details: { pendingConstructionSiteCount: 1 }
+    };
+    const normalConstructionPlacementEvent: RuntimeTelemetryEvent = {
+      type: 'constructionPlacement',
+      roomName: 'W1N1',
+      priority: 'road',
+      structureType: TEST_GLOBALS.STRUCTURE_ROAD,
+      mode: 'normal',
+      result: 0 as ScreepsReturnCode,
+      x: 12,
+      y: 13
+    };
 
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [], lowBucketBudget)).toBe(false);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL * 5, [], lowBucketBudget)).toBe(true);
@@ -4559,6 +4578,9 @@ describe('runtime telemetry summaries', () => {
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [spawnEvent], overLimitBudget)).toBe(false);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL * 5, [spawnEvent], overLimitBudget)).toBe(true);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [safeModeEvent], overLimitBudget)).toBe(true);
+    expect(shouldEmitRuntimeSummary(1, [normalConstructionBlockerEvent])).toBe(false);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [normalConstructionBlockerEvent])).toBe(true);
+    expect(shouldEmitRuntimeSummary(1, [normalConstructionPlacementEvent])).toBe(true);
   });
 
   it('reports construction-priority runtime use from runtime summary scoring', () => {

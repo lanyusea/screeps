@@ -42204,11 +42204,19 @@ function shouldEmitRuntimeSummary(tick, events, cpuBudget = getRuntimeCpuBudget(
     }
     return tick > 0 && tick % DEGRADED_RUNTIME_SUMMARY_INTERVAL === 0;
   }
-  if (events.length > 0) {
+  if (hasImmediateRuntimeSummaryEvent(events)) {
     return true;
   }
   const interval = shouldThrottleRuntimeSummaryCadence(cpuBudget) ? DEGRADED_RUNTIME_SUMMARY_INTERVAL : RUNTIME_SUMMARY_INTERVAL;
   return tick > 0 && tick % interval === 0;
+}
+function hasImmediateRuntimeSummaryEvent(events) {
+  return events.some((event) => {
+    if (event.type !== "constructionPlacement") {
+      return true;
+    }
+    return event.mode !== "normal" || event.blockedReason === void 0;
+  });
 }
 function hasCriticalRuntimeSummaryEvent(events) {
   return events.some((event) => {
