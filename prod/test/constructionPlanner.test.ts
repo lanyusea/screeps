@@ -458,6 +458,105 @@ describe('owned room construction planner', () => {
     expect(room.createConstructionSite).not.toHaveBeenCalledWith(26, 24, TEST_GLOBALS.STRUCTURE_RAMPART);
   });
 
+  it('seeds an accepted runtime rampart candidate when mapped planners find no site', () => {
+    installOpenTerrain();
+    mockPlanExpansionDefenseBarrierPlacements.mockReturnValue([]);
+    const source = makeSource('source-a', 35, 35);
+    const { room, colony } = makeColony({
+      controllerLevel: 6,
+      energyAvailable: 2_300,
+      energyCapacityAvailable: 2_300,
+      structures: [
+        ...makeRecoveredRcl6ResidualConstructionStructures(source),
+        makeStoredStructure('source-container', TEST_GLOBALS.STRUCTURE_CONTAINER, 34, 35, 1_000),
+        makeStructure('source-container-rampart', TEST_GLOBALS.STRUCTURE_RAMPART, 34, 35, true)
+      ],
+      sources: [source],
+      pathsByTarget: {}
+    });
+
+    const result = planConstructionForColony(colony, {
+      creeps: makeWorkerCreeps(4),
+      includePostClaimRamparts: true,
+      respectRoomEnergyBuffer: true,
+      strategyRegistry: DEFAULT_STRATEGY_REGISTRY,
+      runtimeStrategyConstructionEnabled: true,
+      runtimeStrategyConstructionFallbackPriorities: false,
+      maxPlacementsPerRoom: 1,
+      maxContainerSitesPerTick: 1,
+      maxPendingContainerSites: 1,
+      roadOptions: {
+        maxSitesPerTick: 1,
+        maxPendingRoadSites: 1,
+        maxTargetsPerTick: 1
+      }
+    });
+
+    expect(result.placements).toEqual([
+      {
+        priority: 'rampart',
+        roomName: 'W1N1',
+        structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+        result: OK_CODE,
+        energyReserved: 50,
+        x: 18,
+        y: 24
+      }
+    ]);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(18, 24, TEST_GLOBALS.STRUCTURE_RAMPART);
+  });
+
+  it('records a rejected accepted runtime rampart seed attempt', () => {
+    installOpenTerrain();
+    mockPlanExpansionDefenseBarrierPlacements.mockReturnValue([]);
+    const source = makeSource('source-a', 35, 35);
+    const { room, colony } = makeColony({
+      controllerLevel: 6,
+      energyAvailable: 2_300,
+      energyCapacityAvailable: 2_300,
+      structures: [
+        ...makeRecoveredRcl6ResidualConstructionStructures(source),
+        makeStoredStructure('source-container', TEST_GLOBALS.STRUCTURE_CONTAINER, 34, 35, 1_000),
+        makeStructure('source-container-rampart', TEST_GLOBALS.STRUCTURE_RAMPART, 34, 35, true)
+      ],
+      sources: [source],
+      pathsByTarget: {}
+    });
+    room.createConstructionSite.mockReturnValueOnce(ERR_INVALID_TARGET_CODE);
+
+    const result = planConstructionForColony(colony, {
+      creeps: makeWorkerCreeps(4),
+      includePostClaimRamparts: true,
+      respectRoomEnergyBuffer: true,
+      strategyRegistry: DEFAULT_STRATEGY_REGISTRY,
+      runtimeStrategyConstructionEnabled: true,
+      runtimeStrategyConstructionFallbackPriorities: false,
+      maxPlacementsPerRoom: 1,
+      maxContainerSitesPerTick: 1,
+      maxPendingContainerSites: 1,
+      roadOptions: {
+        maxSitesPerTick: 1,
+        maxPendingRoadSites: 1,
+        maxTargetsPerTick: 1
+      }
+    });
+
+    expect(result.placements).toEqual([
+      {
+        priority: 'rampart',
+        roomName: 'W1N1',
+        structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+        result: ERR_INVALID_TARGET_CODE,
+        energyReserved: 0,
+        x: 18,
+        y: 24
+      }
+    ]);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(18, 24, TEST_GLOBALS.STRUCTURE_RAMPART);
+  });
+
   it('reserves the first RCL3 tower before routine extension logistics when respecting the energy buffer', () => {
     expect(FIRST_RCL3_TOWER_PRIORITY_ENERGY).toBeLessThan(TERRITORY_CONTROLLER_BODY_COST);
     installOpenTerrain();

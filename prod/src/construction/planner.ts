@@ -1097,6 +1097,16 @@ function planRuntimeStrategyPrioritizedConstruction(
     }
   }
 
+  if (result.placements.length === initialPlacementCount) {
+    planAcceptedRuntimeConstructionCandidateSeed(
+      report.nextPrimary,
+      colony,
+      result,
+      budgetState,
+      options
+    );
+  }
+
   return result.placements.length > initialPlacementCount || hasBlockingPlacementFailure(result);
 }
 
@@ -1173,6 +1183,137 @@ function constructionPriorityScorePlannerPriorities(
     case 'observation':
       return [];
   }
+}
+
+function planAcceptedRuntimeConstructionCandidateSeed(
+  candidate: ConstructionPriorityScore | null,
+  colony: ColonySnapshot,
+  result: RoomConstructionPlannerResult,
+  budgetState: ConstructionBudgetState,
+  options: ConstructionPlannerOptions
+): void {
+  if (!isAcceptedRuntimeConstructionBuildCandidate(candidate)) {
+    return;
+  }
+
+  if (candidate.buildType === 'rampart') {
+    planAcceptedRuntimeRampartSeed(colony, result, budgetState, options);
+  }
+}
+
+function isAcceptedRuntimeConstructionBuildCandidate(
+  candidate: ConstructionPriorityScore | null
+): candidate is ConstructionPriorityScore {
+  return Boolean(
+    candidate &&
+    candidate.score > 0 &&
+    !candidate.blocked &&
+    candidate.policyAction === 'build'
+  );
+}
+
+function planAcceptedRuntimeRampartSeed(
+  colony: ColonySnapshot,
+  result: RoomConstructionPlannerResult,
+  budgetState: ConstructionBudgetState,
+  options: ConstructionPlannerOptions
+): void {
+  const room = colony.room;
+  if (
+    !hasRemainingStructureCapacity(room, 'rampart') ||
+    !canReserveConstructionEnergy(room, budgetState, 'rampart', options)
+  ) {
+    return;
+  }
+
+  const position = selectAcceptedRuntimeRampartSeedPosition(room, colony);
+  if (!position) {
+    return;
+  }
+
+  const placementResult = room.createConstructionSite(
+    position.x,
+    position.y,
+    getStructureConstant('STRUCTURE_RAMPART')
+  );
+  recordPlacement(result, budgetState, 'rampart', placementResult, options, position);
+}
+
+function selectAcceptedRuntimeRampartSeedPosition(
+  room: Room,
+  colony: ColonySnapshot
+): CandidatePosition | null {
+  const anchors = selectRuntimeRampartSeedAnchors(room, colony);
+  if (anchors.length === 0) {
+    return null;
+  }
+
+  return anchors.find((anchor) => !hasRampartAtPosition(room, anchor)) ?? anchors[0] ?? null;
+}
+
+function selectRuntimeRampartSeedAnchors(room: Room, colony: ColonySnapshot): CandidatePosition[] {
+  const structures = findUniqueRoomObjectsByStableKey<Structure>([
+    ...colony.spawns,
+    ...findRoomObjects<Structure>(room, 'FIND_MY_STRUCTURES'),
+    ...findRoomObjects<Structure>(room, 'FIND_STRUCTURES')
+  ]);
+
+  return dedupeCandidatePositions(
+    structures
+      .filter(isRuntimeRampartSeedAnchorStructure)
+      .map(getAnyObjectPosition)
+      .filter((position): position is CandidatePosition => isSameRoomPosition(position, room.name))
+  ).sort(compareRuntimeRampartSeedAnchors);
+}
+
+function isRuntimeRampartSeedAnchorStructure(structure: Structure): boolean {
+  return getRuntimeRampartSeedAnchorPriority(structure) !== null;
+}
+
+function compareRuntimeRampartSeedAnchors(left: CandidatePosition, right: CandidatePosition): number {
+  return getPositionKey(left).localeCompare(getPositionKey(right));
+}
+
+function hasRampartAtPosition(room: Room, position: CandidatePosition): boolean {
+  const rampartType = getStructureConstant('STRUCTURE_RAMPART');
+  const objects = [
+    ...findRoomObjects<Structure>(room, 'FIND_MY_STRUCTURES'),
+    ...findRoomObjects<Structure>(room, 'FIND_STRUCTURES'),
+    ...findRoomObjects<ConstructionSite>(room, 'FIND_MY_CONSTRUCTION_SITES'),
+    ...findRoomObjects<ConstructionSite>(room, 'FIND_CONSTRUCTION_SITES')
+  ];
+
+  return objects.some((object) => {
+    const objectPosition = getAnyObjectPosition(object);
+    return (
+      object.structureType === rampartType &&
+      objectPosition !== null &&
+      isSameRoomPosition(objectPosition, room.name) &&
+      getPositionKey(objectPosition) === getPositionKey(position) &&
+      (object as { my?: unknown }).my !== false
+    );
+  });
+}
+
+function getRuntimeRampartSeedAnchorPriority(structure: Structure): number | null {
+  const structureType = structure.structureType;
+  if (structureType === getStructureConstant('STRUCTURE_SPAWN')) {
+    return 0;
+  }
+
+  if (structureType === getStructureConstant('STRUCTURE_TOWER')) {
+    return 1;
+  }
+
+  if (structureType === getStructureConstant('STRUCTURE_STORAGE')) {
+    return 2;
+  }
+
+  if (structureType === getStructureConstant('STRUCTURE_CONTAINER')) {
+    return 3;
+  }
+
+  return null;
 }
 
 function planRuntimeConstructionPlannerPriority(
