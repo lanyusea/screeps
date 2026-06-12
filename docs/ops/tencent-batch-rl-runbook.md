@@ -92,6 +92,16 @@ readiness, followed by selection of a new bounded validation plan. Do not launch
 Tencent rerun until that plan and the guard evidence are verified; ASG desired capacity should
 remain `0` while this recovery planning is pending.
 
+The batch runner now writes a machine-readable `localDiagnosticPlan` into the consumed-failure
+validation handoff when this exact `private_server_http_readiness_timeout` path recurs. The plan
+uses `local_no_compute_private_server_http_readiness_diagnostic` mode, references
+`postfix-validation-run-20260601t231342z`, lists the prior summary/simulator artifacts plus new
+local evidence paths, and limits required commands to local summary inspection,
+`screeps-private-smoke.py self-test`/`dry-run`, and `screeps_rl_simulator_harness.py`
+`self-test`/`dry-run`. Paid Tencent compute, ASG scale-out, and `run-single` reruns remain held
+until the local diagnostic evidence is reviewed and a new bounded paid-validation slice is
+explicitly selected.
+
 ### 2026-05-17: balance blocker resolved, single-worker training completed
 
 After the owner restored account balance, run `tencent-single-20260516181313` created worker `ins-mu3eyg1y` (`S3.2XLARGE16`, 8 vCPU / 16 GiB), passed the security checks, ran one 50-tick / one-worker RL training pass, and scaled the ASG back to `DesiredCapacity=0`, `InstanceCount=0`.
