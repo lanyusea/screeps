@@ -30,6 +30,7 @@ const TEST_GLOBALS = {
   FIND_HOSTILE_CREEPS: 6,
   FIND_HOSTILE_STRUCTURES: 7,
   FIND_MY_CREEPS: 8,
+  RESOURCE_ENERGY: 'energy',
   LOOK_STRUCTURES: 'structure',
   LOOK_CONSTRUCTION_SITES: 'constructionSite',
   LOOK_MINERALS: 'mineral',
@@ -791,6 +792,62 @@ describe('owned room construction planner', () => {
     expect(result.placements.map((placement) => placement.priority)).toEqual(['extension']);
     expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
     expect(room.createConstructionSite).toHaveBeenCalledWith(9, 9, STRUCTURE_EXTENSION);
+  });
+
+  it('seeds a residual road from indexed stored energy when storage capacity APIs disagree', () => {
+    installOpenTerrain();
+    const source = makeSource('source-a', 35, 35);
+    const storage = makeStoredStructure(
+      'storage-existing',
+      TEST_GLOBALS.STRUCTURE_STORAGE,
+      18,
+      24,
+      2_000,
+      { indexedEnergy: 2_000, usedCapacityEnergy: 0 }
+    );
+    const { room, colony } = makeColony({
+      controllerLevel: 6,
+      energyAvailable: 0,
+      energyCapacityAvailable: 2_300,
+      structures: [
+        ...makeRecoveredRcl6ResidualConstructionStructures(source).filter(
+          (structure) => structure.id !== 'storage-existing'
+        ),
+        storage
+      ],
+      sources: [source],
+      pathsByTarget: {}
+    });
+
+    const result = planConstructionForColony(colony, {
+      creeps: makeWorkerCreeps(5),
+      respectRoomEnergyBuffer: true,
+      strategyRegistry: DEFAULT_STRATEGY_REGISTRY,
+      runtimeStrategyConstructionEnabled: true,
+      runtimeStrategyConstructionFallbackPriorities: false,
+      maxPlacementsPerRoom: 1,
+      maxContainerSitesPerTick: 1,
+      maxPendingContainerSites: 1,
+      roadOptions: {
+        maxSitesPerTick: 1,
+        maxPendingRoadSites: 1,
+        maxTargetsPerTick: 1
+      }
+    });
+
+    expect(result.placements).toEqual([
+      {
+        priority: 'road',
+        roomName: 'W1N1',
+        structureType: TEST_GLOBALS.STRUCTURE_ROAD,
+        result: OK_CODE,
+        energyReserved: 50,
+        x: 18,
+        y: 23
+      }
+    ]);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(18, 23, STRUCTURE_ROAD);
   });
 
   it('prioritizes spawn-only bootstrap extension construction while preserving worker spawn energy', () => {
@@ -1870,14 +1927,16 @@ function makeStoredStructure(
   structureType: StructureConstant,
   x: number,
   y: number,
-  energy: number
+  energy: number,
+  options: { indexedEnergy?: number; usedCapacityEnergy?: number } = {}
 ): Structure {
   return {
     id,
     structureType,
     pos: makeRoomPosition(x, y),
     store: {
-      getUsedCapacity: jest.fn().mockReturnValue(energy)
+      ...(options.indexedEnergy === undefined ? {} : { [TEST_GLOBALS.RESOURCE_ENERGY]: options.indexedEnergy }),
+      getUsedCapacity: jest.fn().mockReturnValue(options.usedCapacityEnergy ?? energy)
     }
   } as unknown as Structure;
 }

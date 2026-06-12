@@ -6,6 +6,7 @@ import {
   getEffectiveRoomEnergyBufferThreshold,
   getRoomEnergyBufferHealth,
   getRoomEnergyBufferThreshold,
+  getRoomStoredEnergyAvailableForConstruction,
   getStorageEnergyAvailableForWithdrawal,
   getStorageEnergyReserveThreshold,
   MINIMUM_WORKER_SPAWN_ENERGY,
@@ -149,6 +150,19 @@ describe('energyBuffer', () => {
     expect(getStorageEnergyAvailableForWithdrawal(room, storage)).toBe(20);
     expect(withdrawFromStorage(room, 20)).toBe(true);
     expect(withdrawFromStorage(room, 21)).toBe(false);
+  });
+
+  it('counts direct indexed room storage for construction availability when structure scans miss it', () => {
+    const storage = makeStorage(1_200, { indexedEnergy: 1_200, usedCapacityEnergy: 0 });
+    const room = makeRoom({
+      level: 6,
+      energyAvailable: 2_300,
+      energyCapacityAvailable: 2_300,
+      storage,
+      includeStorageInFind: false
+    });
+
+    expect(getRoomStoredEnergyAvailableForConstruction(room)).toBe(400);
   });
 
   it('gates construction spending against spawn and extension energy', () => {
@@ -318,15 +332,20 @@ function makeRoom({
   energyCapacityAvailable,
   level,
   myStructures = [],
-  storage
+  storage,
+  includeStorageInFind = true
 }: {
   energyAvailable?: number;
   energyCapacityAvailable?: number;
   level?: number;
   myStructures?: AnyOwnedStructure[];
   storage?: StructureStorage;
+  includeStorageInFind?: boolean;
 }): Room {
-  const visibleStructures = storage ? [storage as unknown as AnyOwnedStructure, ...myStructures] : myStructures;
+  const visibleStructures =
+    storage && includeStorageInFind !== false
+      ? [storage as unknown as AnyOwnedStructure, ...myStructures]
+      : myStructures;
   return {
     name: 'W1N1',
     energyAvailable,
@@ -343,12 +362,18 @@ function makeRoom({
   } as unknown as Room;
 }
 
-function makeStorage(energy: number): StructureStorage {
+function makeStorage(
+  energy: number,
+  options: { indexedEnergy?: number; usedCapacityEnergy?: number } = {}
+): StructureStorage {
   return {
     id: 'storage1',
     structureType: 'storage',
     store: {
-      getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? energy : 0))
+      ...(options.indexedEnergy === undefined ? {} : { [RESOURCE_ENERGY]: options.indexedEnergy }),
+      getUsedCapacity: jest.fn((resource?: ResourceConstant) =>
+        resource === RESOURCE_ENERGY ? options.usedCapacityEnergy ?? energy : 0
+      )
     }
   } as unknown as StructureStorage;
 }
