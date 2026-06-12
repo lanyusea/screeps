@@ -114,7 +114,7 @@ Before implementation begins:
 - [ ] GitHub issue and Project fields are current.
 - [ ] Implementation preserves no-secret policy.
 - [ ] If `prod/` changes, Codex authors the code commit and `npm run typecheck`, `npm test -- --runInBand`, and `npm run build` pass from `prod/`.
-- [ ] PR is in Project `screeps` and passes the automated review gate.
+- [ ] PR is in Project `screeps` and passes the automated review gate, or records an exact-head CodeRabbit/Gemini reliability bypass.
 - [ ] Runtime/private/monitor evidence is attached when release or gameplay KPI movement is claimed.
 ```
 
@@ -164,7 +164,7 @@ A finding-to-Codex task is not accepted until the main agent verifies:
 - the implementation matches the accepted finding and does not expand into unrelated work;
 - verification commands passed or failures are documented as blockers;
 - no secret material appears in diffs, logs, PR bodies, issue comments, or final reports;
-- PR gate state is checked: elapsed window, CI, CodeRabbit/Gemini comments, review threads, and mergeability;
+- PR gate state is checked: elapsed window, CI, CodeRabbit/Gemini comments or reliability bypass, review threads, and mergeability;
 - after merge, the linked issue/Project item is updated with merge evidence and the next review/monitor observation step.
 
 ## First application after PR #65
