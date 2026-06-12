@@ -4989,7 +4989,10 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
 
         self.assertEqual(events, [])
-        self.assertEqual(controller.final_status, runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS)
+        self.assertEqual(
+            controller.final_status,
+            runner.PAID_FAILURE_RECURRENCE_CONSUMED_FAILURE_PLAN_REQUIRED_FINAL_STATUS,
+        )
         self.assertTrue(guard["blocked"])
         self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_CONSUMED_STATUS)
         self.assertEqual(guard["postFixValidation"]["priorAttemptCount"], 3)
@@ -5015,6 +5018,160 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertIn("already attempted 2 times", recovery["reason"])
         self.assertIn("new bounded validation plan", guard["nextAction"])
         self.assertFalse(summary["execution"]["computeAttempted"])
+        self.assertFalse(summary["execution"]["scaleOutAttempted"])
+        self.assertIn("validationPlanHandoff", summary["outputs"])
+        self.assertEqual(
+            summary["outputs"]["validationPlanHandoff"]["status"],
+            runner.PAID_FAILURE_RECURRENCE_CONSUMED_FAILURE_PLAN_REQUIRED_FINAL_STATUS,
+        )
+        self.assertTrue(summary["outputs"]["validationPlanHandoff"]["requested"])
+        self.assertIn(
+            runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+            summary["outputs"]["validationPlanHandoff"]["requestedSignatures"],
+        )
+        self.assertIn("local/no-compute", summary["outputs"]["validationPlanHandoff"]["nextAction"])
+        self.assertNotIn("signature was not requested", summary["outputs"]["validationPlanHandoff"]["nextAction"])
+
+    def test_paid_failure_recurrence_guard_writes_new_plan_after_explicit_consumed_readiness_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD):
+                write_tencent_failure_summary(artifact_root, f"tencent-pg-room-busy-{index}")
+            prior_attempt_path = write_post_fix_validation_remote_timeout_summary(
+                artifact_root,
+                "postfix-validation-run-20260601t231342z",
+                workers=5,
+                repetitions=20,
+                ticks=runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS,
+                training_timeout_seconds=3600,
+            )
+            prior_summary = json.loads(prior_attempt_path.read_text(encoding="utf-8"))
+            remote_failure = prior_summary["outputs"]["remoteTrainingFailure"]
+            remote_failure["failureClass"] = "remote_process_failed"
+            remote_failure.pop("controllerTimedOut", None)
+            remote_failure["partialSimulatorProgress"] = {
+                "runSummaryCount": 4,
+                "completedEnvironmentRows": 20,
+                "successfulEnvironmentRows": 19,
+                "failedEnvironmentRows": 1,
+                "ticksRun": 38000,
+                "wallClockSeconds": 2941.509,
+                "runSummaries": [
+                    {
+                        "runId": "postfix-validation-run-20260601t231342z-r04",
+                        "ok": False,
+                        "totalEnvironments": 5,
+                        "successful": 4,
+                        "failed": 1,
+                        "ticksRun": 8000,
+                        "failure": {
+                            "classification": "private_server_http_readiness_timeout",
+                            "timeoutReason": "private_server_http_readiness",
+                        },
+                    }
+                ],
+            }
+            prior_summary["execution"]["environmentsRun"] = 20
+            prior_summary["outputs"]["error"] = "BatchRunError: remote_training failed with exit 2"
+            prior_attempt_path.write_text(json.dumps(prior_summary), encoding="utf-8")
+            args = runner.parse_cli_args([
+                "run-single",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+                "--training-approach",
+                "policy_gradient",
+                "--scenario-id",
+                runner.MULTI_TIER_SCENARIO_ID,
+                "--ticks",
+                str(runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS),
+                "--workers",
+                "5",
+                "--scale-environments",
+                "5",
+                "--repetitions",
+                "20",
+                "--training-timeout-seconds",
+                "3600",
+                "--postfix-validation-signature",
+                runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+            ])
+            artifact_dir = artifact_root / "new-run"
+
+            with mock.patch.object(
+                runner,
+                "paid_failure_recurrence_known_fix_status",
+                return_value={
+                    "signature": runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+                    "issue": "#1501",
+                    "pullRequest": "#1504",
+                    "mergeCommit": "95f960b2",
+                    "present": True,
+                    "evidence": "merge commit 95f960b2 is reachable from HEAD",
+                },
+            ):
+                events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
+            handoff = summary["outputs"]["validationPlanHandoff"]
+            plan_payload = json.loads(Path(handoff["path"]).read_text(encoding="utf-8"))
+
+        self.assertEqual(events, [])
+        self.assertEqual(
+            controller.final_status,
+            runner.PAID_FAILURE_RECURRENCE_CONSUMED_FAILURE_PLAN_REQUIRED_FINAL_STATUS,
+        )
+        self.assertEqual(
+            summary["finalStatus"],
+            runner.PAID_FAILURE_RECURRENCE_CONSUMED_FAILURE_PLAN_REQUIRED_FINAL_STATUS,
+        )
+        self.assertTrue(guard["blocked"])
+        self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_CONSUMED_STATUS)
+        validation = guard["postFixValidation"]
+        self.assertEqual(validation["status"], "consumed")
+        self.assertTrue(validation["requested"])
+        self.assertIn(
+            runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+            validation["requestedSignatures"],
+        )
+        prior_attempt = validation["priorAttempt"]
+        self.assertEqual(prior_attempt["runId"], "postfix-validation-run-20260601t231342z")
+        self.assertEqual(prior_attempt["remoteTrainingTimeoutReason"], "private_server_http_readiness")
+        self.assertEqual(prior_attempt["partialSimulatorProgress"]["successfulEnvironmentRows"], 19)
+        self.assertEqual(prior_attempt["partialSimulatorProgress"]["failedEnvironmentRows"], 1)
+        self.assertFalse(summary["execution"]["computeAttempted"])
+        self.assertFalse(summary["execution"]["paidRunAttempted"])
+        self.assertFalse(summary["execution"]["scaleOutAttempted"])
+        self.assertFalse(summary["execution"]["remoteTrainingAttempted"])
+        self.assertTrue(summary["execution"]["launchGuardNoCompute"])
+        self.assertEqual(summary["execution"]["mode"], "validation_plan_required")
+        self.assertEqual(
+            handoff["status"],
+            runner.PAID_FAILURE_RECURRENCE_CONSUMED_FAILURE_PLAN_REQUIRED_FINAL_STATUS,
+        )
+        self.assertTrue(handoff["requested"])
+        self.assertIn(
+            runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+            handoff["requestedSignatures"],
+        )
+        self.assertEqual(
+            handoff["consumedFailure"]["priorAttemptRunId"],
+            "postfix-validation-run-20260601t231342z",
+        )
+        self.assertEqual(
+            handoff["consumedFailure"]["failureClassification"],
+            "private_server_http_readiness_timeout",
+        )
+        self.assertEqual(handoff["consumedFailure"]["successfulEnvironmentRows"], 19)
+        self.assertEqual(handoff["consumedFailure"]["failedEnvironmentRows"], 1)
+        self.assertIn("postfix-validation-run-20260601t231342z", handoff["reason"])
+        self.assertIn("private_server_http_readiness_timeout", handoff["reason"])
+        self.assertIn("local/no-compute", handoff["nextAction"])
+        self.assertIn("private-server HTTP readiness", handoff["nextAction"])
+        self.assertNotIn("signature was not requested", handoff["nextAction"])
+        self.assertEqual(plan_payload["status"], handoff["status"])
+        self.assertTrue(plan_payload["requested"])
+        self.assertEqual(plan_payload["consumedFailure"], handoff["consumedFailure"])
+        self.assertIn("private_server_http_readiness_timeout", plan_payload["reason"])
 
     def test_paid_failure_recurrence_guard_explains_timeout_recovery_when_signature_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -8473,6 +8630,89 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["status"], runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS)
         self.assertEqual(payload["launchGuard"]["activeGuard"], "paid_failure_recurrence_guard")
+
+    def test_main_exits_nonzero_when_consumed_validation_plan_required(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD):
+                write_tencent_failure_summary(artifact_root, f"tencent-pg-room-busy-{index}")
+            write_post_fix_validation_readiness_timeout_summary(
+                artifact_root,
+                "postfix-validation-run-20260601t231342z",
+            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            blocked_after_guard = AssertionError("main reached paid-compute path")
+            with (
+                mock.patch.object(runner, "validate_static_inputs", return_value=None),
+                mock.patch.object(
+                    runner,
+                    "paid_failure_recurrence_known_fix_status",
+                    return_value={
+                        "signature": runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+                        "issue": "#1501",
+                        "pullRequest": "#1504",
+                        "mergeCommit": "95f960b2",
+                        "present": True,
+                        "evidence": "merge commit 95f960b2 is reachable from HEAD",
+                    },
+                ),
+                mock.patch.object(runner.Controller, "run_billing_guard", side_effect=blocked_after_guard),
+                mock.patch.object(runner.Controller, "scale_up_and_wait", side_effect=blocked_after_guard),
+                mock.patch.object(runner.Controller, "run_remote_training", side_effect=blocked_after_guard),
+                mock.patch.object(runner.sys, "stdout", stdout),
+                mock.patch.object(runner.sys, "stderr", stderr),
+            ):
+                exit_code = runner.main(
+                    [
+                        "run-single",
+                        "--run-id",
+                        "new-run",
+                        "--artifact-root",
+                        str(artifact_root),
+                        "--training-approach",
+                        "policy_gradient",
+                        "--scenario-id",
+                        runner.MULTI_TIER_SCENARIO_ID,
+                        "--ticks",
+                        str(runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS),
+                        "--workers",
+                        "5",
+                        "--scale-environments",
+                        "5",
+                        "--repetitions",
+                        "20",
+                        "--training-timeout-seconds",
+                        "3600",
+                        "--postfix-validation-signature",
+                        runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+                    ]
+                )
+
+            summary = json.loads((artifact_root / "new-run" / "controller-summary.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 4)
+        self.assertEqual(stdout.getvalue(), "")
+        payload = json.loads(stderr.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertEqual(
+            payload["status"],
+            runner.PAID_FAILURE_RECURRENCE_CONSUMED_FAILURE_PLAN_REQUIRED_FINAL_STATUS,
+        )
+        self.assertEqual(
+            summary["finalStatus"],
+            runner.PAID_FAILURE_RECURRENCE_CONSUMED_FAILURE_PLAN_REQUIRED_FINAL_STATUS,
+        )
+        self.assertFalse(summary["execution"]["computeAttempted"])
+        self.assertFalse(summary["execution"]["scaleOutAttempted"])
+        self.assertFalse(summary["execution"]["remoteTrainingAttempted"])
+        self.assertTrue(summary["execution"]["validationPlanRequired"])
+        self.assertEqual(
+            summary["outputs"]["validationPlanHandoff"]["status"],
+            runner.PAID_FAILURE_RECURRENCE_CONSUMED_FAILURE_PLAN_REQUIRED_FINAL_STATUS,
+        )
+        self.assertTrue(summary["outputs"]["validationPlanHandoff"]["requested"])
+        self.assertEqual(summary["outputs"]["launchGuard"]["activeGuard"], "paid_failure_recurrence_guard")
 
     def test_main_treats_closed_stdout_as_delivery_only_after_completed_summary(self) -> None:
         class FakeController:

@@ -79,6 +79,19 @@ Secrets are copied only as a file path (`/root/.secret/.env` -> worker job dir) 
 
 ## Validation history
 
+### 2026-06-12: #1777 consumed post-fix validation recovery note
+
+The paid-failure recurrence guard recognizes the explicit `simulator_place_spawn_room_busy`
+post-fix validation signature, but the previous post-fix validation slot has already been
+consumed by `postfix-validation-run-20260601t231342z`. That run reached paid compute,
+produced 19 successful environment rows and 1 failed row, failed with
+`private_server_http_readiness_timeout`, and did not produce a training report.
+
+The current safe next step is local/no-compute diagnostic planning for private-server HTTP
+readiness, followed by selection of a new bounded validation plan. Do not launch another paid
+Tencent rerun until that plan and the guard evidence are verified; ASG desired capacity should
+remain `0` while this recovery planning is pending.
+
 ### 2026-05-17: balance blocker resolved, single-worker training completed
 
 After the owner restored account balance, run `tencent-single-20260516181313` created worker `ins-mu3eyg1y` (`S3.2XLARGE16`, 8 vCPU / 16 GiB), passed the security checks, ran one 50-tick / one-worker RL training pass, and scaled the ASG back to `DesiredCapacity=0`, `InstanceCount=0`.
