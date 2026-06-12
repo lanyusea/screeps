@@ -2355,8 +2355,15 @@ describe('runtime telemetry summaries', () => {
       ]
     });
     expect(room.constructionActivity).toMatchObject({
+      state: 'candidate_suppressed',
+      accepted: true,
+      reason: 'cpu_shed',
       cpuPressure: 'degraded',
       cpuReasons: ['lowBucket']
+    });
+    expect(room.constructionScoring).toMatchObject({
+      skipped: true,
+      skipReason: 'lowBucket'
     });
   });
 
