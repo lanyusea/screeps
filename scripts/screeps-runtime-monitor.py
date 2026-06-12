@@ -4964,6 +4964,11 @@ def runtime_summary_room_has_monitor_alert_fields(room: dict[str, Any], payload:
         runtime_summary_room_has_worker_idle_fields(room)
         or runtime_summary_room_has_cpu_fields(room)
         or runtime_summary_payload_has_cpu_fields(payload)
+        or runtime_construction_site_count(room) is not None
+        or runtime_pending_build_progress(room) is not None
+        or runtime_build_carried_energy(room) is not None
+        or runtime_build_blocked_reason(room) is not None
+        or bool(as_dict(room.get("constructionActivity")))
         or runtime_productive_assignment_count(room) is not None
         or runtime_worker_assignment_blocked_detail(room) is not None
         or bool(runtime_worker_assignment_blocked_workers(room))
@@ -7087,6 +7092,192 @@ def enrich_room_summaries_from_runtime_artifact(room_summaries: list[Any], artif
                 room["energyBufferHealth"] = buffer_health
         if runtime_summary_room_has_cpu_fields(runtime_room) or as_dict(runtime_room.get(RUNTIME_SUMMARY_CPU_METADATA_KEY)):
             room.update(runtime_summary_room_with_cpu_fields(room, runtime_room))
+        if not as_dict(room.get("taskCounts")):
+            task_counts = as_dict(runtime_room.get("taskCounts"))
+            if task_counts:
+                room["taskCounts"] = dict(task_counts)
+        build_count = runtime_task_count(runtime_room, "build")
+        if number_value(room.get("build")) is None and build_count is not None:
+            room["build"] = build_count
+        construction_site_count = runtime_construction_site_count(runtime_room)
+        if number_value(room.get("constructionSiteCount")) is None and construction_site_count is not None:
+            room["constructionSiteCount"] = construction_site_count
+        pending_build_progress = runtime_pending_build_progress(runtime_room)
+        if number_value(room.get("pendingBuildProgress")) is None and pending_build_progress is not None:
+            room["pendingBuildProgress"] = pending_build_progress
+        build_carried_energy = runtime_build_carried_energy(runtime_room)
+        if number_value(room.get("buildCarriedEnergy")) is None and build_carried_energy is not None:
+            room["buildCarriedEnergy"] = build_carried_energy
+        build_blocked_reason = runtime_build_blocked_reason(runtime_room)
+        if not isinstance(room.get("buildBlockedReason"), str) and build_blocked_reason is not None:
+            room["buildBlockedReason"] = build_blocked_reason
+        if not as_dict(room.get("constructionActivity")):
+            construction_activity = as_dict(runtime_room.get("constructionActivity")) or as_dict(
+                nested_value(runtime_room, "resources", "productiveEnergy", "constructionActivity")
+            )
+            if construction_activity:
+                room["constructionActivity"] = dict(construction_activity)
+
+
+def postdeploy_construction_room_name(room: dict[str, Any]) -> str:
+    for key in ("room", "roomName", "name"):
+        value = room.get(key)
+        if isinstance(value, str) and value:
+            if key == "name" and isinstance(room.get("shard"), str) and room.get("shard"):
+                return f"{room['shard']}/{value}"
+            return value
+    return "unknown"
+
+
+def postdeploy_construction_build_progress(room: dict[str, Any]) -> int | float | None:
+    return first_number_value(
+        room,
+        ("buildProgress",),
+        ("constructionActivity", "buildProgress"),
+        ("resources", "productiveEnergy", "buildProgress"),
+        ("resources", "productiveEnergy", "constructionActivity", "buildProgress"),
+        ("construction", "buildProgress"),
+    )
+
+
+def postdeploy_construction_build_task_count(room: dict[str, Any]) -> int | float | None:
+    build_count = runtime_task_count(room, "build")
+    if build_count is not None:
+        return build_count
+    return number_value(room.get("build"))
+
+
+def postdeploy_construction_acceptance_room(room: dict[str, Any]) -> dict[str, Any]:
+    room_name = postdeploy_construction_room_name(room)
+    construction_site_count = runtime_construction_site_count(room)
+    pending_build_progress = runtime_pending_build_progress(room)
+    build_carried_energy = runtime_build_carried_energy(room)
+    build_progress = postdeploy_construction_build_progress(room)
+    build_count = postdeploy_construction_build_task_count(room)
+    build_blocked_reason = runtime_build_blocked_reason(room)
+
+    result: dict[str, Any] = {"room": room_name}
+    for key, value in (
+        ("constructionSiteCount", construction_site_count),
+        ("pendingBuildProgress", pending_build_progress),
+        ("buildCarriedEnergy", build_carried_energy),
+        ("buildProgress", build_progress),
+        ("build", build_count),
+    ):
+        if value is not None:
+            result[key] = value
+    if build_blocked_reason is not None:
+        result["buildBlockedReason"] = build_blocked_reason
+
+    if construction_site_count is None or pending_build_progress is None:
+        missing = [
+            key
+            for key, value in (
+                ("constructionSiteCount", construction_site_count),
+                ("pendingBuildProgress", pending_build_progress),
+            )
+            if value is None
+        ]
+        return {
+            **result,
+            "ok": False,
+            "status": "pending",
+            "reason": "missing_construction_telemetry",
+            "missing": missing,
+            "message": f"{room_name}: construction acceptance pending; missing {', '.join(missing)} telemetry",
+        }
+
+    if construction_site_count <= 0 and pending_build_progress <= 0:
+        return {
+            **result,
+            "ok": True,
+            "status": "pass",
+            "reason": "no_construction_backlog",
+            "message": f"{room_name}: no construction backlog visible",
+        }
+
+    if build_carried_energy is not None and build_carried_energy > 0:
+        return {
+            **result,
+            "ok": True,
+            "status": "pass",
+            "reason": "build_energy_carried",
+            "message": f"{room_name}: construction acceptance passed with buildCarriedEnergy > 0",
+        }
+
+    if build_progress is not None and build_progress > 0:
+        return {
+            **result,
+            "ok": True,
+            "status": "pass",
+            "reason": "build_progress_observed",
+            "message": f"{room_name}: construction acceptance passed with build progress",
+        }
+
+    if build_carried_energy is None and build_progress is None:
+        return {
+            **result,
+            "ok": False,
+            "status": "pending",
+            "reason": "missing_build_execution_telemetry",
+            "message": (
+                f"{room_name}: construction backlog is visible, but buildCarriedEnergy/buildProgress telemetry "
+                "is missing"
+            ),
+        }
+
+    blocked_reason = build_blocked_reason or "no_build_execution"
+    return {
+        **result,
+        "ok": False,
+        "status": "blocked",
+        "reason": blocked_reason,
+        "message": (
+            f"{room_name}: construction backlog is visible without build progress or carried build energy"
+        ),
+    }
+
+
+def postdeploy_construction_acceptance_status(room_results: list[dict[str, Any]]) -> str:
+    if any(result.get("status") == "blocked" for result in room_results):
+        return "blocked"
+    if any(result.get("status") == "pending" for result in room_results):
+        return "pending"
+    return "pass"
+
+
+def evaluate_postdeploy_construction_acceptance(room_summaries: Any) -> dict[str, Any]:
+    if not isinstance(room_summaries, list) or not room_summaries:
+        return {
+            "ok": False,
+            "status": "pending",
+            "rooms": [],
+            "message": "construction acceptance pending; no room_summaries telemetry",
+        }
+
+    room_results = [
+        postdeploy_construction_acceptance_room(room)
+        for room in room_summaries
+        if isinstance(room, dict)
+    ]
+    if not room_results:
+        return {
+            "ok": False,
+            "status": "pending",
+            "rooms": [],
+            "message": "construction acceptance pending; room_summaries contained no room objects",
+        }
+
+    status = postdeploy_construction_acceptance_status(room_results)
+    ok = status == "pass"
+    return {
+        "ok": ok,
+        "status": status,
+        "rooms": room_results,
+        "pass_count": sum(1 for result in room_results if result.get("status") == "pass"),
+        "pending_count": sum(1 for result in room_results if result.get("status") == "pending"),
+        "blocked_count": sum(1 for result in room_results if result.get("status") == "blocked"),
+    }
 
 
 def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_payload: dict[str, Any]) -> dict[str, Any]:
@@ -7162,7 +7353,12 @@ def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_paylo
                         "message": f"{room_name}: no creeps, no spawn, and <=1 visible structure after deploy",
                     }
                 )
-    return {"ok": not reasons, "reasons": reasons}
+    construction_acceptance = evaluate_postdeploy_construction_acceptance(room_summaries)
+    return {
+        "ok": not reasons and construction_acceptance.get("ok") is True,
+        "reasons": reasons,
+        "construction_acceptance": construction_acceptance,
+    }
 
 
 def command_health_gate(args: argparse.Namespace) -> int:
