@@ -82,6 +82,10 @@ import {
   type RuntimeEnergyAcquisitionMethodDistribution
 } from './behaviorTelemetry';
 import {
+  summarizeAndResetWorkerBuildActionTelemetry,
+  type RuntimeBuildActionSummary
+} from './buildActionTelemetry';
+import {
   buildRuntimeCpuTelemetrySummary,
   getRuntimeCpuBudget,
   shouldRunConstructionCpuWork,
@@ -346,6 +350,7 @@ interface RuntimeRoomSummary {
   constructionDeadlockTicks: number;
   constructionActivity: RuntimeConstructionActivitySummary;
   constructionScoring: RuntimeConstructionScoringSummary;
+  buildActionResults?: RuntimeBuildActionSummary;
   behavior?: RuntimeBehaviorSummary;
   structures?: RuntimeStructureSnapshotSummary;
   workerEfficiency?: RuntimeWorkerEfficiencySummary;
@@ -1279,6 +1284,7 @@ function summarizeRoom(
       constructionActivity
     }
   };
+  const buildActionResults = summarizeAndResetWorkerBuildActionTelemetry(colonyWorkers);
 
   return {
     roomName: colony.room.name,
@@ -1296,6 +1302,7 @@ function summarizeRoom(
     constructionDeadlockTicks,
     constructionActivity,
     constructionScoring,
+    ...buildActionResults,
     ...(includeOptionalSummary ? summarizeRuntimeBehavior(colonyWorkers, colonyCreeps, tick) : {}),
     ...(includeStructureSnapshot ? { structures: summarizeStructures(colony, colonyWorkers) } : {}),
     ...summarizeOptionalWorkerEfficiency(colonyWorkers, tick, includeOptionalSummary),

@@ -54,6 +54,7 @@ import {
   recordCreepBehaviorWork,
   type RuntimeEnergyAcquisitionMethod
 } from '../telemetry/behaviorTelemetry';
+import { recordWorkerBuildActionResult } from '../telemetry/buildActionTelemetry';
 import { getRuntimeCpuBudget, isRuntimeCpuBucketLow, shouldShedNonessentialCpuWork } from '../runtime/cpuBudget';
 import { isColonyRoomThreatened } from '../defense/colonyThreats';
 
@@ -79,6 +80,7 @@ const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
 const ERR_FULL_CODE = -8 as ScreepsReturnCode;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
+const ERR_NO_BODYPART_CODE = -12 as ScreepsReturnCode;
 const ADJACENT_ACTION_MOVE_RANGE = 1;
 const RANGED_WORK_MOVE_RANGE = 3;
 const EXACT_POSITION_MOVE_RANGE = 0;
@@ -730,7 +732,11 @@ function isBuildTargetSuppressedForWorker(creep: Creep, site: ConstructionSite):
     return false;
   }
 
-  return String(blockedBuildTarget.targetId) === String(site.id);
+  const suppressed = String(blockedBuildTarget.targetId) === String(site.id);
+  if (suppressed) {
+    recordWorkerBuildActionResult(creep, 'suppressed_by_policy', { targetId: String(site.id) });
+  }
+  return suppressed;
 }
 
 function hasVisibleHostileCreeps(room: Room): boolean {
@@ -1832,6 +1838,7 @@ function executeAssignedTask(
 
   let target = Game.getObjectById(task.targetId) as WorkerTaskTarget | null;
   if (!target) {
+    recordInvalidBuildActionTarget(creep, task);
     if (selectedTask && isSameTask(task, selectedTask)) {
       recordCreepBehaviorIdle(creep);
       return;
@@ -1845,6 +1852,7 @@ function executeAssignedTask(
 
     target = Game.getObjectById(task.targetId) as WorkerTaskTarget | null;
     if (!target) {
+      recordInvalidBuildActionTarget(creep, task);
       recordCreepBehaviorIdle(creep);
       return;
     }
@@ -1859,6 +1867,9 @@ function executeAssignedTask(
 
     target = Game.getObjectById(task.targetId) as WorkerTaskTarget | null;
     if (!target || shouldReplaceTarget(creep, task, target)) {
+      if (!target) {
+        recordInvalidBuildActionTarget(creep, task);
+      }
       recordCreepBehaviorIdle(creep);
       return;
     }
@@ -1954,6 +1965,14 @@ function canExecuteTask(creep: Creep, task: CreepTaskMemory): boolean {
     case 'collectScore':
       return typeof creep.moveTo === 'function';
   }
+}
+
+function recordInvalidBuildActionTarget(creep: Creep, task: CreepTaskMemory): void {
+  if (task.type !== 'build') {
+    return;
+  }
+
+  recordWorkerBuildActionResult(creep, 'failed_site_invalid', { targetId: String(task.targetId) });
 }
 
 function assignNextTask(creep: Creep): CreepTaskMemory | null {
@@ -2926,11 +2945,7 @@ function executeTask(
         containerTransfer: isContainerStructure(target)
       });
     case 'build':
-      if (!canSpendWorkerEnergyOnConstructionSite(creep, target as ConstructionSite)) {
-        return { result: ERR_NOT_ENOUGH_RESOURCES_CODE };
-      }
-
-      return toTaskExecutionResult(creep.build(target as ConstructionSite), 'work');
+      return executeBuildTask(creep, target as ConstructionSite);
     case 'repair':
       return toTaskExecutionResult(creep.repair(target as Structure), 'work');
     case 'claim':
@@ -2961,6 +2976,75 @@ function executeTask(
     case 'collectScore':
       return executeCollectScoreTask(creep, target as RoomObject);
   }
+}
+
+function executeBuildTask(creep: Creep, target: ConstructionSite): TaskExecutionResult {
+  const targetId = getObjectId(target);
+  const precheck = classifyBuildActionPrecheck(creep, target);
+  if (precheck) {
+    recordWorkerBuildActionResult(creep, precheck.result, { targetId });
+    return { result: precheck.returnCode };
+  }
+
+  const result = creep.build(target);
+  recordBuildActionExecutionResult(creep, targetId, result);
+  return toTaskExecutionResult(result, 'work');
+}
+
+function classifyBuildActionPrecheck(
+  creep: Creep,
+  target: ConstructionSite
+): { result: WorkerBuildActionResult; returnCode: ScreepsReturnCode } | null {
+  if (getUsedTransferEnergy(creep) <= 0) {
+    return { result: 'failed_no_energy', returnCode: ERR_NOT_ENOUGH_RESOURCES_CODE };
+  }
+
+  if (getActiveWorkParts(creep) <= 0) {
+    return { result: 'failed_no_work', returnCode: getErrNoBodyPartCode() };
+  }
+
+  if (!canSpendWorkerEnergyOnConstructionSite(creep, target)) {
+    return { result: 'suppressed_by_policy', returnCode: ERR_NOT_ENOUGH_RESOURCES_CODE };
+  }
+
+  return null;
+}
+
+function recordBuildActionExecutionResult(
+  creep: Creep,
+  targetId: string,
+  result: ScreepsReturnCode
+): void {
+  const buildActionResult = classifyBuildActionExecutionResult(result);
+  if (!buildActionResult) {
+    return;
+  }
+
+  recordWorkerBuildActionResult(creep, buildActionResult, { targetId });
+}
+
+function classifyBuildActionExecutionResult(result: ScreepsReturnCode): WorkerBuildActionResult | null {
+  if (result === OK_CODE) {
+    return 'succeeded';
+  }
+
+  if (result === ERR_NOT_ENOUGH_RESOURCES_CODE) {
+    return 'failed_no_energy';
+  }
+
+  if (result === getErrNoBodyPartCode()) {
+    return 'failed_no_work';
+  }
+
+  if (result === getErrNoPathCode()) {
+    return 'failed_no_path';
+  }
+
+  if (result === ERR_INVALID_TARGET_CODE) {
+    return 'failed_site_invalid';
+  }
+
+  return null;
 }
 
 function executeCollectScoreTask(creep: Creep, target: RoomObject): TaskExecutionResult {
@@ -3201,6 +3285,7 @@ function suppressBuildTarget(
   reason: WorkerBlockedBuildTargetMemory['reason']
 ): void {
   const tick = getGameTick();
+  recordWorkerBuildActionResult(creep, 'failed_no_path', { targetId: String(task.targetId) });
   creep.memory.blockedBuildTarget = {
     targetId: String(task.targetId),
     blockedAt: tick,
@@ -3213,6 +3298,11 @@ function suppressBuildTarget(
 function getErrNoPathCode(): ScreepsReturnCode {
   const errNoPath = (globalThis as unknown as { ERR_NO_PATH?: ScreepsReturnCode }).ERR_NO_PATH;
   return typeof errNoPath === 'number' ? errNoPath : ERR_NO_PATH_CODE;
+}
+
+function getErrNoBodyPartCode(): ScreepsReturnCode {
+  const errNoBodyPart = (globalThis as unknown as { ERR_NO_BODYPART?: ScreepsReturnCode }).ERR_NO_BODYPART;
+  return typeof errNoBodyPart === 'number' ? errNoBodyPart : ERR_NO_BODYPART_CODE;
 }
 
 function isContainerStructure(target: unknown): boolean {
