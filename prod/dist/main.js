@@ -15310,6 +15310,15 @@ function planRuntimeStrategyPrioritizedConstruction(colony, result, budgetState,
       return true;
     }
   }
+  if (result.placements.length === initialPlacementCount) {
+    planAcceptedRuntimeConstructionCandidateSeed(
+      report.nextPrimary,
+      colony,
+      result,
+      budgetState,
+      options
+    );
+  }
   return result.placements.length > initialPlacementCount || hasBlockingPlacementFailure(result);
 }
 function recordStrategyRegistryRuntimeUse(options, strategyEntry) {
@@ -15368,6 +15377,88 @@ function constructionPriorityScorePlannerPriorities(score) {
     case "observation":
       return [];
   }
+}
+function planAcceptedRuntimeConstructionCandidateSeed(candidate, colony, result, budgetState, options) {
+  if (!isAcceptedRuntimeConstructionBuildCandidate(candidate)) {
+    return;
+  }
+  if (candidate.buildType === "rampart") {
+    planAcceptedRuntimeRampartSeed(colony, result, budgetState, options);
+  }
+}
+function isAcceptedRuntimeConstructionBuildCandidate(candidate) {
+  return Boolean(
+    candidate && candidate.score > 0 && !candidate.blocked && candidate.policyAction === "build"
+  );
+}
+function planAcceptedRuntimeRampartSeed(colony, result, budgetState, options) {
+  const room = colony.room;
+  if (!hasRemainingStructureCapacity(room, "rampart") || !canReserveConstructionEnergy(room, budgetState, "rampart", options)) {
+    return;
+  }
+  const position = selectAcceptedRuntimeRampartSeedPosition(room, colony);
+  if (!position) {
+    return;
+  }
+  const placementResult = room.createConstructionSite(
+    position.x,
+    position.y,
+    getStructureConstant6("STRUCTURE_RAMPART")
+  );
+  recordPlacement(result, budgetState, "rampart", placementResult, options, position);
+}
+function selectAcceptedRuntimeRampartSeedPosition(room, colony) {
+  var _a2;
+  const anchors = selectRuntimeRampartSeedAnchors(room, colony);
+  if (anchors.length === 0) {
+    return null;
+  }
+  return (_a2 = anchors.find((anchor) => !hasRampartAtPosition(room, anchor))) != null ? _a2 : null;
+}
+function selectRuntimeRampartSeedAnchors(room, colony) {
+  const structures = findUniqueRoomObjectsByStableKey([
+    ...colony.spawns,
+    ...findRoomObjects18(room, "FIND_MY_STRUCTURES"),
+    ...findRoomObjects18(room, "FIND_STRUCTURES")
+  ]);
+  return dedupeCandidatePositions(
+    structures.filter(isRuntimeRampartSeedAnchorStructure).map(getAnyObjectPosition).filter((position) => isSameRoomPosition6(position, room.name))
+  ).sort(compareRuntimeRampartSeedAnchors);
+}
+function isRuntimeRampartSeedAnchorStructure(structure) {
+  return getRuntimeRampartSeedAnchorPriority(structure) !== null;
+}
+function compareRuntimeRampartSeedAnchors(left, right) {
+  return getPositionKey7(left).localeCompare(getPositionKey7(right));
+}
+function hasRampartAtPosition(room, position) {
+  const rampartType = getStructureConstant6("STRUCTURE_RAMPART");
+  const objects = [
+    ...findRoomObjects18(room, "FIND_MY_STRUCTURES"),
+    ...findRoomObjects18(room, "FIND_STRUCTURES"),
+    ...findRoomObjects18(room, "FIND_MY_CONSTRUCTION_SITES"),
+    ...findRoomObjects18(room, "FIND_CONSTRUCTION_SITES")
+  ];
+  return objects.some((object) => {
+    const objectPosition = getAnyObjectPosition(object);
+    return object.structureType === rampartType && objectPosition !== null && isSameRoomPosition6(objectPosition, room.name) && getPositionKey7(objectPosition) === getPositionKey7(position) && object.my !== false;
+  });
+}
+function getRuntimeRampartSeedAnchorPriority(structure) {
+  const structureType = structure.structureType;
+  if (structureType === getStructureConstant6("STRUCTURE_SPAWN")) {
+    return 0;
+  }
+  if (structureType === getStructureConstant6("STRUCTURE_TOWER")) {
+    return 1;
+  }
+  if (structureType === getStructureConstant6("STRUCTURE_STORAGE")) {
+    return 2;
+  }
+  if (structureType === getStructureConstant6("STRUCTURE_CONTAINER")) {
+    return 3;
+  }
+  return null;
 }
 function planRuntimeConstructionPlannerPriority(priority, colony, result, budgetState, options, priorityTowerDefenseSiteState, rcl) {
   switch (priority) {
