@@ -5172,6 +5172,72 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertTrue(plan_payload["requested"])
         self.assertEqual(plan_payload["consumedFailure"], handoff["consumedFailure"])
         self.assertIn("private_server_http_readiness_timeout", plan_payload["reason"])
+        self.assertIn("localDiagnosticPlan", handoff)
+        self.assertEqual(plan_payload["localDiagnosticPlan"], handoff["localDiagnosticPlan"])
+        local_plan = handoff["localDiagnosticPlan"]
+        self.assertEqual(
+            local_plan["mode"],
+            runner.LOCAL_NO_COMPUTE_PRIVATE_SERVER_HTTP_READINESS_DIAGNOSTIC_MODE,
+        )
+        self.assertEqual(
+            local_plan["runMode"],
+            runner.LOCAL_NO_COMPUTE_PRIVATE_SERVER_HTTP_READINESS_DIAGNOSTIC_MODE,
+        )
+        self.assertTrue(local_plan["noCompute"])
+        self.assertTrue(local_plan["noPaidRun"])
+        self.assertFalse(local_plan["paidRunAttempted"])
+        self.assertFalse(local_plan["computeAttempted"])
+        self.assertFalse(local_plan["scaleOutAttempted"])
+        self.assertFalse(local_plan["remoteTrainingAttempted"])
+        self.assertTrue(local_plan["paidTencentRerunHold"]["held"])
+        self.assertIn("paid Tencent", local_plan["paidTencentRerunHold"]["until"])
+        self.assertEqual(local_plan["priorAttempt"]["runId"], "postfix-validation-run-20260601t231342z")
+        self.assertEqual(
+            local_plan["priorAttempt"]["failureClassification"],
+            "private_server_http_readiness_timeout",
+        )
+        self.assertEqual(
+            local_plan["priorAttempt"]["remoteTrainingTimeoutReason"],
+            "private_server_http_readiness",
+        )
+        self.assertEqual(local_plan["priorAttempt"]["successfulEnvironmentRows"], 19)
+        self.assertEqual(local_plan["priorAttempt"]["failedEnvironmentRows"], 1)
+        local_paths = {
+            path_entry["id"]: path_entry
+            for path_entry in local_plan["requiredLocalArtifactPaths"]
+        }
+        self.assertEqual(local_paths["priorControllerSummary"]["path"], str(prior_attempt_path))
+        self.assertEqual(
+            local_paths["currentControllerSummary"]["path"],
+            str(artifact_dir / "controller-summary.json"),
+        )
+        self.assertEqual(local_paths["validationPlanHandoff"]["path"], handoff["path"])
+        self.assertIn(
+            "private-smoke-report-*.json",
+            local_paths["privateSmokeDryRunReport"]["path"],
+        )
+        self.assertIn(
+            "simulator_harness_manifest.json",
+            local_paths["simulatorHarnessManifest"]["path"],
+        )
+        self.assertIn(
+            "local-private-server-http-readiness-diagnostic",
+            local_paths["localDiagnosticSummary"]["path"],
+        )
+        self.assertFalse(local_plan["safety"]["requiresPaidCompute"])
+        self.assertFalse(local_plan["safety"]["requiresTencentScaleOut"])
+        self.assertFalse(local_plan["safety"]["secretsPrinted"])
+        commands = "\n".join(step["command"] for step in local_plan["diagnosticSteps"])
+        self.assertIn("private_server_http_readiness_timeout", local_plan["reason"])
+        self.assertIn(str(prior_attempt_path), commands)
+        self.assertIn("scripts/screeps-private-smoke.py self-test", commands)
+        self.assertIn("scripts/screeps-private-smoke.py dry-run", commands)
+        self.assertIn("scripts/screeps_rl_simulator_harness.py self-test", commands)
+        self.assertIn("scripts/screeps_rl_simulator_harness.py dry-run", commands)
+        for step in local_plan["diagnosticSteps"]:
+            self.assertFalse(step["requiresTencentScaleOut"])
+            self.assertFalse(step["requiresPaidCompute"])
+            self.assertFalse(step["printsSecrets"])
 
     def test_paid_failure_recurrence_guard_explains_timeout_recovery_when_signature_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

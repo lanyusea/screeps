@@ -103,6 +103,9 @@ PAID_FAILURE_RECURRENCE_CONSUMED_FAILURE_PLAN_REQUIRED_FINAL_STATUS = (
 PAID_FAILURE_RECURRENCE_VALIDATION_PLAN_HANDOFF_TYPE = (
     "screeps-tencent-batch-rl-post-fix-validation-plan-handoff"
 )
+LOCAL_NO_COMPUTE_PRIVATE_SERVER_HTTP_READINESS_DIAGNOSTIC_MODE = (
+    "local_no_compute_private_server_http_readiness_diagnostic"
+)
 PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD = 10
 PAID_FAILURE_RECURRENCE_GUARD_RECENT_SUMMARY_LIMIT = 100
 PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE = "simulator_place_spawn_room_busy"
@@ -1183,6 +1186,13 @@ class Controller:
         signature = text_value(handoff.get("signature")) or "unknown"
         path = self.validation_plan_handoff_path(signature)
         handoff["path"] = str(path)
+        local_plan = dict_value(handoff.get("localDiagnosticPlan"))
+        if local_plan is not None:
+            handoff["localDiagnosticPlan"] = enrich_local_private_server_http_readiness_diagnostic_plan_paths(
+                local_plan,
+                artifact_dir=self.artifact_dir,
+                handoff_path=path,
+            )
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(canonical_json(handoff), encoding="utf-8")
         summary = {
@@ -1200,6 +1210,9 @@ class Controller:
         consumed_failure = dict_value(handoff.get("consumedFailure"))
         if consumed_failure is not None:
             summary["consumedFailure"] = copy.deepcopy(consumed_failure)
+        local_plan = dict_value(handoff.get("localDiagnosticPlan"))
+        if local_plan is not None:
+            summary["localDiagnosticPlan"] = copy.deepcopy(local_plan)
         self.result["validationPlanHandoff"] = summary
         return summary
 
@@ -3400,6 +3413,290 @@ def paid_failure_validation_plan_handoff_next_action(
     return text_value(guard.get("nextAction"))
 
 
+def safe_local_diagnostic_fragment(value: str | None, *, fallback: str) -> str:
+    text = value or fallback
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", text).strip("._-") or fallback
+
+
+def local_artifact_path_entry(
+    artifact_id: str,
+    path: str,
+    *,
+    description: str,
+    required_for_clearance: bool = True,
+    path_pattern: bool = False,
+    produced_by_step: str | None = None,
+) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "id": artifact_id,
+        "path": path,
+        "description": description,
+        "requiredForClearance": required_for_clearance,
+        "pathPattern": path_pattern,
+    }
+    if produced_by_step is not None:
+        entry["producedByStep"] = produced_by_step
+    return entry
+
+
+def enrich_local_private_server_http_readiness_diagnostic_plan_paths(
+    plan: dict[str, Any],
+    *,
+    artifact_dir: Path,
+    handoff_path: Path,
+) -> dict[str, Any]:
+    enriched = copy.deepcopy(plan)
+    paths = enriched.setdefault("requiredLocalArtifactPaths", [])
+    if isinstance(paths, list):
+        paths.extend(
+            [
+                local_artifact_path_entry(
+                    "currentControllerSummary",
+                    str(artifact_dir / "controller-summary.json"),
+                    description="controller summary showing this no-compute guard handoff",
+                ),
+                local_artifact_path_entry(
+                    "validationPlanHandoff",
+                    str(handoff_path),
+                    description="machine-readable validation plan handoff containing this diagnostic plan",
+                ),
+            ]
+        )
+    return enriched
+
+
+def build_local_private_server_http_readiness_diagnostic_plan(
+    consumed_failure: dict[str, Any],
+    *,
+    current_run_id: str,
+    signature: str,
+) -> dict[str, Any]:
+    prior_run_id = text_value(consumed_failure.get("priorAttemptRunId"))
+    safe_prior_run_id = safe_local_diagnostic_fragment(prior_run_id, fallback="unknown-prior-run")
+    summary_path = text_value(consumed_failure.get("summaryPath"))
+    prior_artifact_dir = str(Path(summary_path).parent) if summary_path is not None else None
+    diagnostic_root = (
+        Path("runtime-artifacts/tencent-cloud/batch-runs")
+        / "local-private-server-http-readiness-diagnostic"
+        / safe_prior_run_id
+    )
+    private_smoke_work_dir = Path("runtime-artifacts/screeps-private-smoke-readiness-diagnostic")
+    simulator_manifest_path = (
+        Path("runtime-artifacts/rl-simulator-harness")
+        / "private-server-http-readiness-diagnostic"
+        / "simulator_harness_manifest.json"
+    )
+    diagnostic_summary_path = diagnostic_root / "diagnostic-summary.json"
+    required_paths = [
+        local_artifact_path_entry(
+            "localDiagnosticSummary",
+            str(diagnostic_summary_path),
+            description="operator-authored summary of the local/no-compute readiness diagnosis and clearance decision",
+            produced_by_step="record-diagnostic-summary",
+        ),
+        local_artifact_path_entry(
+            "privateSmokeDryRunReport",
+            str(private_smoke_work_dir / "private-smoke-report-*.json"),
+            description="redacted private-smoke dry-run report proving request and port shapes without Docker, network, or secrets",
+            path_pattern=True,
+            produced_by_step="private-smoke-dry-run",
+        ),
+        local_artifact_path_entry(
+            "simulatorHarnessManifest",
+            str(simulator_manifest_path),
+            description="offline simulator-harness dry-run manifest for local metadata and safety flags",
+            produced_by_step="simulator-harness-dry-run",
+        ),
+    ]
+    inspect_prior_command = None
+    simulator_artifact_command = None
+    if summary_path is not None:
+        required_paths.append(
+            local_artifact_path_entry(
+                "priorControllerSummary",
+                summary_path,
+                description="consumed post-fix validation controller summary with the HTTP readiness timeout",
+            )
+        )
+        inspect_prior_command = (
+            f"mkdir -p {shlex.quote(str(diagnostic_root))} && "
+            f"python3 -m json.tool {shlex.quote(summary_path)} > "
+            f"{shlex.quote(str(diagnostic_root / 'prior-controller-summary.redacted.json'))}"
+        )
+    if prior_artifact_dir is not None:
+        required_paths.append(
+            local_artifact_path_entry(
+                "priorSimulatorArtifacts",
+                str(Path(prior_artifact_dir) / "remote" / "simulator-artifacts" / "*" / "run_summary.json"),
+                description="prior simulator run summaries containing the failed private-server HTTP readiness row",
+                path_pattern=True,
+            )
+        )
+        simulator_artifact_command = (
+            f"find {shlex.quote(str(Path(prior_artifact_dir) / 'remote' / 'simulator-artifacts'))} "
+            r"-maxdepth 2 -type f \( -name run_summary.json -o -name run_failure.json "
+            r"-o -name setup_failure.json \) -print | sort"
+        )
+    diagnostic_steps = [
+        {
+            "id": "inspect-prior-controller-summary",
+            "description": "Extract the consumed validation summary locally and confirm the failed row classification.",
+            "command": inspect_prior_command
+            or "inspect the consumed validation controller-summary.json listed in requiredLocalArtifactPaths",
+            "requiresTencentScaleOut": False,
+            "requiresPaidCompute": False,
+            "networkRequired": False,
+            "dockerRequired": False,
+            "printsSecrets": False,
+            "expectedEvidence": "prior-controller-summary.redacted.json or equivalent redacted summary excerpt",
+        },
+        {
+            "id": "inspect-prior-simulator-artifacts",
+            "description": "List prior simulator readiness artifacts and capture the run_summary/run_failure evidence for the failed row.",
+            "command": simulator_artifact_command
+            or "list prior remote/simulator-artifacts run_summary.json and run_failure.json files if present",
+            "requiresTencentScaleOut": False,
+            "requiresPaidCompute": False,
+            "networkRequired": False,
+            "dockerRequired": False,
+            "printsSecrets": False,
+            "expectedEvidence": "paths and redacted excerpts showing private_server_http_readiness_timeout",
+        },
+        {
+            "id": "private-smoke-self-test",
+            "description": "Run the private-smoke helper self-test; this is the offline HTTP readiness harness regression check.",
+            "command": "python3 scripts/screeps-private-smoke.py self-test",
+            "requiresTencentScaleOut": False,
+            "requiresPaidCompute": False,
+            "networkRequired": False,
+            "dockerRequired": False,
+            "printsSecrets": False,
+            "expectedEvidence": "zero exit status",
+        },
+        {
+            "id": "private-smoke-dry-run",
+            "description": "Generate a redacted private-smoke dry-run report without Docker, network, secrets, or a live server.",
+            "command": (
+                "python3 scripts/screeps-private-smoke.py dry-run "
+                f"--work-dir {shlex.quote(str(private_smoke_work_dir))}"
+            ),
+            "requiresTencentScaleOut": False,
+            "requiresPaidCompute": False,
+            "networkRequired": False,
+            "dockerRequired": False,
+            "printsSecrets": False,
+            "expectedEvidence": str(private_smoke_work_dir / "private-smoke-report-*.json"),
+        },
+        {
+            "id": "simulator-harness-self-test",
+            "description": "Run the simulator harness no-network/no-Docker self-test.",
+            "command": "python3 scripts/screeps_rl_simulator_harness.py self-test",
+            "requiresTencentScaleOut": False,
+            "requiresPaidCompute": False,
+            "networkRequired": False,
+            "dockerRequired": False,
+            "printsSecrets": False,
+            "expectedEvidence": "zero exit status",
+        },
+        {
+            "id": "simulator-harness-dry-run",
+            "description": "Generate a deterministic simulator-harness manifest with local metadata only.",
+            "command": (
+                "python3 scripts/screeps_rl_simulator_harness.py dry-run "
+                "--manifest-id private-server-http-readiness-diagnostic "
+                "--out-dir runtime-artifacts/rl-simulator-harness --workers 1 --rooms-per-worker 1"
+            ),
+            "requiresTencentScaleOut": False,
+            "requiresPaidCompute": False,
+            "networkRequired": False,
+            "dockerRequired": False,
+            "printsSecrets": False,
+            "expectedEvidence": str(simulator_manifest_path),
+        },
+        {
+            "id": "record-diagnostic-summary",
+            "description": "Write the clearance/hold decision with paths, command results, and redacted readiness evidence.",
+            "command": f"write {shlex.quote(str(diagnostic_summary_path))} with the verified evidence and decision",
+            "requiresTencentScaleOut": False,
+            "requiresPaidCompute": False,
+            "networkRequired": False,
+            "dockerRequired": False,
+            "printsSecrets": False,
+            "expectedEvidence": str(diagnostic_summary_path),
+        },
+    ]
+    return {
+        "mode": LOCAL_NO_COMPUTE_PRIVATE_SERVER_HTTP_READINESS_DIAGNOSTIC_MODE,
+        "runMode": LOCAL_NO_COMPUTE_PRIVATE_SERVER_HTTP_READINESS_DIAGNOSTIC_MODE,
+        "signature": signature,
+        "currentHandoffRunId": current_run_id,
+        "noCompute": True,
+        "noPaidRun": True,
+        "paidRunAttempted": False,
+        "computeAttempted": False,
+        "scaleOutAttempted": False,
+        "remoteTrainingAttempted": False,
+        "reason": (
+            "consumed post-fix validation failed with private_server_http_readiness_timeout; "
+            "diagnose local/private-server HTTP readiness before any paid Tencent rerun"
+        ),
+        "priorAttempt": {
+            "runId": prior_run_id,
+            "summaryPath": summary_path,
+            "finalStatus": text_value(consumed_failure.get("finalStatus")),
+            "failureClassification": text_value(consumed_failure.get("failureClassification")),
+            "remoteTrainingFailureClass": text_value(consumed_failure.get("remoteTrainingFailureClass")),
+            "remoteTrainingTimeoutReason": text_value(consumed_failure.get("remoteTrainingTimeoutReason")),
+            "successfulEnvironmentRows": consumed_failure.get("successfulEnvironmentRows"),
+            "failedEnvironmentRows": consumed_failure.get("failedEnvironmentRows"),
+            "completedEnvironmentRows": consumed_failure.get("completedEnvironmentRows"),
+            "ticksRun": consumed_failure.get("ticksRun"),
+        },
+        "requiredLocalArtifactPaths": required_paths,
+        "diagnosticSteps": diagnostic_steps,
+        "successCriteria": [
+            "prior consumed validation evidence confirms the only consumed-failure blocker is private_server_http_readiness_timeout",
+            "private-smoke self-test and dry-run complete locally with redaction checks and no secrets printed",
+            "simulator harness self-test and dry-run complete locally with liveEffect=false and officialMmoWrites=false",
+            "diagnostic summary records the readiness root cause, evidence paths, and a bounded next validation slice",
+            "reviewer/operator verifies the diagnostic evidence before selecting any new paid Tencent validation plan",
+        ],
+        "failureHoldCriteria": [
+            "prior summary or simulator artifacts needed to classify the failed row are missing or contradictory",
+            "any local self-test or dry-run fails, leaks a secret, requires network, or requires Docker unexpectedly",
+            "diagnostic evidence cannot explain the HTTP readiness timeout well enough to bound the next validation",
+            "any proposed next step requires Tencent ASG scale-out, remote training, or paid compute before evidence review",
+        ],
+        "rollbackSafetyCondition": (
+            "keep Tencent ASG desired capacity at 0 and do not run run-single, remote training, or "
+            "--allow-paid-failure-recurrence-validation while diagnostic evidence is missing, failing, or unverified"
+        ),
+        "paidTencentRerunHold": {
+            "held": True,
+            "until": "local diagnostic evidence is verified and a new bounded paid Tencent validation slice is explicitly selected",
+            "blockedActions": [
+                "Tencent ASG scale-out",
+                "paid run-single rerun",
+                "remote training",
+                "--allow-paid-failure-recurrence-validation rerun",
+            ],
+        },
+        "safety": {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+            "secretsPrinted": False,
+            "networkRequired": False,
+            "dockerRequired": False,
+            "requiresTencentScaleOut": False,
+            "requiresPaidCompute": False,
+            "paidRunAttempted": False,
+            "scaleOutAttempted": False,
+            "remoteTrainingAttempted": False,
+        },
+    }
+
+
 def build_paid_failure_validation_plan_handoff(
     guard: dict[str, Any],
     *,
@@ -3472,6 +3769,19 @@ def build_paid_failure_validation_plan_handoff(
     }
     if consumed_failure is not None:
         handoff["consumedFailure"] = consumed_failure
+    if (
+        status == PAID_FAILURE_RECURRENCE_CONSUMED_FAILURE_PLAN_REQUIRED_FINAL_STATUS
+        and consumed_failure is not None
+        and (
+            text_value(consumed_failure.get("failureClassification")) == "private_server_http_readiness_timeout"
+            or text_value(consumed_failure.get("remoteTrainingTimeoutReason")) == "private_server_http_readiness"
+        )
+    ):
+        handoff["localDiagnosticPlan"] = build_local_private_server_http_readiness_diagnostic_plan(
+            consumed_failure,
+            current_run_id=run_id,
+            signature=signature,
+        )
     return handoff
 
 
