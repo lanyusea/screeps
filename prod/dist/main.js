@@ -34969,7 +34969,13 @@ function isWorkerAssignmentGapRecoverySelection(creep, currentTask, selectedTask
     return false;
   }
   const allowUpgradeRecovery = !isControllerDowngradeGuardActive2(creep.room);
-  return isWorkerAssignmentGapRecoveryTask(creep, currentTask, allowUpgradeRecovery, { allowRepair: true }) && isWorkerAssignmentGapRecoveryTask(creep, selectedTask, allowUpgradeRecovery);
+  const allowSelectedRepairRecovery = (currentTask == null ? void 0 : currentTask.type) === "repair" && (selectedTask == null ? void 0 : selectedTask.type) === "repair";
+  return isWorkerAssignmentGapRecoveryTask(creep, currentTask, allowUpgradeRecovery, { allowRepair: true }) && isWorkerAssignmentGapRecoveryTask(
+    creep,
+    selectedTask,
+    allowUpgradeRecovery,
+    allowSelectedRepairRecovery ? { allowRepair: true } : {}
+  );
 }
 function isWorkerAssignmentGapRecoveryTask(creep, task, allowUpgradeRecovery, options = {}) {
   return task === void 0 || task === null || isEnergyAcquisitionTask2(task) || task.type === "transfer" || options.allowRepair === true && isWorkerAssignmentGapRecoveryRepairTask(creep, task) || allowUpgradeRecovery && task.type === "upgrade";

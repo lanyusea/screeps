@@ -7487,6 +7487,124 @@ describe('runWorker', () => {
     }
   });
 
+  it('recovers E29N55 construction assignment when selection keeps routine repair active', () => {
+    const site = {
+      id: 'rampart-site1',
+      my: true,
+      structureType: 'rampart',
+      progress: 2_894,
+      progressTotal: 5_000
+    } as ConstructionSite;
+    const routineRampart = {
+      id: 'rampart-routine',
+      my: true,
+      structureType: 'rampart',
+      hits: BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING + 1,
+      hitsMax: 30_000_000
+    } as StructureRampart;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const roomCreeps: Creep[] = [];
+    const room = {
+      name: 'E29N55',
+      energyAvailable: 2_300,
+      energyCapacityAvailable: 2_300,
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (object: Creep) => boolean }) => {
+        if (type === FIND_MY_CREEPS) {
+          return options?.filter ? roomCreeps.filter(options.filter) : roomCreeps;
+        }
+
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [site];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [routineRampart];
+        }
+
+        if (type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+          return [];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const repairTask = { type: 'repair', targetId: 'rampart-routine' as Id<Structure> } as const;
+    const creep = {
+      name: 'worker-E29N55-2086075',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: repairTask
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === 'work' ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 97 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 3 : 0))
+      },
+      room,
+      build: jest.fn().mockReturnValue(0),
+      repair: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    const emptyWorker = {
+      name: 'worker-E29N55-2085929',
+      memory: { role: 'worker', colony: 'E29N55' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === 'work' ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room
+    } as unknown as Creep;
+    roomCreeps.push(creep, emptyWorker);
+    const selectWorkerTask = jest.spyOn(workerTasks, 'selectWorkerTask').mockReturnValue(repairTask);
+    const selectWorkerEnergyCriticalTask = jest
+      .spyOn(workerTaskPolicy, 'selectWorkerEnergyCriticalTask')
+      .mockReturnValue(null);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {
+        [creep.name]: creep,
+        [emptyWorker.name]: emptyWorker
+      },
+      rooms: { E29N55: room },
+      time: 2_086_489,
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'rampart-site1') {
+          return site;
+        }
+
+        return id === 'rampart-routine' ? routineRampart : null;
+      })
+    };
+
+    try {
+      runWorker(creep);
+
+      expect(creep.memory.task).toEqual({ type: 'build', targetId: 'rampart-site1' });
+      expect(creep.memory.workerDispatchDiagnostic).toMatchObject({
+        currentTask: 'repair',
+        currentTargetId: 'rampart-routine',
+        baseSelectedTask: 'repair',
+        baseSelectedTargetId: 'rampart-routine',
+        selectedTask: 'build',
+        selectedTargetId: 'rampart-site1',
+        assignedTask: 'build',
+        assignedTargetId: 'rampart-site1'
+      });
+      expect(creep.build).toHaveBeenCalledWith(site);
+      expect(creep.repair).not.toHaveBeenCalled();
+    } finally {
+      selectWorkerTask.mockRestore();
+      selectWorkerEnergyCriticalTask.mockRestore();
+    }
+  });
+
   it('preempts a stale E29N57 spawn reservation transfer when stored energy can cover construction', () => {
     const site = {
       id: 'road-site1',
