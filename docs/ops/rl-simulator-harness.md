@@ -18,7 +18,11 @@ python3 scripts/screeps_rl_simulator_harness.py dry-run \
   --throughput-sample worker-0:1200:30
 ```
 
-The dry-run command does not start Docker, use network access, require secrets, or call the official Screeps API. It scans local runtime, dataset, strategy-shadow, and private-smoke metadata only when input paths are supplied. With no input paths, it writes an empty-source planning manifest immediately; pass `--scan-default-artifacts` to opt into the historical broad scan of `/root/screeps/runtime-artifacts`, `/root/.hermes/cron/output`, and repo-local `runtime-artifacts`.
+The dry-run command does not start Docker, use network access, require secrets, or call the official Screeps API. Its source scanning modes are:
+
+- With no input paths and no `--scan-default-artifacts`, it writes an empty-source planning manifest immediately.
+- With no input paths and `--scan-default-artifacts`, it scans the historical default roots: `/root/screeps/runtime-artifacts`, `/root/.hermes/cron/output`, and repo-local `runtime-artifacts`.
+- With explicit input paths, it scans only those supplied files or directories for local runtime, dataset, strategy-shadow, and private-smoke metadata; default roots are not added.
 
 It writes:
 
