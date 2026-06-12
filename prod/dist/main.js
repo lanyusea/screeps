@@ -42540,13 +42540,16 @@ function selectViableConstructionActivityCandidate(constructionPriority) {
   };
 }
 function isConstructionActivitySuppressed(productiveEnergy, cpuBudget) {
+  if (!shouldRunConstructionCpuWork(cpuBudget)) {
+    return true;
+  }
   if (productiveEnergy.constructionSiteCount <= 0 && productiveEnergy.pendingBuildProgress <= 0) {
     return false;
   }
   return shouldShedNonessentialCpuWork(cpuBudget) || productiveEnergy.buildBlockedReason === "energy_buffer_blocked" || productiveEnergy.buildBlockedReason === "worker_assignment_gap" || productiveEnergy.workerAssignmentBlockedDetail === "spawn_reserving_energy";
 }
 function selectConstructionActivitySuppressedReason(productiveEnergy, cpuBudget) {
-  if (shouldShedNonessentialCpuWork(cpuBudget)) {
+  if (!shouldRunConstructionCpuWork(cpuBudget) || shouldShedNonessentialCpuWork(cpuBudget)) {
     return "cpu_shed";
   }
   if (productiveEnergy.workerAssignmentBlockedDetail === "spawn_reserving_energy") {
