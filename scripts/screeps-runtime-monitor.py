@@ -8644,6 +8644,8 @@ def command_self_test(_args: argparse.Namespace) -> int:
                             "owner": "owner",
                             "spawns": 1,
                             "owned_spawns": 1,
+                            "constructionSiteCount": 0,
+                            "pendingBuildProgress": 0,
                         }
                     ],
                 },
@@ -8755,6 +8757,8 @@ def command_self_test(_args: argparse.Namespace) -> int:
                             "owner": "owner",
                             "energyCapacity": 300,
                             "energyBufferHealth": {"threshold": 300},
+                            "constructionSiteCount": 0,
+                            "pendingBuildProgress": 0,
                         },
                         {
                             "room": "shardTest/E2N2",
@@ -8763,6 +8767,8 @@ def command_self_test(_args: argparse.Namespace) -> int:
                             "owner": "owner",
                             "energyCapacity": 300,
                             "energyBufferHealth": {"threshold": 250},
+                            "constructionSiteCount": 0,
+                            "pendingBuildProgress": 0,
                         },
                     ],
                 },
@@ -8810,6 +8816,8 @@ def command_self_test(_args: argparse.Namespace) -> int:
                             "expected_owner": "owner",
                             "spawns": 0,
                             "owned_spawns": 0,
+                            "constructionSiteCount": 0,
+                            "pendingBuildProgress": 0,
                         }
                     ],
                 },
