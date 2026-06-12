@@ -567,8 +567,18 @@ function selectWorkerAssignmentGapRecoveryConstructionSite(creep: Creep): Constr
     sites
       .filter((site) => site.my !== false)
       .filter((site) => !isBuildTargetSuppressedForWorker(creep, site))
-      .filter((site) => canSpendWorkerEnergyOnConstructionSite(creep, site))
+      .filter((site) => canSpendWorkerEnergyOnAssignmentGapRecoveryConstructionSite(creep, site))
       .sort((left, right) => compareRoomObjectsByRangeAndId(creep, left, right))[0] ?? null
+  );
+}
+
+function canSpendWorkerEnergyOnAssignmentGapRecoveryConstructionSite(
+  creep: Creep,
+  site: ConstructionSite
+): boolean {
+  return (
+    canSpendWorkerEnergyOnConstructionSite(creep, site) ||
+    hasCoveredStoredEnergyForAssignmentGapRecoveryConstruction(creep, site)
   );
 }
 
@@ -703,7 +713,9 @@ function hasSafeAssignmentGapRecoveryConstructionEnergy(
 
   return (
     !hasActiveSpawningSpawn(creep.room) &&
-    (hasHealthyRoomEnergyBuffer(creep.room) || hasStoredEnergyForAssignmentGapRecoveryConstruction(creep.room))
+    (hasHealthyRoomEnergyBuffer(creep.room) ||
+      hasStoredEnergyForAssignmentGapRecoveryConstruction(creep.room) ||
+      hasCoveredStoredEnergyForAssignmentGapRecoveryConstruction(creep, getTaskTarget(recoveryTask)))
   );
 }
 
@@ -714,6 +726,67 @@ function hasStoredEnergyForAssignmentGapRecoveryConstruction(room: Room): boolea
     energyAvailable >= MINIMUM_WORKER_SPAWN_ENERGY &&
     getRoomStoredEnergyAvailableForConstruction(room) >= CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY
   );
+}
+
+function hasCoveredStoredEnergyForAssignmentGapRecoveryConstruction(
+  creep: Creep,
+  site: unknown
+): site is ConstructionSite {
+  return (
+    getUsedTransferEnergy(creep) > 0 &&
+    isCriticalConstructionSite(site) &&
+    (site as ConstructionSite).my !== false &&
+    creep.room.controller?.my === true &&
+    !hasActiveSpawningSpawn(creep.room) &&
+    !isControllerDowngradeGuardActive(creep.room) &&
+    getRoomStoredEnergyAvailableForConstruction(creep.room) >= CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY &&
+    isMinimumWorkerSpawnEnergyFloorCoveredForAssignmentGapRecovery(creep)
+  );
+}
+
+function isMinimumWorkerSpawnEnergyFloorCoveredForAssignmentGapRecovery(creep: Creep): boolean {
+  const energyAvailable = getRoomEnergyAvailable(creep.room);
+  if (energyAvailable === null) {
+    return false;
+  }
+
+  const energyGap = Math.max(0, MINIMUM_WORKER_SPAWN_ENERGY - energyAvailable);
+  return energyGap === 0 || getOtherSameRoomImmediateSpawnRefillEnergy(creep) >= energyGap;
+}
+
+function getOtherSameRoomImmediateSpawnRefillEnergy(creep: Creep): number {
+  const remainingCapacityByTargetId = new Map<string, number>();
+  return getRoomOwnedCreeps(creep.room).reduce((total, worker) => {
+    if (isSameCreep(worker, creep) || !isProductiveSameRoomWorker(worker, creep.room)) {
+      return total;
+    }
+
+    const task = worker.memory?.task;
+    if (task?.type !== 'transfer') {
+      return total;
+    }
+
+    const target = getTaskTarget(task);
+    if (getTransferSinkPriority(target) < 2) {
+      return total;
+    }
+
+    const carriedEnergy = getUsedTransferEnergy(worker);
+    if (carriedEnergy <= 0) {
+      return total;
+    }
+
+    const targetId = getObjectId(target);
+    const remainingCapacity = targetId
+      ? remainingCapacityByTargetId.get(targetId) ?? getFreeTransferEnergyCapacity(target)
+      : getFreeTransferEnergyCapacity(target);
+    const coveredEnergy = Math.min(carriedEnergy, Math.max(0, remainingCapacity));
+    if (targetId) {
+      remainingCapacityByTargetId.set(targetId, Math.max(0, remainingCapacity - coveredEnergy));
+    }
+
+    return total + coveredEnergy;
+  }, 0);
 }
 
 function isCriticalSpawnRefillTask(task: CreepTaskMemory | null | undefined): boolean {
@@ -2153,7 +2226,10 @@ function shouldPreemptEnergyAcquisitionTaskForProductiveBacklog(
 
   if (selectedTask.type === 'build') {
     const constructionSite = getTaskTarget(selectedTask) as ConstructionSite | null;
-    return Boolean(constructionSite && canSpendWorkerEnergyOnConstructionSite(creep, constructionSite));
+    return Boolean(
+      constructionSite &&
+      canSpendWorkerEnergyOnAssignmentGapRecoveryConstructionSite(creep, constructionSite)
+    );
   }
 
   if (selectedTask.type === 'repair') {
@@ -3003,7 +3079,7 @@ function classifyBuildActionPrecheck(
     return { result: 'failed_no_work', returnCode: getErrNoBodyPartCode() };
   }
 
-  if (!canSpendWorkerEnergyOnConstructionSite(creep, target)) {
+  if (!canSpendWorkerEnergyOnAssignmentGapRecoveryConstructionSite(creep, target)) {
     return { result: 'suppressed_by_policy', returnCode: ERR_NOT_ENOUGH_RESOURCES_CODE };
   }
 
