@@ -1248,7 +1248,7 @@ function selectAcceptedRuntimeRampartSeedPosition(
     return null;
   }
 
-  return anchors.find((anchor) => !hasRampartAtPosition(room, anchor)) ?? anchors[0] ?? null;
+  return anchors.find((anchor) => !hasRampartAtPosition(room, anchor)) ?? null;
 }
 
 function selectRuntimeRampartSeedAnchors(room: Room, colony: ColonySnapshot): CandidatePosition[] {

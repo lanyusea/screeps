@@ -507,6 +507,65 @@ describe('owned room construction planner', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(18, 24, TEST_GLOBALS.STRUCTURE_RAMPART);
   });
 
+  it('falls through when every accepted runtime rampart seed anchor is already covered', () => {
+    installOpenTerrain();
+    mockPlanExpansionDefenseBarrierPlacements.mockReturnValue([]);
+    const source = makeSource('source-a', 35, 35);
+    const coveredRampartAnchorKeys = new Set(['10,10', '16,24', '17,23', '18,24', '34,35']);
+    const { room, colony } = makeColony({
+      controllerLevel: 6,
+      energyAvailable: 2_300,
+      energyCapacityAvailable: 2_300,
+      structures: [
+        ...makeRecoveredRcl6ResidualConstructionStructures(source),
+        makeStructure('storage-rampart', TEST_GLOBALS.STRUCTURE_RAMPART, 18, 24, true),
+        makeStoredStructure('source-container', TEST_GLOBALS.STRUCTURE_CONTAINER, 34, 35, 1_000),
+        makeStructure('source-container-rampart', TEST_GLOBALS.STRUCTURE_RAMPART, 34, 35, true)
+      ],
+      sources: [source],
+      pathsByTarget: {}
+    });
+    room.createConstructionSite.mockImplementation(
+      (x: number, y: number, structureType: BuildableStructureConstant): ScreepsReturnCode => {
+        if (structureType === TEST_GLOBALS.STRUCTURE_RAMPART && coveredRampartAnchorKeys.has(`${x},${y}`)) {
+          return ERR_INVALID_TARGET_CODE;
+        }
+
+        return OK_CODE;
+      }
+    );
+
+    const result = planConstructionForColony(colony, {
+      creeps: makeWorkerCreeps(4),
+      includePostClaimRamparts: true,
+      respectRoomEnergyBuffer: true,
+      strategyRegistry: DEFAULT_STRATEGY_REGISTRY,
+      runtimeStrategyConstructionEnabled: true,
+      runtimeStrategyConstructionFallbackPriorities: false,
+      maxPlacementsPerRoom: 1,
+      maxContainerSitesPerTick: 1,
+      maxPendingContainerSites: 1,
+      roadOptions: {
+        maxSitesPerTick: 1,
+        maxPendingRoadSites: 1,
+        maxTargetsPerTick: 1
+      }
+    });
+
+    expect(result.placements).toEqual([
+      {
+        priority: 'container',
+        roomName: 'W1N1',
+        structureType: TEST_GLOBALS.STRUCTURE_CONTAINER,
+        result: OK_CODE,
+        energyReserved: 50
+      }
+    ]);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).not.toHaveBeenCalledWith(10, 10, TEST_GLOBALS.STRUCTURE_RAMPART);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(11, 10, TEST_GLOBALS.STRUCTURE_CONTAINER);
+  });
+
   it('records a rejected accepted runtime rampart seed attempt', () => {
     installOpenTerrain();
     mockPlanExpansionDefenseBarrierPlacements.mockReturnValue([]);

@@ -15408,12 +15408,12 @@ function planAcceptedRuntimeRampartSeed(colony, result, budgetState, options) {
   recordPlacement(result, budgetState, "rampart", placementResult, options, position);
 }
 function selectAcceptedRuntimeRampartSeedPosition(room, colony) {
-  var _a2, _b;
+  var _a2;
   const anchors = selectRuntimeRampartSeedAnchors(room, colony);
   if (anchors.length === 0) {
     return null;
   }
-  return (_b = (_a2 = anchors.find((anchor) => !hasRampartAtPosition(room, anchor))) != null ? _a2 : anchors[0]) != null ? _b : null;
+  return (_a2 = anchors.find((anchor) => !hasRampartAtPosition(room, anchor))) != null ? _a2 : null;
 }
 function selectRuntimeRampartSeedAnchors(room, colony) {
   const structures = findUniqueRoomObjectsByStableKey([
