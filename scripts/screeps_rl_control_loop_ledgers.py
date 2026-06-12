@@ -943,6 +943,17 @@ def stale_experiment_card_not_consumed_anomaly(item: JsonObject, current_card_su
     return current_card_id not in screeps_cli_io.canonical_json(json_safe(item))
 
 
+def stale_card_supply_action(action: str | None, current_card_supply: JsonObject) -> bool:
+    if action is None:
+        return False
+    if not card_supply_available_for_guarded_training(current_card_supply):
+        return False
+    if not static_dashboard.card_supply_blocker_marker_present(action):
+        return False
+    current_card_id = text_value(current_card_supply.get("cardId"))
+    return current_card_id is None or current_card_id not in action
+
+
 def card_supply_path(card_supply: JsonObject, repo_root: Path) -> Path | None:
     raw_path = text_value(card_supply.get("path"))
     if raw_path is None:
@@ -1860,9 +1871,12 @@ def training_anomalies(
 
 def next_training_capability_action(previous: JsonObject | None, training: JsonObject, did_run: bool) -> str:
     card_supply = as_dict(training.get("cardSupply"))
-    if not did_run and card_supply_available_for_guarded_training(card_supply):
-        return guard_held_card_supply_next_action(card_supply)
     previous_action = text_value((previous or {}).get("nextTrainingCapabilityAction"))
+    if (
+        (not did_run or stale_card_supply_action(previous_action, card_supply))
+        and card_supply_available_for_guarded_training(card_supply)
+    ):
+        return guard_held_card_supply_next_action(card_supply)
     if previous_action:
         return previous_action
     deployment_blocker = training_online_deployment_blocker(training)
