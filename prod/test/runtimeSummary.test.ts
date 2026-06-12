@@ -1965,6 +1965,36 @@ describe('runtime telemetry summaries', () => {
     expect(productiveEnergy.constructionActivity).toEqual(room.constructionActivity);
   });
 
+  it('does not emit an immediate runtime summary for a normal construction planner blocker', () => {
+    const colony = makeColony({
+      time: 1,
+      includeEventLog: false
+    });
+
+    const summary = emitRuntimeSummary(
+      [colony],
+      [],
+      [
+        {
+          type: 'constructionPlacement',
+          roomName: 'W1N1',
+          priority: 'road',
+          structureType: TEST_GLOBALS.STRUCTURE_ROAD,
+          mode: 'normal',
+          blockedReason: 'residual_road_seed_existing_site',
+          details: { pendingConstructionSiteCount: 1 }
+        }
+      ]
+    );
+
+    expect(summary).toBeUndefined();
+    expect(
+      logSpy.mock.calls.some(
+        ([message]) => typeof message === 'string' && message.startsWith(RUNTIME_SUMMARY_PREFIX)
+      )
+    ).toBe(false);
+  });
+
   it('reports a successful construction placement as active while the new site is not yet visible', () => {
     const colony = makeColony({
       time: RUNTIME_SUMMARY_INTERVAL,
