@@ -11,6 +11,10 @@ import {
   planDeferredClaimedRoomCapacityConstruction,
   type ClaimedRoomConstructionPlannerOptions
 } from '../construction/claimed-room-planner';
+import type {
+  ConstructionPlannerBlockedPlacement,
+  ConstructionPlannerPlacement
+} from '../construction/planner';
 import { countCreepsByRole, getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import { runWorker } from '../creeps/workerRunner';
 import {
@@ -594,12 +598,12 @@ function runClaimedRoomConstructionForCpuBudget(
 
   if (deferred) {
     const result = planDeferredClaimedRoomCapacityConstruction(colony, activeConstructionOptions);
-    recordRecoveryConstructionPlacementTelemetry(telemetryEvents, result.placements, mode);
+    recordRecoveryConstructionPlacementTelemetry(telemetryEvents, result.placements, result.blockedPlacements, mode);
     return;
   }
 
   const result = planClaimedRoomConstruction(colony, activeConstructionOptions);
-  recordRecoveryConstructionPlacementTelemetry(telemetryEvents, result.placements, mode);
+  recordRecoveryConstructionPlacementTelemetry(telemetryEvents, result.placements, result.blockedPlacements, mode);
 }
 
 function selectConstructionCpuMode(cpuBudget: RuntimeCpuBudget): ConstructionCpuMode {
@@ -616,6 +620,7 @@ function buildCpuRecoveryConstructionSeedOptions(
     strategyRegistry: options.strategyRegistry ?? DEFAULT_STRATEGY_REGISTRY,
     runtimeStrategyConstructionEnabled: true,
     runtimeStrategyConstructionFallbackPriorities: false,
+    emitConstructionBlockerDiagnostics: true,
     includePostClaimRamparts: true,
     maxPlacementsPerRoom: 1,
     maxContainerSitesPerTick: 1,
@@ -630,14 +635,8 @@ function buildCpuRecoveryConstructionSeedOptions(
 
 function recordRecoveryConstructionPlacementTelemetry(
   telemetryEvents: RuntimeTelemetryEvent[],
-  placements: Array<{
-    priority: string;
-    roomName: string;
-    structureType: BuildableStructureConstant;
-    result: ScreepsReturnCode;
-    x?: number;
-    y?: number;
-  }>,
+  placements: ConstructionPlannerPlacement[],
+  blockedPlacements: ConstructionPlannerBlockedPlacement[],
   mode: ConstructionCpuMode
 ): void {
   if (mode !== 'recoverySeed') {
@@ -652,6 +651,21 @@ function recordRecoveryConstructionPlacementTelemetry(
       structureType: String(placement.structureType),
       result: placement.result,
       mode: 'recoverySeed',
+      ...(placement.x !== undefined ? { x: placement.x } : {}),
+      ...(placement.y !== undefined ? { y: placement.y } : {})
+    });
+  }
+
+  for (const placement of blockedPlacements) {
+    telemetryEvents.push({
+      type: 'constructionPlacement',
+      roomName: placement.roomName,
+      priority: placement.priority,
+      structureType: String(placement.structureType),
+      mode: 'recoverySeed',
+      blockedReason: placement.blockedReason,
+      ...(placement.result !== undefined ? { result: placement.result } : {}),
+      ...(placement.candidate ? { candidate: placement.candidate } : {}),
       ...(placement.x !== undefined ? { x: placement.x } : {}),
       ...(placement.y !== undefined ? { y: placement.y } : {})
     });

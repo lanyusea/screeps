@@ -14,6 +14,10 @@ import {
   type ConstructionPriorityScoringSummary,
   type ConstructionPriorityUrgency
 } from '../construction/constructionPriority';
+import type {
+  ConstructionPlannerBlockerReason,
+  ConstructionPlannerCandidateDiagnostic
+} from '../construction/planner';
 import { countCreepsByRole, type RoleCounts } from '../creeps/roleCounts';
 import type { StrategyRegistryEntry } from '../strategy/strategyRegistry';
 import {
@@ -301,7 +305,9 @@ export interface RuntimeConstructionPlacementTelemetryEvent {
   roomName: string;
   priority: string;
   structureType: string;
-  result: ScreepsReturnCode;
+  result?: ScreepsReturnCode;
+  blockedReason?: ConstructionPlannerBlockerReason;
+  candidate?: ConstructionPlannerCandidateDiagnostic;
   mode: 'recoverySeed';
   x?: number;
   y?: number;

@@ -616,6 +616,62 @@ describe('owned room construction planner', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(18, 24, TEST_GLOBALS.STRUCTURE_RAMPART);
   });
 
+  it('reports the accepted runtime rampart seed blocker when every anchor is already covered', () => {
+    installOpenTerrain();
+    mockPlanExpansionDefenseBarrierPlacements.mockReturnValue([]);
+    const source = makeSource('source-a', 35, 35);
+    const { room, colony } = makeColony({
+      controllerLevel: 6,
+      energyAvailable: 2_300,
+      energyCapacityAvailable: 2_300,
+      structures: [
+        ...makeRecoveredRcl6ResidualConstructionStructures(source),
+        makeStructure('storage-rampart', TEST_GLOBALS.STRUCTURE_RAMPART, 18, 24, true),
+        makeStoredStructure('source-container', TEST_GLOBALS.STRUCTURE_CONTAINER, 34, 35, 1_000),
+        makeStructure('source-container-rampart', TEST_GLOBALS.STRUCTURE_RAMPART, 34, 35, true)
+      ],
+      sources: [source],
+      pathsByTarget: {}
+    });
+
+    const result = planConstructionForColony(colony, {
+      creeps: makeWorkerCreeps(4),
+      emitConstructionBlockerDiagnostics: true,
+      includePostClaimRamparts: true,
+      respectRoomEnergyBuffer: true,
+      strategyRegistry: DEFAULT_STRATEGY_REGISTRY,
+      runtimeStrategyConstructionEnabled: true,
+      runtimeStrategyConstructionFallbackPriorities: false,
+      maxPlacementsPerRoom: 1,
+      maxContainerSitesPerTick: 1,
+      maxPendingContainerSites: 1,
+      roadOptions: {
+        maxSitesPerTick: 1,
+        maxPendingRoadSites: 1,
+        maxTargetsPerTick: 1
+      }
+    });
+
+    expect(result.blockedPlacements).toEqual(
+      expect.arrayContaining([
+        {
+          priority: 'rampart',
+          roomName: 'W1N1',
+          structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+          blockedReason: 'accepted_runtime_rampart_no_uncovered_anchor',
+          candidate: {
+            buildItem: 'build rampart defense',
+            buildType: 'rampart',
+            room: 'W1N1',
+            score: expect.any(Number),
+            urgency: expect.any(String)
+          }
+        }
+      ])
+    );
+    expect(room.createConstructionSite).not.toHaveBeenCalledWith(18, 24, TEST_GLOBALS.STRUCTURE_RAMPART);
+  });
+
   it('reserves the first RCL3 tower before routine extension logistics when respecting the energy buffer', () => {
     expect(FIRST_RCL3_TOWER_PRIORITY_ENERGY).toBeLessThan(TERRITORY_CONTROLLER_BODY_COST);
     installOpenTerrain();
