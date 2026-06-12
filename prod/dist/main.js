@@ -27759,7 +27759,10 @@ function selectWorkerTask(creep) {
   clearWorkerTaskSelectionTelemetry(creep);
   const cpuBudget = getRuntimeCpuBudget();
   if (shouldShedNonessentialCpuWork(cpuBudget) && !hasActiveTerritoryControlAssignment(creep)) {
-    const criticalTask = withWorkerTaskSelectionTelemetrySuppressed(true, () => selectCriticalCpuWorkerTask(creep));
+    const criticalTask = withWorkerTaskSelectionTelemetrySuppressed(
+      true,
+      () => selectCriticalCpuWorkerTask(creep, cpuBudget)
+    );
     if (!criticalTask && shouldRunConstructionCpuWork(cpuBudget)) {
       const constructionTask = withWorkerTaskSelectionTelemetrySuppressed(
         true,
@@ -27785,7 +27788,7 @@ function hasActiveTerritoryControlAssignment(creep) {
   const task = (_a2 = creep.memory) == null ? void 0 : _a2.task;
   return (task == null ? void 0 : task.type) === "claim" || (task == null ? void 0 : task.type) === "reserve";
 }
-function selectCriticalCpuWorkerTask(creep) {
+function selectCriticalCpuWorkerTask(creep, cpuBudget) {
   const carriedEnergy = getUsedEnergy2(creep);
   if (carriedEnergy <= 0) {
     return selectCriticalCpuEnergyAcquisitionTask(creep);
@@ -27862,7 +27865,22 @@ function selectCriticalCpuWorkerTask(creep) {
       targetId: criticalRepairTarget.id
     });
   }
+  const loadedControllerProgressTask = selectNonCriticalCpuLoadedControllerProgressTask(
+    creep,
+    cpuBudget,
+    constructionSites
+  );
+  if (loadedControllerProgressTask) {
+    return applyMinimumUsefulLoadPolicy(creep, loadedControllerProgressTask);
+  }
   return null;
+}
+function selectNonCriticalCpuLoadedControllerProgressTask(creep, cpuBudget, constructionSites) {
+  if (cpuBudget.critical || getUsedEnergy2(creep) <= 0 || constructionSites.length > 0 || hasVisibleHostilePresence3(creep.room) || !hasFullRoomEnergyForControllerProgress(creep.room)) {
+    return null;
+  }
+  const controller = creep.room.controller;
+  return (controller == null ? void 0 : controller.my) === true && canUpgradeController(controller) ? { type: "upgrade", targetId: controller.id } : null;
 }
 function selectConstructionRecoveryCpuWorkerTask(creep) {
   var _a2;

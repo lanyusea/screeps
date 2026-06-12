@@ -85,7 +85,8 @@ import { selectWorkerTaskWithBcFallback } from '../rl/workerTaskPolicy';
 import {
   getRuntimeCpuBudget,
   shouldRunConstructionCpuWork,
-  shouldShedNonessentialCpuWork
+  shouldShedNonessentialCpuWork,
+  type RuntimeCpuBudget
 } from '../runtime/cpuBudget';
 import { selectSeasonScoreCollectionTask } from '../season/scoreCollection';
 
@@ -327,7 +328,9 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   clearWorkerTaskSelectionTelemetry(creep);
   const cpuBudget = getRuntimeCpuBudget();
   if (shouldShedNonessentialCpuWork(cpuBudget) && !hasActiveTerritoryControlAssignment(creep)) {
-    const criticalTask = withWorkerTaskSelectionTelemetrySuppressed(true, () => selectCriticalCpuWorkerTask(creep));
+    const criticalTask = withWorkerTaskSelectionTelemetrySuppressed(true, () =>
+      selectCriticalCpuWorkerTask(creep, cpuBudget)
+    );
     if (!criticalTask && shouldRunConstructionCpuWork(cpuBudget)) {
       const constructionTask = withWorkerTaskSelectionTelemetrySuppressed(true, () =>
         selectConstructionRecoveryCpuWorkerTask(creep)
@@ -356,7 +359,7 @@ function hasActiveTerritoryControlAssignment(creep: Creep): boolean {
   return task?.type === 'claim' || task?.type === 'reserve';
 }
 
-function selectCriticalCpuWorkerTask(creep: Creep): CreepTaskMemory | null {
+function selectCriticalCpuWorkerTask(creep: Creep, cpuBudget: RuntimeCpuBudget): CreepTaskMemory | null {
   const carriedEnergy = getUsedEnergy(creep);
   if (carriedEnergy <= 0) {
     return selectCriticalCpuEnergyAcquisitionTask(creep);
@@ -454,7 +457,37 @@ function selectCriticalCpuWorkerTask(creep: Creep): CreepTaskMemory | null {
     });
   }
 
+  const loadedControllerProgressTask = selectNonCriticalCpuLoadedControllerProgressTask(
+    creep,
+    cpuBudget,
+    constructionSites
+  );
+  if (loadedControllerProgressTask) {
+    return applyMinimumUsefulLoadPolicy(creep, loadedControllerProgressTask);
+  }
+
   return null;
+}
+
+function selectNonCriticalCpuLoadedControllerProgressTask(
+  creep: Creep,
+  cpuBudget: RuntimeCpuBudget,
+  constructionSites: ConstructionSite[]
+): Extract<CreepTaskMemory, { type: 'upgrade' }> | null {
+  if (
+    cpuBudget.critical ||
+    getUsedEnergy(creep) <= 0 ||
+    constructionSites.length > 0 ||
+    hasVisibleHostilePresence(creep.room) ||
+    !hasFullRoomEnergyForControllerProgress(creep.room)
+  ) {
+    return null;
+  }
+
+  const controller = creep.room.controller;
+  return controller?.my === true && canUpgradeController(controller)
+    ? { type: 'upgrade', targetId: controller.id }
+    : null;
 }
 
 function selectConstructionRecoveryCpuWorkerTask(creep: Creep): CreepTaskMemory | null {
