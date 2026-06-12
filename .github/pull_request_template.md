@@ -19,7 +19,7 @@ Related / non-closing linkage:
 
 - [ ] Local check: <!-- command/result -->
 - [ ] GitHub Project issue/PR fields are current (`Status`, `Evidence`, `Next action`; plus `Blocked by` when blocked).
-- [ ] Automated review has no blocking findings and review threads are resolved/outdated/non-blocking.
+- [ ] Automated review has no blocking findings, or a CodeRabbit/Gemini reliability bypass is recorded with reviewer/head/reason; review threads are resolved/outdated/non-blocking.
 - [ ] QA gate: <!-- PASS / not required with reason -->
 - [ ] No secrets, unsafe local paths, or owner-facing raw attachment trigger lines are included.
 
@@ -47,5 +47,5 @@ For every issue linked above in the PR body with a closing keyword:
 
 ## Notes
 
-- Review/merge gates: wait at least 15 minutes after PR creation, require green checks, and keep linked GitHub issue/PR/Project state current until merged or explicitly closed.
+- Review/merge gates: wait at least 15 minutes after PR creation, require green checks, keep review threads resolved/outdated/non-blocking, and keep linked GitHub issue/PR/Project state current until merged or explicitly closed. CodeRabbit/Gemini can be bypassed only when unreliable/unavailable/non-substantive and the bypass evidence is recorded.
 - Commit messages must not contain GitHub closing keywords for tracked issues; intentional closure must happen in the PR body with the Issue closure gate, or not at all.

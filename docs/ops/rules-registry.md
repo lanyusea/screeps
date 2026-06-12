@@ -1,6 +1,6 @@
 # Screeps Minimal Rules Registry
 
-Last updated: 2026-05-16
+Last updated: 2026-06-12
 Tracking issue: https://github.com/lanyusea/screeps/issues/620
 
 This registry is the canonical compact rules standard for the two-person Screeps project. It intentionally avoids multi-level governance. The goal is to keep autonomous agents from doing the wrong thing while keeping the system small enough to maintain.
@@ -92,7 +92,7 @@ A meaningful task is not complete until:
 4. The `Universal task Done gate` states the task type, expected observable outcome / named deliverable, non-goals or owner-accepted substitutes, required verification evidence, Project `Evidence` / `Next action` / `Blocked by` state, post-merge/deploy/runtime proof, and named deliverable proof.
 5. Any named surface in the task contract is proven literally: Grafana, GitHub Pages, Discord route, deployed service, public URL, specific monitor, dashboard, report, or equivalent concrete deliverable require evidence of that surface unless Project `Evidence` records an owner-accepted substitute.
 6. Acceptance-first PR bodies may use a closing keyword (`Fixes #...`, `Closes #...`, or `Resolves #...`) only when they complete a tracked issue and include the Issue closure gate; commit messages must not contain GitHub closing keywords for tracked issues.
-7. Required checks, automated review findings, review threads, QA gate, and elapsed review window are satisfied before merge.
+7. Required checks, automated review findings or recorded reliability bypass, review threads, QA gate, and elapsed review window are satisfied before merge.
 8. Gameplay/runtime-affecting merged work also satisfies the Deployment Floor: official deploy evidence plus post-deploy observation, or an explicit HELD blocker.
 
 Closed/Done issues are not reopened. Repeated or corrected scope gets a new linked issue.
@@ -105,7 +105,8 @@ CodeRabbit may run with the assertive/aggressive profile to increase review cove
 2. Codex must classify the finding before any edit: `FIX`, `RESOLVE_FALSE_POSITIVE`, `RESOLVE_STALE_OR_OUTDATED`, `ADVISORY_ONLY`, or `OWNER_DECISION`.
 3. Only `FIX` items that meet the project's critical review threshold get code changes, and those changes must be committed by Codex on the PR branch with normal verification.
 4. False-positive, stale/outdated, and advisory findings should be resolved with concise evidence through GitHub review-thread/comment resolution instead of code churn.
-5. A PR is not merge-ready while CodeRabbit/Gemini is pending, while a fresh review body has untriaged actionable language, or while unresolved active review threads remain.
+5. Per owner decision `1514861910908993646`, CodeRabbit/Gemini review may be skipped when that reviewer is unreliable, unavailable, rate-limited, skipped, stale, stuck pending without substantive output, or otherwise non-substantive for the exact PR head. The controller must record the bypass in PR/Project evidence: reviewer, exact head SHA, why the review is unreliable, required-check status, GraphQL review-thread state, and QA/controller judgment that the project critical-only review threshold is still satisfied.
+6. A review bypass does **not** waive required checks, unresolved active review threads, Project state, QA, or the elapsed review window. A PR is not merge-ready while a credible active automated finding remains untriaged/unresolved, or while unresolved active review threads remain.
 
 ## Blocked-state rule
 
