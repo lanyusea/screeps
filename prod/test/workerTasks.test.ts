@@ -16156,6 +16156,121 @@ describe('selectWorkerTask', () => {
     }
   });
 
+  it('recovers empty E29N56 post-construction workers with surplus storage even when normal acquisition is reserved', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 630_580, {
+      my: true,
+      pos: makeRoomPosition(18, 23, 'E29N56')
+    }) as StructureStorage;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N56',
+      controller,
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300,
+      structures: [storage as AnyStructure]
+    });
+    (room as { storage?: StructureStorage }).storage = storage;
+    const staleReservationA = {
+      name: 'HaulerReservationA',
+      memory: {
+        role: 'hauler',
+        task: { type: 'withdraw', targetId: 'storage-surplus' as Id<AnyStoreStructure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(400_000)
+      },
+      room
+    } as unknown as Creep;
+    const staleReservationB = {
+      name: 'HaulerReservationB',
+      memory: {
+        role: 'hauler',
+        task: { type: 'withdraw', targetId: 'storage-surplus' as Id<AnyStoreStructure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(400_000)
+      },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'worker-E29N56-empty',
+      memory: { role: 'worker', colony: 'E29N56' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'storage-surplus' ? 2 : 6)) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({
+      HaulerReservationA: staleReservationA,
+      HaulerReservationB: staleReservationB,
+      'worker-E29N56-empty': creep
+    });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage-surplus' });
+  });
+
+  it('lets an empty post-construction worker harvest for controller progress when source logistics are already covered', () => {
+    const source = makeSource('source1', 20, 20);
+    const sourceContainer = makeStoredEnergyStructure('source-container1', 'container' as StructureConstant, 0, {
+      pos: makeRoomPosition(20, 21)
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      controller,
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300,
+      sources: [source],
+      structures: [sourceContainer as AnyStructure]
+    });
+    const sourceWorker = {
+      name: 'SourceWorker',
+      memory: {
+        role: 'worker',
+        task: {
+          type: 'harvest',
+          targetId: 'source1' as Id<Source>,
+          sourceContainerAssigned: true
+        }
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 10 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 40 : 0))
+      },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'PostConstructionIdleWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ SourceWorker: sourceWorker, PostConstructionIdleWorker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
   it.each(
     [
       [
