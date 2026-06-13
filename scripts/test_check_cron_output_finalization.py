@@ -87,6 +87,33 @@ PROMPT_GAMEPLAY_RESPONSE_TEMPLATE = """\
 """
 
 
+CONCRETE_PROMPT_GAMEPLAY_RESPONSE_EXAMPLE = """\
+# Gameplay Evolution Review
+
+## Scope
+- Time window reviewed: 2026-06-13 16:00Z to 2026-06-14 00:00Z.
+- Repo commit: 2ca250a8.
+
+## Vision KPI summary
+- Territory: one owned room, no expansion this window.
+- Resource/economy: energy capacity remains 300.
+- Combat/enemy damage: no active damage.
+- Reliability guardrails: finalization gate under review.
+
+## Practical gameplay closed-loop gate
+- OK / STRATEGIC_STALL / CLOSED_LOOP_FAILED: CLOSED_LOOP_FAILED.
+
+## RL Flywheel Product Review
+- Steward run reviewed: 2026-06-14T00:00:00Z.
+- Product assessment: RL is not yet producing actionable strategy improvements.
+
+## Recommended roadmap changes
+| Rank | Action | Served vision layer | GitHub target | Expected KPI movement |
+| --- | --- | --- | --- | --- |
+| 1 | Keep finalization repair first | Agent OS | #1860 | missing final responses route correctly |
+"""
+
+
 class CronOutputFinalizationTest(unittest.TestCase):
     def test_classifies_broken_pipe_as_outer_cron_finalization(self) -> None:
         diagnostic = finalization.diagnose_text(
@@ -283,6 +310,32 @@ Required output:
         self.assertFalse(diagnostic.response_present)
         self.assertEqual(diagnostic.response_bytes, 0)
 
+    def test_rejects_prompt_only_concrete_gameplay_response_example(self) -> None:
+        artifact = f"""# Cron Job: Screeps Gameplay Evolution Review
+
+**Job ID:** c7b3dda8f1ac
+
+## Prompt
+
+Required output:
+
+## Response
+
+{CONCRETE_PROMPT_GAMEPLAY_RESPONSE_EXAMPLE}"""
+
+        diagnostic = finalization.diagnose_text(
+            artifact,
+            path="prompt-only-concrete-response-example.md",
+            mode="gameplay-review",
+            route_issue="#1860",
+            expected_job_id="c7b3dda8f1ac",
+        )
+
+        self.assertFalse(diagnostic.ok)
+        self.assertEqual(diagnostic.classification, "missing_response")
+        self.assertFalse(diagnostic.response_present)
+        self.assertEqual(diagnostic.response_bytes, 0)
+
     def test_rejects_prompt_only_gameplay_response_template_with_multiple_examples(self) -> None:
         alternate_template = PROMPT_GAMEPLAY_RESPONSE_TEMPLATE.replace(
             "Example finalization repair",
@@ -339,6 +392,37 @@ The final output should use this response template:
         diagnostic = finalization.diagnose_text(
             artifact,
             path="final-response-after-prompt-template.md",
+            mode="gameplay-review",
+            route_issue="#1860",
+            expected_job_id="c7b3dda8f1ac",
+        )
+
+        expected_response_bytes = len(VALID_GAMEPLAY_RESPONSE.strip().encode("utf-8"))
+        self.assertTrue(diagnostic.ok)
+        self.assertEqual(diagnostic.classification, "response_ok")
+        self.assertEqual(diagnostic.response_bytes, expected_response_bytes)
+        self.assertEqual(diagnostic.github_targets, ["#1831", "#1846"])
+
+    def test_accepts_real_response_after_prompt_concrete_gameplay_response_example(self) -> None:
+        artifact = f"""# Cron Job: Screeps Gameplay Evolution Review
+
+**Job ID:** c7b3dda8f1ac
+
+## Prompt
+
+Required output:
+
+## Response
+
+{CONCRETE_PROMPT_GAMEPLAY_RESPONSE_EXAMPLE}
+
+## Response
+
+{VALID_GAMEPLAY_RESPONSE}"""
+
+        diagnostic = finalization.diagnose_text(
+            artifact,
+            path="final-response-after-concrete-prompt-example.md",
             mode="gameplay-review",
             route_issue="#1860",
             expected_job_id="c7b3dda8f1ac",

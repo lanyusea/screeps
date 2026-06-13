@@ -124,6 +124,36 @@ def last_heading_start_before(text: str, heading: str, before: int) -> int | Non
     return last_start
 
 
+def prompt_template_intro_context(text: str, prompt_start: int, response_start: int) -> str:
+    context_start = prompt_start
+    for heading in ("## Response", "## Error"):
+        previous_start = last_heading_start_before(text, heading, response_start)
+        if previous_start is not None:
+            context_start = max(context_start, previous_start)
+    return text[context_start:response_start]
+
+
+def has_prompt_template_intro(context: str) -> bool:
+    recent_lines = [line.strip() for line in context.splitlines() if line.strip()]
+    for line in recent_lines[-3:]:
+        if line.startswith("|"):
+            continue
+        if PROMPT_RESPONSE_TEMPLATE_INTRO_RE.search(line) is None:
+            continue
+        lower_line = line.lower()
+        if (
+            line.endswith(":")
+            or "template" in lower_line
+            or "required output" in lower_line
+            or "required response" in lower_line
+            or "required report" in lower_line
+            or "required final" in lower_line
+            or "use this shape" in lower_line
+        ):
+            return True
+    return False
+
+
 def has_broken_pipe_transport_failure(text: str, response: str | None, error_body: str | None) -> bool:
     response_start = last_heading_start(text, "## Response")
     error_start = last_heading_start(text, "## Error")
@@ -214,16 +244,17 @@ def is_prompt_response_template(text: str, response_start: int, response: str, *
     if prompt_start is None:
         return False
 
-    intro_context = text[max(prompt_start, response_start - 1200) : response_start]
-    if PROMPT_RESPONSE_TEMPLATE_INTRO_RE.search(intro_context) is None:
+    if mode != "gameplay-review":
+        intro_context = text[max(prompt_start, response_start - 1200) : response_start]
+        if PROMPT_RESPONSE_TEMPLATE_INTRO_RE.search(intro_context) is None:
+            return False
+        return PROMPT_TEMPLATE_BODY_RE.search(response) is not None
+
+    intro_context = prompt_template_intro_context(text, prompt_start, response_start)
+    if not has_prompt_template_intro(intro_context):
         return False
 
-    if PROMPT_TEMPLATE_BODY_RE.search(response) is None:
-        return False
-
-    if mode == "gameplay-review":
-        return not missing_gameplay_sections(response)
-    return True
+    return not missing_gameplay_sections(response)
 
 
 def extract_final_response_body(text: str, *, mode: str) -> tuple[str | None, bool]:
