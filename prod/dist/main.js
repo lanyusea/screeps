@@ -35004,6 +35004,8 @@ function runWorker(creep) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptLowLoadReturnTaskForEnergyAcquisition(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPreemptBuildTaskForConstructionEnergyAcquisition(creep, currentTask, selectedTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptTransferTaskForControllerDowngradeGuard(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptTransferTaskForConstructionBacklog(creep, currentTask, selectedTask)) {
@@ -35180,13 +35182,31 @@ function selectWorkerTaskContext(creep, currentTask) {
     currentTask,
     effectiveEnergyCriticalTask != null ? effectiveEnergyCriticalTask : baseSelectedTask
   );
-  const selectedTask = (_a2 = spawnReservationRefillTask != null ? spawnReservationRefillTask : effectiveEnergyCriticalTask) != null ? _a2 : baseSelectedTask;
+  const selectedTask = selectAssignedBuildEnergyAcquisitionTask(
+    creep,
+    currentTask,
+    (_a2 = spawnReservationRefillTask != null ? spawnReservationRefillTask : effectiveEnergyCriticalTask) != null ? _a2 : baseSelectedTask
+  );
   return {
     baseSelectedTask,
     energyCriticalTask: effectiveEnergyCriticalTask,
     selectedTask,
     spawnReservationRefillTask
   };
+}
+function selectAssignedBuildEnergyAcquisitionTask(creep, currentTask, selectedTask) {
+  var _a2, _b;
+  if ((currentTask == null ? void 0 : currentTask.type) !== "build" || selectedTask !== null && selectedTask.type !== "build") {
+    return selectedTask;
+  }
+  if (getFreeTransferEnergyCapacity(creep) <= 0 || getActiveWorkParts3(creep) <= 0 || hasVisibleHostileCreeps2(creep.room)) {
+    return selectedTask;
+  }
+  const carriedEnergy = getUsedTransferEnergy(creep);
+  if (carriedEnergy > 0 && !hasLowWorkerEnergyLoad(creep)) {
+    return selectedTask;
+  }
+  return (_b = (_a2 = selectConstructionBacklogEnergyAcquisitionTask(creep)) != null ? _a2 : selectWorkerEnergyCriticalAcquisitionTask(creep)) != null ? _b : selectedTask;
 }
 function applyWorkerAssignmentGapRecoveryTask(creep, currentTask, selectionContext) {
   const recoveryTask = selectWorkerAssignmentGapRecoveryTask(creep, currentTask, selectionContext);
@@ -36427,6 +36447,9 @@ function shouldPreemptLowLoadReturnTaskForEnergyAcquisition(creep, task, selecte
   }
   const sample = (_a2 = creep.memory) == null ? void 0 : _a2.workerEfficiency;
   return (sample == null ? void 0 : sample.type) === "nearbyEnergyChoice" && sample.selectedTask === selectedTask.type && sample.targetId === String(selectedTask.targetId) && isCurrentWorkerEfficiencySample(sample);
+}
+function shouldPreemptBuildTaskForConstructionEnergyAcquisition(creep, task, selectedTask) {
+  return task.type === "build" && selectedTask !== null && isEnergyAcquisitionTask2(selectedTask) && canExecuteTask(creep, selectedTask) && hasLowWorkerEnergyLoad(creep);
 }
 function shouldPreemptTransferTaskForBetterEnergySink(creep, task, selectedTask) {
   var _a2;
