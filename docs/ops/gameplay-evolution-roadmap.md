@@ -141,6 +141,19 @@ Required output:
 - Hold / observe / release candidate / emergency hotfix:
 ```
 
+### Cron final-output clamp
+
+The scheduled Gameplay Evolution cron output is not valid evidence until
+`scripts/check_cron_output_finalization.py --mode gameplay-review --job-id c7b3dda8f1ac --agent-os-issue 1860`
+passes against the latest `/root/.hermes/cron/output/c7b3dda8f1ac/*.md` artifact. If final response size or transport reliability is at risk, clamp the final response to the smallest useful report instead of expanding every analysis section. The clamped report must still include:
+
+- `## Vision KPI summary` or `## KPI summary`;
+- `## Practical gameplay closed-loop gate`;
+- `## RL Flywheel Product Review`;
+- `## Recommended roadmap changes` with a `GitHub target` column and exact issue/PR references.
+
+An artifact with `RuntimeError: [Errno 32] Broken pipe`, no `## Response`, or a missing GitHub target list is an Agent OS finalization failure for #1860 and must not be consumed as Gameplay Evolution evidence.
+
 ### Tactical Emergency Response Agent — incident-only analyst
 
 Trigger examples:
