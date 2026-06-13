@@ -1104,6 +1104,24 @@ class PostdeployConstructionAcceptanceTest(unittest.TestCase):
         cases = (
             ({"buildCarriedEnergy": 25, "taskCounts": {"build": 0}}, "build_energy_carried"),
             ({"buildCarriedEnergy": 0, "constructionActivity": {"buildProgress": 5}}, "build_progress_observed"),
+            (
+                {
+                    "buildCarriedEnergy": 0,
+                    "taskCounts": {"build": 1},
+                    "workerAssignmentEvidence": {
+                        "available": True,
+                        "creepSamples": [
+                            {
+                                "name": "worker-E29N56-2131813",
+                                "role": "worker",
+                                "task": "build",
+                                "carriedEnergy": 100,
+                            }
+                        ],
+                    },
+                },
+                "build_energy_carried",
+            ),
         )
 
         for evidence, expected_reason in cases:
@@ -1121,11 +1139,32 @@ class PostdeployConstructionAcceptanceTest(unittest.TestCase):
                 self.assertTrue(acceptance["ok"])
                 self.assertEqual(acceptance["status"], "pass")
                 self.assertEqual(acceptance["rooms"][0]["reason"], expected_reason)
+                if "workerAssignmentEvidence" in evidence:
+                    self.assertEqual(acceptance["rooms"][0]["buildCarriedEnergy"], 100)
 
     def test_construction_acceptance_does_not_pass_on_build_assignment_alone(self) -> None:
         cases = (
             (
                 {"buildCarriedEnergy": 0, "constructionActivity": {"buildProgress": 0}, "taskCounts": {"build": 1}},
+                "blocked",
+                "no_build_execution",
+            ),
+            (
+                {
+                    "buildCarriedEnergy": 0,
+                    "taskCounts": {"build": 1},
+                    "workerAssignmentEvidence": {
+                        "available": True,
+                        "creepSamples": [
+                            {
+                                "name": "worker-E29N56-empty",
+                                "role": "worker",
+                                "task": "build",
+                                "carriedEnergy": 0,
+                            }
+                        ],
+                    },
+                },
                 "blocked",
                 "no_build_execution",
             ),
