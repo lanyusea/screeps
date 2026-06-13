@@ -31275,7 +31275,7 @@ function findBuilderEnergyAcquisitionCandidates(creep, constructionSite) {
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
   const storedEnergyCandidates = findVisibleRoomStructures(creep.room).filter(
     (structure) => isSafeStoredEnergySource(structure, context) || isBuilderConstructionBufferSpawnSource(creep, structure, context, reservationContext) || isBuilderConstructionPreBufferExtension(creep, constructionSite, structure)
-  ).filter((source) => isConstructionSiteNearSource(constructionSite, source, BUILDER_STORAGE_ACQUISITION_SITE_RANGE)).flatMap((source) => {
+  ).filter((source) => isBuilderConstructionEnergySourceForSite(constructionSite, source)).flatMap((source) => {
     const candidate = createUnreservedBuilderStoredEnergyAcquisitionCandidate(
       creep,
       source,
@@ -31307,6 +31307,12 @@ function findBuilderEnergyAcquisitionCandidates(creep, constructionSite) {
     return candidate ? [toBuilderEnergyAcquisitionCandidate(candidate)] : [];
   }).sort(compareBuilderEnergyAcquisitionCandidates).slice(0, MAX_DROPPED_ENERGY_REACHABILITY_CHECKS).filter((candidate) => isReachable(creep, candidate.source));
   return [...storedEnergyCandidates, ...droppedEnergyCandidates].sort(compareBuilderEnergyAcquisitionCandidates);
+}
+function isBuilderConstructionEnergySourceForSite(constructionSite, source) {
+  return isConstructionSiteNearSource(constructionSite, source, BUILDER_STORAGE_ACQUISITION_SITE_RANGE) || isDurableBuilderStoredEnergySource(source);
+}
+function isDurableBuilderStoredEnergySource(source) {
+  return matchesStructureType19(source.structureType, "STRUCTURE_STORAGE", "storage") || matchesStructureType19(source.structureType, "STRUCTURE_TERMINAL", "terminal");
 }
 function selectUnreservedConstructionBacklogEnergyTarget(creep, constructionSites, constructionReservationContext, priorityContext) {
   const candidates = constructionSites.filter(

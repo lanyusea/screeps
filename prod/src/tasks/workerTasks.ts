@@ -5639,7 +5639,7 @@ export function findBuilderEnergyAcquisitionCandidates(
         isBuilderConstructionBufferSpawnSource(creep, structure, context, reservationContext) ||
         isBuilderConstructionPreBufferExtension(creep, constructionSite, structure)
     )
-    .filter((source) => isConstructionSiteNearSource(constructionSite, source, BUILDER_STORAGE_ACQUISITION_SITE_RANGE))
+    .filter((source) => isBuilderConstructionEnergySourceForSite(constructionSite, source))
     .flatMap((source) => {
       const candidate = createUnreservedBuilderStoredEnergyAcquisitionCandidate(
         creep,
@@ -5682,6 +5682,25 @@ export function findBuilderEnergyAcquisitionCandidates(
     .filter((candidate) => isReachable(creep, candidate.source));
 
   return [...storedEnergyCandidates, ...droppedEnergyCandidates].sort(compareBuilderEnergyAcquisitionCandidates);
+}
+
+function isBuilderConstructionEnergySourceForSite(
+  constructionSite: ConstructionSite,
+  source: BuilderStoredEnergySource
+): boolean {
+  return (
+    isConstructionSiteNearSource(constructionSite, source, BUILDER_STORAGE_ACQUISITION_SITE_RANGE) ||
+    isDurableBuilderStoredEnergySource(source)
+  );
+}
+
+function isDurableBuilderStoredEnergySource(
+  source: BuilderStoredEnergySource
+): source is StructureStorage | StructureTerminal {
+  return (
+    matchesStructureType(source.structureType, 'STRUCTURE_STORAGE', 'storage') ||
+    matchesStructureType(source.structureType, 'STRUCTURE_TERMINAL', 'terminal')
+  );
 }
 
 function selectUnreservedConstructionBacklogEnergyTarget(
