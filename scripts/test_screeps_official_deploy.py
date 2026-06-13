@@ -544,13 +544,20 @@ class OfficialDeployTest(unittest.TestCase):
 
             health_gate = deploy.run_postdeploy_health_gate(cfg, env={}, runner=command_runner)
             paired_path = evidence_dir / "postdeploy-health-gate-rollback.json"
+            expected_out_dir = repo_root / "runtime-artifacts" / "screeps-monitor"
 
             self.assertTrue(health_gate["ok"])
             self.assertTrue(paired_path.exists())
             self.assertFalse((evidence_dir / "postdeploy-health-gate.json").exists())
             self.assertEqual(commands[0][1:3], [str(repo_root / "scripts" / "screeps-runtime-monitor.py"), "summary"])
+            self.assertIn("--out-dir", commands[0])
+            summary_out_dir_index = commands[0].index("--out-dir")
+            self.assertEqual(commands[0][summary_out_dir_index + 1], str(expected_out_dir))
             self.assertNotIn("--room", commands[0])
             self.assertEqual(commands[1][1:3], [str(repo_root / "scripts" / "screeps-runtime-monitor.py"), "alert"])
+            self.assertIn("--out-dir", commands[1])
+            alert_out_dir_index = commands[1].index("--out-dir")
+            self.assertEqual(commands[1][alert_out_dir_index + 1], str(expected_out_dir))
             self.assertNotIn("--room", commands[1])
             self.assertIn("--force-alert-image", commands[1])
 
