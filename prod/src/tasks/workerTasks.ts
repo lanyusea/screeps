@@ -3995,15 +3995,21 @@ function selectConstructionSite(
     ...buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites),
     ...options.priorityContext
   };
-  const candidates = constructionSites.filter(
+  const eligibleCandidates = constructionSites.filter(
     (site) =>
       predicate(site) &&
-      !isConstructionSiteSuppressedForWorker(creep, site) &&
       canSpendCreepEnergyOnConstructionSite(creep, site, priorityContext) &&
       (!options.requireReasonableRange ||
         isConstructionSiteWithinReasonableRange(creep, site, DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE))
   );
-  if (candidates.length === 0) {
+  const candidates = eligibleCandidates.filter((site) => !isConstructionSiteSuppressedForWorker(creep, site));
+  const activeCandidates =
+    candidates.length > 0
+      ? candidates
+      : eligibleCandidates.filter((site) =>
+          shouldRetrySuppressedStoredProtectedConstructionBacklogSite(creep, site, eligibleCandidates, priorityContext)
+        );
+  if (activeCandidates.length === 0) {
     return null;
   }
 
@@ -4015,12 +4021,12 @@ function selectConstructionSite(
   }).pos;
 
   if (typeof position?.getRangeTo === 'function') {
-    return [...candidates].sort((left, right) =>
+    return [...activeCandidates].sort((left, right) =>
       compareConstructionSiteCandidates(creep, left, right, constructionReservationContext, priorityContext)
     )[0];
   }
 
-  const topImpactCandidates = selectTopImpactConstructionSiteCandidates(candidates, priorityContext);
+  const topImpactCandidates = selectTopImpactConstructionSiteCandidates(activeCandidates, priorityContext);
   const finishPriorityConstructionSite = selectFinishPriorityConstructionSite(
     creep,
     topImpactCandidates,
@@ -4036,6 +4042,19 @@ function selectConstructionSite(
   }
 
   return topImpactCandidates.sort(compareConstructionSiteId)[0];
+}
+
+function shouldRetrySuppressedStoredProtectedConstructionBacklogSite(
+  creep: Creep,
+  site: ConstructionSite,
+  eligibleCandidates: ConstructionSite[],
+  priorityContext: ConstructionSiteImpactPriorityContext
+): boolean {
+  return (
+    eligibleCandidates.length === 1 &&
+    getUsedEnergy(creep) > 0 &&
+    canSpendOnStoredProtectedConstructionBacklog(creep, site, priorityContext)
+  );
 }
 
 function isConstructionSiteSuppressedForWorker(creep: Creep, site: ConstructionSite): boolean {
