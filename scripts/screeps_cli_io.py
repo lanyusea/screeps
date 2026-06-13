@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 from typing import Any, TextIO
 
 
 DEFAULT_MAX_JSON_LINE_BYTES = 4096
+BROKEN_PIPE_ERRNOS = {errno.EPIPE, errno.ECONNABORTED, errno.ECONNRESET}
 
 
 def canonical_json(value: Any) -> str:
@@ -53,18 +55,35 @@ def bounded_json_line(value: dict[str, Any], *, max_bytes: int = DEFAULT_MAX_JSO
     return encoded[: max(0, max_bytes - 1)].decode("utf-8", errors="ignore") + "\n"
 
 
+def is_broken_pipe_error(error: BaseException) -> bool:
+    if isinstance(error, (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)):
+        return True
+    if getattr(error, "errno", None) in BROKEN_PIPE_ERRNOS:
+        return True
+    if isinstance(error, RuntimeError):
+        message = str(error).lower()
+        return any(marker in message for marker in ("broken pipe", "connection reset", "connection aborted"))
+    return False
+
+
+def redirect_stream_to_devnull(stream: TextIO) -> None:
+    try:
+        with open(os.devnull, "w", encoding="utf-8") as devnull:
+            os.dup2(devnull.fileno(), stream.fileno())
+    except (OSError, AttributeError, ValueError):
+        pass
+
+
 def write_text(stream: TextIO, text: str) -> bool:
     """Write text unless the receiver has already closed the pipe."""
     try:
         stream.write(text)
         stream.flush()
         return True
-    except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
-        try:
-            with open(os.devnull, "w", encoding="utf-8") as devnull:
-                os.dup2(devnull.fileno(), stream.fileno())
-        except (OSError, AttributeError, ValueError):
-            pass
+    except (OSError, RuntimeError) as error:
+        if not is_broken_pipe_error(error):
+            raise
+        redirect_stream_to_devnull(stream)
         return False
 
 
