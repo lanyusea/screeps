@@ -212,6 +212,8 @@ ENERGY_BUFFER_UNHEALTHY_ROUTES = [
 ]
 CPU_BUCKET_LOW_KIND = "cpu_bucket_low"
 CPU_BUCKET_CRITICAL_KIND = "cpu_bucket_critical"
+CPU_USED_OVER_LIMIT_KIND = "cpu_used_over_limit"
+CPU_TELEMETRY_MISSING_KIND = "cpu_telemetry_missing"
 CPU_BUCKET_LOW_THRESHOLD = 1_000
 CPU_BUCKET_CRITICAL_THRESHOLD = 100
 CPU_BUCKET_ROUTES = [
@@ -490,6 +492,28 @@ TACTICAL_CATEGORY_RULES: dict[str, dict[str, Any]] = {
             "routes_to": CPU_BUCKET_ROUTES,
         },
     },
+    CPU_USED_OVER_LIMIT_KIND: {
+        "severity": "high",
+        "decision": "codex_hotfix",
+        "actions": ["capture_runtime_context", "inspect_recent_deploy", "start_hotfix_gate"],
+        "metadata": {
+            "metric": "cpu.used",
+            "related_issues": ["#1490", "#906", "#924"],
+            "thresholds": {"P1": "cpu.used > cpu.limit"},
+            "routes_to": CPU_BUCKET_ROUTES,
+        },
+    },
+    CPU_TELEMETRY_MISSING_KIND: {
+        "severity": "high",
+        "decision": "monitor_fix",
+        "actions": ["capture_runtime_context", "inspect_monitor_state", "restore_telemetry"],
+        "metadata": {
+            "metric": "cpu.telemetry",
+            "related_issues": ["#1490", "#906", "#924"],
+            "expected_fields": ["cpu.used", "cpu.bucket"],
+            "routes_to": CPU_BUCKET_ROUTES,
+        },
+    },
     "energy_buffer_unhealthy": {
         "severity": "high",
         "decision": "open_issue_or_codex_hotfix",
@@ -572,6 +596,8 @@ TACTICAL_REASON_CATEGORY_MAP = {
     "resource_crisis": ["resource_crisis"],
     CPU_BUCKET_CRITICAL_KIND: [CPU_BUCKET_CRITICAL_KIND],
     CPU_BUCKET_LOW_KIND: [CPU_BUCKET_LOW_KIND],
+    CPU_USED_OVER_LIMIT_KIND: [CPU_USED_OVER_LIMIT_KIND],
+    CPU_TELEMETRY_MISSING_KIND: [CPU_TELEMETRY_MISSING_KIND],
     "energy_buffer_unhealthy": ["energy_buffer_unhealthy"],
     CONSTRUCTION_DEADLOCK_KIND: [CONSTRUCTION_DEADLOCK_KIND],
     TERRITORY_EXPANSION_STAGNATION_KIND: [TERRITORY_EXPANSION_STAGNATION_KIND],
@@ -1553,6 +1579,24 @@ def cpu_bucket_metadata() -> dict[str, Any]:
     }
 
 
+def cpu_used_over_limit_metadata() -> dict[str, Any]:
+    return {
+        "metric": "cpu.used",
+        "related_issues": [str(route["issue"]) for route in CPU_BUCKET_ROUTES],
+        "thresholds": {"P1": "cpu.used > cpu.limit"},
+        "routes_to": [dict(route) for route in CPU_BUCKET_ROUTES],
+    }
+
+
+def cpu_telemetry_missing_metadata() -> dict[str, Any]:
+    return {
+        "metric": "cpu.telemetry",
+        "related_issues": [str(route["issue"]) for route in CPU_BUCKET_ROUTES],
+        "expected_fields": ["cpu.used", "cpu.bucket"],
+        "routes_to": [dict(route) for route in CPU_BUCKET_ROUTES],
+    }
+
+
 def string_list_values(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -1620,6 +1664,26 @@ def runtime_low_bucket_ticks(room: dict[str, Any]) -> int | float | None:
     )
 
 
+def runtime_cpu_has_current_evidence(room: dict[str, Any]) -> bool:
+    return (
+        runtime_cpu_bucket(room) is not None
+        or runtime_cpu_used(room) is not None
+        or runtime_low_bucket_ticks(room) is not None
+        or runtime_cpu_pressure(room) is not None
+        or bool(runtime_cpu_signal_values(room, "alerts"))
+        or bool(runtime_cpu_signal_values(room, "reasons"))
+    )
+
+
+def runtime_cpu_evidence_expected(room: dict[str, Any]) -> bool:
+    return (
+        "cpu" in room
+        or RUNTIME_SUMMARY_CPU_METADATA_KEY in room
+        or any(field in room for field in ("cpuUsed", "cpuBucket", "cpuLimit", "lowBucketTicks"))
+        or room.get(RUNTIME_SUMMARY_SOURCE_METADATA_KEY) == MONITOR_RUNTIME_SUMMARY_SOURCE
+    )
+
+
 def detect_cpu_bucket_kind(runtime_room: dict[str, Any] | None) -> str | None:
     if not isinstance(runtime_room, dict):
         return None
@@ -1631,6 +1695,7 @@ def detect_cpu_bucket_kind(runtime_room: dict[str, Any] | None) -> str | None:
 
     critical_bucket = (
         pressure == "critical"
+        or "criticalBucket" in alerts
         or "criticalBucket" in reasons
         or (bucket is not None and bucket <= CPU_BUCKET_CRITICAL_THRESHOLD)
     )
@@ -1639,7 +1704,9 @@ def detect_cpu_bucket_kind(runtime_room: dict[str, Any] | None) -> str | None:
 
     low_bucket = (
         "lowBucket" in alerts
+        or "lowBucketRecovery" in alerts
         or "lowBucket" in reasons
+        or "lowBucketRecovery" in reasons
         or (bucket is not None and bucket < CPU_BUCKET_LOW_THRESHOLD)
     )
     if low_bucket:
@@ -1692,6 +1759,118 @@ def detect_cpu_bucket_reason(ref: RoomRef, runtime_room: dict[str, Any] | None) 
     if kind is None or not isinstance(runtime_room, dict):
         return None
     return build_cpu_bucket_reason(ref, runtime_room, kind)
+
+
+def detect_cpu_used_over_limit(runtime_room: dict[str, Any] | None) -> bool:
+    if not isinstance(runtime_room, dict):
+        return False
+    used = runtime_cpu_used(runtime_room)
+    limit = runtime_cpu_limit(runtime_room)
+    return used is not None and limit is not None and used > limit
+
+
+def build_cpu_used_over_limit_reason(ref: RoomRef, runtime_room: dict[str, Any]) -> dict[str, Any]:
+    used = runtime_cpu_used(runtime_room)
+    limit = runtime_cpu_limit(runtime_room)
+    bucket = runtime_cpu_bucket(runtime_room)
+    pressure = runtime_cpu_pressure(runtime_room)
+    alerts = runtime_cpu_signal_values(runtime_room, "alerts")
+    reasons = runtime_cpu_signal_values(runtime_room, "reasons")
+    return {
+        "kind": CPU_USED_OVER_LIMIT_KIND,
+        "room": ref.key,
+        "room_name": ref.room,
+        "severity": "high",
+        "priority": "P1",
+        "cpuUsed": used,
+        "cpuLimit": limit,
+        "cpuBucket": bucket,
+        "cpu_bucket": bucket,
+        "bucket": bucket,
+        "pressure": pressure,
+        "alerts": alerts,
+        "reasons": reasons,
+        "metadata": cpu_used_over_limit_metadata(),
+        "message": (
+            f"{CPU_USED_OVER_LIMIT_KIND} in {ref.key}: cpu used {format_energy_value(used)} "
+            f"exceeds limit {format_energy_value(limit)}; bucket={format_energy_value(bucket)}, "
+            f"pressure={pressure or 'unknown'}."
+        ),
+        "signature": f"{CPU_USED_OVER_LIMIT_KIND}:{ref.key}",
+    }
+
+
+def detect_cpu_used_over_limit_reason(ref: RoomRef, runtime_room: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(runtime_room, dict) or not detect_cpu_used_over_limit(runtime_room):
+        return None
+    return build_cpu_used_over_limit_reason(ref, runtime_room)
+
+
+def build_cpu_telemetry_missing_reason(ref: RoomRef, runtime_room: dict[str, Any] | None) -> dict[str, Any]:
+    room = runtime_room if isinstance(runtime_room, dict) else {}
+    missing_fields = [
+        field
+        for field, value in (
+            ("cpu.used", runtime_cpu_used(room)),
+            ("cpu.bucket", runtime_cpu_bucket(room)),
+        )
+        if value is None
+    ]
+    return {
+        "kind": CPU_TELEMETRY_MISSING_KIND,
+        "room": ref.key,
+        "room_name": ref.room,
+        "severity": "high",
+        "priority": "P1",
+        "status": "unknown",
+        "cpuEvidenceState": "unknown",
+        "cpu_evidence_state": "unknown",
+        "missing": missing_fields,
+        "cpuUsed": runtime_cpu_used(room),
+        "cpuBucket": runtime_cpu_bucket(room),
+        "cpuLimit": runtime_cpu_limit(room),
+        "pressure": runtime_cpu_pressure(room),
+        "alerts": runtime_cpu_signal_values(room, "alerts"),
+        "reasons": runtime_cpu_signal_values(room, "reasons"),
+        "metadata": cpu_telemetry_missing_metadata(),
+        "message": f"{CPU_TELEMETRY_MISSING_KIND} in {ref.key}: missing current CPU telemetry {missing_fields or ['cpu.used', 'cpu.bucket']}",
+        "signature": f"{CPU_TELEMETRY_MISSING_KIND}:{ref.key}",
+    }
+
+
+def detect_cpu_telemetry_missing_reason(
+    ref: RoomRef,
+    runtime_room: dict[str, Any] | None,
+    *,
+    require_cpu_evidence: bool = False,
+) -> dict[str, Any] | None:
+    if not isinstance(runtime_room, dict):
+        return build_cpu_telemetry_missing_reason(ref, runtime_room) if require_cpu_evidence else None
+    if runtime_cpu_has_current_evidence(runtime_room):
+        return None
+    if not require_cpu_evidence and not runtime_cpu_evidence_expected(runtime_room):
+        return None
+    return build_cpu_telemetry_missing_reason(ref, runtime_room)
+
+
+def detect_cpu_runtime_reasons(
+    ref: RoomRef,
+    runtime_room: dict[str, Any] | None,
+    *,
+    require_cpu_evidence: bool = False,
+) -> list[dict[str, Any]]:
+    missing = detect_cpu_telemetry_missing_reason(ref, runtime_room, require_cpu_evidence=require_cpu_evidence)
+    if missing is not None:
+        return [missing]
+
+    reasons: list[dict[str, Any]] = []
+    bucket_reason = detect_cpu_bucket_reason(ref, runtime_room)
+    if bucket_reason is not None:
+        reasons.append(bucket_reason)
+    used_over_limit_reason = detect_cpu_used_over_limit_reason(ref, runtime_room)
+    if used_over_limit_reason is not None and bucket_reason is None:
+        reasons.append(used_over_limit_reason)
+    return reasons
 
 
 def build_energy_buffer_unhealthy_reason(
@@ -3527,9 +3706,7 @@ def evaluate_room_alert(
     if territory_expansion_stagnation_candidate is not None:
         detected.append(territory_expansion_stagnation_candidate)
 
-    cpu_bucket_candidate = detect_cpu_bucket_reason(snapshot.ref, runtime_room_summary)
-    if cpu_bucket_candidate is not None:
-        detected.append(cpu_bucket_candidate)
+    detected.extend(detect_cpu_runtime_reasons(snapshot.ref, runtime_room_summary))
 
     previous_energy_buffer_unhealthy_count = number_value(rule_counts.get(ENERGY_BUFFER_UNHEALTHY_KIND)) or 0
     energy_buffer_unhealthy_candidate = detect_energy_buffer_unhealthy_reason(
@@ -4037,7 +4214,10 @@ def infer_tactical_categories(reason: dict[str, Any]) -> list[str]:
         categories.append("hostiles")
     if "downgrade" in lowered_kind or "downgrade" in message:
         categories.append("downgrade_risk")
-    if "telemetry" in lowered_kind or "runtime-summary" in lowered_kind or "loop_exception" in lowered_kind:
+    if (
+        lowered_kind != CPU_TELEMETRY_MISSING_KIND
+        and ("telemetry" in lowered_kind or "runtime-summary" in lowered_kind or "loop_exception" in lowered_kind)
+    ):
         categories.append("telemetry_silence")
     if "silence" in lowered_kind or "silent" in lowered_kind:
         categories.append("telemetry_silence")
@@ -4055,7 +4235,10 @@ def infer_tactical_categories(reason: dict[str, Any]) -> list[str]:
         categories.append("monitor_integrity")
     if "damage" in lowered_kind:
         categories.append("owned_structure_damage")
-    if "missing" in lowered_kind or "disappear" in lowered_kind or "destroyed" in lowered_kind:
+    if (
+        lowered_kind != CPU_TELEMETRY_MISSING_KIND
+        and ("missing" in lowered_kind or "disappear" in lowered_kind or "destroyed" in lowered_kind)
+    ):
         categories.append("owned_structure_disappearance")
 
     current_hits = number_from_reason(reason, "current_hits", "currentHits", "hits")
@@ -7405,9 +7588,7 @@ def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_paylo
             threshold_reason = threshold_exceeds_capacity_reason(room)
             if threshold_reason is not None:
                 reasons.append(threshold_reason)
-            cpu_reason = detect_cpu_bucket_reason(runtime_summary_room_ref(room), room)
-            if cpu_reason is not None:
-                reasons.append(cpu_reason)
+            reasons.extend(detect_cpu_runtime_reasons(runtime_summary_room_ref(room), room))
             if owner_missing:
                 creeps = 0
                 spawns = 0

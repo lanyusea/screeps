@@ -2523,7 +2523,245 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(report["priority"], "P1")
         self.assertEqual(report["categories"], [monitor.CPU_BUCKET_LOW_KIND])
 
-    def test_cpu_bucket_healthy_or_missing_summary_stays_silent(self) -> None:
+    def test_low_bucket_recovery_alerts_health_gate_and_tactical_response(self) -> None:
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "worker-1": {
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "name": "worker-1",
+                    "x": 23,
+                    "y": 25,
+                },
+            }
+        )
+        runtime_room = {
+            "room": "shardX/E26S49",
+            "roomName": "E26S49",
+            monitor.RUNTIME_SUMMARY_CPU_METADATA_KEY: {
+                "used": 20.5,
+                "limit": 70,
+                "bucket": 1744,
+                "pressure": "degraded",
+                "alerts": ["lowBucketRecovery"],
+                "reasons": ["lowBucketRecovery"],
+            },
+            "constructionSiteCount": 0,
+            "pendingBuildProgress": 0,
+        }
+
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            snapshot,
+            {"baseline_established": True, "owner": "owner"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertEqual([reason["kind"] for reason in emitted], [monitor.CPU_BUCKET_LOW_KIND])
+        self.assertEqual(emitted[0]["priority"], "P1")
+        self.assertEqual(emitted[0]["reasons"], ["lowBucketRecovery"])
+
+        health = monitor.evaluate_postdeploy_health_gate(
+            {
+                "ok": True,
+                "mode": "summary",
+                "room_summaries": [
+                    {
+                        **runtime_room,
+                        "owned_creeps": 1,
+                        "owned_spawns": 1,
+                        "creeps": 1,
+                        "spawns": 1,
+                        "owner": "owner",
+                    }
+                ],
+            },
+            {"ok": True, "mode": "alert", "alert": True, "reasons": emitted, "rooms": ["shardX/E26S49"]},
+        )
+
+        self.assertFalse(health["ok"])
+        self.assertIn(monitor.CPU_BUCKET_LOW_KIND, [reason["kind"] for reason in health["reasons"]])
+
+        report = monitor.build_tactical_response_report(
+            {"ok": True, "mode": "alert", "alert": True, "reasons": emitted, "rooms": ["shardX/E26S49"]}
+        )
+        self.assertTrue(report["emergency"])
+        self.assertEqual(report["severity"], "high")
+        self.assertEqual(report["priority"], "P1")
+        self.assertEqual(report["categories"], [monitor.CPU_BUCKET_LOW_KIND])
+
+    def test_cpu_used_over_limit_alerts_health_gate_and_tactical_response(self) -> None:
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "worker-1": {
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "name": "worker-1",
+                    "x": 23,
+                    "y": 25,
+                },
+            }
+        )
+        runtime_room = {
+            "room": "shardX/E26S49",
+            "roomName": "E26S49",
+            monitor.RUNTIME_SUMMARY_CPU_METADATA_KEY: {
+                "used": 71.25,
+                "limit": 70,
+                "bucket": 9000,
+                "pressure": "normal",
+            },
+            "constructionSiteCount": 0,
+            "pendingBuildProgress": 0,
+        }
+
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            snapshot,
+            {"baseline_established": True, "owner": "owner"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertEqual([reason["kind"] for reason in emitted], [monitor.CPU_USED_OVER_LIMIT_KIND])
+        self.assertEqual(emitted[0]["cpuUsed"], 71.25)
+        self.assertEqual(emitted[0]["cpuLimit"], 70)
+
+        health = monitor.evaluate_postdeploy_health_gate(
+            {
+                "ok": True,
+                "mode": "summary",
+                "room_summaries": [
+                    {
+                        **runtime_room,
+                        "owned_creeps": 1,
+                        "owned_spawns": 1,
+                        "creeps": 1,
+                        "spawns": 1,
+                        "owner": "owner",
+                    }
+                ],
+            },
+            {"ok": True, "mode": "alert", "alert": True, "reasons": emitted, "rooms": ["shardX/E26S49"]},
+        )
+
+        self.assertFalse(health["ok"])
+        self.assertIn(monitor.CPU_USED_OVER_LIMIT_KIND, [reason["kind"] for reason in health["reasons"]])
+
+        report = monitor.build_tactical_response_report(
+            {"ok": True, "mode": "alert", "alert": True, "reasons": emitted, "rooms": ["shardX/E26S49"]}
+        )
+        self.assertTrue(report["emergency"])
+        self.assertEqual(report["severity"], "high")
+        self.assertEqual(report["priority"], "P1")
+        self.assertEqual(report["categories"], [monitor.CPU_USED_OVER_LIMIT_KIND])
+        self.assertEqual(report["triggers"][0]["metadata"]["metric"], "cpu.used")
+
+    def test_missing_cpu_evidence_alerts_unknown_without_room_dead_false_positive(self) -> None:
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "worker-1": {
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "name": "worker-1",
+                    "x": 23,
+                    "y": 25,
+                },
+            }
+        )
+        runtime_room = {
+            "room": "shardX/E26S49",
+            "roomName": "E26S49",
+            monitor.RUNTIME_SUMMARY_SOURCE_METADATA_KEY: monitor.MONITOR_RUNTIME_SUMMARY_SOURCE,
+            "cpu": {"used": None, "bucket": None},
+            "cpuUsed": None,
+            "cpuBucket": None,
+            "workerCount": 1,
+            "constructionSiteCount": 0,
+            "pendingBuildProgress": 0,
+        }
+
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            snapshot,
+            {"baseline_established": True, "owner": "owner"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertEqual([reason["kind"] for reason in emitted], [monitor.CPU_TELEMETRY_MISSING_KIND])
+        self.assertEqual(emitted[0]["cpuEvidenceState"], "unknown")
+        self.assertIn("cpu.used", emitted[0]["missing"])
+        self.assertIn("cpu.bucket", emitted[0]["missing"])
+        self.assertNotIn("room_dead", [reason["kind"] for reason in emitted])
+
+        health = monitor.evaluate_postdeploy_health_gate(
+            {
+                "ok": True,
+                "mode": "summary",
+                "room_summaries": [
+                    {
+                        **runtime_room,
+                        "owned_creeps": 1,
+                        "owned_spawns": 1,
+                        "creeps": 1,
+                        "spawns": 1,
+                        "owner": "owner",
+                    }
+                ],
+            },
+            {"ok": True, "mode": "alert", "alert": True, "reasons": emitted, "rooms": ["shardX/E26S49"]},
+        )
+
+        self.assertFalse(health["ok"])
+        health_kinds = [reason["kind"] for reason in health["reasons"]]
+        self.assertIn(monitor.CPU_TELEMETRY_MISSING_KIND, health_kinds)
+        self.assertNotIn("postdeploy_room_dead", health_kinds)
+        self.assertNotIn("postdeploy_no_owned_spawn", health_kinds)
+
+        report = monitor.build_tactical_response_report(
+            {"ok": True, "mode": "alert", "alert": True, "reasons": emitted, "rooms": ["shardX/E26S49"]}
+        )
+        self.assertTrue(report["emergency"])
+        self.assertEqual(report["priority"], "P1")
+        self.assertIn(monitor.CPU_TELEMETRY_MISSING_KIND, report["categories"])
+        self.assertNotIn("room_dead", report["categories"])
+
+    def test_cpu_bucket_healthy_or_missing_alert_summary_stays_silent(self) -> None:
         snapshot = make_snapshot(
             {
                 "spawn1": {
@@ -2563,35 +2801,52 @@ class TacticalResponseBridgeTest(unittest.TestCase):
                 self.assertNotIn(monitor.CPU_BUCKET_CRITICAL_KIND, [reason["kind"] for reason in emitted])
                 self.assertNotIn(monitor.CPU_BUCKET_LOW_KIND, [reason["kind"] for reason in emitted])
 
-        for room_summary in (
+        health = monitor.evaluate_postdeploy_health_gate(
             {
-                "room": "shardX/E26S49",
-                "owned_creeps": 1,
-                "owned_spawns": 1,
-                "creeps": 1,
-                "spawns": 1,
-                "owner": "owner",
-                "cpuBucket": 9000,
-                "constructionSiteCount": 0,
-                "pendingBuildProgress": 0,
+                "ok": True,
+                "mode": "summary",
+                "room_summaries": [
+                    {
+                        "room": "shardX/E26S49",
+                        "owned_creeps": 1,
+                        "owned_spawns": 1,
+                        "creeps": 1,
+                        "spawns": 1,
+                        "owner": "owner",
+                        "cpuBucket": 9000,
+                        "constructionSiteCount": 0,
+                        "pendingBuildProgress": 0,
+                    }
+                ],
             },
+            {"ok": True, "mode": "alert", "alert": False, "reasons": []},
+        )
+        self.assertTrue(health["ok"])
+
+        missing_health = monitor.evaluate_postdeploy_health_gate(
             {
-                "room": "shardX/E26S49",
-                "owned_creeps": 1,
-                "owned_spawns": 1,
-                "creeps": 1,
-                "spawns": 1,
-                "owner": "owner",
-                "constructionSiteCount": 0,
-                "pendingBuildProgress": 0,
+                "ok": True,
+                "mode": "summary",
+                "room_summaries": [
+                    {
+                        "room": "shardX/E26S49",
+                        "owned_creeps": 1,
+                        "owned_spawns": 1,
+                        "creeps": 1,
+                        "spawns": 1,
+                        "owner": "owner",
+                        "cpuUsed": None,
+                        "cpuBucket": None,
+                        "constructionSiteCount": 0,
+                        "pendingBuildProgress": 0,
+                    }
+                ],
             },
-        ):
-            with self.subTest(room_summary=room_summary):
-                health = monitor.evaluate_postdeploy_health_gate(
-                    {"ok": True, "mode": "summary", "room_summaries": [room_summary]},
-                    {"ok": True, "mode": "alert", "alert": False, "reasons": []},
-                )
-                self.assertTrue(health["ok"])
+            {"ok": True, "mode": "alert", "alert": False, "reasons": []},
+        )
+        self.assertFalse(missing_health["ok"])
+        self.assertIn(monitor.CPU_TELEMETRY_MISSING_KIND, [reason["kind"] for reason in missing_health["reasons"]])
+        self.assertNotIn("postdeploy_room_dead", [reason["kind"] for reason in missing_health["reasons"]])
 
     def test_cpu_bucket_alert_does_not_mask_hostile_or_damage_alerts(self) -> None:
         previous = {
