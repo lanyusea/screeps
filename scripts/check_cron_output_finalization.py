@@ -25,6 +25,7 @@ TABLE_SEPARATOR_CELL_RE = re.compile(r":?-{3,}:?")
 PROMPT_RESPONSE_TEMPLATE_INTRO_RE = re.compile(
     r"(?:"
     r"final\s+(?:response|output|report)|"
+    r"required\s+(?:final\s+)?(?:response|output|report)\s*:|"
     r"required\s+(?:final\s+)?(?:response|output|report)\s+format|"
     r"(?:response|output)\s+template|"
     r"use\s+this\s+shape|"
