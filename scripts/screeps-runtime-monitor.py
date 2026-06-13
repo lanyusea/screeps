@@ -369,6 +369,10 @@ NO_OWNED_SPAWN_REASON_KINDS = {
     "postdeploy_no_owned_spawn",
 }
 
+POSTDEPLOY_COLLECTION_ATTEMPT_WARNING_RE = re.compile(
+    r"\bcollection attempt (?P<attempt>\d+)/(?P<attempts>\d+) failed\b"
+)
+
 DEBOUNCE_BYPASS_REASON_KINDS = {
     "room_dead",
 }
@@ -7280,12 +7284,72 @@ def evaluate_postdeploy_construction_acceptance(room_summaries: Any) -> dict[str
     }
 
 
+def postdeploy_room_coverage_warning_reason(source: str, warning: Any) -> dict[str, Any] | None:
+    if not isinstance(warning, str):
+        return None
+    if warning.startswith("owned room discovery unavailable:"):
+        return {
+            "kind": "postdeploy_room_coverage_incomplete",
+            "source": source,
+            "message": f"{source}: owned-room discovery unavailable during post-deploy health capture",
+            "warning": warning,
+        }
+    if warning.startswith("falling back to configured room "):
+        return {
+            "kind": "postdeploy_room_coverage_incomplete",
+            "source": source,
+            "message": f"{source}: all-room health capture fell back to one configured room",
+            "warning": warning,
+        }
+
+    match = POSTDEPLOY_COLLECTION_ATTEMPT_WARNING_RE.search(warning)
+    if match is None:
+        return None
+    if int(match.group("attempt")) < int(match.group("attempts")):
+        return None
+    return {
+        "kind": "postdeploy_room_coverage_incomplete",
+        "source": source,
+        "message": f"{source}: a discovered room did not produce post-deploy health evidence",
+        "warning": warning,
+    }
+
+
+def postdeploy_room_coverage_reasons(payload: dict[str, Any], source: str) -> list[dict[str, Any]]:
+    if payload.get("room_scope") == "single-room":
+        return []
+
+    reasons: list[dict[str, Any]] = []
+    for warning in payload.get("warnings") if isinstance(payload.get("warnings"), list) else []:
+        reason = postdeploy_room_coverage_warning_reason(source, warning)
+        if reason is not None:
+            reasons.append(reason)
+
+    expected_rooms = string_list_values(payload.get("overview_rooms"))
+    collected_rooms = string_list_values(payload.get("rooms"))
+    missing_rooms = sorted(set(expected_rooms) - set(collected_rooms))
+    if missing_rooms:
+        reasons.append(
+            {
+                "kind": "postdeploy_room_coverage_incomplete",
+                "source": source,
+                "message": f"{source}: post-deploy health capture missed discovered owned rooms",
+                "missing_rooms": missing_rooms,
+                "expected_rooms": expected_rooms,
+                "collected_rooms": collected_rooms,
+            }
+        )
+    return reasons
+
+
 def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_payload: dict[str, Any]) -> dict[str, Any]:
     reasons: list[dict[str, Any]] = []
     if summary_payload.get("ok") is not True:
         reasons.append({"kind": "postdeploy_summary_failed", "message": "post-deploy summary did not report ok=true"})
     if alert_payload.get("ok") is not True:
         reasons.append({"kind": "postdeploy_alert_failed", "message": "post-deploy alert did not report ok=true"})
+    reasons.extend(postdeploy_room_coverage_reasons(summary_payload, "summary"))
+    reasons.extend(postdeploy_room_coverage_reasons(alert_payload, "alert"))
     if alert_payload.get("alert") is True:
         for reason in alert_payload.get("reasons") if isinstance(alert_payload.get("reasons"), list) else []:
             if isinstance(reason, dict):
@@ -7371,7 +7435,7 @@ def command_health_gate(args: argparse.Namespace) -> int:
 
 def command_summary(args: argparse.Namespace) -> int:
     ctx = context_from_env(args.world_profile)
-    snapshots, warnings, _overview_refs = collect_snapshots(ctx, args.room)
+    snapshots, warnings, overview_refs = collect_snapshots(ctx, args.room)
     images: list[str] = []
     room_summaries: list[dict[str, Any]] = []
     out_dir = Path(args.out_dir)
@@ -7397,6 +7461,8 @@ def command_summary(args: argparse.Namespace) -> int:
         "summary": summarize_rooms(snapshots),
         "images": images,
         "rooms": [snapshot.ref.key for snapshot in snapshots],
+        "overview_rooms": [ref.key for ref in overview_refs],
+        "room_scope": "single-room" if args.room else "all-owned",
         "room_summaries": room_summaries,
         "runtime_summary_artifact": runtime_summary_artifact,
         "warnings": warnings,
@@ -7472,6 +7538,8 @@ def command_alert(args: argparse.Namespace) -> int:
         "reasons": all_emitted,
         "images": images,
         "rooms": [snapshot.ref.key for snapshot in snapshots],
+        "overview_rooms": [ref.key for ref in overview_refs],
+        "room_scope": "single-room" if args.room else "all-owned",
         "summary": summarize_rooms(snapshots),
         "room_summaries": [room_summary(snapshot) for snapshot in snapshots],
         "state_file": str(ctx.state_file),
@@ -8776,6 +8844,46 @@ def command_self_test(_args: argparse.Namespace) -> int:
             )
 
             self.assertTrue(result["ok"])
+
+        def test_postdeploy_health_gate_rejects_secondary_room_construction_blocker(self) -> None:
+            result = evaluate_postdeploy_health_gate(
+                {
+                    "ok": True,
+                    "mode": "summary",
+                    "room_summaries": [
+                        {
+                            "room": "shardTest/E1N1",
+                            "owned_creeps": 2,
+                            "owned_spawns": 1,
+                            "owner": "owner",
+                            "constructionSiteCount": 0,
+                            "pendingBuildProgress": 0,
+                        },
+                        {
+                            "room": "shardTest/E2N2",
+                            "owned_creeps": 2,
+                            "owned_spawns": 1,
+                            "owner": "owner",
+                            "constructionSiteCount": 3,
+                            "pendingBuildProgress": 1200,
+                            "buildCarriedEnergy": 0,
+                            "buildProgress": 0,
+                            "taskCounts": {"build": 0},
+                            "buildBlockedReason": "no_build_execution",
+                        },
+                    ],
+                },
+                {"ok": True, "mode": "alert", "alert": False, "reasons": []},
+            )
+
+            construction = result["construction_acceptance"]
+            secondary = next(room for room in construction["rooms"] if room["room"] == "shardTest/E2N2")
+            self.assertFalse(result["ok"])
+            self.assertEqual(construction["status"], "blocked")
+            self.assertEqual(construction["pass_count"], 1)
+            self.assertEqual(construction["blocked_count"], 1)
+            self.assertEqual(secondary["status"], "blocked")
+            self.assertEqual(secondary["reason"], "no_build_execution")
 
         def test_postdeploy_health_gate_rejects_enemy_spawn_without_owned_recovery(self) -> None:
             result = evaluate_postdeploy_health_gate(
