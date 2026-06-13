@@ -938,6 +938,11 @@ def run_monitor_json(
     return payload
 
 
+def postdeploy_runtime_summary_console_dir(cfg: DeployConfig) -> Path:
+    """Return the post-deploy console telemetry directory for this checkout."""
+    return cfg.repo_root / "runtime-artifacts" / "runtime-summary-console"
+
+
 def run_postdeploy_console_capture(
     cfg: DeployConfig,
     *,
@@ -946,7 +951,7 @@ def run_postdeploy_console_capture(
 ) -> subprocess.CompletedProcess[str]:
     """Capture compact runtime console telemetry for the post-deploy health gate."""
     script = cfg.repo_root / "scripts" / "screeps_runtime_summary_console_capture.py"
-    out_dir = cfg.repo_root / "runtime-artifacts" / "runtime-summary-console"
+    out_dir = postdeploy_runtime_summary_console_dir(cfg)
     return run_checked_command(
         "runtime summary console capture",
         [
@@ -979,16 +984,36 @@ def run_postdeploy_health_gate(
 ) -> dict[str, Any]:
     """Capture post-deploy summary/alert evidence and evaluate the health gate."""
     cfg.evidence_dir.mkdir(parents=True, exist_ok=True)
-    out_dir = cfg.repo_root / "runtime-artifacts" / "screeps-monitor"
+    monitor_out_dir = cfg.repo_root / "runtime-artifacts" / "screeps-monitor"
+    runtime_summary_dir = postdeploy_runtime_summary_console_dir(cfg)
     summary_path = cfg.evidence_dir / "postdeploy-summary.json"
     alert_path = cfg.evidence_dir / "postdeploy-alert.json"
     health_path = postdeploy_health_gate_path(cfg)
 
     run_postdeploy_console_capture(cfg, env=env, runner=runner)
-    run_monitor_json(cfg, ["summary", "--out-dir", str(out_dir)], summary_path, env=env, runner=runner)
     run_monitor_json(
         cfg,
-        ["alert", "--out-dir", str(out_dir), "--force-alert-image"],
+        [
+            "summary",
+            "--out-dir",
+            str(monitor_out_dir),
+            "--runtime-summary-out-dir",
+            str(runtime_summary_dir),
+        ],
+        summary_path,
+        env=env,
+        runner=runner,
+    )
+    run_monitor_json(
+        cfg,
+        [
+            "alert",
+            "--out-dir",
+            str(monitor_out_dir),
+            "--runtime-summary-dir",
+            str(runtime_summary_dir),
+            "--force-alert-image",
+        ],
         alert_path,
         env=env,
         runner=runner,
