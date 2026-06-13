@@ -30309,19 +30309,23 @@ function selectConstructionSite(creep, constructionSites, predicate = () => true
     ...buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites),
     ...options.priorityContext
   };
-  const candidates = constructionSites.filter(
-    (site) => predicate(site) && !isConstructionSiteSuppressedForWorker(creep, site) && canSpendCreepEnergyOnConstructionSite(creep, site, priorityContext) && (!options.requireReasonableRange || isConstructionSiteWithinReasonableRange(creep, site, DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE))
+  const eligibleCandidates = constructionSites.filter(
+    (site) => predicate(site) && canSpendCreepEnergyOnConstructionSite(creep, site, priorityContext) && (!options.requireReasonableRange || isConstructionSiteWithinReasonableRange(creep, site, DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE))
   );
-  if (candidates.length === 0) {
+  const candidates = eligibleCandidates.filter((site) => !isConstructionSiteSuppressedForWorker(creep, site));
+  const activeCandidates = candidates.length > 0 ? candidates : eligibleCandidates.filter(
+    (site) => shouldRetrySuppressedStoredProtectedConstructionBacklogSite(creep, site, eligibleCandidates, priorityContext)
+  );
+  if (activeCandidates.length === 0) {
     return null;
   }
   const position = creep.pos;
   if (typeof (position == null ? void 0 : position.getRangeTo) === "function") {
-    return [...candidates].sort(
+    return [...activeCandidates].sort(
       (left, right) => compareConstructionSiteCandidates(creep, left, right, constructionReservationContext, priorityContext)
     )[0];
   }
-  const topImpactCandidates = selectTopImpactConstructionSiteCandidates(candidates, priorityContext);
+  const topImpactCandidates = selectTopImpactConstructionSiteCandidates(activeCandidates, priorityContext);
   const finishPriorityConstructionSite = selectFinishPriorityConstructionSite(
     creep,
     topImpactCandidates,
@@ -30335,6 +30339,9 @@ function selectConstructionSite(creep, constructionSites, predicate = () => true
     return (_a2 = position.findClosestByRange(candidatesByStableId)) != null ? _a2 : candidatesByStableId[0];
   }
   return topImpactCandidates.sort(compareConstructionSiteId)[0];
+}
+function shouldRetrySuppressedStoredProtectedConstructionBacklogSite(creep, site, eligibleCandidates, priorityContext) {
+  return eligibleCandidates.length === 1 && getUsedEnergy2(creep) > 0 && canSpendOnStoredProtectedConstructionBacklog(creep, site, priorityContext);
 }
 function isConstructionSiteSuppressedForWorker(creep, site) {
   var _a2;

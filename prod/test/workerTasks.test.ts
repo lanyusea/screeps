@@ -1680,6 +1680,63 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'open-site' });
   });
 
+  it('retries the lone suppressed stored-protected road backlog instead of idling loaded workers', () => {
+    (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 10;
+    const roadSite = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 200,
+      progressTotal: 500,
+      pos: makeRoomPosition(22, 21, 'E29N57')
+    } as ConstructionSite;
+    const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 600_000);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const myCreeps: Creep[] = [];
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      constructionSites: [roadSite],
+      controller,
+      energyAvailable: 650,
+      energyCapacityAvailable: 1_800,
+      myCreeps,
+      structures: [storage as AnyStructure]
+    });
+    const creep = {
+      name: 'LoadedBuilder',
+      memory: {
+        role: 'worker',
+        colony: 'E29N57',
+        blockedBuildTarget: {
+          targetId: 'road-site1',
+          blockedAt: 2114360,
+          until: 2114380,
+          reason: 'stuck'
+        }
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === 'work' ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 61 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 39 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      pos: { getRangeTo: jest.fn().mockReturnValue(4) },
+      room
+    } as unknown as Creep;
+    myCreeps.push(creep);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { LoadedBuilder: creep },
+      time: 2114374
+    };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
+  });
+
   it('lets spare loaded workers finish construction below the general spend floor', () => {
     const constructionSite = {
       id: 'extension-site',
