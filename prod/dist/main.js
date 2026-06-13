@@ -35201,7 +35201,7 @@ function shouldAllowAssignmentGapRecoveryBuildWorker(creep, currentTask, selecte
   if (hasUncoveredAssignmentGapConstructionProgress(creep, constructionSite)) {
     return true;
   }
-  return !currentTask && selectedTask === null && getFreeTransferEnergyCapacity(creep) <= 0;
+  return !currentTask && (selectedTask === null || selectedTask.type === "transfer") && getUsedTransferEnergy(creep) > 0;
 }
 function hasUncoveredAssignmentGapConstructionProgress(creep, constructionSite) {
   const pendingProgress = getRoomConstructionPendingProgress(creep.room);
@@ -35277,7 +35277,7 @@ function getBuildPower2() {
 function hasSafeAssignmentGapRecoveryConstructionEnergy(creep, recoveryTask) {
   const spawnReservationTarget = selectSpawnEnergyReservationRefillTarget(creep);
   if (spawnReservationTarget) {
-    return shouldDeferSpawnReservationRefillForProductiveWork(creep, recoveryTask, spawnReservationTarget);
+    return shouldDeferSpawnReservationRefillForProductiveWork(creep, recoveryTask, spawnReservationTarget) || hasStoredEnergyForAssignmentGapRecoveryConstruction(creep.room);
   }
   const hasStoredConstructionEnergy = hasStoredEnergyForAssignmentGapRecoveryConstruction(creep.room);
   const hasSafeConstructionEnergy = hasHealthyRoomEnergyBuffer2(creep.room) || hasStoredConstructionEnergy || hasCoveredStoredEnergyForAssignmentGapRecoveryConstruction(creep, getTaskTarget(recoveryTask));
