@@ -1504,6 +1504,204 @@ describe('runWorker', () => {
     expect(withdraw).toHaveBeenCalledWith(spawn, RESOURCE_ENERGY, 50);
   });
 
+  it('withdraws local storage energy for an empty retained secondary-room builder', () => {
+    const site = withRangeTo(
+      {
+        id: 'extension-site1',
+        my: true,
+        structureType: 'extension',
+        progress: 0,
+        progressTotal: 3_000
+      } as ConstructionSite,
+      { storage1: 1 }
+    );
+    const storage = {
+      id: 'storage1',
+      my: true,
+      structureType: 'storage',
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 1_000 : 0)),
+        getFreeCapacity: jest.fn().mockReturnValue(10_000)
+      }
+    } as unknown as StructureStorage;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const workers: Creep[] = [];
+    const room = {
+      name: 'E29N57',
+      energyAvailable: 1_800,
+      energyCapacityAvailable: 1_800,
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (object: AnyStructure | Creep) => boolean }) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [site];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [storage];
+        }
+
+        if (type === FIND_MY_CREEPS) {
+          return options?.filter ? workers.filter(options.filter) : workers;
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const withdraw = jest.fn().mockReturnValue(0);
+    const creep = {
+      name: 'worker-E29N57-builder',
+      memory: {
+        role: 'worker',
+        colony: 'E29N57',
+        task: { type: 'build', targetId: 'extension-site1' as Id<ConstructionSite> }
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'storage1' ? 2 : 99)) },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(100)
+      },
+      room,
+      build: jest.fn(),
+      withdraw,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    workers.push(creep);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { [creep.name]: creep },
+      getObjectById: jest.fn((id: string) =>
+        id === 'extension-site1' ? site : id === 'storage1' ? storage : null
+      )
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({
+      type: 'withdraw',
+      targetId: 'storage1',
+      constructionSiteId: 'extension-site1'
+    });
+    expect(withdraw).toHaveBeenCalledWith(storage, RESOURCE_ENERGY, 100);
+    expect(creep.build).not.toHaveBeenCalled();
+  });
+
+  it('builds a retained secondary-room construction withdrawal after filling', () => {
+    const site = withRangeTo(
+      {
+        id: 'extension-site1',
+        my: true,
+        structureType: 'extension',
+        progress: 784,
+        progressTotal: 1_000
+      } as ConstructionSite,
+      { storage1: 1 }
+    );
+    const storage = {
+      id: 'storage1',
+      my: true,
+      structureType: 'storage',
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 1_000 : 0)),
+        getFreeCapacity: jest.fn().mockReturnValue(10_000)
+      }
+    } as unknown as StructureStorage;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const workers: Creep[] = [];
+    const room = {
+      name: 'E29N57',
+      energyAvailable: 1_800,
+      energyCapacityAvailable: 1_800,
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (object: AnyStructure | Creep) => boolean }) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [site];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [storage];
+        }
+
+        if (type === FIND_MY_CREEPS) {
+          return options?.filter ? workers.filter(options.filter) : workers;
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const build = jest.fn().mockReturnValue(0);
+    const withdraw = jest.fn();
+    const creep = {
+      name: 'worker-E29N57-builder',
+      memory: {
+        role: 'worker',
+        colony: 'E29N57',
+        task: {
+          type: 'withdraw',
+          targetId: 'storage1' as Id<AnyStoreStructure>,
+          constructionSiteId: 'extension-site1' as Id<ConstructionSite>
+        }
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'extension-site1' ? 2 : 99)) },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(100),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      build,
+      withdraw,
+      upgradeController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    const coveringBuilder = {
+      name: 'worker-E29N57-covering-builder',
+      memory: {
+        role: 'worker',
+        colony: 'E29N57',
+        task: { type: 'build', targetId: 'extension-site1' as Id<ConstructionSite> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(55),
+        getFreeCapacity: jest.fn().mockReturnValue(45)
+      },
+      room,
+      build: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    workers.push(creep, coveringBuilder);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 2126831,
+      creeps: {
+        [creep.name]: creep,
+        [coveringBuilder.name]: coveringBuilder
+      },
+      getObjectById: jest.fn((id: string) =>
+        id === 'extension-site1'
+          ? site
+          : id === 'storage1'
+            ? storage
+            : id === 'controller1'
+              ? controller
+              : null
+      )
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'extension-site1' });
+    expect(build).toHaveBeenCalledWith(site);
+    expect(withdraw).not.toHaveBeenCalled();
+    expect(creep.upgradeController).not.toHaveBeenCalled();
+  });
+
   it('withdraws only construction-safe spawn energy below the E29N55 bootstrap buffer margin', () => {
     const site = withRangeTo(
       { id: 'extension-site1', structureType: 'extension' } as ConstructionSite,

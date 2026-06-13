@@ -35169,7 +35169,7 @@ function selectWorkerTaskForRunner(creep) {
   return fallbackToEnergyOnNullSelectionLoop(creep, selectedTask);
 }
 function selectWorkerTaskContext(creep, currentTask) {
-  var _a2;
+  var _a2, _b;
   const baseSelectedTask = selectWorkerTaskForRunner(creep);
   const energyCriticalTask = selectWorkerEnergyCriticalTask(creep, currentTask, baseSelectedTask);
   const effectiveEnergyCriticalTask = shouldYieldStorageCriticalAcquisitionToNearFullConstruction(
@@ -35182,11 +35182,16 @@ function selectWorkerTaskContext(creep, currentTask) {
     currentTask,
     effectiveEnergyCriticalTask != null ? effectiveEnergyCriticalTask : baseSelectedTask
   );
-  const selectedTask = selectAssignedBuildEnergyAcquisitionTask(
+  const selectedTaskAfterBuildEnergyAcquisition = selectAssignedBuildEnergyAcquisitionTask(
     creep,
     currentTask,
     (_a2 = spawnReservationRefillTask != null ? spawnReservationRefillTask : effectiveEnergyCriticalTask) != null ? _a2 : baseSelectedTask
   );
+  const selectedTask = (_b = selectConstructionWithdrawCompletionBuildTask(
+    creep,
+    currentTask,
+    selectedTaskAfterBuildEnergyAcquisition
+  )) != null ? _b : selectedTaskAfterBuildEnergyAcquisition;
   return {
     baseSelectedTask,
     energyCriticalTask: effectiveEnergyCriticalTask,
@@ -35207,6 +35212,22 @@ function selectAssignedBuildEnergyAcquisitionTask(creep, currentTask, selectedTa
     return selectedTask;
   }
   return (_b = (_a2 = selectConstructionBacklogEnergyAcquisitionTask(creep)) != null ? _a2 : selectWorkerEnergyCriticalAcquisitionTask(creep)) != null ? _b : selectedTask;
+}
+function selectConstructionWithdrawCompletionBuildTask(creep, currentTask, selectedTask) {
+  if (!isConstructionWithdrawReservationTask(currentTask) || getUsedTransferEnergy(creep) <= 0 || getActiveWorkParts3(creep) <= 0 || hasVisibleHostileCreeps2(creep.room) || shouldKeepConstructionWithdrawTaskForMoreEnergy(creep, currentTask, selectedTask) || !canConstructionWithdrawCompletionOverrideSelectedTask(creep, selectedTask)) {
+    return null;
+  }
+  const constructionSite = Game.getObjectById(currentTask.constructionSiteId);
+  if (!constructionSite || constructionSite.my === false || !canSpendWorkerEnergyOnConstructionSite(creep, constructionSite)) {
+    return null;
+  }
+  return { type: "build", targetId: constructionSite.id };
+}
+function canConstructionWithdrawCompletionOverrideSelectedTask(creep, selectedTask) {
+  return selectedTask === null || isEnergyAcquisitionTask2(selectedTask) || selectedTask.type === "build" || selectedTask.type === "upgrade" && !isDowngradeGuardUpgradeTask(creep, selectedTask);
+}
+function shouldKeepConstructionWithdrawTaskForMoreEnergy(creep, currentTask, selectedTask) {
+  return getFreeTransferEnergyCapacity(creep) > 0 && selectedTask !== null && isSameTask2(currentTask, selectedTask);
 }
 function applyWorkerAssignmentGapRecoveryTask(creep, currentTask, selectionContext) {
   const recoveryTask = selectWorkerAssignmentGapRecoveryTask(creep, currentTask, selectionContext);
