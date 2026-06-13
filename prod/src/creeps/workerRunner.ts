@@ -460,11 +460,17 @@ function selectWorkerTaskContext(
     currentTask,
     effectiveEnergyCriticalTask ?? baseSelectedTask
   );
-  const selectedTask = selectAssignedBuildEnergyAcquisitionTask(
+  const selectedTaskAfterBuildEnergyAcquisition = selectAssignedBuildEnergyAcquisitionTask(
     creep,
     currentTask,
     spawnReservationRefillTask ?? effectiveEnergyCriticalTask ?? baseSelectedTask
   );
+  const selectedTask =
+    selectConstructionWithdrawCompletionBuildTask(
+      creep,
+      currentTask,
+      selectedTaskAfterBuildEnergyAcquisition
+    ) ?? selectedTaskAfterBuildEnergyAcquisition;
   return {
     baseSelectedTask,
     energyCriticalTask: effectiveEnergyCriticalTask,
@@ -499,6 +505,58 @@ function selectAssignedBuildEnergyAcquisitionTask(
     selectConstructionBacklogEnergyAcquisitionTask(creep) ??
     selectWorkerEnergyCriticalAcquisitionTask(creep) ??
     selectedTask
+  );
+}
+
+function selectConstructionWithdrawCompletionBuildTask(
+  creep: Creep,
+  currentTask: CreepTaskMemory | null | undefined,
+  selectedTask: CreepTaskMemory | null
+): Extract<CreepTaskMemory, { type: 'build' }> | null {
+  if (
+    !isConstructionWithdrawReservationTask(currentTask) ||
+    getUsedTransferEnergy(creep) <= 0 ||
+    getActiveWorkParts(creep) <= 0 ||
+    hasVisibleHostileCreeps(creep.room) ||
+    shouldKeepConstructionWithdrawTaskForMoreEnergy(creep, currentTask, selectedTask) ||
+    !canConstructionWithdrawCompletionOverrideSelectedTask(creep, selectedTask)
+  ) {
+    return null;
+  }
+
+  const constructionSite = Game.getObjectById(currentTask.constructionSiteId) as ConstructionSite | null;
+  if (
+    !constructionSite ||
+    constructionSite.my === false ||
+    !canSpendWorkerEnergyOnConstructionSite(creep, constructionSite)
+  ) {
+    return null;
+  }
+
+  return { type: 'build', targetId: constructionSite.id };
+}
+
+function canConstructionWithdrawCompletionOverrideSelectedTask(
+  creep: Creep,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  return (
+    selectedTask === null ||
+    isEnergyAcquisitionTask(selectedTask) ||
+    selectedTask.type === 'build' ||
+    (selectedTask.type === 'upgrade' && !isDowngradeGuardUpgradeTask(creep, selectedTask))
+  );
+}
+
+function shouldKeepConstructionWithdrawTaskForMoreEnergy(
+  creep: Creep,
+  currentTask: Extract<CreepTaskMemory, { type: 'withdraw' }>,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  return (
+    getFreeTransferEnergyCapacity(creep) > 0 &&
+    selectedTask !== null &&
+    isSameTask(currentTask, selectedTask)
   );
 }
 
@@ -1407,8 +1465,8 @@ function getSpawnReservationRefillCoverageEnergy(
 }
 
 function isConstructionWithdrawReservationTask(
-  task: Partial<CreepTaskMemory> | undefined
-): task is Extract<CreepTaskMemory, { type: 'withdraw' }> {
+  task: Partial<CreepTaskMemory> | null | undefined
+): task is Extract<CreepTaskMemory, { type: 'withdraw' }> & { constructionSiteId: Id<ConstructionSite> } {
   return (
     task?.type === 'withdraw' &&
     typeof task.targetId === 'string' &&
