@@ -417,6 +417,11 @@ function selectCriticalCpuWorkerTask(creep: Creep, cpuBudget: RuntimeCpuBudget):
     return applyMinimumUsefulLoadPolicy(creep, storedProtectedConstructionTask);
   }
 
+  const storedProtectedConstructionBacklogTask = selectStoredProtectedConstructionBacklogTask(creep);
+  if (storedProtectedConstructionBacklogTask) {
+    return applyMinimumUsefulLoadPolicy(creep, storedProtectedConstructionBacklogTask);
+  }
+
   if (spawnOrExtensionEnergySink) {
     return {
       type: 'transfer',
@@ -596,6 +601,98 @@ function selectStoredProtectedSourceContainerConstructionSite(
   );
 }
 
+function selectStoredProtectedConstructionBacklogTask(
+  creep: Creep,
+  constructionSites?: ConstructionSite[],
+  constructionReservationContext?: ConstructionReservationContext
+): Extract<CreepTaskMemory, { type: 'build' }> | null {
+  const constructionSite = selectStoredProtectedConstructionBacklogSite(
+    creep,
+    constructionSites,
+    constructionReservationContext
+  );
+  return constructionSite ? { type: 'build', targetId: constructionSite.id } : null;
+}
+
+function selectStoredProtectedConstructionBacklogEnergyAcquisitionTask(
+  creep: Creep
+): BuilderEnergyAcquisitionTask | null {
+  const constructionSite = selectStoredProtectedConstructionBacklogEnergyAcquisitionSite(creep);
+  if (!constructionSite) {
+    return null;
+  }
+
+  const candidates = findBuilderEnergyAcquisitionCandidates(creep, constructionSite);
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return candidates.sort(compareBuilderEnergyAcquisitionCandidates)[0].task;
+}
+
+function selectStoredProtectedConstructionBacklogEnergyAcquisitionSite(creep: Creep): ConstructionSite | null {
+  const constructionSites = findConstructionSites(creep.room);
+  if (constructionSites.length === 0) {
+    return null;
+  }
+
+  const constructionReservationContext = createConstructionReservationContext(creep.room);
+  const priorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const storedProtectedConstructionSites = constructionSites.filter((site) =>
+    canSpendOnStoredProtectedConstructionBacklog(creep, site, priorityContext)
+  );
+
+  return selectUnreservedConstructionBacklogEnergyTarget(
+    creep,
+    storedProtectedConstructionSites,
+    constructionReservationContext,
+    priorityContext
+  );
+}
+
+function selectStoredProtectedConstructionBacklogSite(
+  creep: Creep,
+  constructionSites?: ConstructionSite[],
+  constructionReservationContext?: ConstructionReservationContext
+): ConstructionSite | null {
+  const sites = constructionSites ?? findConstructionSites(creep.room);
+  if (sites.length === 0) {
+    return null;
+  }
+
+  const reservations = constructionReservationContext ?? createConstructionReservationContext(creep.room);
+  const priorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, sites);
+  return selectUnreservedConstructionSite(
+    creep,
+    sites,
+    reservations,
+    (site) => canSpendOnStoredProtectedConstructionBacklog(creep, site, priorityContext),
+    { priorityContext }
+  );
+}
+
+function canSpendOnStoredProtectedConstructionBacklog(
+  creep: Creep,
+  site: ConstructionSite,
+  priorityContext: ConstructionSiteImpactPriorityContext
+): boolean {
+  return (
+    site.my !== false &&
+    creep.room.controller?.my === true &&
+    !hasVisibleHostilePresence(creep.room) &&
+    !shouldGuardControllerDowngrade(creep.room.controller) &&
+    checkEnergyBufferForStoredConstructionSpending(creep.room) &&
+    isStoredProtectedConstructionBacklogSite(site, priorityContext)
+  );
+}
+
+function isStoredProtectedConstructionBacklogSite(
+  site: ConstructionSite,
+  priorityContext: ConstructionSiteImpactPriorityContext
+): boolean {
+  return isRoadConstructionSite(site) || isHighImpactConstructionSite(site, priorityContext);
+}
+
 function selectCriticalCpuEnergyAcquisitionTask(
   creep: Creep
 ): Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' }> | null {
@@ -637,7 +734,10 @@ function selectCriticalCpuEnergyAcquisitionTask(
     return selectWorkerEnergyCriticalAcquisitionTask(creep);
   }
 
-  return selectStoredProtectedSourceContainerConstructionEnergyAcquisitionTask(creep);
+  return (
+    selectStoredProtectedSourceContainerConstructionEnergyAcquisitionTask(creep) ??
+    selectStoredProtectedConstructionBacklogEnergyAcquisitionTask(creep)
+  );
 }
 
 function hasCriticalCpuRepairDemand(creep: Creep): boolean {
