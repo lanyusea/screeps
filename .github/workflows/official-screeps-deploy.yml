@@ -109,6 +109,10 @@ jobs:
             exit 1
           fi
 
+      - name: Install live console dependency
+        if: ${{ inputs.mode == 'deploy' }}
+        run: python3 -m pip install --disable-pip-version-check "websockets>=12,<16"
+
       - name: Deploy to official Screeps
         if: ${{ inputs.mode == 'deploy' }}
         env:
