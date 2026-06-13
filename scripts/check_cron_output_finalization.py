@@ -16,7 +16,7 @@ DEFAULT_MAX_BYTES = 256 * 1024
 
 JOB_ID_RE = re.compile(r"^\*\*Job ID:\*\*\s*`?([A-Za-z0-9_-]+)`?\s*$", re.MULTILINE)
 SECTION_RE_TEMPLATE = r"^\s*{heading}\s*$"
-BROKEN_PIPE_RE = re.compile(r"(?:RuntimeError:\s*)?\[Errno 32\]\s+Broken pipe|\bBroken pipe\b")
+BROKEN_PIPE_ERRNO_RE = re.compile(r"(?:RuntimeError:\s*)?\[Errno 32\]\s+Broken pipe")
 ISSUE_REF_RE = re.compile(
     r"(?<![\w/])#\d+\b|https://github\.com/[^\s)]+/[^\s)]+/(?:issues|pull)/\d+\b",
     re.IGNORECASE,
@@ -81,6 +81,24 @@ def extract_section_body(text: str, heading: str, *, stop_at_next_heading: bool 
             if next_heading:
                 body = body[: next_heading.start()]
     return body.strip()
+
+
+def last_heading_start(text: str, heading: str) -> int | None:
+    last_start = None
+    for match in re.finditer(SECTION_RE_TEMPLATE.format(heading=re.escape(heading)), text, re.MULTILINE):
+        last_start = match.start()
+    return last_start
+
+
+def has_broken_pipe_transport_failure(text: str, response: str | None, error_body: str | None) -> bool:
+    response_start = last_heading_start(text, "## Response")
+    error_start = last_heading_start(text, "## Error")
+
+    if error_start is not None and (response_start is None or error_start > response_start):
+        return error_body is not None and BROKEN_PIPE_ERRNO_RE.search(error_body) is not None
+    if response_start is not None:
+        return response is not None and BROKEN_PIPE_ERRNO_RE.search(response) is not None
+    return BROKEN_PIPE_ERRNO_RE.search(text) is not None
 
 
 def extract_job_id(text: str) -> str | None:
@@ -170,7 +188,7 @@ def diagnose_text(
     response_present = response is not None
     error_present = error_body is not None
     response_bytes = 0 if response is None else len(response.encode("utf-8"))
-    broken_pipe = bool(BROKEN_PIPE_RE.search(text))
+    broken_pipe = has_broken_pipe_transport_failure(text, response, error_body)
 
     job_id = extract_job_id(text)
     if expected_job_id and job_id is None:

@@ -89,6 +89,66 @@ class CronOutputFinalizationTest(unittest.TestCase):
         self.assertEqual(diagnostic.classification, "response_ok")
         self.assertEqual(diagnostic.github_targets, ["#1831", "#1846"])
 
+    def test_accepts_valid_gameplay_response_with_broken_pipe_prose(self) -> None:
+        response = VALID_GAMEPLAY_RESPONSE.replace(
+            "- Territory: 3 rooms.",
+            "- Territory: 3 rooms.\n- Reliability evidence: no Broken pipe in the latest cron transport.",
+        )
+        artifact = f"""# Cron Job: Screeps Gameplay Evolution Review
+
+**Job ID:** c7b3dda8f1ac
+
+## Prompt
+
+The reliability checklist asks whether there was a Broken pipe in cron transport.
+
+## Response
+
+{response}"""
+
+        diagnostic = finalization.diagnose_text(
+            artifact,
+            path="broken-pipe-prose.md",
+            mode="gameplay-review",
+            route_issue="#1860",
+            expected_job_id="c7b3dda8f1ac",
+        )
+
+        self.assertTrue(diagnostic.ok)
+        self.assertEqual(diagnostic.classification, "response_ok")
+        self.assertFalse(diagnostic.broken_pipe)
+
+    def test_prompt_broken_pipe_error_example_does_not_mask_final_response(self) -> None:
+        artifact = f"""# Cron Job: Screeps Gameplay Evolution Review
+
+**Job ID:** c7b3dda8f1ac
+
+## Prompt
+
+Example failure shape:
+
+## Error
+
+```
+RuntimeError: [Errno 32] Broken pipe
+```
+
+## Response
+
+{VALID_GAMEPLAY_RESPONSE}"""
+
+        diagnostic = finalization.diagnose_text(
+            artifact,
+            path="prompt-broken-pipe-example.md",
+            mode="gameplay-review",
+            route_issue="#1860",
+            expected_job_id="c7b3dda8f1ac",
+        )
+
+        self.assertTrue(diagnostic.ok)
+        self.assertEqual(diagnostic.classification, "response_ok")
+        self.assertFalse(diagnostic.broken_pipe)
+
     def test_rejects_missing_job_id_when_expected(self) -> None:
         artifact = f"""# Cron Job: Screeps Gameplay Evolution Review
 
@@ -167,6 +227,55 @@ RuntimeError: [Errno 32] Broken pipe
         diagnostic = finalization.diagnose_text(
             artifact,
             path="prompt-error-boilerplate.md",
+            mode="gameplay-review",
+            route_issue="#1860",
+            expected_job_id="c7b3dda8f1ac",
+        )
+
+        self.assertFalse(diagnostic.ok)
+        self.assertEqual(diagnostic.classification, "outer_cron_finalization")
+        self.assertTrue(diagnostic.error_present)
+        self.assertTrue(diagnostic.broken_pipe)
+
+    def test_response_heading_examples_do_not_mask_final_broken_pipe_error(self) -> None:
+        artifact = """# Cron Job: Screeps Gameplay Evolution Review (FAILED)
+
+**Job ID:** c7b3dda8f1ac
+
+## Prompt
+
+The prompt includes unrelated output examples.
+
+## Response
+
+<example response text>
+
+## Error
+
+<example error text>
+
+## Response
+
+Partial response before transport failure:
+
+## Response
+
+<nested response example>
+
+## Error
+
+<nested error example>
+
+## Error
+
+```
+RuntimeError: [Errno 32] Broken pipe
+```
+"""
+
+        diagnostic = finalization.diagnose_text(
+            artifact,
+            path="response-heading-examples-final-error.md",
             mode="gameplay-review",
             route_issue="#1860",
             expected_job_id="c7b3dda8f1ac",
