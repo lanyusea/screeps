@@ -60,6 +60,33 @@ prompt omitted
 {VALID_GAMEPLAY_RESPONSE}"""
 
 
+PROMPT_GAMEPLAY_RESPONSE_TEMPLATE = """\
+# Gameplay Evolution Review
+
+## Scope
+- Time window reviewed:
+- Repo commit:
+
+## Vision KPI summary
+- Territory:
+- Resource/economy:
+- Combat/enemy damage:
+- Reliability guardrails:
+
+## Practical gameplay closed-loop gate
+- OK / STRATEGIC_STALL / CLOSED_LOOP_FAILED:
+
+## RL Flywheel Product Review
+- Steward run reviewed: <timestamp from latest Steward output>
+- Product assessment: <is RL producing actionable strategy improvements?>
+
+## Recommended roadmap changes
+| Rank | Action | Served vision layer | GitHub target | Expected KPI movement |
+| --- | --- | --- | --- | --- |
+| 1 | Example finalization repair | Agent OS | #1860 | route missing final responses |
+"""
+
+
 class CronOutputFinalizationTest(unittest.TestCase):
     def test_classifies_broken_pipe_as_outer_cron_finalization(self) -> None:
         diagnostic = finalization.diagnose_text(
@@ -203,6 +230,63 @@ The final output should use this shape:
         self.assertTrue(diagnostic.ok)
         self.assertEqual(diagnostic.classification, "response_ok")
         self.assertEqual(diagnostic.response_bytes, expected_response_bytes)
+
+    def test_rejects_prompt_only_gameplay_response_template(self) -> None:
+        artifact = f"""# Cron Job: Screeps Gameplay Evolution Review
+
+**Job ID:** c7b3dda8f1ac
+
+## Prompt
+
+The final output should use this response template:
+
+## Response
+
+{PROMPT_GAMEPLAY_RESPONSE_TEMPLATE}"""
+
+        diagnostic = finalization.diagnose_text(
+            artifact,
+            path="prompt-only-response-template.md",
+            mode="gameplay-review",
+            route_issue="#1860",
+            expected_job_id="c7b3dda8f1ac",
+        )
+
+        self.assertFalse(diagnostic.ok)
+        self.assertEqual(diagnostic.classification, "missing_response")
+        self.assertFalse(diagnostic.response_present)
+        self.assertEqual(diagnostic.response_bytes, 0)
+
+    def test_accepts_real_response_after_prompt_gameplay_response_template(self) -> None:
+        artifact = f"""# Cron Job: Screeps Gameplay Evolution Review
+
+**Job ID:** c7b3dda8f1ac
+
+## Prompt
+
+The final output should use this response template:
+
+## Response
+
+{PROMPT_GAMEPLAY_RESPONSE_TEMPLATE}
+
+## Response
+
+{VALID_GAMEPLAY_RESPONSE}"""
+
+        diagnostic = finalization.diagnose_text(
+            artifact,
+            path="final-response-after-prompt-template.md",
+            mode="gameplay-review",
+            route_issue="#1860",
+            expected_job_id="c7b3dda8f1ac",
+        )
+
+        expected_response_bytes = len(VALID_GAMEPLAY_RESPONSE.strip().encode("utf-8"))
+        self.assertTrue(diagnostic.ok)
+        self.assertEqual(diagnostic.classification, "response_ok")
+        self.assertEqual(diagnostic.response_bytes, expected_response_bytes)
+        self.assertEqual(diagnostic.github_targets, ["#1831", "#1846"])
 
     def test_prompt_error_header_does_not_mask_final_broken_pipe_error(self) -> None:
         artifact = """# Cron Job: Screeps Gameplay Evolution Review (FAILED)

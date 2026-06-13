@@ -22,6 +22,22 @@ ISSUE_REF_RE = re.compile(
     re.IGNORECASE,
 )
 TABLE_SEPARATOR_CELL_RE = re.compile(r":?-{3,}:?")
+PROMPT_RESPONSE_TEMPLATE_INTRO_RE = re.compile(
+    r"(?:"
+    r"final\s+(?:response|output|report)|"
+    r"required\s+(?:final\s+)?(?:response|output|report)\s+format|"
+    r"(?:response|output)\s+template|"
+    r"use\s+this\s+shape|"
+    r"example\s+(?:response|output)"
+    r")",
+    re.IGNORECASE,
+)
+PROMPT_TEMPLATE_BODY_RE = re.compile(
+    r"^\s*-\s+[^:\n]+:\s*(?:<[^>\n]+>)?\s*$|"
+    r"<[^>\n]+>|"
+    r"^\s*Use a table with columns:",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 GAMEPLAY_REQUIRED_SECTIONS: dict[str, tuple[str, ...]] = {
     "kpi_summary": ("## Vision KPI summary", "## KPI summary"),
@@ -87,6 +103,23 @@ def last_heading_start(text: str, heading: str) -> int | None:
     last_start = None
     for match in re.finditer(SECTION_RE_TEMPLATE.format(heading=re.escape(heading)), text, re.MULTILINE):
         last_start = match.start()
+    return last_start
+
+
+def heading_starts(text: str, heading: str) -> list[int]:
+    pattern = SECTION_RE_TEMPLATE.format(heading=re.escape(heading))
+    return [
+        match.start()
+        for match in re.finditer(pattern, text, re.MULTILINE)
+    ]
+
+
+def last_heading_start_before(text: str, heading: str, before: int) -> int | None:
+    last_start = None
+    for start in heading_starts(text, heading):
+        if start >= before:
+            break
+        last_start = start
     return last_start
 
 
@@ -175,6 +208,37 @@ def missing_gameplay_sections(response: str) -> list[str]:
     return missing
 
 
+def is_prompt_response_template(text: str, response_start: int, response: str, *, mode: str) -> bool:
+    response_starts = heading_starts(text, "## Response")
+    if len(response_starts) != 1:
+        return False
+
+    prompt_start = last_heading_start_before(text, "## Prompt", response_start)
+    if prompt_start is None:
+        return False
+
+    intro_context = text[max(prompt_start, response_start - 1200) : response_start]
+    if PROMPT_RESPONSE_TEMPLATE_INTRO_RE.search(intro_context) is None:
+        return False
+
+    if PROMPT_TEMPLATE_BODY_RE.search(response) is None:
+        return False
+
+    if mode == "gameplay-review":
+        return not missing_gameplay_sections(response)
+    return True
+
+
+def extract_final_response_body(text: str, *, mode: str) -> tuple[str | None, bool]:
+    response = extract_section_body(text, "## Response")
+    response_start = last_heading_start(text, "## Response")
+    if response is None or response_start is None:
+        return response, False
+    if is_prompt_response_template(text, response_start, response, mode=mode):
+        return None, True
+    return response, False
+
+
 def diagnose_text(
     text: str,
     *,
@@ -183,7 +247,7 @@ def diagnose_text(
     route_issue: str,
     expected_job_id: str | None,
 ) -> Diagnostic:
-    response = extract_section_body(text, "## Response")
+    response, prompt_response_template = extract_final_response_body(text, mode=mode)
     error_body = extract_section_body(text, "## Error")
     response_present = response is not None
     error_present = error_body is not None
@@ -251,7 +315,11 @@ def diagnose_text(
             ok=False,
             classification="missing_response",
             route_issue=route_issue,
-            reason="cron artifact has no final ## Response section.",
+            reason=(
+                "cron artifact has no final ## Response section outside the prompt template."
+                if prompt_response_template
+                else "cron artifact has no final ## Response section."
+            ),
             job_id=job_id,
             expected_job_id=expected_job_id,
             response_present=False,
