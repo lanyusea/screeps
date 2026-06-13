@@ -15055,6 +15055,84 @@ describe('selectWorkerTask', () => {
     });
   });
 
+  it('refills an empty secondary-room builder when nominal build coverage is path-failing', () => {
+    const site = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 479,
+      progressTotal: 500,
+      pos: makeRoomPosition(32, 20, 'E29N57')
+    } as ConstructionSite;
+    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 619_196, {
+      my: true,
+      pos: makeRoomPosition(35, 27, 'E29N57')
+    }) as StructureStorage;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const myCreeps: Creep[] = [];
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 1_800,
+      energyCapacityAvailable: 1_800,
+      myCreeps,
+      structures: [storage as AnyStructure]
+    });
+    (room as { storage?: StructureStorage }).storage = storage;
+    const failedBuilder = {
+      name: 'PathFailingBuilder',
+      memory: {
+        role: 'worker',
+        colony: 'E29N57',
+        task: { type: 'build', targetId: 'road-site1' as Id<ConstructionSite> },
+        buildActionTelemetry: {
+          lastResult: 'failed_no_path',
+          lastTargetId: 'road-site1',
+          lastTick: 2_118_775
+        }
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room
+    } as unknown as Creep;
+    const emptyBuilder = {
+      name: 'EmptyBuilder',
+      memory: { role: 'worker', colony: 'E29N57' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'storage-surplus' ? 1 : 8))
+      },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room
+    } as unknown as Creep;
+    myCreeps.push(failedBuilder, emptyBuilder);
+    setGameCreeps({ PathFailingBuilder: failedBuilder, EmptyBuilder: emptyBuilder });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      ...(globalThis as unknown as { Game: Partial<Game> }).Game,
+      time: 2_118_775
+    };
+
+    expect(selectWorkerTask(emptyBuilder)).toEqual({
+      type: 'withdraw',
+      targetId: 'storage-surplus',
+      constructionSiteId: 'road-site1'
+    });
+  });
+
   it('refills uncovered E29N57 source-container construction from storage before spawn recovery', () => {
     const source = makeSource('source1', 20, 20, 'E29N57');
     const site = {

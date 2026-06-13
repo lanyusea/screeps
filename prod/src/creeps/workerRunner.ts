@@ -86,6 +86,7 @@ const RANGED_WORK_MOVE_RANGE = 3;
 const EXACT_POSITION_MOVE_RANGE = 0;
 const BUILD_TARGET_STUCK_TICKS = 2;
 const BUILD_TARGET_SUPPRESSION_TICKS = 15;
+const BUILD_COVERAGE_FAILURE_MEMORY_TICKS = 3;
 const DEFAULT_BUILD_POWER = 5;
 const MIN_HAULER_DROPPED_ENERGY = 25;
 const SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS = 2;
@@ -641,6 +642,10 @@ function getOtherSameRoomBuildAssignmentProgress(creep: Creep): number {
 
     const task = worker.memory?.task;
     if (task?.type !== 'build' || getActiveWorkParts(worker) <= 0) {
+      return total;
+    }
+
+    if (hasRecentFailedBuildCoverage(worker, String(task.targetId))) {
       return total;
     }
 
@@ -1459,8 +1464,84 @@ function hasOtherSameRoomBuildAssignment(creep: Creep): boolean {
       return false;
     }
 
-    return worker.memory?.task?.type === 'build';
+    if (!isBuildCoverageWorker(worker)) {
+      return false;
+    }
+
+    return !hasRecentFailedBuildCoverage(worker, String(worker.memory.task.targetId));
   });
+}
+
+function isBuildCoverageWorker(
+  worker: Creep
+): worker is Creep & { memory: CreepMemory & { task: Extract<CreepTaskMemory, { type: 'build' }> } } {
+  return worker.memory?.task?.type === 'build' && getActiveWorkParts(worker) > 0;
+}
+
+function hasRecentFailedBuildCoverage(worker: Creep, siteId: string): boolean {
+  if (!siteId) {
+    return false;
+  }
+
+  return (
+    hasActiveBlockedBuildTarget(worker, siteId) ||
+    hasRecentBuildActionFailure(worker, siteId) ||
+    hasRecentBuildMovementFailure(worker, siteId)
+  );
+}
+
+function hasActiveBlockedBuildTarget(worker: Creep, siteId: string): boolean {
+  const blockedTarget = worker.memory?.blockedBuildTarget;
+  return Boolean(blockedTarget && String(blockedTarget.targetId) === siteId && blockedTarget.until > getGameTick());
+}
+
+function hasRecentBuildActionFailure(worker: Creep, siteId: string): boolean {
+  const telemetry = worker.memory?.buildActionTelemetry;
+  return (
+    telemetry?.lastTargetId === siteId &&
+    isRecentBuildCoverageTick(telemetry.lastTick) &&
+    isBuildCoverageFailureResult(telemetry.lastResult)
+  );
+}
+
+function isRecentBuildCoverageTick(lastTick: unknown): boolean {
+  const tick = getGameTick();
+  return (
+    typeof lastTick === 'number' &&
+    Number.isFinite(lastTick) &&
+    tick >= lastTick &&
+    tick - lastTick <= BUILD_COVERAGE_FAILURE_MEMORY_TICKS
+  );
+}
+
+function isBuildCoverageFailureResult(result: unknown): boolean {
+  return (
+    result === 'failed_no_energy' ||
+    result === 'failed_no_work' ||
+    result === 'failed_no_path' ||
+    result === 'failed_site_invalid' ||
+    result === 'suppressed_by_policy'
+  );
+}
+
+function hasRecentBuildMovementFailure(worker: Creep, siteId: string): boolean {
+  const telemetry = worker.memory?.behaviorTelemetry;
+  if (!telemetry) {
+    return false;
+  }
+
+  if (
+    telemetry.buildTargetStuckTargetId === siteId &&
+    (telemetry.buildTargetStuckTicks ?? 0) >= BUILD_TARGET_STUCK_TICKS
+  ) {
+    return true;
+  }
+
+  return (
+    telemetry.lastMoveToTask === 'build' &&
+    telemetry.lastMoveToTargetId === siteId &&
+    telemetry.lastMoveToResult === getErrNoPathCode()
+  );
 }
 
 function hasHealthyRoomEnergyBuffer(room: Room): boolean {

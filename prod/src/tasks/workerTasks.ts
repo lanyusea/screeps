@@ -114,6 +114,8 @@ export const ROUTINE_REPAIR_MIN_HITS_DEFICIT_RATIO = 0.1;
 export const ROUTINE_REPAIR_MAX_RANGE = 5;
 export const BUILDER_STORAGE_WITHDRAW_MIN = 100;
 export const BUILDER_DROPPED_PICKUP_RANGE = 5;
+const BUILD_COVERAGE_FAILURE_MEMORY_TICKS = 3;
+const BUILD_TARGET_STUCK_COVERAGE_TICKS = 2;
 const DEFAULT_SPAWN_ENERGY_CAPACITY = 300;
 const LOW_WORKER_THROUGHPUT_WORKER_COUNT = 3;
 const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
@@ -155,6 +157,7 @@ const SPAWN_RECOVERY_SOURCE_LOAD_BALANCE_ETA_TOLERANCE = 1;
 const ROAD_TRAVEL_COST = 1;
 const PLAIN_TRAVEL_COST = 2;
 const SWAMP_TRAVEL_COST = 10;
+const ERR_NO_PATH_CODE = -2;
 const HARVEST_SOURCE_RANGE = 1;
 const HARVEST_SOURCE_CONTAINER_RANGE = 0;
 const MAX_HARVEST_PATH_OPS = 2_000;
@@ -4205,6 +4208,10 @@ function createConstructionReservationContext(room: Room): ConstructionReservati
     }
 
     const siteId = String(task.targetId);
+    if (getActiveWorkParts(worker) <= 0 || hasRecentFailedBuildCoverage(worker, siteId)) {
+      continue;
+    }
+
     reservedProgressBySiteId.set(
       siteId,
       (reservedProgressBySiteId.get(siteId) ?? 0) + getUsedEnergy(worker) * getBuildPower()
@@ -4229,6 +4236,78 @@ function getRoomOwnedCreeps(room: Room): Creep[] {
 function isWorkerAssignedToConstructionSite(worker: Creep, site: ConstructionSite): boolean {
   const task = worker.memory?.task as Partial<CreepTaskMemory> | undefined;
   return task?.type === 'build' && String(task.targetId) === String(site.id);
+}
+
+function hasRecentFailedBuildCoverage(worker: Creep, siteId: string): boolean {
+  if (!siteId) {
+    return false;
+  }
+
+  return (
+    hasActiveBlockedBuildTarget(worker, siteId) ||
+    hasRecentBuildActionFailure(worker, siteId) ||
+    hasRecentBuildMovementFailure(worker, siteId)
+  );
+}
+
+function hasActiveBlockedBuildTarget(worker: Creep, siteId: string): boolean {
+  const blockedTarget = worker.memory?.blockedBuildTarget;
+  if (!blockedTarget || String(blockedTarget.targetId) !== siteId) {
+    return false;
+  }
+
+  const tick = getGameTick();
+  return tick === null || blockedTarget.until > tick;
+}
+
+function hasRecentBuildActionFailure(worker: Creep, siteId: string): boolean {
+  const telemetry = worker.memory?.buildActionTelemetry;
+  return (
+    telemetry?.lastTargetId === siteId &&
+    isRecentBuildCoverageTick(telemetry.lastTick) &&
+    isBuildCoverageFailureResult(telemetry.lastResult)
+  );
+}
+
+function isRecentBuildCoverageTick(lastTick: unknown): boolean {
+  const tick = getGameTick();
+  return (
+    tick !== null &&
+    typeof lastTick === 'number' &&
+    Number.isFinite(lastTick) &&
+    tick >= lastTick &&
+    tick - lastTick <= BUILD_COVERAGE_FAILURE_MEMORY_TICKS
+  );
+}
+
+function isBuildCoverageFailureResult(result: unknown): boolean {
+  return (
+    result === 'failed_no_energy' ||
+    result === 'failed_no_work' ||
+    result === 'failed_no_path' ||
+    result === 'failed_site_invalid' ||
+    result === 'suppressed_by_policy'
+  );
+}
+
+function hasRecentBuildMovementFailure(worker: Creep, siteId: string): boolean {
+  const telemetry = worker.memory?.behaviorTelemetry;
+  if (!telemetry) {
+    return false;
+  }
+
+  if (
+    telemetry.buildTargetStuckTargetId === siteId &&
+    (telemetry.buildTargetStuckTicks ?? 0) >= BUILD_TARGET_STUCK_COVERAGE_TICKS
+  ) {
+    return true;
+  }
+
+  return (
+    telemetry.lastMoveToTask === 'build' &&
+    telemetry.lastMoveToTargetId === siteId &&
+    telemetry.lastMoveToResult === ERR_NO_PATH_CODE
+  );
 }
 
 function selectFinishPriorityConstructionSite(
@@ -5409,11 +5488,20 @@ function selectLowLoadConstructionCoverageTask(
 
 function hasOtherSameRoomBuildCoverageWorker(creep: Creep): boolean {
   return getSameRoomLoadedWorkers(creep).some(
-    (worker) =>
-      !isSameCreep(worker, creep) &&
-      worker.memory?.task?.type === 'build' &&
-      getActiveWorkParts(worker) > 0
+    (worker) => {
+      if (!isBuildCoverageWorker(worker) || isSameCreep(worker, creep)) {
+        return false;
+      }
+
+      return !hasRecentFailedBuildCoverage(worker, String(worker.memory.task.targetId));
+    }
   );
+}
+
+function isBuildCoverageWorker(
+  worker: Creep
+): worker is Creep & { memory: CreepMemory & { task: Extract<CreepTaskMemory, { type: 'build' }> } } {
+  return worker.memory?.task?.type === 'build' && getActiveWorkParts(worker) > 0;
 }
 
 function hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep: Creep): boolean {
