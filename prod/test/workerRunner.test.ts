@@ -8128,6 +8128,162 @@ describe('runWorker', () => {
     }
   });
 
+  it('keeps a low-load postdeploy harvester acquiring before assignment-gap construction recovery', () => {
+    const source = {
+      id: 'source1',
+      energy: 3_000
+    } as Source;
+    const site = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 955,
+      progressTotal: 5_000,
+      pos: { x: 22, y: 21, roomName: 'E29N55' } as RoomPosition
+    } as ConstructionSite;
+    const extension = {
+      id: 'extension1',
+      structureType: 'extension',
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+      }
+    } as unknown as StructureExtension;
+    const storage = {
+      id: 'storage1',
+      structureType: 'storage',
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 2_233 : 0)),
+        getFreeCapacity: jest.fn().mockReturnValue(10_000)
+      }
+    } as unknown as StructureStorage;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const roomCreeps: Creep[] = [];
+    const room = {
+      name: 'E29N55',
+      energyAvailable: 2_233,
+      energyCapacityAvailable: 2_300,
+      controller,
+      storage,
+      find: jest.fn(
+        (type: number, options?: { filter?: (object: AnyOwnedStructure | Creep) => boolean }) => {
+          if (type === FIND_MY_STRUCTURES) {
+            const structures = [extension, storage] as unknown as AnyOwnedStructure[];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          if (type === FIND_STRUCTURES) {
+            return [extension, storage];
+          }
+
+          if (type === FIND_MY_CREEPS) {
+            return options?.filter ? roomCreeps.filter(options.filter) : roomCreeps;
+          }
+
+          if (type === FIND_CONSTRUCTION_SITES) {
+            return [site];
+          }
+
+          if (type === FIND_SOURCES) {
+            return [source];
+          }
+
+          if (type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+            return [];
+          }
+
+          return [];
+        }
+      )
+    } as unknown as Room;
+    const build = jest.fn();
+    const harvest = jest.fn().mockReturnValue(0);
+    const transfer = jest.fn();
+    const selectedTransferTask = { type: 'transfer', targetId: 'extension1' as Id<AnyStoreStructure> } as const;
+    const creep = {
+      name: 'worker-E29N55-2122408',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'harvest', targetId: 'source1' as Id<Source> }
+      },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 6 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 94 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room,
+      build,
+      harvest,
+      transfer,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    const coverageWorker = {
+      name: 'worker-E29N55-coverage',
+      memory: { role: 'worker', colony: 'E29N55' },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room
+    } as unknown as Creep;
+    roomCreeps.push(creep, coverageWorker);
+    const selectWorkerTask = jest.spyOn(workerTasks, 'selectWorkerTask').mockReturnValue(selectedTransferTask);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { [creep.name]: creep, [coverageWorker.name]: coverageWorker },
+      rooms: { E29N55: room },
+      time: 2_123_184,
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'road-site1') {
+          return site;
+        }
+
+        if (id === 'source1') {
+          return source;
+        }
+
+        if (id === 'extension1') {
+          return extension;
+        }
+
+        return id === 'storage1' ? storage : null;
+      })
+    };
+
+    try {
+      runWorker(creep);
+
+      expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+      expect(creep.memory.workerDispatchDiagnostic).toMatchObject({
+        tick: 2_123_184,
+        reason: 'retained_low_load_energy_acquisition',
+        carriedEnergy: 6,
+        freeCapacity: 94,
+        currentTask: 'harvest',
+        currentTargetId: 'source1',
+        baseSelectedTask: 'transfer',
+        baseSelectedTargetId: 'extension1',
+        selectedTask: 'transfer',
+        selectedTargetId: 'extension1',
+        assignedTask: 'harvest',
+        assignedTargetId: 'source1'
+      });
+      expect(creep.memory.workerDispatchDiagnostic?.reason).not.toBe('preempted_for_urgent_spending');
+      expect(harvest).toHaveBeenCalledWith(source);
+      expect(build).not.toHaveBeenCalled();
+      expect(transfer).not.toHaveBeenCalled();
+    } finally {
+      selectWorkerTask.mockRestore();
+    }
+  });
+
   it('recovers construction assignment from retained controller progress when stored energy can cover construction', () => {
     const site = {
       id: 'road-site1',
@@ -9009,6 +9165,127 @@ describe('runWorker', () => {
       assignedTask: 'withdraw'
     });
     expect(withdraw).toHaveBeenCalledWith(storage, RESOURCE_ENERGY, 100);
+  });
+
+  it('turns an empty retained build assignment into construction energy withdrawal', () => {
+    const site = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 4_886,
+      progressTotal: 5_000,
+      pos: {
+        getRangeTo: jest.fn((target: RoomObject) => (String((target as { id?: string }).id) === 'storage1' ? 3 : 99))
+      }
+    } as unknown as ConstructionSite;
+    const storage = {
+      id: 'storage1',
+      structureType: 'storage',
+      pos: {
+        getRangeTo: jest.fn((target: RoomObject) => (String((target as { id?: string }).id) === 'AssignedBuilder' ? 3 : 1))
+      },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 590_234 : 0)),
+        getFreeCapacity: jest.fn().mockReturnValue(10_000)
+      }
+    } as unknown as StructureStorage;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const roomCreeps: Creep[] = [];
+    const room = {
+      name: 'E29N57',
+      energyAvailable: 1_800,
+      energyCapacityAvailable: 1_800,
+      controller,
+      storage,
+      find: jest.fn(
+        (type: number, options?: { filter?: (object: AnyOwnedStructure | Creep) => boolean }) => {
+          if (type === FIND_MY_STRUCTURES) {
+            const structures = [storage] as unknown as AnyOwnedStructure[];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          if (type === FIND_STRUCTURES) {
+            return [storage];
+          }
+
+          if (type === FIND_MY_CREEPS) {
+            return options?.filter ? roomCreeps.filter(options.filter) : roomCreeps;
+          }
+
+          if (type === FIND_CONSTRUCTION_SITES) {
+            return [site];
+          }
+
+          if (type === FIND_HOSTILE_CREEPS || type === FIND_SOURCES || type === FIND_DROPPED_RESOURCES) {
+            return [];
+          }
+
+          return [];
+        }
+      )
+    } as unknown as Room;
+    const build = jest.fn();
+    const withdraw = jest.fn().mockReturnValue(0);
+    const creep = {
+      name: 'AssignedBuilder',
+      memory: {
+        role: 'worker',
+        colony: 'E29N57',
+        task: { type: 'build', targetId: 'road-site1' as Id<ConstructionSite> }
+      },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      pos: {
+        getRangeTo: jest.fn((target: RoomObject) => (String((target as { id?: string }).id) === 'storage1' ? 3 : 99))
+      },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room,
+      build,
+      withdraw,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    roomCreeps.push(creep);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { AssignedBuilder: creep },
+      rooms: { E29N57: room },
+      time: 2_123_185,
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'road-site1') {
+          return site;
+        }
+
+        return id === 'storage1' ? storage : null;
+      })
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({
+      type: 'withdraw',
+      targetId: 'storage1',
+      constructionSiteId: 'road-site1'
+    });
+    expect(creep.memory.workerDispatchDiagnostic).toMatchObject({
+      tick: 2_123_185,
+      reason: 'preempted_for_new_task',
+      currentTask: 'build',
+      currentTargetId: 'road-site1',
+      baseSelectedTask: 'withdraw',
+      baseSelectedTargetId: 'storage1',
+      selectedTask: 'withdraw',
+      selectedTargetId: 'storage1',
+      assignedTask: 'withdraw',
+      assignedTargetId: 'storage1'
+    });
+    expect(withdraw).toHaveBeenCalledWith(storage, RESOURCE_ENERGY, 100);
+    expect(build).not.toHaveBeenCalled();
   });
 
   it('preempts an E29N55 tower refill transfer for construction backlog while CPU shedding', () => {

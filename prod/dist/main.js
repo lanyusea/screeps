@@ -35196,7 +35196,7 @@ function selectWorkerAssignmentGapRecoveryTask(creep, currentTask, selectionCont
   if (!isWorkerAssignmentGapRecoverySelection(creep, currentTask, selectionContext.selectedTask)) {
     return null;
   }
-  if (getUsedTransferEnergy(creep) <= 0 || getActiveWorkParts3(creep) <= 0 || !hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) || hasVisibleHostileCreeps2(creep.room) || currentTask && isDedicatedSourceContainerHarvestTask(creep, currentTask)) {
+  if (getUsedTransferEnergy(creep) <= 0 || hasLowWorkerEnergyLoad(creep) || getActiveWorkParts3(creep) <= 0 || !hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) || hasVisibleHostileCreeps2(creep.room) || currentTask && isDedicatedSourceContainerHarvestTask(creep, currentTask)) {
     return null;
   }
   const constructionSite = selectWorkerAssignmentGapRecoveryConstructionSite(creep);
