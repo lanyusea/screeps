@@ -35204,7 +35204,12 @@ function hasSafeAssignmentGapRecoveryConstructionEnergy(creep, recoveryTask) {
   if (spawnReservationTarget) {
     return shouldDeferSpawnReservationRefillForProductiveWork(creep, recoveryTask, spawnReservationTarget);
   }
-  return !hasActiveSpawningSpawn2(creep.room) && (hasHealthyRoomEnergyBuffer2(creep.room) || hasStoredEnergyForAssignmentGapRecoveryConstruction(creep.room) || hasCoveredStoredEnergyForAssignmentGapRecoveryConstruction(creep, getTaskTarget(recoveryTask)));
+  const hasStoredConstructionEnergy = hasStoredEnergyForAssignmentGapRecoveryConstruction(creep.room);
+  const hasSafeConstructionEnergy = hasHealthyRoomEnergyBuffer2(creep.room) || hasStoredConstructionEnergy || hasCoveredStoredEnergyForAssignmentGapRecoveryConstruction(creep, getTaskTarget(recoveryTask));
+  if (!hasSafeConstructionEnergy) {
+    return false;
+  }
+  return !hasActiveSpawningSpawn2(creep.room) || hasStoredConstructionEnergy;
 }
 function hasStoredEnergyForAssignmentGapRecoveryConstruction(room) {
   const energyAvailable = getRoomEnergyAvailable13(room);
