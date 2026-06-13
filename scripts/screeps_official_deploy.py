@@ -40,6 +40,7 @@ DEFAULT_TIMEOUT_SECONDS = 30
 DEFAULT_MONITOR_TIMEOUT_SECONDS = 660
 DEFAULT_ROLLBACK_RECOVERY_TIMEOUT_SECONDS = 300
 DEFAULT_ROLLBACK_RECOVERY_POLL_SECONDS = 15
+DEFAULT_POSTDEPLOY_CONSOLE_CAPTURE_TIMEOUT_SECONDS = 45
 AUTH_TOKEN_ENV = "SCREEPS_AUTH_TOKEN"
 SECRET_KEY_RE = re.compile(r"(authorization|password|secret|steam[_-]?key|token|x[_-]?token|x[_-]?username)", re.I)
 BRANCH_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -937,6 +938,44 @@ def run_monitor_json(
     return payload
 
 
+def postdeploy_runtime_summary_console_dir(cfg: DeployConfig) -> Path:
+    """Return the post-deploy console telemetry directory for this checkout."""
+    return cfg.repo_root / "runtime-artifacts" / "runtime-summary-console"
+
+
+def run_postdeploy_console_capture(
+    cfg: DeployConfig,
+    *,
+    env: dict[str, str] | None = None,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> subprocess.CompletedProcess[str]:
+    """Capture compact runtime console telemetry for the post-deploy health gate."""
+    script = cfg.repo_root / "scripts" / "screeps_runtime_summary_console_capture.py"
+    out_dir = postdeploy_runtime_summary_console_dir(cfg)
+    return run_checked_command(
+        "runtime summary console capture",
+        [
+            sys.executable,
+            str(script),
+            "--live-official-console",
+            "--out-dir",
+            str(out_dir),
+            "--artifact-name",
+            "postdeploy-runtime-summary-console.log",
+            "--format",
+            "status-line",
+            "--live-timeout-seconds",
+            str(DEFAULT_POSTDEPLOY_CONSOLE_CAPTURE_TIMEOUT_SECONDS),
+        ],
+        cwd=cfg.repo_root,
+        env=monitor_env(env, cfg),
+        runner=runner,
+        timeout_seconds=DEFAULT_POSTDEPLOY_CONSOLE_CAPTURE_TIMEOUT_SECONDS + 15,
+        allow_failure=True,
+        secrets=[(env or os.environ).get(AUTH_TOKEN_ENV, "")],
+    )
+
+
 def run_postdeploy_health_gate(
     cfg: DeployConfig,
     *,
@@ -945,15 +984,36 @@ def run_postdeploy_health_gate(
 ) -> dict[str, Any]:
     """Capture post-deploy summary/alert evidence and evaluate the health gate."""
     cfg.evidence_dir.mkdir(parents=True, exist_ok=True)
-    out_dir = cfg.repo_root / "runtime-artifacts" / "screeps-monitor"
+    monitor_out_dir = cfg.repo_root / "runtime-artifacts" / "screeps-monitor"
+    runtime_summary_dir = postdeploy_runtime_summary_console_dir(cfg)
     summary_path = cfg.evidence_dir / "postdeploy-summary.json"
     alert_path = cfg.evidence_dir / "postdeploy-alert.json"
     health_path = postdeploy_health_gate_path(cfg)
 
-    run_monitor_json(cfg, ["summary", "--out-dir", str(out_dir)], summary_path, env=env, runner=runner)
+    run_postdeploy_console_capture(cfg, env=env, runner=runner)
     run_monitor_json(
         cfg,
-        ["alert", "--out-dir", str(out_dir), "--force-alert-image"],
+        [
+            "summary",
+            "--out-dir",
+            str(monitor_out_dir),
+            "--runtime-summary-out-dir",
+            str(runtime_summary_dir),
+        ],
+        summary_path,
+        env=env,
+        runner=runner,
+    )
+    run_monitor_json(
+        cfg,
+        [
+            "alert",
+            "--out-dir",
+            str(monitor_out_dir),
+            "--runtime-summary-dir",
+            str(runtime_summary_dir),
+            "--force-alert-image",
+        ],
         alert_path,
         env=env,
         runner=runner,

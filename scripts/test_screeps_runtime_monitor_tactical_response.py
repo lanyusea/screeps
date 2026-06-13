@@ -2143,6 +2143,8 @@ class TacticalResponseBridgeTest(unittest.TestCase):
                             "creeps": 1,
                             "spawns": 1,
                             "owner": "owner",
+                            "constructionSiteCount": 0,
+                            "pendingBuildProgress": 0,
                         }
                     ],
                     "runtime_summary_artifact": str(artifact),
@@ -2154,6 +2156,54 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         cpu_reason = next(reason for reason in health["reasons"] if reason["kind"] == monitor.CPU_BUCKET_CRITICAL_KIND)
         self.assertEqual(cpu_reason["cpuBucket"], 4)
         self.assertEqual(cpu_reason["pressure"], "critical")
+
+    def test_postdeploy_health_gate_enriches_compact_cpu_fields_from_runtime_summary_artifact(self) -> None:
+        payload = {
+            "type": "runtime-summary",
+            "tick": 1200,
+            "cpu": {"used": None, "bucket": None},
+            "rooms": [
+                {
+                    "roomName": "E26S49",
+                    "shard": "shardX",
+                    "workerCount": 1,
+                    "cpuUsed": None,
+                    "cpuBucket": None,
+                }
+            ],
+        }
+        compact_cpu_payload = {"used": 13.1, "limit": 70, "bucket": 1775}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact = Path(temp_dir) / "runtime-summary-monitor-20260529T001418Z.log"
+            artifact.write_text(
+                "#runtime-summary " + json.dumps(payload) + "\n"
+                "#cpu-summary " + json.dumps(compact_cpu_payload) + "\n",
+                encoding="utf-8",
+            )
+
+            health = monitor.evaluate_postdeploy_health_gate(
+                {
+                    "ok": True,
+                    "mode": "summary",
+                    "room_summaries": [
+                        {
+                            "room": "shardX/E26S49",
+                            "owned_creeps": 1,
+                            "owned_spawns": 1,
+                            "creeps": 1,
+                            "spawns": 1,
+                            "owner": "owner",
+                            "constructionSiteCount": 0,
+                            "pendingBuildProgress": 0,
+                        }
+                    ],
+                    "runtime_summary_artifact": str(artifact),
+                },
+                {"ok": True, "mode": "alert", "alert": False, "reasons": [], "rooms": ["shardX/E26S49"]},
+            )
+
+        self.assertTrue(health["ok"], health["reasons"])
 
     def test_compact_cpu_summary_alerts_health_gate_and_tactical_response(self) -> None:
         old_room_payload = {
@@ -4406,6 +4456,35 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(payload["rooms"][0]["roomName"], "E26S49")
         self.assertEqual(payload["rooms"][0]["constructionActivity"]["state"], "no_viable_candidate")
         self.assertFalse(payload["rooms"][0]["constructionActivity"]["accepted"])
+
+    def test_runtime_summary_artifact_line_applies_external_cpu_evidence(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E26S49"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects={},
+            tick=265631,
+            owner="lanyusea",
+            info={},
+        )
+
+        line = monitor.runtime_summary_artifact_line(
+            [snapshot],
+            runtime_room_summaries={
+                "shardX/E26S49": {
+                    "room": "shardX/E26S49",
+                    "roomName": "E26S49",
+                    "shard": "shardX",
+                    "cpuUsed": 13.1,
+                    "cpuBucket": 1775,
+                    monitor.RUNTIME_SUMMARY_CPU_METADATA_KEY: {"used": 13.1, "bucket": 1775},
+                }
+            },
+        )
+
+        payload = json.loads(line.split(" ", 1)[1])
+        self.assertEqual(payload["cpu"], {"used": 13.1, "bucket": 1775})
+        self.assertEqual(payload["rooms"][0]["cpuUsed"], 13.1)
+        self.assertEqual(payload["rooms"][0]["cpuBucket"], 1775)
 
     def test_runtime_summary_preserves_explicit_pathing_totals(self) -> None:
         snapshot = monitor.RoomSnapshot(

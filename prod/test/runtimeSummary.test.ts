@@ -435,6 +435,22 @@ describe('runtime telemetry summaries', () => {
     expect(logSpy).not.toHaveBeenCalled();
   });
 
+  it('emits compact healthy CPU evidence on the short CPU cadence without a full room summary', () => {
+    const colony = makeColony({ time: 5 });
+
+    emitRuntimeSummary([colony], []);
+
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const [message] = logSpy.mock.calls[0];
+    expect(typeof message).toBe('string');
+    expect((message as string).startsWith(RUNTIME_CPU_SUMMARY_PREFIX)).toBe(true);
+    const payload = JSON.parse((message as string).slice(RUNTIME_CPU_SUMMARY_PREFIX.length)) as Record<string, unknown>;
+    expect(payload).toEqual({
+      used: 4.2,
+      bucket: 9000
+    });
+  });
+
   it('emits compact CPU alerts without a full room summary under degraded cadence', () => {
     const colony = makeColony({ time: 1 });
     (Game as Partial<Game>).cpu = {
@@ -1447,7 +1463,12 @@ describe('runtime telemetry summaries', () => {
       emitRuntimeSummary([colony], [worker], [], { persistOccupationRecommendations: false });
     }
 
-    expect(logSpy).not.toHaveBeenCalled();
+    expect(
+      logSpy.mock.calls.every(([message]) =>
+        typeof message === 'string' && message.startsWith(RUNTIME_CPU_SUMMARY_PREFIX)
+      )
+    ).toBe(true);
+    expect(logSpy).toHaveBeenCalledTimes(3);
     expect(roomFind).toHaveBeenCalledTimes(RUNTIME_SUMMARY_INTERVAL - 1);
     expect(roomFind.mock.calls.every(([findType]) => findType === TEST_GLOBALS.FIND_MY_CONSTRUCTION_SITES)).toBe(true);
     expect(getEventLog).not.toHaveBeenCalled();

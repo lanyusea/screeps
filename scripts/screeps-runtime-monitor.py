@@ -5079,7 +5079,11 @@ def render_room_snapshot(
     return png_path.resolve()
 
 
-def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, Any]:
+def room_summary(
+    snapshot: RoomSnapshot,
+    image: str | None = None,
+    runtime_room_summary: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     info = snapshot.info if isinstance(snapshot.info, dict) else {}
     hostiles = detect_hostile_creeps(snapshot.objects, snapshot.owner)
     metrics = compute_room_summary_metrics(snapshot)
@@ -5139,7 +5143,7 @@ def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, 
         summary["behavior"] = {"totals": behavior_totals}
     if image:
         summary["image"] = image
-    return summary
+    return room_with_runtime_cpu_evidence(summary, runtime_room_summary)
 
 
 def summarize_rooms(snapshots: list[RoomSnapshot]) -> dict[str, Any]:
@@ -5404,8 +5408,8 @@ def runtime_summary_room_with_metadata(
     return result
 
 
-def runtime_cpu_summary_room(ref: RoomRef, cpu: dict[str, Any]) -> dict[str, Any]:
-    result: dict[str, Any] = {"room": ref.key, "roomName": ref.room, "shard": ref.shard}
+def runtime_cpu_summary_fields(cpu: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
     used = number_value(cpu.get("used"))
     if used is not None:
         result["cpuUsed"] = used
@@ -5419,6 +5423,15 @@ def runtime_cpu_summary_room(ref: RoomRef, cpu: dict[str, Any]) -> dict[str, Any
     if low_bucket_ticks is not None:
         result["lowBucketTicks"] = low_bucket_ticks
     return result
+
+
+def runtime_cpu_summary_room(ref: RoomRef, cpu: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "room": ref.key,
+        "roomName": ref.room,
+        "shard": ref.shard,
+        **runtime_cpu_summary_fields(cpu),
+    }
 
 
 def runtime_summary_room_with_cpu_fields(base: dict[str, Any], cpu_room: dict[str, Any]) -> dict[str, Any]:
@@ -5446,6 +5459,19 @@ def runtime_summary_room_with_cpu_fields(base: dict[str, Any], cpu_room: dict[st
         if field in cpu_room:
             result[field] = cpu_room[field]
     return result
+
+
+def room_with_runtime_cpu_evidence(
+    room: dict[str, Any],
+    runtime_room_summary: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(runtime_room_summary, dict):
+        return room
+    if not runtime_summary_room_has_cpu_fields(runtime_room_summary) and not as_dict(
+        runtime_room_summary.get(RUNTIME_SUMMARY_CPU_METADATA_KEY)
+    ):
+        return room
+    return runtime_summary_room_with_cpu_fields(room, runtime_room_summary)
 
 
 def runtime_summary_capture_history_entry(room: dict[str, Any]) -> dict[str, Any]:
@@ -7056,21 +7082,38 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
     return summary
 
 
-def runtime_summary_payload_from_snapshots(snapshots: list[RoomSnapshot]) -> dict[str, Any]:
+def runtime_summary_payload_from_snapshots(
+    snapshots: list[RoomSnapshot],
+    runtime_room_summaries: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     ticks = [snapshot.tick for snapshot in snapshots if isinstance(snapshot.tick, int)]
+    rooms = [
+        room_with_runtime_cpu_evidence(
+            runtime_summary_room(snapshot),
+            runtime_room_summaries.get(snapshot.ref.key) if runtime_room_summaries is not None else None,
+        )
+        for snapshot in snapshots
+    ]
     cpu_used = next((value for value in (snapshot_cpu_used(snapshot) for snapshot in snapshots) if value is not None), None)
+    if cpu_used is None:
+        cpu_used = next((runtime_cpu_used(room) for room in rooms if runtime_cpu_used(room) is not None), None)
     cpu_bucket = next((value for value in (snapshot_cpu_bucket(snapshot) for snapshot in snapshots) if value is not None), None)
+    if cpu_bucket is None:
+        cpu_bucket = next((runtime_cpu_bucket(room) for room in rooms if runtime_cpu_bucket(room) is not None), None)
     return {
         "type": "runtime-summary",
         "tick": max(ticks) if ticks else None,
-        "rooms": [runtime_summary_room(snapshot) for snapshot in snapshots],
+        "rooms": rooms,
         "cpu": {"used": cpu_used, "bucket": cpu_bucket},
         "source": MONITOR_RUNTIME_SUMMARY_SOURCE,
     }
 
 
-def runtime_summary_artifact_line(snapshots: list[RoomSnapshot]) -> str:
-    payload = runtime_summary_payload_from_snapshots(snapshots)
+def runtime_summary_artifact_line(
+    snapshots: list[RoomSnapshot],
+    runtime_room_summaries: dict[str, dict[str, Any]] | None = None,
+) -> str:
+    payload = runtime_summary_payload_from_snapshots(snapshots, runtime_room_summaries=runtime_room_summaries)
     return "#runtime-summary " + json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
 
 
@@ -7102,10 +7145,14 @@ def link_artifact_exclusively(temp_path: Path, path: Path) -> Path:
     raise FileExistsError(f"could not choose a unique artifact path for {path}")
 
 
-def write_runtime_summary_artifact(snapshots: list[RoomSnapshot], out_dir: Path) -> Path:
+def write_runtime_summary_artifact(
+    snapshots: list[RoomSnapshot],
+    out_dir: Path,
+    runtime_room_summaries: dict[str, dict[str, Any]] | None = None,
+) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     target = out_dir / runtime_summary_artifact_name()
-    payload = runtime_summary_artifact_line(snapshots)
+    payload = runtime_summary_artifact_line(snapshots, runtime_room_summaries=runtime_room_summaries)
     temp_fd: int | None = None
     temp_path: Path | None = None
     try:
@@ -7502,20 +7549,46 @@ def runtime_summary_lookup_keys(room: dict[str, Any]) -> list[str]:
 
 
 def load_runtime_summary_artifact_rooms(artifact_path: str) -> dict[str, dict[str, Any]]:
+    path = Path(artifact_path)
     try:
-        lines = Path(artifact_path).read_text(encoding="utf-8").splitlines()
+        lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
         return {}
 
+    cpu_room: dict[str, Any] | None = None
+    cpu_key: tuple[bool, float, int, bool, int, str] | None = None
+    for line_index, line in enumerate(lines):
+        cpu_payload = parse_runtime_cpu_summary_line(line)
+        if cpu_payload is None:
+            continue
+        candidate_key = runtime_summary_freshness_key(cpu_payload, path, line_index)
+        if cpu_key is not None and candidate_key <= cpu_key:
+            continue
+        cpu = as_dict(cpu_payload.get("cpu"))
+        cpu_room = runtime_summary_room_with_metadata(
+            cpu_payload,
+            path,
+            runtime_cpu_summary_fields(cpu),
+            line_index,
+        )
+        cpu_key = candidate_key
+
     result: dict[str, dict[str, Any]] = {}
-    for line in reversed(lines):
+    for line_index, line in reversed(list(enumerate(lines))):
         payload = parse_runtime_summary_line(line)
         if payload is None:
             continue
+        runtime_key = runtime_summary_freshness_key(payload, path, line_index)
         for room in payload_runtime_rooms(payload):
             if not runtime_summary_room_has_monitor_alert_fields(room, payload):
                 continue
-            runtime_room = runtime_summary_room_with_metadata(payload, Path(artifact_path), room)
+            runtime_room = runtime_summary_room_with_metadata(payload, path, room, line_index)
+            if cpu_room is not None and (
+                not runtime_summary_room_has_cpu_fields(runtime_room)
+                or cpu_key is not None
+                and cpu_key > runtime_key
+            ):
+                runtime_room = runtime_summary_room_with_cpu_fields(runtime_room, cpu_room)
             for key in runtime_summary_lookup_keys(room):
                 result.setdefault(key, runtime_room)
         if result:
@@ -7935,6 +8008,16 @@ def command_health_gate(args: argparse.Namespace) -> int:
 def command_summary(args: argparse.Namespace) -> int:
     ctx = context_from_env(args.world_profile)
     snapshots, warnings, overview_refs = collect_snapshots(ctx, args.room)
+    runtime_room_summaries = (
+        load_latest_runtime_room_summaries(
+            Path(args.runtime_summary_out_dir).expanduser(),
+            [snapshot.ref for snapshot in snapshots],
+            warnings,
+            disambiguation_refs=overview_refs,
+        )
+        if not args.no_runtime_summary_artifact
+        else {}
+    )
     images: list[str] = []
     room_summaries: list[dict[str, Any]] = []
     out_dir = Path(args.out_dir)
@@ -7945,12 +8028,24 @@ def command_summary(args: argparse.Namespace) -> int:
             images.append(image)
         except Exception as exc:  # noqa: BLE001 - JSON summary evidence must survive renderer outages
             warnings.append(f"summary image render failed for {snapshot.ref.key}: {short_text(redact_secrets(str(exc), [ctx.token]), 180)}")
-        room_summaries.append(room_summary(snapshot, image=image))
+        room_summaries.append(
+            room_summary(
+                snapshot,
+                image=image,
+                runtime_room_summary=runtime_room_summaries.get(snapshot.ref.key),
+            )
+        )
 
     runtime_summary_artifact: str | None = None
     if not args.no_runtime_summary_artifact:
         try:
-            runtime_summary_artifact = str(write_runtime_summary_artifact(snapshots, Path(args.runtime_summary_out_dir)))
+            runtime_summary_artifact = str(
+                write_runtime_summary_artifact(
+                    snapshots,
+                    Path(args.runtime_summary_out_dir),
+                    runtime_room_summaries=runtime_room_summaries,
+                )
+            )
         except Exception as exc:  # noqa: BLE001 - keep image delivery alive; report sanitized warning
             warnings.append(f"runtime-summary artifact unavailable: {short_text(exc, 160)}")
 

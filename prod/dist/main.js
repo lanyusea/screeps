@@ -42390,7 +42390,7 @@ var RUNTIME_SUMMARY_PREFIX = "#runtime-summary ";
 var RUNTIME_CPU_SUMMARY_PREFIX = "#cpu-summary ";
 var RUNTIME_SUMMARY_INTERVAL = 20;
 var DEGRADED_RUNTIME_SUMMARY_INTERVAL = RUNTIME_SUMMARY_INTERVAL * 5;
-var RUNTIME_CPU_SUMMARY_REPEAT_INTERVAL = DEGRADED_RUNTIME_SUMMARY_INTERVAL;
+var RUNTIME_CPU_SUMMARY_REPEAT_INTERVAL = 5;
 var MAX_REPORTED_EVENTS = 10;
 var MAX_WORKER_EFFICIENCY_SAMPLES = 5;
 var MAX_WORKER_BEHAVIOR_SAMPLES = 10;
@@ -45170,7 +45170,7 @@ function shouldEmitRuntimeCpuSummary(cpu, tick) {
   const previousSignal = getPreviousRuntimeCpuSummarySignal(tick);
   recordRuntimeCpuSummarySignal(signal, tick);
   if (!signal) {
-    return false;
+    return isRuntimeCpuSummaryRepeatTick(tick);
   }
   return signal !== previousSignal || isRuntimeCpuSummaryRepeatTick(tick);
 }

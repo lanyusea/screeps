@@ -136,6 +136,12 @@ jobs:
           SCREEPS_MONITOR_CACHE_DIR: runtime-artifacts/screeps-monitor/terrain-cache
         run: |
           mkdir -p runtime-artifacts/runtime-summary-console
+          python3 scripts/screeps_runtime_summary_console_capture.py \
+            --live-official-console \
+            --out-dir runtime-artifacts/runtime-summary-console \
+            --artifact-name postdeploy-runtime-summary-console.log \
+            --format status-line \
+            --live-timeout-seconds 45 || true
           python3 scripts/screeps-runtime-monitor.py summary \
             --out-dir runtime-artifacts/screeps-monitor \
             --runtime-summary-out-dir runtime-artifacts/runtime-summary-console \
