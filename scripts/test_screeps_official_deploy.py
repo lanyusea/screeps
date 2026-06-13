@@ -592,15 +592,24 @@ class OfficialDeployTest(unittest.TestCase):
             self.assertTrue(health_gate["ok"])
             self.assertTrue(default_path.exists())
 
-    def test_official_deploy_workflow_installs_websockets_before_live_console_capture(self) -> None:
+    def test_official_deploy_workflow_installs_websockets_before_deploy_upload_and_live_capture(self) -> None:
         workflow = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "official-screeps-deploy.yml"
         text = workflow.read_text(encoding="utf-8")
+        install_step_marker = "      - name: Install live console dependency"
         install_marker = 'python3 -m pip install --disable-pip-version-check "websockets>=12,<16"'
+        deploy_upload_marker = "            --deploy"
         capture_marker = "python3 scripts/screeps_runtime_summary_console_capture.py"
 
+        self.assertIn(install_step_marker, text)
         self.assertIn(install_marker, text)
+        self.assertIn(deploy_upload_marker, text)
         self.assertIn(capture_marker, text)
-        self.assertLess(text.index(install_marker), text.index(capture_marker))
+        install_step_index = text.index(install_step_marker)
+        install_index = text.index(install_marker)
+        self.assertLess(install_step_index, install_index)
+        self.assertIn("if: ${{ inputs.mode == 'deploy' }}", text[install_step_index:install_index])
+        self.assertLess(install_index, text.index(deploy_upload_marker))
+        self.assertLess(install_index, text.index(capture_marker))
 
     def test_recovery_summary_reader_scopes_single_target_and_collects_all_for_multiple_targets(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
