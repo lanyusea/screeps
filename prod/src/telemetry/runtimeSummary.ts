@@ -109,7 +109,7 @@ export const RUNTIME_SUMMARY_PREFIX = '#runtime-summary ';
 export const RUNTIME_CPU_SUMMARY_PREFIX = '#cpu-summary ';
 export const RUNTIME_SUMMARY_INTERVAL = 20;
 const DEGRADED_RUNTIME_SUMMARY_INTERVAL = RUNTIME_SUMMARY_INTERVAL * 5;
-const RUNTIME_CPU_SUMMARY_REPEAT_INTERVAL = DEGRADED_RUNTIME_SUMMARY_INTERVAL;
+const RUNTIME_CPU_SUMMARY_REPEAT_INTERVAL = 5;
 const MAX_REPORTED_EVENTS = 10;
 const MAX_WORKER_EFFICIENCY_SAMPLES = 5;
 const MAX_WORKER_BEHAVIOR_SAMPLES = 10;
@@ -5017,7 +5017,7 @@ function shouldEmitRuntimeCpuSummary(cpu: RuntimeCpuSummary, tick: number): bool
   const previousSignal = getPreviousRuntimeCpuSummarySignal(tick);
   recordRuntimeCpuSummarySignal(signal, tick);
   if (!signal) {
-    return false;
+    return isRuntimeCpuSummaryRepeatTick(tick);
   }
 
   return signal !== previousSignal || isRuntimeCpuSummaryRepeatTick(tick);

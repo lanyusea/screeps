@@ -549,17 +549,28 @@ class OfficialDeployTest(unittest.TestCase):
             self.assertTrue(health_gate["ok"])
             self.assertTrue(paired_path.exists())
             self.assertFalse((evidence_dir / "postdeploy-health-gate.json").exists())
-            self.assertEqual(commands[0][1:3], [str(repo_root / "scripts" / "screeps-runtime-monitor.py"), "summary"])
+            self.assertEqual(
+                commands[0][1:3],
+                [str(repo_root / "scripts" / "screeps_runtime_summary_console_capture.py"), "--live-official-console"],
+            )
             self.assertIn("--out-dir", commands[0])
-            summary_out_dir_index = commands[0].index("--out-dir")
-            self.assertEqual(commands[0][summary_out_dir_index + 1], str(expected_out_dir))
-            self.assertNotIn("--room", commands[0])
-            self.assertEqual(commands[1][1:3], [str(repo_root / "scripts" / "screeps-runtime-monitor.py"), "alert"])
+            capture_out_dir_index = commands[0].index("--out-dir")
+            self.assertEqual(
+                commands[0][capture_out_dir_index + 1],
+                str(repo_root / "runtime-artifacts" / "runtime-summary-console"),
+            )
+            self.assertIn("--live-timeout-seconds", commands[0])
+            self.assertEqual(commands[1][1:3], [str(repo_root / "scripts" / "screeps-runtime-monitor.py"), "summary"])
             self.assertIn("--out-dir", commands[1])
-            alert_out_dir_index = commands[1].index("--out-dir")
-            self.assertEqual(commands[1][alert_out_dir_index + 1], str(expected_out_dir))
+            summary_out_dir_index = commands[1].index("--out-dir")
+            self.assertEqual(commands[1][summary_out_dir_index + 1], str(expected_out_dir))
             self.assertNotIn("--room", commands[1])
-            self.assertIn("--force-alert-image", commands[1])
+            self.assertEqual(commands[2][1:3], [str(repo_root / "scripts" / "screeps-runtime-monitor.py"), "alert"])
+            self.assertIn("--out-dir", commands[2])
+            alert_out_dir_index = commands[2].index("--out-dir")
+            self.assertEqual(commands[2][alert_out_dir_index + 1], str(expected_out_dir))
+            self.assertNotIn("--room", commands[2])
+            self.assertIn("--force-alert-image", commands[2])
 
     def test_postdeploy_health_gate_uses_default_path_without_deploy_evidence_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
