@@ -27759,6 +27759,8 @@ var ROUTINE_REPAIR_MIN_HITS_DEFICIT_RATIO = 0.1;
 var ROUTINE_REPAIR_MAX_RANGE = 5;
 var BUILDER_STORAGE_WITHDRAW_MIN = 100;
 var BUILDER_DROPPED_PICKUP_RANGE = 5;
+var BUILD_COVERAGE_FAILURE_MEMORY_TICKS = 3;
+var BUILD_TARGET_STUCK_COVERAGE_TICKS = 2;
 var DEFAULT_SPAWN_ENERGY_CAPACITY = 300;
 var LOW_WORKER_THROUGHPUT_WORKER_COUNT = 3;
 var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
@@ -27800,6 +27802,7 @@ var SPAWN_RECOVERY_SOURCE_LOAD_BALANCE_ETA_TOLERANCE = 1;
 var ROAD_TRAVEL_COST = 1;
 var PLAIN_TRAVEL_COST = 2;
 var SWAMP_TRAVEL_COST = 10;
+var ERR_NO_PATH_CODE7 = -2;
 var HARVEST_SOURCE_RANGE = 1;
 var HARVEST_SOURCE_CONTAINER_RANGE = 0;
 var MAX_HARVEST_PATH_OPS = 2e3;
@@ -30452,6 +30455,9 @@ function createConstructionReservationContext(room) {
       continue;
     }
     const siteId = String(task.targetId);
+    if (getActiveWorkParts2(worker) <= 0 || hasRecentFailedBuildCoverage(worker, siteId)) {
+      continue;
+    }
     reservedProgressBySiteId.set(
       siteId,
       ((_b = reservedProgressBySiteId.get(siteId)) != null ? _b : 0) + getUsedEnergy2(worker) * getBuildPower()
@@ -30474,6 +30480,44 @@ function isWorkerAssignedToConstructionSite(worker, site) {
   var _a2;
   const task = (_a2 = worker.memory) == null ? void 0 : _a2.task;
   return (task == null ? void 0 : task.type) === "build" && String(task.targetId) === String(site.id);
+}
+function hasRecentFailedBuildCoverage(worker, siteId) {
+  if (!siteId) {
+    return false;
+  }
+  return hasActiveBlockedBuildTarget(worker, siteId) || hasRecentBuildActionFailure(worker, siteId) || hasRecentBuildMovementFailure(worker, siteId);
+}
+function hasActiveBlockedBuildTarget(worker, siteId) {
+  var _a2;
+  const blockedTarget = (_a2 = worker.memory) == null ? void 0 : _a2.blockedBuildTarget;
+  if (!blockedTarget || String(blockedTarget.targetId) !== siteId) {
+    return false;
+  }
+  const tick = getGameTick3();
+  return tick === null || blockedTarget.until > tick;
+}
+function hasRecentBuildActionFailure(worker, siteId) {
+  var _a2;
+  const telemetry = (_a2 = worker.memory) == null ? void 0 : _a2.buildActionTelemetry;
+  return (telemetry == null ? void 0 : telemetry.lastTargetId) === siteId && isRecentBuildCoverageTick(telemetry.lastTick) && isBuildCoverageFailureResult(telemetry.lastResult);
+}
+function isRecentBuildCoverageTick(lastTick) {
+  const tick = getGameTick3();
+  return tick !== null && typeof lastTick === "number" && Number.isFinite(lastTick) && tick >= lastTick && tick - lastTick <= BUILD_COVERAGE_FAILURE_MEMORY_TICKS;
+}
+function isBuildCoverageFailureResult(result) {
+  return result === "failed_no_energy" || result === "failed_no_work" || result === "failed_no_path" || result === "failed_site_invalid" || result === "suppressed_by_policy";
+}
+function hasRecentBuildMovementFailure(worker, siteId) {
+  var _a2, _b;
+  const telemetry = (_a2 = worker.memory) == null ? void 0 : _a2.behaviorTelemetry;
+  if (!telemetry) {
+    return false;
+  }
+  if (telemetry.buildTargetStuckTargetId === siteId && ((_b = telemetry.buildTargetStuckTicks) != null ? _b : 0) >= BUILD_TARGET_STUCK_COVERAGE_TICKS) {
+    return true;
+  }
+  return telemetry.lastMoveToTask === "build" && telemetry.lastMoveToTargetId === siteId && telemetry.lastMoveToResult === ERR_NO_PATH_CODE7;
 }
 function selectFinishPriorityConstructionSite(creep, constructionSites, constructionReservationContext) {
   const candidates = constructionSites.filter(
@@ -31152,10 +31196,16 @@ function selectLowLoadConstructionCoverageTask(creep, constructionSites, constru
 function hasOtherSameRoomBuildCoverageWorker(creep) {
   return getSameRoomLoadedWorkers(creep).some(
     (worker) => {
-      var _a2, _b;
-      return !isSameCreep3(worker, creep) && ((_b = (_a2 = worker.memory) == null ? void 0 : _a2.task) == null ? void 0 : _b.type) === "build" && getActiveWorkParts2(worker) > 0;
+      if (!isBuildCoverageWorker(worker) || isSameCreep3(worker, creep)) {
+        return false;
+      }
+      return !hasRecentFailedBuildCoverage(worker, String(worker.memory.task.targetId));
     }
   );
+}
+function isBuildCoverageWorker(worker) {
+  var _a2, _b;
+  return ((_b = (_a2 = worker.memory) == null ? void 0 : _a2.task) == null ? void 0 : _b.type) === "build" && getActiveWorkParts2(worker) > 0;
 }
 function hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep) {
   return getRoomOwnedCreeps2(creep.room).filter((worker) => isProductiveSameRoomWorker(worker, creep.room)).length >= SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS;
@@ -34867,7 +34917,7 @@ var WORKER_STANDBY_IDLE_TIMEOUT_TICKS = 8;
 var WORKER_NULL_LOOP_FALLBACK_ATTEMPTS = 2;
 var OK_CODE13 = 0;
 var ERR_NOT_ENOUGH_RESOURCES_CODE2 = -6;
-var ERR_NO_PATH_CODE7 = -2;
+var ERR_NO_PATH_CODE8 = -2;
 var ERR_INVALID_TARGET_CODE3 = -7;
 var ERR_FULL_CODE5 = -8;
 var ERR_NOT_IN_RANGE_CODE6 = -9;
@@ -34877,6 +34927,7 @@ var RANGED_WORK_MOVE_RANGE = 3;
 var EXACT_POSITION_MOVE_RANGE = 0;
 var BUILD_TARGET_STUCK_TICKS = 2;
 var BUILD_TARGET_SUPPRESSION_TICKS = 15;
+var BUILD_COVERAGE_FAILURE_MEMORY_TICKS2 = 3;
 var DEFAULT_BUILD_POWER2 = 5;
 var MIN_HAULER_DROPPED_ENERGY = 25;
 var SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS2 = 2;
@@ -35228,6 +35279,9 @@ function getOtherSameRoomBuildAssignmentProgress(creep) {
     }
     const task = (_a2 = worker.memory) == null ? void 0 : _a2.task;
     if ((task == null ? void 0 : task.type) !== "build" || getActiveWorkParts3(worker) <= 0) {
+      return total;
+    }
+    if (hasRecentFailedBuildCoverage2(worker, String(task.targetId))) {
       return total;
     }
     const carriedEnergy = getUsedTransferEnergy(worker);
@@ -35725,12 +35779,52 @@ function hasSafeStoredEnergyForBoundedConstruction(creep, selectedTask) {
 }
 function hasOtherSameRoomBuildAssignment(creep) {
   return getRoomOwnedCreeps3(creep.room).some((worker) => {
-    var _a2, _b;
     if (isSameCreep4(worker, creep) || !isProductiveSameRoomWorker2(worker, creep.room)) {
       return false;
     }
-    return ((_b = (_a2 = worker.memory) == null ? void 0 : _a2.task) == null ? void 0 : _b.type) === "build";
+    if (!isBuildCoverageWorker2(worker)) {
+      return false;
+    }
+    return !hasRecentFailedBuildCoverage2(worker, String(worker.memory.task.targetId));
   });
+}
+function isBuildCoverageWorker2(worker) {
+  var _a2, _b;
+  return ((_b = (_a2 = worker.memory) == null ? void 0 : _a2.task) == null ? void 0 : _b.type) === "build" && getActiveWorkParts3(worker) > 0;
+}
+function hasRecentFailedBuildCoverage2(worker, siteId) {
+  if (!siteId) {
+    return false;
+  }
+  return hasActiveBlockedBuildTarget2(worker, siteId) || hasRecentBuildActionFailure2(worker, siteId) || hasRecentBuildMovementFailure2(worker, siteId);
+}
+function hasActiveBlockedBuildTarget2(worker, siteId) {
+  var _a2;
+  const blockedTarget = (_a2 = worker.memory) == null ? void 0 : _a2.blockedBuildTarget;
+  return Boolean(blockedTarget && String(blockedTarget.targetId) === siteId && blockedTarget.until > getGameTick4());
+}
+function hasRecentBuildActionFailure2(worker, siteId) {
+  var _a2;
+  const telemetry = (_a2 = worker.memory) == null ? void 0 : _a2.buildActionTelemetry;
+  return (telemetry == null ? void 0 : telemetry.lastTargetId) === siteId && isRecentBuildCoverageTick2(telemetry.lastTick) && isBuildCoverageFailureResult2(telemetry.lastResult);
+}
+function isRecentBuildCoverageTick2(lastTick) {
+  const tick = getGameTick4();
+  return typeof lastTick === "number" && Number.isFinite(lastTick) && tick >= lastTick && tick - lastTick <= BUILD_COVERAGE_FAILURE_MEMORY_TICKS2;
+}
+function isBuildCoverageFailureResult2(result) {
+  return result === "failed_no_energy" || result === "failed_no_work" || result === "failed_no_path" || result === "failed_site_invalid" || result === "suppressed_by_policy";
+}
+function hasRecentBuildMovementFailure2(worker, siteId) {
+  var _a2, _b;
+  const telemetry = (_a2 = worker.memory) == null ? void 0 : _a2.behaviorTelemetry;
+  if (!telemetry) {
+    return false;
+  }
+  if (telemetry.buildTargetStuckTargetId === siteId && ((_b = telemetry.buildTargetStuckTicks) != null ? _b : 0) >= BUILD_TARGET_STUCK_TICKS) {
+    return true;
+  }
+  return telemetry.lastMoveToTask === "build" && telemetry.lastMoveToTargetId === siteId && telemetry.lastMoveToResult === getErrNoPathCode3();
 }
 function hasHealthyRoomEnergyBuffer2(room) {
   const energyAvailable = getRoomEnergyAvailable13(room);
@@ -37009,7 +37103,7 @@ function suppressBuildTarget(creep, task, reason) {
 }
 function getErrNoPathCode3() {
   const errNoPath = globalThis.ERR_NO_PATH;
-  return typeof errNoPath === "number" ? errNoPath : ERR_NO_PATH_CODE7;
+  return typeof errNoPath === "number" ? errNoPath : ERR_NO_PATH_CODE8;
 }
 function getErrNoBodyPartCode() {
   const errNoBodyPart = globalThis.ERR_NO_BODYPART;
@@ -39513,7 +39607,7 @@ var MOVE_PART_COST = 50;
 var MAX_CREEP_PARTS7 = 50;
 var MAX_REMOTE_UPGRADER_PATTERN_COUNT = 4;
 var MAX_CONTROLLER_LEVEL4 = 8;
-var ERR_NO_PATH_CODE8 = -2;
+var ERR_NO_PATH_CODE9 = -2;
 var TERRITORY_ROUTE_DISTANCE_SEPARATOR4 = ">";
 var ROUTE_DISTANCE_CACHE_TTL_TICKS = 300;
 function recordPlannedMultiRoomUpgraderSpawn(memory) {
@@ -39960,7 +40054,7 @@ function isAdjacentRoom(fromRoom, targetRoom) {
 }
 function getNoPathResultCode7() {
   const noPathCode = globalThis.ERR_NO_PATH;
-  return typeof noPathCode === "number" ? noPathCode : ERR_NO_PATH_CODE8;
+  return typeof noPathCode === "number" ? noPathCode : ERR_NO_PATH_CODE9;
 }
 function getGameTime33() {
   var _a2;
@@ -49306,7 +49400,7 @@ function isNonEmptyString35(value) {
 }
 
 // src/territory/claimedRoomBootstrapper.ts
-var ERR_NO_PATH_CODE9 = -2;
+var ERR_NO_PATH_CODE10 = -2;
 function refreshClaimedRoomBootstrapperOwnership(telemetryEvents = []) {
   var _a2, _b;
   const game = globalThis.Game;
@@ -49511,7 +49605,7 @@ function getRoomRouteDistance(fromRoom, toRoom) {
     if (Array.isArray(route)) {
       return route.length;
     }
-    if (route === ERR_NO_PATH_CODE9) {
+    if (route === ERR_NO_PATH_CODE10) {
       return Number.POSITIVE_INFINITY;
     }
   }
@@ -52722,7 +52816,7 @@ function isRecord41(value) {
 
 // src/economy/economyLoop.ts
 var ERR_BUSY_CODE = -4;
-var ERR_NO_PATH_CODE10 = -2;
+var ERR_NO_PATH_CODE11 = -2;
 var OK_CODE22 = 0;
 var BOOTSTRAP_WORKER_BUFFER_BYPASS_MIN_ENERGY = 300;
 var LOW_ROOM_ENERGY_TASK_PRIORITY_RATIO = 0.5;
@@ -53527,7 +53621,7 @@ function getCrossRoomSpawnRouteDistance(sourceRoomName, targetRoomName) {
     if (Array.isArray(route)) {
       return route.length;
     }
-    if (route === ERR_NO_PATH_CODE10) {
+    if (route === ERR_NO_PATH_CODE11) {
       return Number.POSITIVE_INFINITY;
     }
   }
