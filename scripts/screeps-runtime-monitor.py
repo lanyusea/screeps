@@ -126,6 +126,17 @@ RUNTIME_SUMMARY_CPU_METADATA_KEY = "__runtimeSummaryCpu"
 MONITOR_RUNTIME_SUMMARY_SOURCE = "screeps-runtime-monitor"
 ASSIGNED_WORKER_TASK_NAMES = ("harvest", "pickup", "withdraw", "transfer", "build", "repair", "upgrade")
 WORKER_TASK_COUNT_NAMES = ("harvest", "transfer", "build", "repair", "upgrade")
+BUILD_ACTION_RESULT_NAMES = (
+    "succeeded",
+    "failed_no_energy",
+    "failed_no_work",
+    "failed_no_path",
+    "failed_site_invalid",
+    "suppressed_by_policy",
+)
+BUILD_ACTION_FAILURE_RESULT_NAMES = tuple(
+    result for result in BUILD_ACTION_RESULT_NAMES if result != "succeeded"
+)
 MAX_CREEP_MEMORY_ASSIGNMENT_EVIDENCE_PER_ROOM = 12
 MAX_CREEP_MEMORY_ASSIGNMENT_STRING_LENGTH = 96
 MAX_WORKER_ASSIGNMENT_BLOCKED_WORKERS = 12
@@ -1986,6 +1997,82 @@ def runtime_build_carried_energy(room: dict[str, Any] | None) -> int | float | N
     ):
         return sampled_build_energy
     return reported_build_energy
+
+
+def runtime_build_action_results(room: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(room, dict):
+        return {}
+    for path in (
+        ("buildActionResults",),
+        ("resources", "productiveEnergy", "buildActionResults"),
+        ("productiveEnergy", "buildActionResults"),
+    ):
+        value = as_dict(nested_value(room, *path))
+        if value:
+            return value
+    return {}
+
+
+def runtime_build_action_result(room: dict[str, Any] | None) -> str | None:
+    if not isinstance(room, dict):
+        return None
+    for value in (
+        room.get("buildActionResult"),
+        nested_value(room, "buildActionResults", "buildActionResult"),
+        nested_value(room, "resources", "productiveEnergy", "buildActionResult"),
+        nested_value(room, "resources", "productiveEnergy", "buildActionResults", "buildActionResult"),
+        nested_value(room, "productiveEnergy", "buildActionResult"),
+        nested_value(room, "productiveEnergy", "buildActionResults", "buildActionResult"),
+    ):
+        result = string_value(value)
+        if result in BUILD_ACTION_RESULT_NAMES:
+            return result
+    return None
+
+
+def runtime_build_fail_count(room: dict[str, Any] | None) -> int | float | None:
+    if not isinstance(room, dict):
+        return None
+    return first_number_value(
+        room,
+        ("buildFailCount",),
+        ("buildActionResults", "buildFailCount"),
+        ("resources", "productiveEnergy", "buildFailCount"),
+        ("resources", "productiveEnergy", "buildActionResults", "buildFailCount"),
+        ("productiveEnergy", "buildFailCount"),
+        ("productiveEnergy", "buildActionResults", "buildFailCount"),
+    )
+
+
+def runtime_build_suppressed_count(room: dict[str, Any] | None) -> int | float | None:
+    if not isinstance(room, dict):
+        return None
+    return first_number_value(
+        room,
+        ("buildSuppressedCount",),
+        ("buildActionResults", "suppressedCount"),
+        ("resources", "productiveEnergy", "buildSuppressedCount"),
+        ("resources", "productiveEnergy", "buildActionResults", "suppressedCount"),
+        ("productiveEnergy", "buildSuppressedCount"),
+        ("productiveEnergy", "buildActionResults", "suppressedCount"),
+    )
+
+
+def runtime_build_action_result_counts(room: dict[str, Any] | None) -> dict[str, int]:
+    if not isinstance(room, dict):
+        return {}
+    for path in (
+        ("buildActionResultCounts",),
+        ("buildActionResults", "resultCounts"),
+        ("resources", "productiveEnergy", "buildActionResultCounts"),
+        ("resources", "productiveEnergy", "buildActionResults", "resultCounts"),
+        ("productiveEnergy", "buildActionResultCounts"),
+        ("productiveEnergy", "buildActionResults", "resultCounts"),
+    ):
+        counts = normalized_build_action_result_counts(nested_value(room, *path))
+        if build_action_count(counts) > 0:
+            return counts
+    return {}
 
 
 def runtime_worker_assignment_build_carried_energy(room: dict[str, Any]) -> int | float | None:
@@ -5798,6 +5885,109 @@ def worker_task_counts(owned_creeps: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
+def empty_build_action_result_counts() -> dict[str, int]:
+    return {result: 0 for result in BUILD_ACTION_RESULT_NAMES}
+
+
+def build_action_telemetry_memory(creep: dict[str, Any]) -> dict[str, Any]:
+    return as_dict(creep_memory(creep).get("buildActionTelemetry"))
+
+
+def normalized_build_action_result_counts(value: Any) -> dict[str, int]:
+    raw_counts = as_dict(value)
+    counts = empty_build_action_result_counts()
+    for result in BUILD_ACTION_RESULT_NAMES:
+        counts[result] = non_negative_int(raw_counts.get(result))
+    return counts
+
+
+def build_action_count(result_counts: dict[str, int]) -> int:
+    return sum(result_counts.get(result, 0) for result in BUILD_ACTION_RESULT_NAMES)
+
+
+def build_action_failure_count(result_counts: dict[str, int]) -> int:
+    return sum(result_counts.get(result, 0) for result in BUILD_ACTION_FAILURE_RESULT_NAMES)
+
+
+def dominant_build_action_result(result_counts: dict[str, int]) -> str:
+    dominant = BUILD_ACTION_RESULT_NAMES[0]
+    for result in BUILD_ACTION_RESULT_NAMES:
+        if result_counts.get(result, 0) > result_counts.get(dominant, 0):
+            dominant = result
+    return dominant
+
+
+def build_action_worker_summary(creep: dict[str, Any]) -> dict[str, Any] | None:
+    telemetry = build_action_telemetry_memory(creep)
+    if not telemetry:
+        return None
+
+    result_counts = normalized_build_action_result_counts(telemetry.get("resultCounts"))
+    action_count = build_action_count(result_counts)
+    if action_count <= 0:
+        return None
+
+    last_result = string_value(telemetry.get("lastResult"))
+    build_action_result = (
+        last_result
+        if last_result in BUILD_ACTION_RESULT_NAMES
+        else dominant_build_action_result(result_counts)
+    )
+    summary: dict[str, Any] = {
+        **({"name": creep_name(creep)} if creep_name(creep) else {}),
+        "buildActionResult": build_action_result,
+        "actionCount": action_count,
+        "buildFailCount": build_action_failure_count(result_counts),
+        "suppressedCount": result_counts["suppressed_by_policy"],
+        "resultCounts": result_counts,
+    }
+    last_target_id = safe_assignment_string(telemetry.get("lastTargetId"))
+    if last_target_id is not None:
+        summary["lastTargetId"] = last_target_id
+    last_tick = number_value(telemetry.get("lastTick"))
+    if last_tick is not None:
+        summary["lastTick"] = math.floor(last_tick)
+    return summary
+
+
+def build_action_worker_sort_key(worker: dict[str, Any]) -> tuple[int, int, str, str]:
+    return (
+        -non_negative_int(worker.get("buildFailCount")),
+        -non_negative_int(worker.get("actionCount")),
+        string_value(worker.get("buildActionResult")) or "",
+        string_value(worker.get("name")) or "",
+    )
+
+
+def build_action_results_summary(owned_creeps: list[dict[str, Any]]) -> dict[str, Any] | None:
+    workers = sorted(
+        (
+            summary
+            for summary in (build_action_worker_summary(creep) for creep in owned_creeps)
+            if summary is not None
+        ),
+        key=build_action_worker_sort_key,
+    )
+    if not workers:
+        return None
+
+    result_counts = empty_build_action_result_counts()
+    for worker in workers:
+        worker_counts = normalized_build_action_result_counts(worker.get("resultCounts"))
+        for result in BUILD_ACTION_RESULT_NAMES:
+            result_counts[result] += worker_counts[result]
+
+    return {
+        "source": "runtime-summary",
+        "buildActionResult": dominant_build_action_result(result_counts),
+        "actionCount": build_action_count(result_counts),
+        "buildFailCount": build_action_failure_count(result_counts),
+        "suppressedCount": result_counts["suppressed_by_policy"],
+        "resultCounts": result_counts,
+        "workers": workers,
+    }
+
+
 def string_value(value: Any) -> str | None:
     if isinstance(value, str) and value:
         return value
@@ -5971,6 +6161,39 @@ def sanitize_worker_dispatch_diagnostic_memory(value: Any) -> dict[str, Any] | N
     return result or None
 
 
+def non_negative_int(value: Any) -> int:
+    numeric = number_value(value)
+    if numeric is None:
+        return 0
+    return max(0, math.floor(numeric))
+
+
+def sanitize_build_action_result_counts(value: Any) -> dict[str, int]:
+    raw_counts = as_dict(value)
+    return {result: non_negative_int(raw_counts.get(result)) for result in BUILD_ACTION_RESULT_NAMES}
+
+
+def sanitize_build_action_telemetry_memory(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+
+    result_counts = sanitize_build_action_result_counts(value.get("resultCounts"))
+    if sum(result_counts.values()) <= 0:
+        return None
+
+    result: dict[str, Any] = {"resultCounts": result_counts}
+    last_result = string_value(value.get("lastResult"))
+    if last_result in BUILD_ACTION_RESULT_NAMES:
+        result["lastResult"] = last_result
+    last_target_id = safe_assignment_string(value.get("lastTargetId"))
+    if last_target_id is not None:
+        result["lastTargetId"] = last_target_id
+    last_tick = number_value(value.get("lastTick"))
+    if last_tick is not None:
+        result["lastTick"] = math.floor(last_tick)
+    return result
+
+
 def sanitize_creep_assignment_memory(value: Any) -> dict[str, Any]:
     memory = as_dict(value)
     result: dict[str, Any] = {}
@@ -5984,6 +6207,9 @@ def sanitize_creep_assignment_memory(value: Any) -> dict[str, Any]:
     diagnostic = sanitize_worker_dispatch_diagnostic_memory(memory.get("workerDispatchDiagnostic"))
     if diagnostic is not None:
         result["workerDispatchDiagnostic"] = diagnostic
+    build_action_telemetry = sanitize_build_action_telemetry_memory(memory.get("buildActionTelemetry"))
+    if build_action_telemetry is not None:
+        result["buildActionTelemetry"] = build_action_telemetry
     return result
 
 
@@ -6750,6 +6976,18 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
         else {}
     )
     construction_activity = construction_activity_summary(snapshot, metrics, assignment_blocked_fields)
+    build_action_results = build_action_results_summary(owned_creeps)
+    build_action_fields = (
+        {
+            "buildActionResult": build_action_results["buildActionResult"],
+            "buildFailCount": build_action_results["buildFailCount"],
+            "buildSuppressedCount": build_action_results["suppressedCount"],
+            "buildActionResultCounts": build_action_results["resultCounts"],
+            "buildActionResults": build_action_results,
+        }
+        if build_action_results is not None
+        else {}
+    )
     worker_carried_energy = sum(store_energy(obj) for obj in owned_creeps)
     productive_energy = {
         "assignedWorkerCount": metrics.worker_assignment_evidence.get("assignedTaskCount", 0),
@@ -6764,6 +7002,7 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
         **assignment_evidence_unavailable_fields,
         "constructionActivity": construction_activity,
         "buildBlockedReason": metrics.build_blocked_reason,
+        **build_action_fields,
         **assignment_blocked_fields,
     }
 
@@ -6778,6 +7017,7 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
         "buildCarriedEnergy": metrics.build_carried_energy,
         "constructionDeadlockTicks": metrics.construction_deadlock_ticks,
         "buildBlockedReason": metrics.build_blocked_reason,
+        **build_action_fields,
         **assignment_blocked_fields,
         "constructionActivity": construction_activity,
         "constructionSiteCount": len(metrics.construction_sites),
@@ -7326,6 +7566,21 @@ def enrich_room_summaries_from_runtime_artifact(room_summaries: list[Any], artif
         build_carried_energy = runtime_build_carried_energy(runtime_room)
         if number_value(room.get("buildCarriedEnergy")) is None and build_carried_energy is not None:
             room["buildCarriedEnergy"] = build_carried_energy
+        build_action_result = runtime_build_action_result(runtime_room)
+        if not isinstance(room.get("buildActionResult"), str) and build_action_result is not None:
+            room["buildActionResult"] = build_action_result
+        build_fail_count = runtime_build_fail_count(runtime_room)
+        if number_value(room.get("buildFailCount")) is None and build_fail_count is not None:
+            room["buildFailCount"] = build_fail_count
+        build_suppressed_count = runtime_build_suppressed_count(runtime_room)
+        if number_value(room.get("buildSuppressedCount")) is None and build_suppressed_count is not None:
+            room["buildSuppressedCount"] = build_suppressed_count
+        build_action_result_counts = runtime_build_action_result_counts(runtime_room)
+        if not as_dict(room.get("buildActionResultCounts")) and build_action_result_counts:
+            room["buildActionResultCounts"] = dict(build_action_result_counts)
+        build_action_results = runtime_build_action_results(runtime_room)
+        if not as_dict(room.get("buildActionResults")) and build_action_results:
+            room["buildActionResults"] = dict(build_action_results)
         build_blocked_reason = runtime_build_blocked_reason(runtime_room)
         if not isinstance(room.get("buildBlockedReason"), str) and build_blocked_reason is not None:
             room["buildBlockedReason"] = build_blocked_reason
@@ -7373,6 +7628,11 @@ def postdeploy_construction_acceptance_room(room: dict[str, Any]) -> dict[str, A
     build_progress = postdeploy_construction_build_progress(room)
     build_count = postdeploy_construction_build_task_count(room)
     build_blocked_reason = runtime_build_blocked_reason(room)
+    build_action_result = runtime_build_action_result(room)
+    build_fail_count = runtime_build_fail_count(room)
+    build_suppressed_count = runtime_build_suppressed_count(room)
+    build_action_result_counts = runtime_build_action_result_counts(room)
+    build_action_success_count = build_action_result_counts.get("succeeded", 0) if build_action_result_counts else 0
 
     result: dict[str, Any] = {"room": room_name}
     for key, value in (
@@ -7381,11 +7641,17 @@ def postdeploy_construction_acceptance_room(room: dict[str, Any]) -> dict[str, A
         ("buildCarriedEnergy", build_carried_energy),
         ("buildProgress", build_progress),
         ("build", build_count),
+        ("buildFailCount", build_fail_count),
+        ("buildSuppressedCount", build_suppressed_count),
     ):
         if value is not None:
             result[key] = value
     if build_blocked_reason is not None:
         result["buildBlockedReason"] = build_blocked_reason
+    if build_action_result is not None:
+        result["buildActionResult"] = build_action_result
+    if build_action_result_counts:
+        result["buildActionResultCounts"] = build_action_result_counts
 
     if construction_site_count is None or pending_build_progress is None:
         missing = [
@@ -7412,6 +7678,15 @@ def postdeploy_construction_acceptance_room(room: dict[str, Any]) -> dict[str, A
             "status": "pass",
             "reason": "no_construction_backlog",
             "message": f"{room_name}: no construction backlog visible",
+        }
+
+    if build_action_success_count > 0 or build_action_result == "succeeded":
+        return {
+            **result,
+            "ok": True,
+            "status": "pass",
+            "reason": "build_action_succeeded",
+            "message": f"{room_name}: construction acceptance passed with build action success telemetry",
         }
 
     if build_carried_energy is not None and build_carried_energy > 0:
@@ -7441,6 +7716,18 @@ def postdeploy_construction_acceptance_room(room: dict[str, Any]) -> dict[str, A
             "message": (
                 f"{room_name}: construction backlog is visible, but buildCarriedEnergy/buildProgress telemetry "
                 "is missing"
+            ),
+        }
+
+    if build_fail_count is not None and build_fail_count > 0:
+        blocked_reason = build_action_result or build_blocked_reason or "build_action_failed"
+        return {
+            **result,
+            "ok": False,
+            "status": "blocked",
+            "reason": blocked_reason,
+            "message": (
+                f"{room_name}: construction backlog is visible with build action result {blocked_reason}"
             ),
         }
 

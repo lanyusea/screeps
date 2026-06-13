@@ -1655,6 +1655,17 @@ describe('runtime telemetry summaries', () => {
 
     const payload = parseLoggedSummary();
     const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.buildActionResult).toBe('failed_no_path');
+    expect(room.buildFailCount).toBe(3);
+    expect(room.buildSuppressedCount).toBe(1);
+    expect(room.buildActionResultCounts).toEqual({
+      succeeded: 1,
+      failed_no_energy: 0,
+      failed_no_work: 0,
+      failed_no_path: 2,
+      failed_site_invalid: 0,
+      suppressed_by_policy: 1
+    });
     expect(room.buildActionResults).toEqual({
       source: 'runtime-summary',
       buildActionResult: 'failed_no_path',

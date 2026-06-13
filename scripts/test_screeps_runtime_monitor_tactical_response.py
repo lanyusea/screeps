@@ -1272,6 +1272,64 @@ class PostdeployConstructionAcceptanceTest(unittest.TestCase):
         self.assertEqual(acceptance["status"], "pass")
         self.assertEqual(acceptance["rooms"][0]["reason"], "no_construction_backlog")
 
+    def test_construction_acceptance_uses_build_action_result_telemetry(self) -> None:
+        room = {
+            "roomName": "E26S49",
+            "constructionSiteCount": 1,
+            "pendingBuildProgress": 100,
+            "buildCarriedEnergy": 0,
+            "constructionActivity": {"buildProgress": 0},
+            "buildActionResult": "succeeded",
+            "buildFailCount": 0,
+            "buildActionResultCounts": {
+                "succeeded": 1,
+                "failed_no_energy": 0,
+                "failed_no_work": 0,
+                "failed_no_path": 0,
+                "failed_site_invalid": 0,
+                "suppressed_by_policy": 0,
+            },
+        }
+
+        result = monitor.postdeploy_construction_acceptance_room(room)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(result["reason"], "build_action_succeeded")
+        self.assertEqual(result["buildActionResult"], "succeeded")
+        self.assertEqual(result["buildFailCount"], 0)
+
+    def test_construction_acceptance_blocks_on_build_action_failure_telemetry(self) -> None:
+        room = {
+            "roomName": "E26S49",
+            "constructionSiteCount": 1,
+            "pendingBuildProgress": 100,
+            "buildCarriedEnergy": 0,
+            "constructionActivity": {"buildProgress": 0},
+            "buildActionResults": {
+                "buildActionResult": "failed_no_path",
+                "buildFailCount": 2,
+                "suppressedCount": 1,
+                "resultCounts": {
+                    "succeeded": 0,
+                    "failed_no_energy": 0,
+                    "failed_no_work": 0,
+                    "failed_no_path": 1,
+                    "failed_site_invalid": 0,
+                    "suppressed_by_policy": 1,
+                },
+            },
+        }
+
+        result = monitor.postdeploy_construction_acceptance_room(room)
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "failed_no_path")
+        self.assertEqual(result["buildActionResult"], "failed_no_path")
+        self.assertEqual(result["buildFailCount"], 2)
+        self.assertEqual(result["buildSuppressedCount"], 1)
+
     def test_health_gate_command_fails_when_construction_acceptance_is_blocked(self) -> None:
         summary_payload = {
             "ok": True,
@@ -4156,6 +4214,154 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(payload["rooms"][0]["cpuBucket"], 9123)
         self.assertEqual(payload["cpu"], {"used": 7.25, "bucket": 9123})
         self.assertEqual(payload["rooms"][0]["combat"]["hostileCreepCount"], 1)
+
+    def test_creep_memory_sanitizer_preserves_build_action_telemetry(self) -> None:
+        sanitized = monitor.sanitize_creep_assignment_memory(
+            {
+                "role": "worker",
+                "task": {"type": "build", "targetId": "site-safe"},
+                "buildActionTelemetry": {
+                    "resultCounts": {
+                        "succeeded": 1,
+                        "failed_no_path": 2,
+                        "suppressed_by_policy": 1,
+                        "unexpected_result": 99,
+                    },
+                    "lastResult": "suppressed_by_policy",
+                    "lastTargetId": "site-safe",
+                    "lastTick": 265631.8,
+                    "secretToken": "do-not-copy",
+                },
+            }
+        )
+
+        self.assertEqual(
+            sanitized["buildActionTelemetry"],
+            {
+                "resultCounts": {
+                    "succeeded": 1,
+                    "failed_no_energy": 0,
+                    "failed_no_work": 0,
+                    "failed_no_path": 2,
+                    "failed_site_invalid": 0,
+                    "suppressed_by_policy": 1,
+                },
+                "lastResult": "suppressed_by_policy",
+                "lastTargetId": "site-safe",
+                "lastTick": 265631,
+            },
+        )
+        self.assertNotIn("secretToken", sanitized["buildActionTelemetry"])
+
+    def test_runtime_summary_payload_reports_build_action_results_from_creep_memory(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E26S49"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(
+                {
+                    "worker-success": {
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "name": "BuilderSuccess",
+                        "store": {"energy": 0, "capacity": 50},
+                        "memory": {
+                            "role": "worker",
+                            "buildActionTelemetry": {
+                                "resultCounts": {"succeeded": 1},
+                                "lastResult": "succeeded",
+                                "lastTargetId": "site-success",
+                                "lastTick": 265631,
+                            },
+                        },
+                    },
+                    "worker-blocked": {
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "name": "BuilderBlocked",
+                        "store": {"energy": 50, "capacity": 50},
+                        "memory": {
+                            "role": "worker",
+                            "buildActionTelemetry": {
+                                "resultCounts": {"failed_no_path": 2, "suppressed_by_policy": 1},
+                                "lastResult": "suppressed_by_policy",
+                                "lastTargetId": "site-blocked",
+                                "lastTick": 265632,
+                            },
+                        },
+                    },
+                }
+            ),
+            tick=265632,
+            owner="lanyusea",
+            info={},
+        )
+
+        payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+        room = payload["rooms"][0]
+        expected_counts = {
+            "succeeded": 1,
+            "failed_no_energy": 0,
+            "failed_no_work": 0,
+            "failed_no_path": 2,
+            "failed_site_invalid": 0,
+            "suppressed_by_policy": 1,
+        }
+
+        self.assertEqual(room["buildActionResult"], "failed_no_path")
+        self.assertEqual(room["buildFailCount"], 3)
+        self.assertEqual(room["buildSuppressedCount"], 1)
+        self.assertEqual(room["buildActionResultCounts"], expected_counts)
+        self.assertEqual(room["resources"]["productiveEnergy"]["buildActionResultCounts"], expected_counts)
+        self.assertEqual(
+            room["buildActionResults"],
+            {
+                "source": "runtime-summary",
+                "buildActionResult": "failed_no_path",
+                "actionCount": 4,
+                "buildFailCount": 3,
+                "suppressedCount": 1,
+                "resultCounts": expected_counts,
+                "workers": [
+                    {
+                        "name": "BuilderBlocked",
+                        "buildActionResult": "suppressed_by_policy",
+                        "actionCount": 3,
+                        "buildFailCount": 3,
+                        "suppressedCount": 1,
+                        "resultCounts": {
+                            "succeeded": 0,
+                            "failed_no_energy": 0,
+                            "failed_no_work": 0,
+                            "failed_no_path": 2,
+                            "failed_site_invalid": 0,
+                            "suppressed_by_policy": 1,
+                        },
+                        "lastTargetId": "site-blocked",
+                        "lastTick": 265632,
+                    },
+                    {
+                        "name": "BuilderSuccess",
+                        "buildActionResult": "succeeded",
+                        "actionCount": 1,
+                        "buildFailCount": 0,
+                        "suppressedCount": 0,
+                        "resultCounts": {
+                            "succeeded": 1,
+                            "failed_no_energy": 0,
+                            "failed_no_work": 0,
+                            "failed_no_path": 0,
+                            "failed_site_invalid": 0,
+                            "suppressed_by_policy": 0,
+                        },
+                        "lastTargetId": "site-success",
+                        "lastTick": 265631,
+                    },
+                ],
+            },
+        )
+        self.assertEqual(room["resources"]["productiveEnergy"]["buildActionResults"], room["buildActionResults"])
 
     def test_runtime_summary_payload_reports_null_controller_sign_evidence(self) -> None:
         snapshot = monitor.RoomSnapshot(

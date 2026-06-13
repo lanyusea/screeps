@@ -362,6 +362,10 @@ interface RuntimeRoomSummary {
   constructionDeadlockTicks: number;
   constructionActivity: RuntimeConstructionActivitySummary;
   constructionScoring: RuntimeConstructionScoringSummary;
+  buildActionResult?: WorkerBuildActionResult;
+  buildFailCount?: number;
+  buildSuppressedCount?: number;
+  buildActionResultCounts?: RuntimeBuildActionSummary['resultCounts'];
   buildActionResults?: RuntimeBuildActionSummary;
   behavior?: RuntimeBehaviorSummary;
   structures?: RuntimeStructureSnapshotSummary;
