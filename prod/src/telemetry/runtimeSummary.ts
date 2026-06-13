@@ -1081,7 +1081,7 @@ export function emitRuntimeSummary(
       tick,
       cachedEventMetricsTick
     );
-    refreshConstructionDeadlockTelemetry(colonies, creepsByColony, tick);
+    refreshConstructionDeadlockTelemetry(colonies, creepsByColony, creeps, tick);
   }
 
   const cpuSummary = buildCpuSummary();
@@ -1215,6 +1215,19 @@ function groupCreepsByColony(creeps: Creep[], colonies: ColonySnapshot[]): Map<s
   return creepsByColony;
 }
 
+function groupCreepsByVisibleRoom(creeps: Creep[]): Map<string, Creep[]> {
+  const creepsByVisibleRoom = new Map<string, Creep[]>();
+
+  for (const creep of creeps) {
+    const roomName = creep.room?.name;
+    if (isNonEmptyString(roomName)) {
+      addCreepToColonyGroup(creepsByVisibleRoom, roomName, creep);
+    }
+  }
+
+  return creepsByVisibleRoom;
+}
+
 function groupConstructionPlacementEventsByRoom(
   events: RuntimeTelemetryEvent[]
 ): Map<string, RuntimeConstructionPlacementTelemetryEvent[]> {
@@ -1297,8 +1310,9 @@ function summarizeRoom(
   if (persistOccupationRecommendations && includeOptionalSummary) {
     persistOccupationRecommendationFollowUpIntent(territoryRecommendation, tick);
   }
+  const roomTaskWorkers = selectRoomVisibleWorkers(colony, colonyWorkers, colonyCreeps);
   const resourcesWithoutActivity = summarizeResources(colony, colonyWorkers, colonyCreeps, eventMetrics.resources);
-  const taskCounts = countWorkerTasks(colonyWorkers);
+  const taskCounts = countWorkerTasks(roomTaskWorkers);
   const assignedTaskCount = countAssignedWorkerTasks(colonyWorkers);
   const productiveAssignmentCount = countProductiveWorkerAssignments(colonyWorkers);
   const workerAssignmentEvidence = summarizeWorkerAssignmentEvidence(
@@ -2687,11 +2701,15 @@ function countWorkerTasks(workers: Creep[]): WorkerTaskCounts {
 function refreshConstructionDeadlockTelemetry(
   colonies: ColonySnapshot[],
   creepsByColony: Map<string, Creep[]>,
+  creeps: Creep[],
   tick: number
 ): void {
+  const creepsByVisibleRoom = groupCreepsByVisibleRoom(creeps);
   for (const colony of colonies) {
-    const colonyWorkers = (creepsByColony.get(colony.room.name) ?? []).filter((creep) => creep.memory.role === 'worker');
-    const taskCounts = countWorkerTasks(colonyWorkers);
+    const colonyCreeps = creepsByColony.get(colony.room.name) ?? [];
+    const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === 'worker');
+    const roomTaskWorkers = mergeRoomVisibleWorkers(colonyWorkers, creepsByVisibleRoom.get(colony.room.name) ?? []);
+    const taskCounts = countWorkerTasks(roomTaskWorkers);
     const constructionSiteCount = (findRoomObjects(colony.room, 'FIND_MY_CONSTRUCTION_SITES') ?? []).length;
     updateRoomConstructionDeadlockTicks(colony.room, taskCounts, constructionSiteCount, tick);
   }
@@ -3605,7 +3623,7 @@ function summarizeResources(
   const roomStructures = findRoomObjects(colony.room, 'FIND_STRUCTURES') ?? colony.spawns;
   const roomEnergyStructures = findRoomEnergyStoreStructures(colony.room, colony.spawns);
   const roomCreeps = findOwnedRoomCreeps(colony.room, colonyCreeps);
-  const productiveEnergyWorkers = mergeRoomWorkersForProductiveEnergy(colonyWorkers, roomCreeps);
+  const productiveEnergyWorkers = mergeRoomVisibleWorkers(colonyWorkers, roomCreeps);
   const constructionSites = findRoomObjects(colony.room, 'FIND_MY_CONSTRUCTION_SITES') ?? [];
   const droppedResources = findRoomObjects(colony.room, 'FIND_DROPPED_RESOURCES') ?? [];
   const sourceContainerCoverage = summarizeSourceContainerCoverage(colony.room);
@@ -3710,7 +3728,11 @@ function findOwnedRoomCreeps(room: Room, colonyCreeps: Creep[]): unknown[] {
   ]);
 }
 
-function mergeRoomWorkersForProductiveEnergy(colonyWorkers: Creep[], roomCreeps: unknown[]): Creep[] {
+function selectRoomVisibleWorkers(colony: ColonySnapshot, colonyWorkers: Creep[], colonyCreeps: Creep[]): Creep[] {
+  return mergeRoomVisibleWorkers(colonyWorkers, findOwnedRoomCreeps(colony.room, colonyCreeps));
+}
+
+function mergeRoomVisibleWorkers(colonyWorkers: Creep[], roomCreeps: unknown[]): Creep[] {
   return uniqueRoomObjects([...colonyWorkers, ...roomCreeps]).filter(isRuntimeWorkerCreep);
 }
 

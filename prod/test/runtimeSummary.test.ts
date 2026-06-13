@@ -2618,6 +2618,12 @@ describe('runtime telemetry summaries', () => {
       creeps: [builder],
       constructionSites: [constructionSite]
     });
+    (Memory.rooms as Record<string, RoomMemory>)[colony.room.name] = {
+      runtime: {
+        constructionDeadlockTicks: 42,
+        constructionDeadlockUpdatedAt: RUNTIME_SUMMARY_INTERVAL - 1
+      }
+    } as RoomMemory;
     (builder as Creep & { room: Room }).room = colony.room;
 
     emitRuntimeSummary([colony], [builder]);
@@ -2625,10 +2631,13 @@ describe('runtime telemetry summaries', () => {
     const payload = parseLoggedSummary();
     const [room] = payload.rooms as Array<Record<string, unknown>>;
     const productiveEnergy = (room.resources as Record<string, Record<string, unknown>>).productiveEnergy;
+    expect(room.taskCounts).toMatchObject({ build: 1 });
+    expect(room.constructionDeadlockTicks).toBe(0);
     expect(productiveEnergy).toMatchObject({
       assignedWorkerCount: 1,
       buildCarriedEnergy: 61,
       constructionSiteCount: 1,
+      constructionDeadlockTicks: 0,
       pendingBuildProgress: 260
     });
     expect(productiveEnergy).not.toHaveProperty('buildBlockedReason');
