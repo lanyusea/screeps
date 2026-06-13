@@ -20,7 +20,22 @@ Verification command:
 ```bash
 python3 scripts/check_cron_registry.py --strict
 python3 scripts/check_codex_quota_budget.py --json
+python3 scripts/check_cron_output_finalization.py --mode gameplay-review --job-id c7b3dda8f1ac --agent-os-issue 1860 /root/.hermes/cron/output/c7b3dda8f1ac/<latest-output>.md
 ```
+
+## Cron output finalization diagnostics
+
+Cron output markdown is evidence only after the final response transport is validated. Before consuming the latest Gameplay Evolution output as gameplay/RL evidence, run:
+
+```bash
+python3 scripts/check_cron_output_finalization.py \
+  --mode gameplay-review \
+  --job-id c7b3dda8f1ac \
+  --agent-os-issue 1860 \
+  /root/.hermes/cron/output/c7b3dda8f1ac/<latest-output>.md
+```
+
+If the artifact contains `RuntimeError: [Errno 32] Broken pipe`, lacks `## Response`, or fails the compact Gameplay Evolution contract, treat it as Agent OS final-output evidence for issue #1860, not as gameplay evidence. A clean Gameplay Evolution artifact must either contain a finalized `## Response` report or exactly `[SILENT]`. Non-silent reports must preserve at least the KPI summary, practical gameplay closed-loop gate, RL Flywheel Product Review, and a `Recommended roadmap changes` table with concrete GitHub targets.
 
 ## Current target
 
