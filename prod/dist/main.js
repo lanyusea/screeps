@@ -36247,7 +36247,6 @@ function assignNextTask(creep) {
   return assignSelectedTask(creep, task);
 }
 function shouldReplaceTask(creep, task) {
-  var _a2, _b;
   if (isTerritoryControlTask2(task)) {
     return false;
   }
@@ -36257,11 +36256,11 @@ function shouldReplaceTask(creep, task) {
   if (task.type === "collectScore") {
     return false;
   }
-  if (!((_a2 = creep.store) == null ? void 0 : _a2.getUsedCapacity) || !((_b = creep.store) == null ? void 0 : _b.getFreeCapacity)) {
+  const usedEnergy = getObservedUsedTransferEnergy(creep);
+  const freeEnergyCapacity = getObservedFreeTransferEnergyCapacity(creep);
+  if (usedEnergy === null || freeEnergyCapacity === null) {
     return false;
   }
-  const usedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
-  const freeEnergyCapacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
   if (task.type === "harvest" || task.type === "pickup" || task.type === "withdraw") {
     if (isSourceContainerAssignedHarvestTask(task)) {
       const sourceContainer = findHarvestTaskSourceContainer(creep, task);
@@ -36298,18 +36297,18 @@ function shouldPreemptSpendingTaskForNearTermSpawnExtensionRefill(creep, task, s
   return selectedTask === null && isEnergySpendingTask(task) && shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep);
 }
 function shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, task, selectedTask) {
-  var _a2, _b, _c;
+  var _a2;
   if (!isEnergyAcquisitionTask2(task)) {
     return false;
   }
-  if (!((_a2 = creep.store) == null ? void 0 : _a2.getUsedCapacity) || !((_b = creep.store) == null ? void 0 : _b.getFreeCapacity)) {
+  if (typeof ((_a2 = creep.room) == null ? void 0 : _a2.find) !== "function") {
     return false;
   }
-  if (typeof ((_c = creep.room) == null ? void 0 : _c.find) !== "function") {
+  const usedEnergy = getObservedUsedTransferEnergy(creep);
+  const freeEnergyCapacity = getObservedFreeTransferEnergyCapacity(creep);
+  if (usedEnergy === null || freeEnergyCapacity === null) {
     return false;
   }
-  const usedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
-  const freeEnergyCapacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
   if (usedEnergy !== 0 || freeEnergyCapacity <= 0) {
     return false;
   }
@@ -36341,17 +36340,13 @@ function shouldPreemptEnergyAcquisitionTaskForProductiveBacklog(creep, task, sel
   return false;
 }
 function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, task, selectedTask) {
-  var _a2;
   if (!isEnergyAcquisitionTask2(task)) {
     return false;
   }
   if (!selectedTask || isSameTask2(task, selectedTask)) {
     return false;
   }
-  if (!((_a2 = creep.store) == null ? void 0 : _a2.getUsedCapacity)) {
-    return false;
-  }
-  if (creep.store.getUsedCapacity(RESOURCE_ENERGY) <= 0) {
+  if (getUsedTransferEnergy(creep) <= 0) {
     return false;
   }
   if (isDedicatedSourceContainerHarvestTask(creep, task)) {
@@ -36434,20 +36429,17 @@ function shouldPreemptLowLoadReturnTaskForEnergyAcquisition(creep, task, selecte
   return (sample == null ? void 0 : sample.type) === "nearbyEnergyChoice" && sample.selectedTask === selectedTask.type && sample.targetId === String(selectedTask.targetId) && isCurrentWorkerEfficiencySample(sample);
 }
 function shouldPreemptTransferTaskForBetterEnergySink(creep, task, selectedTask) {
-  var _a2, _b;
+  var _a2;
   if (task.type !== "transfer") {
     return false;
   }
   if ((selectedTask == null ? void 0 : selectedTask.type) !== "transfer" || isSameTask2(task, selectedTask)) {
     return false;
   }
-  if (!((_a2 = creep.store) == null ? void 0 : _a2.getUsedCapacity)) {
+  if (typeof ((_a2 = creep.room) == null ? void 0 : _a2.find) !== "function") {
     return false;
   }
-  if (typeof ((_b = creep.room) == null ? void 0 : _b.find) !== "function") {
-    return false;
-  }
-  if (creep.store.getUsedCapacity(RESOURCE_ENERGY) <= 0) {
+  if (getUsedTransferEnergy(creep) <= 0) {
     return false;
   }
   const currentTarget = Game.getObjectById(task.targetId);
@@ -36675,19 +36667,17 @@ function isSpawnConstructionTaskTarget(target) {
 }
 function getFreeTransferEnergyCapacity(target) {
   var _a2;
-  const store = target == null ? void 0 : target.store;
-  const freeCapacity = (_a2 = store == null ? void 0 : store.getFreeCapacity) == null ? void 0 : _a2.call(store, RESOURCE_ENERGY);
-  return typeof freeCapacity === "number" ? freeCapacity : 0;
+  return (_a2 = getKnownFreeTransferEnergyCapacity(target)) != null ? _a2 : 0;
 }
 function getUsedTransferEnergy(creep) {
-  var _a2, _b;
-  const usedCapacity = (_b = (_a2 = creep.store) == null ? void 0 : _a2.getUsedCapacity) == null ? void 0 : _b.call(_a2, RESOURCE_ENERGY);
-  return typeof usedCapacity === "number" && Number.isFinite(usedCapacity) ? Math.max(0, usedCapacity) : 0;
+  var _a2;
+  return (_a2 = getKnownStoredTransferEnergy(creep)) != null ? _a2 : 0;
 }
 function getObservedUsedTransferEnergy(creep) {
-  var _a2, _b;
-  const usedCapacity = (_b = (_a2 = creep.store) == null ? void 0 : _a2.getUsedCapacity) == null ? void 0 : _b.call(_a2, RESOURCE_ENERGY);
-  return typeof usedCapacity === "number" && Number.isFinite(usedCapacity) ? Math.max(0, usedCapacity) : null;
+  return getKnownStoredTransferEnergy(creep);
+}
+function getObservedFreeTransferEnergyCapacity(target) {
+  return getKnownFreeTransferEnergyCapacity(target);
 }
 function isSameRoomWorkerWithEnergy2(creep, room) {
   var _a2;
@@ -36789,6 +36779,23 @@ function getKnownStoredTransferEnergy(target) {
   }
   const legacyEnergy = target == null ? void 0 : target.energy;
   return typeof legacyEnergy === "number" && Number.isFinite(legacyEnergy) ? legacyEnergy : null;
+}
+function getKnownFreeTransferEnergyCapacity(target) {
+  var _a2, _b;
+  const store = target == null ? void 0 : target.store;
+  if (!store) {
+    return null;
+  }
+  const freeCapacity = (_a2 = store.getFreeCapacity) == null ? void 0 : _a2.call(store, RESOURCE_ENERGY);
+  if (typeof freeCapacity === "number" && Number.isFinite(freeCapacity)) {
+    return Math.max(0, freeCapacity);
+  }
+  const capacity = (_b = store.getCapacity) == null ? void 0 : _b.call(store, RESOURCE_ENERGY);
+  const usedEnergy = getKnownStoredTransferEnergy(target);
+  if (typeof capacity === "number" && Number.isFinite(capacity) && capacity >= 0 && usedEnergy !== null) {
+    return Math.max(0, capacity - usedEnergy);
+  }
+  return null;
 }
 function matchesTransferSinkStructureType(actual, globalName, fallback) {
   var _a2;
