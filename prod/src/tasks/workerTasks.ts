@@ -5795,7 +5795,9 @@ function selectBuilderEnergyAcquisitionTask(creep: Creep): BuilderEnergyAcquisit
   return candidates.sort(compareBuilderEnergyAcquisitionCandidates)[0].task;
 }
 
-function selectConstructionBacklogEnergyAcquisitionTask(creep: Creep): BuilderEnergyAcquisitionTask | null {
+export function selectConstructionBacklogEnergyAcquisitionTask(
+  creep: Creep
+): Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' }> | null {
   if (getFreeEnergyCapacity(creep) <= 0 || getActiveWorkParts(creep) <= 0) {
     return null;
   }

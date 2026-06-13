@@ -9288,6 +9288,133 @@ describe('runWorker', () => {
     expect(build).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['empty', 0, 100],
+    ['low-load', 18, 82]
+  ])(
+    'tops up a retained %s construction assignment from source energy when the selector still returns build',
+    (_label, carriedEnergy, freeCapacity) => {
+      const source = {
+        id: 'source1',
+        energy: 300,
+        pos: { x: 15, y: 20, roomName: 'E29N57' } as RoomPosition
+      } as Source;
+      const site = {
+        id: 'road-site1',
+        my: true,
+        structureType: 'road',
+        progress: 4_715,
+        progressTotal: 5_000,
+        pos: { x: 20, y: 21, roomName: 'E29N57' } as RoomPosition
+      } as ConstructionSite;
+      const controller = {
+        id: 'controller1',
+        my: true,
+        level: 5,
+        ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+      } as StructureController;
+      const roomCreeps: Creep[] = [];
+      const room = {
+        name: 'E29N57',
+        energyAvailable: 1_800,
+        energyCapacityAvailable: 1_800,
+        controller,
+        find: jest.fn(
+          (type: number, options?: { filter?: (object: AnyOwnedStructure | Creep) => boolean }) => {
+            if (type === FIND_CONSTRUCTION_SITES) {
+              return [site];
+            }
+
+            if (type === FIND_SOURCES) {
+              return [source];
+            }
+
+            if (type === FIND_MY_CREEPS) {
+              return options?.filter ? roomCreeps.filter(options.filter) : roomCreeps;
+            }
+
+            if (
+              type === FIND_MY_STRUCTURES ||
+              type === FIND_STRUCTURES ||
+              type === FIND_DROPPED_RESOURCES ||
+              type === FIND_HOSTILE_CREEPS
+            ) {
+              return [];
+            }
+
+            return [];
+          }
+        )
+      } as unknown as Room;
+      const selectedBuildTask = { type: 'build', targetId: 'road-site1' as Id<ConstructionSite> } as const;
+      const build = jest.fn();
+      const harvest = jest.fn().mockReturnValue(0);
+      const creep = {
+        name: 'RetainedBuilder',
+        memory: {
+          role: 'worker',
+          colony: 'E29N57',
+          task: selectedBuildTask
+        },
+        getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === 'work' ? 1 : 0)),
+        pos: { x: 18, y: 20, roomName: 'E29N57' } as RoomPosition,
+        store: {
+          getUsedCapacity: jest.fn((resource?: ResourceConstant) =>
+            resource === RESOURCE_ENERGY ? carriedEnergy : 0
+          ),
+          getFreeCapacity: jest.fn((resource?: ResourceConstant) =>
+            resource === RESOURCE_ENERGY ? freeCapacity : 0
+          ),
+          getCapacity: jest.fn((resource?: ResourceConstant) =>
+            resource === RESOURCE_ENERGY ? carriedEnergy + freeCapacity : 0
+          )
+        },
+        room,
+        build,
+        harvest,
+        moveTo: jest.fn()
+      } as unknown as Creep;
+      roomCreeps.push(creep);
+      const selectWorkerTask = jest.spyOn(workerTasks, 'selectWorkerTask').mockReturnValue(selectedBuildTask);
+      const selectWorkerEnergyCriticalTask = jest
+        .spyOn(workerTaskPolicy, 'selectWorkerEnergyCriticalTask')
+        .mockReturnValue(null);
+      (globalThis as unknown as { Game: Partial<Game> }).Game = {
+        creeps: { RetainedBuilder: creep },
+        rooms: { E29N57: room },
+        time: 2_124_541,
+        getObjectById: jest.fn((id: string) => {
+          if (id === 'road-site1') {
+            return site;
+          }
+
+          return id === 'source1' ? source : null;
+        })
+      };
+
+      try {
+        runWorker(creep);
+
+        expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+        expect(creep.memory.workerDispatchDiagnostic).toMatchObject({
+          currentTask: 'build',
+          currentTargetId: 'road-site1',
+          baseSelectedTask: 'build',
+          baseSelectedTargetId: 'road-site1',
+          selectedTask: 'harvest',
+          selectedTargetId: 'source1',
+          assignedTask: 'harvest',
+          assignedTargetId: 'source1'
+        });
+        expect(harvest).toHaveBeenCalledWith(source);
+        expect(build).not.toHaveBeenCalled();
+      } finally {
+        selectWorkerTask.mockRestore();
+        selectWorkerEnergyCriticalTask.mockRestore();
+      }
+    }
+  );
+
   it('preempts an E29N55 tower refill transfer for construction backlog while CPU shedding', () => {
     const site = {
       id: 'road-site1',
