@@ -961,6 +961,127 @@ class PostdeployConstructionAcceptanceTest(unittest.TestCase):
             {"ok": True, "mode": "alert", "alert": False, "reasons": []},
         )
 
+    def test_health_gate_fails_closed_on_owned_room_discovery_fallback(self) -> None:
+        health = monitor.evaluate_postdeploy_health_gate(
+            {
+                "ok": True,
+                "mode": "summary",
+                "rooms": ["shardX/E26S49"],
+                "room_summaries": [
+                    {
+                        "room": "shardX/E26S49",
+                        "owner": "owner",
+                        "owned_creeps": 2,
+                        "owned_spawns": 1,
+                        "constructionSiteCount": 0,
+                        "pendingBuildProgress": 0,
+                    }
+                ],
+                "warnings": [
+                    "owned room discovery unavailable: timeout",
+                    "falling back to configured room shardX/E26S49",
+                ],
+            },
+            {"ok": True, "mode": "alert", "alert": False, "reasons": [], "warnings": []},
+        )
+
+        self.assertFalse(health["ok"])
+        self.assertIn("postdeploy_room_coverage_incomplete", [reason["kind"] for reason in health["reasons"]])
+
+    def test_health_gate_fails_closed_when_discovered_room_is_not_collected(self) -> None:
+        health = monitor.evaluate_postdeploy_health_gate(
+            {
+                "ok": True,
+                "mode": "summary",
+                "rooms": ["shardX/E26S49"],
+                "overview_rooms": ["shardX/E26S49", "shardX/E27S49"],
+                "room_summaries": [
+                    {
+                        "room": "shardX/E26S49",
+                        "owner": "owner",
+                        "owned_creeps": 2,
+                        "owned_spawns": 1,
+                        "constructionSiteCount": 0,
+                        "pendingBuildProgress": 0,
+                    }
+                ],
+                "warnings": ["shardX/E27S49 collection attempt 3/3 failed: timeout"],
+            },
+            {
+                "ok": True,
+                "mode": "alert",
+                "alert": False,
+                "reasons": [],
+                "rooms": ["shardX/E26S49"],
+                "overview_rooms": ["shardX/E26S49", "shardX/E27S49"],
+            },
+        )
+
+        coverage_reasons = [
+            reason for reason in health["reasons"] if reason["kind"] == "postdeploy_room_coverage_incomplete"
+        ]
+        self.assertFalse(health["ok"])
+        self.assertTrue(coverage_reasons)
+        self.assertTrue(any(reason.get("missing_rooms") == ["shardX/E27S49"] for reason in coverage_reasons))
+
+    def test_health_gate_allows_non_coverage_monitor_warnings(self) -> None:
+        health = monitor.evaluate_postdeploy_health_gate(
+            {
+                "ok": True,
+                "mode": "summary",
+                "rooms": ["shardX/E26S49"],
+                "overview_rooms": ["shardX/E26S49"],
+                "room_summaries": [
+                    {
+                        "room": "shardX/E26S49",
+                        "owner": "owner",
+                        "owned_creeps": 2,
+                        "owned_spawns": 1,
+                        "constructionSiteCount": 0,
+                        "pendingBuildProgress": 0,
+                    }
+                ],
+                "warnings": ["summary image render failed for shardX/E26S49: renderer unavailable"],
+            },
+            {
+                "ok": True,
+                "mode": "alert",
+                "alert": False,
+                "reasons": [],
+                "rooms": ["shardX/E26S49"],
+                "overview_rooms": ["shardX/E26S49"],
+                "warnings": ["alert image render failed for shardX/E26S49: renderer unavailable"],
+            },
+        )
+
+        self.assertTrue(health["ok"])
+
+    def test_health_gate_allows_single_room_scope_with_overview_subset(self) -> None:
+        payload = {
+            "ok": True,
+            "rooms": ["shardX/E26S49"],
+            "overview_rooms": ["shardX/E26S49", "shardX/E27S49"],
+            "room_scope": "single-room",
+            "room_summaries": [
+                {
+                    "room": "shardX/E26S49",
+                    "owner": "owner",
+                    "owned_creeps": 2,
+                    "owned_spawns": 1,
+                    "constructionSiteCount": 0,
+                    "pendingBuildProgress": 0,
+                }
+            ],
+            "warnings": ["owned room discovery unavailable: timeout"],
+        }
+
+        health = monitor.evaluate_postdeploy_health_gate(
+            {"mode": "summary", **payload},
+            {"mode": "alert", "alert": False, "reasons": [], **payload},
+        )
+
+        self.assertTrue(health["ok"])
+
     def test_construction_acceptance_blocks_backlog_without_build_execution(self) -> None:
         health = self.health_gate_for_room(
             {
