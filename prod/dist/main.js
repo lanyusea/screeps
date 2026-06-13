@@ -34803,16 +34803,22 @@ function summarizeAndResetWorkerBuildActionTelemetry(workers) {
   );
   const actionCount = sumBuildActionResultCounts(resultCounts);
   const buildFailCount = sumBuildFailureResultCounts(resultCounts);
+  const buildActionResult = selectDominantBuildActionResult(resultCounts);
+  const suppressedCount = resultCounts.suppressed_by_policy;
   for (const worker of workers) {
     delete worker.memory.buildActionTelemetry;
   }
   return {
+    buildActionResult,
+    buildFailCount,
+    buildSuppressedCount: suppressedCount,
+    buildActionResultCounts: resultCounts,
     buildActionResults: {
       source: "runtime-summary",
-      buildActionResult: selectDominantBuildActionResult(resultCounts),
+      buildActionResult,
       actionCount,
       buildFailCount,
-      suppressedCount: resultCounts.suppressed_by_policy,
+      suppressedCount,
       resultCounts,
       workers: workerSummaries
     }
