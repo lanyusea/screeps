@@ -257,6 +257,42 @@ The final output should use this response template:
         self.assertFalse(diagnostic.response_present)
         self.assertEqual(diagnostic.response_bytes, 0)
 
+    def test_rejects_prompt_only_gameplay_response_template_with_multiple_examples(self) -> None:
+        alternate_template = PROMPT_GAMEPLAY_RESPONSE_TEMPLATE.replace(
+            "Example finalization repair",
+            "Example multi-template finalization repair",
+        ).replace("#1860", "#1862")
+        artifact = f"""# Cron Job: Screeps Gameplay Evolution Review
+
+**Job ID:** c7b3dda8f1ac
+
+## Prompt
+
+The final output should use this response template:
+
+## Response
+
+{PROMPT_GAMEPLAY_RESPONSE_TEMPLATE}
+
+Alternative example response:
+
+## Response
+
+{alternate_template}"""
+
+        diagnostic = finalization.diagnose_text(
+            artifact,
+            path="prompt-only-multiple-response-templates.md",
+            mode="gameplay-review",
+            route_issue="#1860",
+            expected_job_id="c7b3dda8f1ac",
+        )
+
+        self.assertFalse(diagnostic.ok)
+        self.assertEqual(diagnostic.classification, "missing_response")
+        self.assertFalse(diagnostic.response_present)
+        self.assertEqual(diagnostic.response_bytes, 0)
+
     def test_accepts_real_response_after_prompt_gameplay_response_template(self) -> None:
         artifact = f"""# Cron Job: Screeps Gameplay Evolution Review
 
@@ -277,6 +313,47 @@ The final output should use this response template:
         diagnostic = finalization.diagnose_text(
             artifact,
             path="final-response-after-prompt-template.md",
+            mode="gameplay-review",
+            route_issue="#1860",
+            expected_job_id="c7b3dda8f1ac",
+        )
+
+        expected_response_bytes = len(VALID_GAMEPLAY_RESPONSE.strip().encode("utf-8"))
+        self.assertTrue(diagnostic.ok)
+        self.assertEqual(diagnostic.classification, "response_ok")
+        self.assertEqual(diagnostic.response_bytes, expected_response_bytes)
+        self.assertEqual(diagnostic.github_targets, ["#1831", "#1846"])
+
+    def test_accepts_real_response_after_multiple_prompt_gameplay_response_templates(self) -> None:
+        alternate_template = PROMPT_GAMEPLAY_RESPONSE_TEMPLATE.replace(
+            "Example finalization repair",
+            "Example multi-template finalization repair",
+        ).replace("#1860", "#1862")
+        artifact = f"""# Cron Job: Screeps Gameplay Evolution Review
+
+**Job ID:** c7b3dda8f1ac
+
+## Prompt
+
+The final output should use this response template:
+
+## Response
+
+{PROMPT_GAMEPLAY_RESPONSE_TEMPLATE}
+
+Alternative example response:
+
+## Response
+
+{alternate_template}
+
+## Response
+
+{VALID_GAMEPLAY_RESPONSE}"""
+
+        diagnostic = finalization.diagnose_text(
+            artifact,
+            path="final-response-after-multiple-prompt-templates.md",
             mode="gameplay-review",
             route_issue="#1860",
             expected_job_id="c7b3dda8f1ac",

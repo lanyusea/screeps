@@ -209,10 +209,6 @@ def missing_gameplay_sections(response: str) -> list[str]:
 
 
 def is_prompt_response_template(text: str, response_start: int, response: str, *, mode: str) -> bool:
-    response_starts = heading_starts(text, "## Response")
-    if len(response_starts) != 1:
-        return False
-
     prompt_start = last_heading_start_before(text, "## Prompt", response_start)
     if prompt_start is None:
         return False
