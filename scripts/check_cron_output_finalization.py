@@ -21,6 +21,7 @@ ISSUE_REF_RE = re.compile(
     r"(?<![\w/])#\d+\b|https://github\.com/[^\s)]+/[^\s)]+/(?:issues|pull)/\d+\b",
     re.IGNORECASE,
 )
+TABLE_SEPARATOR_CELL_RE = re.compile(r":?-{3,}:?")
 
 GAMEPLAY_REQUIRED_SECTIONS: dict[str, tuple[str, ...]] = {
     "kpi_summary": ("## Vision KPI summary", "## KPI summary"),
@@ -60,11 +61,26 @@ def has_heading(text: str, heading: str) -> bool:
     return re.search(pattern, text, re.MULTILINE) is not None
 
 
-def extract_section_body(text: str, heading: str) -> str | None:
-    match = re.search(SECTION_RE_TEMPLATE.format(heading=re.escape(heading)), text, re.MULTILINE)
-    if not match:
+def markdown_heading_level(heading: str) -> int:
+    stripped = heading.lstrip()
+    return len(stripped) - len(stripped.lstrip("#"))
+
+
+def extract_section_body(text: str, heading: str, *, stop_at_next_heading: bool = False) -> str | None:
+    matches = re.finditer(SECTION_RE_TEMPLATE.format(heading=re.escape(heading)), text, re.MULTILINE)
+    last_match = None
+    for match in matches:
+        last_match = match
+    if last_match is None:
         return None
-    return text[match.end() :].strip()
+    body = text[last_match.end() :]
+    if stop_at_next_heading:
+        level = markdown_heading_level(heading)
+        if level > 0:
+            next_heading = re.search(rf"^\s*#{{1,{level}}}\s+\S", body, re.MULTILINE)
+            if next_heading:
+                body = body[: next_heading.start()]
+    return body.strip()
 
 
 def extract_job_id(text: str) -> str | None:
@@ -76,14 +92,67 @@ def extract_github_targets(text: str) -> list[str]:
     return sorted(set(match.group(0) for match in ISSUE_REF_RE.finditer(text)))
 
 
+def extract_gameplay_roadmap_body(response: str) -> str | None:
+    for heading in GAMEPLAY_REQUIRED_SECTIONS["roadmap_targets"]:
+        body = extract_section_body(response, heading, stop_at_next_heading=True)
+        if body is not None:
+            return body
+    return None
+
+
+def split_markdown_table_row(line: str) -> list[str] | None:
+    stripped = line.strip()
+    if not stripped.startswith("|") or "|" not in stripped[1:]:
+        return None
+    return [cell.strip() for cell in stripped.strip("|").split("|")]
+
+
+def is_markdown_table_separator(cells: list[str]) -> bool:
+    return bool(cells) and all(TABLE_SEPARATOR_CELL_RE.fullmatch(cell.replace(" ", "")) for cell in cells)
+
+
+def roadmap_table_targets(roadmap_body: str) -> tuple[bool, list[str]]:
+    target_indexes: list[int] = []
+    targets: set[str] = set()
+    for line in roadmap_body.splitlines():
+        cells = split_markdown_table_row(line)
+        if cells is None:
+            continue
+        if not target_indexes:
+            target_indexes = [index for index, cell in enumerate(cells) if cell.lower() == "github target"]
+            continue
+        if is_markdown_table_separator(cells):
+            continue
+        for index in target_indexes:
+            if index < len(cells):
+                targets.update(extract_github_targets(cells[index]))
+    return bool(target_indexes), sorted(targets)
+
+
+def extract_gameplay_github_targets(response: str) -> list[str]:
+    roadmap_body = extract_gameplay_roadmap_body(response)
+    if roadmap_body is None:
+        return []
+    _, targets = roadmap_table_targets(roadmap_body)
+    return targets
+
+
 def missing_gameplay_sections(response: str) -> list[str]:
     missing: list[str] = []
     for key, alternatives in GAMEPLAY_REQUIRED_SECTIONS.items():
+        if key == "roadmap_targets":
+            continue
         if not any(has_heading(response, heading) for heading in alternatives):
             missing.append(key)
-    if "GitHub target" not in response:
+
+    roadmap_body = extract_gameplay_roadmap_body(response)
+    if roadmap_body is None:
+        missing.append("roadmap_targets")
+        roadmap_body = ""
+    has_target_column, targets = roadmap_table_targets(roadmap_body)
+    if not has_target_column:
         missing.append("github_target_column")
-    if not extract_github_targets(response):
+    if not targets:
         missing.append("github_target_refs")
     return missing
 
@@ -100,11 +169,28 @@ def diagnose_text(
     error_body = extract_section_body(text, "## Error")
     response_present = response is not None
     error_present = error_body is not None
-    broken_pipe = bool(BROKEN_PIPE_RE.search(error_body or ""))
-    if not broken_pipe and not response_present:
-        broken_pipe = bool(BROKEN_PIPE_RE.search(text))
+    response_bytes = 0 if response is None else len(response.encode("utf-8"))
+    broken_pipe = bool(BROKEN_PIPE_RE.search(text))
 
     job_id = extract_job_id(text)
+    if expected_job_id and job_id is None:
+        return Diagnostic(
+            path=path,
+            ok=False,
+            classification="missing_job_id",
+            route_issue=route_issue,
+            reason=f"artifact has no Job ID; expected {expected_job_id}",
+            job_id=None,
+            expected_job_id=expected_job_id,
+            response_present=response_present,
+            response_bytes=response_bytes,
+            error_present=error_present,
+            broken_pipe=broken_pipe,
+            silent=False,
+            missing_sections=[],
+            github_targets=[],
+        )
+
     if expected_job_id and job_id and job_id != expected_job_id:
         return Diagnostic(
             path=path,
@@ -115,7 +201,7 @@ def diagnose_text(
             job_id=job_id,
             expected_job_id=expected_job_id,
             response_present=response_present,
-            response_bytes=0 if response is None else len(response.encode("utf-8")),
+            response_bytes=response_bytes,
             error_present=error_present,
             broken_pipe=broken_pipe,
             silent=False,
@@ -133,7 +219,7 @@ def diagnose_text(
             job_id=job_id,
             expected_job_id=expected_job_id,
             response_present=response_present,
-            response_bytes=0 if response is None else len(response.encode("utf-8")),
+            response_bytes=response_bytes,
             error_present=error_present,
             broken_pipe=True,
             silent=False,
@@ -159,7 +245,6 @@ def diagnose_text(
             github_targets=[],
         )
 
-    response_bytes = len(response.encode("utf-8"))
     if response == "[SILENT]":
         return Diagnostic(
             path=path,
@@ -178,8 +263,12 @@ def diagnose_text(
             github_targets=[],
         )
 
-    missing_sections = missing_gameplay_sections(response) if mode == "gameplay-review" else []
-    github_targets = extract_github_targets(response)
+    if mode == "gameplay-review":
+        missing_sections = missing_gameplay_sections(response)
+        github_targets = extract_gameplay_github_targets(response)
+    else:
+        missing_sections = []
+        github_targets = extract_github_targets(response)
     if missing_sections:
         return Diagnostic(
             path=path,
@@ -220,7 +309,7 @@ def read_bounded(path: Path, *, max_bytes: int) -> str:
     size = path.stat().st_size
     if size > max_bytes:
         raise ValueError(f"{path} is {size} bytes, exceeding --max-bytes={max_bytes}")
-    return path.read_text(encoding="utf-8", errors="replace")
+    return path.read_text(encoding="utf-8")
 
 
 def render_text(diagnostic: Diagnostic) -> str:
