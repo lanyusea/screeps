@@ -14897,6 +14897,107 @@ describe('selectWorkerTask', () => {
     });
   });
 
+  it('keeps a loaded E29N57 road builder productive during low-bucket shedding when storage protects construction', () => {
+    const site = {
+      id: 'remote-road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 0,
+      progressTotal: 1_500,
+      pos: makeRoomPosition(32, 20, 'E29N57')
+    } as ConstructionSite;
+    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 592_596, {
+      my: true,
+      pos: makeRoomPosition(35, 27, 'E29N57')
+    }) as StructureStorage;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 1_800,
+      energyCapacityAvailable: 1_800,
+      structures: [storage as AnyStructure]
+    });
+    (room as { storage?: StructureStorage }).storage = storage;
+    const creep = {
+      name: 'LoadedRoadBuilder',
+      memory: { role: 'worker', colony: 'E29N57' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ LoadedRoadBuilder: creep });
+    setCpuBucket(948);
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'remote-road-site1' });
+  });
+
+  it('withdraws distant E29N56 storage energy for road construction during low-bucket shedding', () => {
+    const site = {
+      id: 'swamp-road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 275,
+      progressTotal: 1_500,
+      pos: {
+        ...makeRoomPosition(26, 27, 'E29N56'),
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'storage-surplus' ? 12 : 99))
+      }
+    } as unknown as ConstructionSite;
+    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 605_307, {
+      my: true,
+      pos: makeRoomPosition(22, 25, 'E29N56')
+    }) as StructureStorage;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N56',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300,
+      structures: [storage as AnyStructure]
+    });
+    (room as { storage?: StructureStorage }).storage = storage;
+    const creep = {
+      name: 'EmptyRoadBuilder',
+      memory: { role: 'worker', colony: 'E29N56' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      pos: {
+        ...makeRoomPosition(23, 25, 'E29N56'),
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'storage-surplus' ? 1 : 12))
+      },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ EmptyRoadBuilder: creep });
+    setCpuBucket(948);
+
+    expect(selectWorkerTask(creep)).toEqual({
+      type: 'withdraw',
+      targetId: 'storage-surplus',
+      constructionSiteId: 'swamp-road-site1'
+    });
+  });
+
   it('refills uncovered E29N57 source-container construction from storage before spawn recovery', () => {
     const source = makeSource('source1', 20, 20, 'E29N57');
     const site = {
