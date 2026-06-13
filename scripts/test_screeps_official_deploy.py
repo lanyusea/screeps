@@ -592,6 +592,16 @@ class OfficialDeployTest(unittest.TestCase):
             self.assertTrue(health_gate["ok"])
             self.assertTrue(default_path.exists())
 
+    def test_official_deploy_workflow_installs_websockets_before_live_console_capture(self) -> None:
+        workflow = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "official-screeps-deploy.yml"
+        text = workflow.read_text(encoding="utf-8")
+        install_marker = 'python3 -m pip install --disable-pip-version-check "websockets>=12,<16"'
+        capture_marker = "python3 scripts/screeps_runtime_summary_console_capture.py"
+
+        self.assertIn(install_marker, text)
+        self.assertIn(capture_marker, text)
+        self.assertLess(text.index(install_marker), text.index(capture_marker))
+
     def test_recovery_summary_reader_scopes_single_target_and_collects_all_for_multiple_targets(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)

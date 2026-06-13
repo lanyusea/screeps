@@ -127,6 +127,10 @@ jobs:
             --confirm "$CONFIRMATION" \
             --evidence-path "$EVIDENCE_DIR/official-screeps-deploy.json"
 
+      - name: Install post-deploy live console dependency
+        if: ${{ inputs.mode == 'deploy' }}
+        run: python3 -m pip install --disable-pip-version-check "websockets>=12,<16"
+
       - name: Post-deploy live all-owned-room health and construction gate
         if: ${{ inputs.mode == 'deploy' }}
         env:
