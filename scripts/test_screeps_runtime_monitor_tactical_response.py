@@ -954,6 +954,8 @@ class PostdeployConstructionAcceptanceTest(unittest.TestCase):
                         "owner": "owner",
                         "owned_creeps": 2,
                         "owned_spawns": 1,
+                        "cpuUsed": 10,
+                        "cpuBucket": 9000,
                         **room,
                     }
                 ],
@@ -973,6 +975,8 @@ class PostdeployConstructionAcceptanceTest(unittest.TestCase):
                         "owner": "owner",
                         "owned_creeps": 2,
                         "owned_spawns": 1,
+                        "cpuUsed": 10,
+                        "cpuBucket": 9000,
                         "constructionSiteCount": 0,
                         "pendingBuildProgress": 0,
                     }
@@ -1001,6 +1005,8 @@ class PostdeployConstructionAcceptanceTest(unittest.TestCase):
                         "owner": "owner",
                         "owned_creeps": 2,
                         "owned_spawns": 1,
+                        "cpuUsed": 10,
+                        "cpuBucket": 9000,
                         "constructionSiteCount": 0,
                         "pendingBuildProgress": 0,
                     }
@@ -1037,6 +1043,8 @@ class PostdeployConstructionAcceptanceTest(unittest.TestCase):
                         "owner": "owner",
                         "owned_creeps": 2,
                         "owned_spawns": 1,
+                        "cpuUsed": 10,
+                        "cpuBucket": 9000,
                         "constructionSiteCount": 0,
                         "pendingBuildProgress": 0,
                     }
@@ -1068,6 +1076,8 @@ class PostdeployConstructionAcceptanceTest(unittest.TestCase):
                     "owner": "owner",
                     "owned_creeps": 2,
                     "owned_spawns": 1,
+                    "cpuUsed": 10,
+                    "cpuBucket": 9000,
                     "constructionSiteCount": 0,
                     "pendingBuildProgress": 0,
                 }
@@ -1221,6 +1231,7 @@ class PostdeployConstructionAcceptanceTest(unittest.TestCase):
         payload = {
             "type": "runtime-summary",
             "tick": 1200,
+            "cpu": {"used": 10, "bucket": 9000},
             "rooms": [
                 {
                     "roomName": "E26S49",
@@ -1271,6 +1282,8 @@ class PostdeployConstructionAcceptanceTest(unittest.TestCase):
                     "owner": "owner",
                     "owned_creeps": 2,
                     "owned_spawns": 1,
+                    "cpuUsed": 10,
+                    "cpuBucket": 9000,
                     "constructionSiteCount": 1,
                     "pendingBuildProgress": 300,
                     "buildCarriedEnergy": 0,
@@ -1475,7 +1488,14 @@ class TacticalResponseBridgeTest(unittest.TestCase):
                 "ok": True,
                 "mode": "summary",
                 "room_summaries": [
-                    {"room": "shardX/E29N57", "owner": "lanyusea", "owned_creeps": 4, "owned_spawns": 1}
+                    {
+                        "room": "shardX/E29N57",
+                        "owner": "lanyusea",
+                        "owned_creeps": 4,
+                        "owned_spawns": 1,
+                        "cpuUsed": 10,
+                        "cpuBucket": 9000,
+                    }
                 ],
             },
             {"ok": True, "mode": "alert", "alert": True, "reasons": [reason]},
@@ -2847,6 +2867,34 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertFalse(missing_health["ok"])
         self.assertIn(monitor.CPU_TELEMETRY_MISSING_KIND, [reason["kind"] for reason in missing_health["reasons"]])
         self.assertNotIn("postdeploy_room_dead", [reason["kind"] for reason in missing_health["reasons"]])
+
+    def test_postdeploy_health_gate_fails_closed_when_cpu_keys_are_absent(self) -> None:
+        health = monitor.evaluate_postdeploy_health_gate(
+            {
+                "ok": True,
+                "mode": "summary",
+                "room_summaries": [
+                    {
+                        "room": "shardX/E26S49",
+                        "owned_creeps": 1,
+                        "owned_spawns": 1,
+                        "creeps": 1,
+                        "spawns": 1,
+                        "owner": "owner",
+                        "constructionSiteCount": 0,
+                        "pendingBuildProgress": 0,
+                    }
+                ],
+            },
+            {"ok": True, "mode": "alert", "alert": False, "reasons": []},
+        )
+
+        self.assertFalse(health["ok"])
+        cpu_reason = next(
+            reason for reason in health["reasons"] if reason["kind"] == monitor.CPU_TELEMETRY_MISSING_KIND
+        )
+        self.assertEqual(cpu_reason["missing"], ["cpu.used", "cpu.bucket"])
+        self.assertNotIn("postdeploy_room_dead", [reason["kind"] for reason in health["reasons"]])
 
     def test_cpu_bucket_alert_does_not_mask_hostile_or_damage_alerts(self) -> None:
         previous = {

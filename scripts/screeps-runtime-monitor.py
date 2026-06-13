@@ -7588,7 +7588,7 @@ def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_paylo
             threshold_reason = threshold_exceeds_capacity_reason(room)
             if threshold_reason is not None:
                 reasons.append(threshold_reason)
-            reasons.extend(detect_cpu_runtime_reasons(runtime_summary_room_ref(room), room))
+            reasons.extend(detect_cpu_runtime_reasons(runtime_summary_room_ref(room), room, require_cpu_evidence=True))
             if owner_missing:
                 creeps = 0
                 spawns = 0
