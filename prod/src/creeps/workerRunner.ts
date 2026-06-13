@@ -2166,12 +2166,11 @@ function shouldReplaceTask(creep: Creep, task: CreepTaskMemory): boolean {
     return false;
   }
 
-  if (!creep.store?.getUsedCapacity || !creep.store?.getFreeCapacity) {
+  const usedEnergy = getObservedUsedTransferEnergy(creep);
+  const freeEnergyCapacity = getObservedFreeTransferEnergyCapacity(creep);
+  if (usedEnergy === null || freeEnergyCapacity === null) {
     return false;
   }
-
-  const usedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
-  const freeEnergyCapacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
 
   if (task.type === 'harvest' || task.type === 'pickup' || task.type === 'withdraw') {
     if (isSourceContainerAssignedHarvestTask(task)) {
@@ -2263,16 +2262,15 @@ function shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(
     return false;
   }
 
-  if (!creep.store?.getUsedCapacity || !creep.store?.getFreeCapacity) {
-    return false;
-  }
-
   if (typeof creep.room?.find !== 'function') {
     return false;
   }
 
-  const usedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
-  const freeEnergyCapacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
+  const usedEnergy = getObservedUsedTransferEnergy(creep);
+  const freeEnergyCapacity = getObservedFreeTransferEnergyCapacity(creep);
+  if (usedEnergy === null || freeEnergyCapacity === null) {
+    return false;
+  }
   if (usedEnergy !== 0 || freeEnergyCapacity <= 0) {
     return false;
   }
@@ -2352,11 +2350,7 @@ function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(
     return false;
   }
 
-  if (!creep.store?.getUsedCapacity) {
-    return false;
-  }
-
-  if (creep.store.getUsedCapacity(RESOURCE_ENERGY) <= 0) {
+  if (getUsedTransferEnergy(creep) <= 0) {
     return false;
   }
 
@@ -2510,15 +2504,11 @@ function shouldPreemptTransferTaskForBetterEnergySink(
     return false;
   }
 
-  if (!creep.store?.getUsedCapacity) {
-    return false;
-  }
-
   if (typeof creep.room?.find !== 'function') {
     return false;
   }
 
-  if (creep.store.getUsedCapacity(RESOURCE_ENERGY) <= 0) {
+  if (getUsedTransferEnergy(creep) <= 0) {
     return false;
   }
 
@@ -2885,20 +2875,19 @@ function isSpawnConstructionTaskTarget(target: unknown): target is ConstructionS
 }
 
 function getFreeTransferEnergyCapacity(target: unknown): number {
-  const store = (target as { store?: { getFreeCapacity?: (resource?: ResourceConstant) => number | null } } | null)
-    ?.store;
-  const freeCapacity = store?.getFreeCapacity?.(RESOURCE_ENERGY);
-  return typeof freeCapacity === 'number' ? freeCapacity : 0;
+  return getKnownFreeTransferEnergyCapacity(target) ?? 0;
 }
 
 function getUsedTransferEnergy(creep: Creep): number {
-  const usedCapacity = creep.store?.getUsedCapacity?.(RESOURCE_ENERGY);
-  return typeof usedCapacity === 'number' && Number.isFinite(usedCapacity) ? Math.max(0, usedCapacity) : 0;
+  return getKnownStoredTransferEnergy(creep) ?? 0;
 }
 
 function getObservedUsedTransferEnergy(creep: Creep): number | null {
-  const usedCapacity = creep.store?.getUsedCapacity?.(RESOURCE_ENERGY);
-  return typeof usedCapacity === 'number' && Number.isFinite(usedCapacity) ? Math.max(0, usedCapacity) : null;
+  return getKnownStoredTransferEnergy(creep);
+}
+
+function getObservedFreeTransferEnergyCapacity(target: unknown): number | null {
+  return getKnownFreeTransferEnergyCapacity(target);
 }
 
 function isSameRoomWorkerWithEnergy(creep: Creep, room: Room): boolean {
@@ -3019,6 +3008,8 @@ function getKnownStoredTransferEnergy(target: unknown): number | null {
   const store = (
     target as {
       store?: {
+        getCapacity?: (resource?: ResourceConstant) => number | null;
+        getFreeCapacity?: (resource?: ResourceConstant) => number | null;
         getUsedCapacity?: (resource?: ResourceConstant) => number | null;
         [resource: string]: unknown;
       };
@@ -3036,6 +3027,40 @@ function getKnownStoredTransferEnergy(target: unknown): number | null {
 
   const legacyEnergy = (target as { energy?: unknown } | null)?.energy;
   return typeof legacyEnergy === 'number' && Number.isFinite(legacyEnergy) ? legacyEnergy : null;
+}
+
+function getKnownFreeTransferEnergyCapacity(target: unknown): number | null {
+  const store = (
+    target as {
+      store?: {
+        getCapacity?: (resource?: ResourceConstant) => number | null;
+        getFreeCapacity?: (resource?: ResourceConstant) => number | null;
+        getUsedCapacity?: (resource?: ResourceConstant) => number | null;
+        [resource: string]: unknown;
+      };
+    } | null
+  )?.store;
+  if (!store) {
+    return null;
+  }
+
+  const freeCapacity = store.getFreeCapacity?.(RESOURCE_ENERGY);
+  if (typeof freeCapacity === 'number' && Number.isFinite(freeCapacity)) {
+    return Math.max(0, freeCapacity);
+  }
+
+  const capacity = store.getCapacity?.(RESOURCE_ENERGY);
+  const usedEnergy = getKnownStoredTransferEnergy(target);
+  if (
+    typeof capacity === 'number' &&
+    Number.isFinite(capacity) &&
+    capacity >= 0 &&
+    usedEnergy !== null
+  ) {
+    return Math.max(0, capacity - usedEnergy);
+  }
+
+  return null;
 }
 
 function matchesTransferSinkStructureType(
