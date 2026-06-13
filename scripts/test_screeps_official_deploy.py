@@ -394,6 +394,52 @@ class OfficialDeployTest(unittest.TestCase):
         )
         self.assertFalse(deploy.health_gate_triggers_auto_rollback({"ok": True, "reasons": [{"kind": "room_dead"}]}))
 
+    def test_auto_rollback_recovery_targets_use_triggering_reason_rooms(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = self.write_artifact(Path(tmp))
+            cfg = self.config(artifact)
+
+            targets = deploy.auto_rollback_recovery_targets(
+                cfg,
+                {
+                    "ok": False,
+                    "reasons": [
+                        {"kind": "postdeploy_room_dead", "room": "shardX/E29N58"},
+                        {"kind": "postdeploy_no_owned_spawn", "room": "E29N59"},
+                        {"kind": "postdeploy_room_dead"},
+                        {
+                            "kind": "postdeploy_active_alert",
+                            "room": "E29N60",
+                            "source": {"kind": "room_dead"},
+                        },
+                        {"kind": "postdeploy_summary_failed", "room": "E1N1"},
+                        {"kind": "postdeploy_room_dead", "room": "shardX/E29N58"},
+                    ],
+                },
+            )
+
+        self.assertEqual(
+            targets,
+            [
+                ("shardX", "E29N58"),
+                ("shardX", "E29N59"),
+                ("shardX", "E19S57"),
+                ("shardX", "E29N60"),
+            ],
+        )
+
+    def test_auto_rollback_recovery_targets_fall_back_to_configured_room(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = self.write_artifact(Path(tmp))
+            cfg = self.config(artifact)
+
+            targets = deploy.auto_rollback_recovery_targets(
+                cfg,
+                {"ok": False, "reasons": [{"kind": "postdeploy_room_dead"}]},
+            )
+
+        self.assertEqual(targets, [("shardX", "E19S57")])
+
     def test_previous_evidence_lookup_finds_last_healthy_deploy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             evidence_dir = Path(tmp)
@@ -524,6 +570,41 @@ class OfficialDeployTest(unittest.TestCase):
             self.assertTrue(health_gate["ok"])
             self.assertTrue(default_path.exists())
 
+    def test_recovery_summary_reader_scopes_single_target_and_collects_all_for_multiple_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            artifact = self.write_artifact(repo_root)
+            evidence_dir = repo_root / "runtime-artifacts" / "official-screeps-deploy"
+            cfg = self.config(artifact, evidence_dir=evidence_dir, repo_root=repo_root)
+            commands: list[list[str]] = []
+
+            def command_runner(command: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+                commands.append(command)
+                return subprocess.CompletedProcess(command, 0, stdout='{"ok": true}\n', stderr="")
+
+            single_reader = deploy.make_runtime_summary_reader(
+                cfg,
+                target_rooms=[("shardX", "E29N58")],
+                env={},
+                runner=command_runner,
+            )
+            single_reader()
+
+            self.assertIn("--room", commands[0])
+            self.assertIn("shardX/E29N58", commands[0])
+            self.assertNotIn("shardX/E19S57", commands[0])
+
+            commands.clear()
+            multi_reader = deploy.make_runtime_summary_reader(
+                cfg,
+                target_rooms=[("shardX", "E19S57"), ("shardX", "E29N58")],
+                env={},
+                runner=command_runner,
+            )
+            multi_reader()
+
+            self.assertNotIn("--room", commands[0])
+
     def test_recovery_verification_requires_spawn_and_owned_creep(self) -> None:
         recovered = deploy.recovery_status_from_payload(
             {
@@ -631,6 +712,70 @@ class OfficialDeployTest(unittest.TestCase):
         self.assertEqual(issues[0]["title"], deploy.ROLLBACK_ISSUE_TITLE)
         self.assertEqual(issues[0]["labels"], ["priority:p0"])
         self.assertTrue(rollback_deploy_written)
+
+    def test_auto_rollback_escalates_when_triggering_secondary_room_does_not_recover(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            evidence_dir = repo_root / "runtime-artifacts" / "official-screeps-deploy"
+            evidence_dir.mkdir(parents=True)
+            prod_dist = repo_root / "prod" / "dist"
+            prod_dist.mkdir(parents=True)
+            artifact_body = "module.exports.loop = function () { return 1; };\n"
+            artifact = self.write_artifact(prod_dist, artifact_body)
+            self.write_deploy_evidence(
+                evidence_dir,
+                "healthy",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                timestamp="2026-05-01T00:00:00Z",
+            )
+            cfg = self.config(
+                artifact,
+                deploy_mode=True,
+                activate_world=False,
+                confirm="deploy main to shardX/E19S57",
+                evidence_dir=evidence_dir,
+                repo_root=repo_root,
+            )
+            responses = [
+                deploy.HttpResult(200, {"ok": 1, "list": [{"branch": "main", "activeWorld": True}]}, {}),
+                deploy.HttpResult(200, {"ok": 1, "list": [{"branch": "main", "activeWorld": True}]}, {}),
+                deploy.HttpResult(200, {"ok": 1, "timestamp": 123}, {}),
+                deploy.HttpResult(200, {"ok": 1, "modules": {"main": artifact_body}}, {}),
+            ]
+            fake = FakeTransport(responses)
+            commands: list[list[str]] = []
+            monotonic_values = iter([0.0, 301.0])
+
+            def command_runner(command: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+                commands.append(command)
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+            with self.assertRaisesRegex(deploy.DeployError, "AUTO-ROLLBACK ESCALATION") as raised:
+                deploy.execute_auto_rollback(
+                    cfg,
+                    {
+                        "git": {"commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+                        "target": self.deploy_target(),
+                    },
+                    {"ok": False, "reasons": [{"kind": "postdeploy_room_dead", "room": "shardX/E29N58"}]},
+                    env={deploy.AUTH_TOKEN_ENV: "fixture-value"},
+                    transport=fake,
+                    command_runner=command_runner,
+                    recovery_reader=lambda: {
+                        "ok": True,
+                        "room_summaries": [
+                            {"room": "shardX/E19S57", "owned_spawns": 1, "owned_creeps": 1},
+                            {"room": "shardX/E29N58", "owned_spawns": 0, "owned_creeps": 0},
+                        ],
+                    },
+                    issue_creator=lambda *_args: self.fail("no issue expected before recovery is verified"),
+                    sleeper=lambda _seconds: None,
+                    monotonic=lambda: next(monotonic_values),
+                )
+
+        self.assertIn("E29N58", str(raised.exception))
+        self.assertIn(["git", "checkout", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "--", *deploy.ROLLBACK_SOURCE_PATHS], commands)
+        self.assertIn(["npm", "run", "build"], commands)
 
     def test_auto_rollback_escalates_when_previous_evidence_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

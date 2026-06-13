@@ -61,6 +61,7 @@ ROLLBACK_SOURCE_PATHS = (
     "prod/jest.config.cjs",
 )
 ROLLBACK_ISSUE_TITLE = "P0: Auto-rollback deployed after room_dead health gate failure"
+RoomTarget = tuple[str, str]
 
 
 class DeployError(RuntimeError):
@@ -1064,21 +1065,148 @@ def wait_for_room_recovery(
         sleeper(min(float(poll_seconds), remaining))
 
 
+def recovery_status_from_targets(payload: dict[str, Any], targets: list[RoomTarget]) -> dict[str, Any]:
+    """Return whether monitor JSON proves rollback recovery for every target."""
+    if len(targets) == 1:
+        shard, room = targets[0]
+        return recovery_status_from_payload(payload, shard, room)
+
+    rooms: list[dict[str, Any]] = []
+    for shard, room in targets:
+        status = recovery_status_from_payload(payload, shard, room)
+        status.setdefault("target", f"{shard}/{room}")
+        rooms.append(status)
+    return {
+        "ok": bool(rooms) and all(status.get("ok") is True for status in rooms),
+        "rooms": rooms,
+        "target_count": len(targets),
+        "recovered_count": sum(1 for status in rooms if status.get("ok") is True),
+    }
+
+
+def wait_for_recovery_targets(
+    targets: list[RoomTarget],
+    reader: Callable[[], dict[str, Any]],
+    *,
+    timeout_seconds: int,
+    poll_seconds: int,
+    sleeper: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+) -> dict[str, Any]:
+    """Poll monitor JSON until every rollback-triggering room recovered."""
+    deadline = monotonic() + timeout_seconds
+    attempts = 0
+    last_status: dict[str, Any] = {"ok": False, "reason": "not checked"}
+    while True:
+        attempts += 1
+        last_status = recovery_status_from_targets(reader(), targets)
+        last_status["attempts"] = attempts
+        if last_status["ok"]:
+            return last_status
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            last_status["ok"] = False
+            last_status.setdefault("reason", "recovery verification timed out")
+            return last_status
+        sleeper(min(float(poll_seconds), remaining))
+
+
+def format_room_target(target: RoomTarget) -> str:
+    """Return a shard-qualified room target."""
+    shard, room = target
+    return f"{shard}/{room}"
+
+
+def room_target_from_value(value: Any, default_shard: str) -> RoomTarget | None:
+    """Parse a reason room value into a rollback recovery target."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if "/" in text:
+        shard, room = text.split("/", 1)
+        if SHARD_RE.fullmatch(shard) and ROOM_RE.fullmatch(room):
+            return (shard, room)
+        return None
+    if ROOM_RE.fullmatch(text):
+        return (default_shard, text)
+    return None
+
+
+def rollback_trigger_room_targets_from_reason(
+    reason: Any,
+    default_shard: str,
+    inherited_room: Any = None,
+) -> list[RoomTarget]:
+    """Return rollback-triggering room targets from a health-gate reason tree."""
+    if not isinstance(reason, dict):
+        return []
+
+    room_value = reason.get("room", inherited_room)
+    targets: list[RoomTarget] = []
+    kind = reason.get("kind")
+    if isinstance(kind, str) and kind in ROLLBACK_TRIGGER_REASON_KINDS:
+        target = room_target_from_value(room_value, default_shard)
+        if target is not None:
+            targets.append(target)
+
+    source = reason.get("source")
+    if isinstance(source, dict):
+        targets.extend(rollback_trigger_room_targets_from_reason(source, default_shard, room_value))
+    return targets
+
+
+def auto_rollback_recovery_targets(cfg: DeployConfig, failed_health_gate: dict[str, Any]) -> list[RoomTarget]:
+    """Return rooms that must recover before auto-rollback is considered successful."""
+    targets: list[RoomTarget] = []
+    reasons = failed_health_gate.get("reasons")
+    if isinstance(reasons, list):
+        for reason in reasons:
+            reason_targets = rollback_trigger_room_targets_from_reason(reason, cfg.shard)
+            if not reason_targets and reason_triggers_auto_rollback(reason):
+                reason_targets = [(cfg.shard, cfg.room)]
+            for target in reason_targets:
+                if target not in targets:
+                    targets.append(target)
+    return targets or [(cfg.shard, cfg.room)]
+
+
 def make_runtime_summary_reader(
     cfg: DeployConfig,
     *,
+    target_rooms: list[RoomTarget] | None = None,
     env: dict[str, str] | None = None,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> Callable[[], dict[str, Any]]:
     """Build a reader that captures fresh runtime summary JSON for recovery."""
-    room = f"{cfg.shard}/{cfg.room}"
     out_dir = cfg.repo_root / "runtime-artifacts" / "screeps-monitor"
     recovery_path = cfg.evidence_dir / "auto-rollback-recovery-summary.json"
+    targets = target_rooms or [(cfg.shard, cfg.room)]
+    room_args = ["--room", format_room_target(targets[0])] if len(targets) == 1 else []
 
     def read() -> dict[str, Any]:
-        return run_monitor_json(cfg, ["summary", "--room", room, "--out-dir", str(out_dir)], recovery_path, env=env, runner=runner)
+        return run_monitor_json(cfg, ["summary", *room_args, "--out-dir", str(out_dir)], recovery_path, env=env, runner=runner)
 
     return read
+
+
+def recovery_issue_summary(recovery: Any) -> str:
+    """Return a compact recovery summary for incident issue text."""
+    if not isinstance(recovery, dict):
+        return "unknown"
+    rooms = recovery.get("rooms")
+    if isinstance(rooms, list):
+        parts: list[str] = []
+        for room in rooms:
+            if not isinstance(room, dict):
+                continue
+            parts.append(
+                f"{room.get('room', room.get('target', 'unknown'))}: "
+                f"spawn={room.get('owned_spawns')} creeps={room.get('owned_creeps')} ok={room.get('ok')}"
+            )
+        return "; ".join(parts) or "unknown"
+    return f"spawn={recovery.get('owned_spawns')} creeps={recovery.get('owned_creeps')} ok={recovery.get('ok')}"
 
 
 def github_repository(repo_root: Path, env: dict[str, str] | None = None) -> str | None:
@@ -1142,7 +1270,8 @@ def build_auto_rollback_issue_body(cfg: DeployConfig, summary: dict[str, Any]) -
             f"- Previous deploy evidence: {summary.get('previousDeployEvidencePath', 'unknown')}",
             f"- Previous health gate evidence: {summary.get('previousHealthGateEvidencePath', 'unknown')}",
             f"- Rollback deploy evidence: {summary.get('rollbackDeployEvidencePath', 'unknown')}",
-            f"- Recovery: spawn={summary.get('recovery', {}).get('owned_spawns')} creeps={summary.get('recovery', {}).get('owned_creeps')}",
+            f"- Recovery targets: {', '.join(summary.get('recoveryTargets', [])) or summary.get('target', 'unknown')}",
+            f"- Recovery: {recovery_issue_summary(summary.get('recovery'))}",
         ]
     )
 
@@ -1211,10 +1340,15 @@ def execute_auto_rollback(
         rollback_evidence = run_deploy(rollback_cfg, env=env, transport=transport)
         write_json_object(rollback_deploy_path, rollback_evidence)
 
-        reader = recovery_reader or make_runtime_summary_reader(cfg, env=env, runner=command_runner)
-        recovery = wait_for_room_recovery(
-            cfg.shard,
-            cfg.room,
+        recovery_targets = auto_rollback_recovery_targets(cfg, failed_health_gate)
+        reader = recovery_reader or make_runtime_summary_reader(
+            cfg,
+            target_rooms=recovery_targets,
+            env=env,
+            runner=command_runner,
+        )
+        recovery = wait_for_recovery_targets(
+            recovery_targets,
             reader,
             timeout_seconds=cfg.rollback_recovery_timeout_seconds,
             poll_seconds=cfg.rollback_recovery_poll_seconds,
@@ -1230,6 +1364,7 @@ def execute_auto_rollback(
             "failedCommit": failed_commit or "unknown",
             "rollbackCommit": previous.commit,
             "triggerReasonKinds": trigger_reason_kinds(failed_health_gate),
+            "recoveryTargets": [format_room_target(target) for target in recovery_targets],
             "failedDeployEvidencePath": safe_path_for_repo(cfg.evidence_path, cfg.repo_root) if cfg.evidence_path else None,
             "failedHealthGateEvidencePath": safe_path_for_repo(postdeploy_health_gate_path(cfg), cfg.repo_root),
             "previousDeployEvidencePath": safe_path_for_repo(previous.deploy_path, cfg.repo_root),
