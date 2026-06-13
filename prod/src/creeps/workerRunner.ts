@@ -485,6 +485,7 @@ function selectWorkerAssignmentGapRecoveryTask(
 
   if (
     getUsedTransferEnergy(creep) <= 0 ||
+    hasLowWorkerEnergyLoad(creep) ||
     getActiveWorkParts(creep) <= 0 ||
     !hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) ||
     hasVisibleHostileCreeps(creep.room) ||
