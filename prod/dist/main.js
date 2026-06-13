@@ -44125,6 +44125,7 @@ function summarizeResources(colony, colonyWorkers, colonyCreeps, events) {
   const roomStructures = (_a2 = findRoomObjects29(colony.room, "FIND_STRUCTURES")) != null ? _a2 : colony.spawns;
   const roomEnergyStructures = findRoomEnergyStoreStructures(colony.room, colony.spawns);
   const roomCreeps = findOwnedRoomCreeps(colony.room, colonyCreeps);
+  const productiveEnergyWorkers = mergeRoomWorkersForProductiveEnergy(colonyWorkers, roomCreeps);
   const constructionSites = (_b = findRoomObjects29(colony.room, "FIND_MY_CONSTRUCTION_SITES")) != null ? _b : [];
   const droppedResources = (_c = findRoomObjects29(colony.room, "FIND_DROPPED_RESOURCES")) != null ? _c : [];
   const sourceContainerCoverage = summarizeSourceContainerCoverage(colony.room);
@@ -44137,7 +44138,7 @@ function summarizeResources(colony, colonyWorkers, colonyCreeps, events) {
     sourceContainers: sourceContainerCoverage,
     productiveEnergy: summarizeProductiveEnergy(
       colony,
-      colonyWorkers,
+      productiveEnergyWorkers,
       constructionSites,
       roomStructures,
       roomEnergyStructures,
@@ -44207,6 +44208,12 @@ function findOwnedRoomCreeps(room, colonyCreeps) {
     ...(_a2 = findRoomObjects29(room, "FIND_MY_CREEPS")) != null ? _a2 : [],
     ...colonyCreeps
   ]);
+}
+function mergeRoomWorkersForProductiveEnergy(colonyWorkers, roomCreeps) {
+  return uniqueRoomObjects2([...colonyWorkers, ...roomCreeps]).filter(isRuntimeWorkerCreep);
+}
+function isRuntimeWorkerCreep(object) {
+  return isRecord30(object) && isRecord30(object.memory) && object.memory.role === "worker";
 }
 function summarizeEnergySurplus(room, colonyWorkers) {
   const state = getRoomEnergySurplusState(room);

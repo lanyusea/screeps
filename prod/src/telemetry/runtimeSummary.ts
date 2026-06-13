@@ -3605,6 +3605,7 @@ function summarizeResources(
   const roomStructures = findRoomObjects(colony.room, 'FIND_STRUCTURES') ?? colony.spawns;
   const roomEnergyStructures = findRoomEnergyStoreStructures(colony.room, colony.spawns);
   const roomCreeps = findOwnedRoomCreeps(colony.room, colonyCreeps);
+  const productiveEnergyWorkers = mergeRoomWorkersForProductiveEnergy(colonyWorkers, roomCreeps);
   const constructionSites = findRoomObjects(colony.room, 'FIND_MY_CONSTRUCTION_SITES') ?? [];
   const droppedResources = findRoomObjects(colony.room, 'FIND_DROPPED_RESOURCES') ?? [];
   const sourceContainerCoverage = summarizeSourceContainerCoverage(colony.room);
@@ -3618,7 +3619,7 @@ function summarizeResources(
     sourceContainers: sourceContainerCoverage,
     productiveEnergy: summarizeProductiveEnergy(
       colony,
-      colonyWorkers,
+      productiveEnergyWorkers,
       constructionSites,
       roomStructures,
       roomEnergyStructures,
@@ -3707,6 +3708,14 @@ function findOwnedRoomCreeps(room: Room, colonyCreeps: Creep[]): unknown[] {
     ...(findRoomObjects(room, 'FIND_MY_CREEPS') ?? []),
     ...colonyCreeps
   ]);
+}
+
+function mergeRoomWorkersForProductiveEnergy(colonyWorkers: Creep[], roomCreeps: unknown[]): Creep[] {
+  return uniqueRoomObjects([...colonyWorkers, ...roomCreeps]).filter(isRuntimeWorkerCreep);
+}
+
+function isRuntimeWorkerCreep(object: unknown): object is Creep {
+  return isRecord(object) && isRecord(object.memory) && object.memory.role === 'worker';
 }
 
 function summarizeEnergySurplus(room: Room, colonyWorkers: Creep[]): RuntimeEnergySurplusSummary {

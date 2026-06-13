@@ -2595,6 +2595,51 @@ describe('runtime telemetry summaries', () => {
     );
   });
 
+  it('counts visible secondary-room builders even when colony memory points elsewhere', () => {
+    const constructionSite = {
+      id: 'road-site',
+      structureType: TEST_GLOBALS.STRUCTURE_ROAD,
+      progress: 240,
+      progressTotal: 500
+    };
+    const builder = makeWorker(
+      {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'build', targetId: 'road-site' as Id<ConstructionSite> }
+      },
+      61,
+      'worker-E29N55-support-2131872'
+    );
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      roomName: 'E29N56',
+      includeEventLog: false,
+      creeps: [builder],
+      constructionSites: [constructionSite]
+    });
+    (builder as Creep & { room: Room }).room = colony.room;
+
+    emitRuntimeSummary([colony], [builder]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    const productiveEnergy = (room.resources as Record<string, Record<string, unknown>>).productiveEnergy;
+    expect(productiveEnergy).toMatchObject({
+      assignedWorkerCount: 1,
+      buildCarriedEnergy: 61,
+      constructionSiteCount: 1,
+      pendingBuildProgress: 260
+    });
+    expect(productiveEnergy).not.toHaveProperty('buildBlockedReason');
+    expect(room.constructionActivity).toMatchObject({
+      state: 'active',
+      accepted: true,
+      reason: 'build_energy_carried',
+      buildCarriedEnergy: 61
+    });
+  });
+
   it('reports spawn reservation detail for a construction assignment gap with room buffer energy', () => {
     const spawn = {
       id: 'spawn1',

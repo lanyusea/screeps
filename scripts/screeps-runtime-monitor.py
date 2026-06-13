@@ -1792,13 +1792,44 @@ def runtime_pending_build_progress(room: dict[str, Any] | None) -> int | float |
 def runtime_build_carried_energy(room: dict[str, Any] | None) -> int | float | None:
     if not isinstance(room, dict):
         return None
-    return first_number_value(
+    reported_build_energy = first_number_value(
         room,
         ("buildCarriedEnergy",),
         ("resources", "productiveEnergy", "buildCarriedEnergy"),
         ("resources", "buildCarriedEnergy"),
         ("construction", "buildCarriedEnergy"),
     )
+    sampled_build_energy = runtime_worker_assignment_build_carried_energy(room)
+    if (
+        sampled_build_energy is not None
+        and sampled_build_energy > 0
+        and (reported_build_energy is None or reported_build_energy <= 0)
+    ):
+        return sampled_build_energy
+    return reported_build_energy
+
+
+def runtime_worker_assignment_build_carried_energy(room: dict[str, Any]) -> int | float | None:
+    evidence = as_dict(room.get("workerAssignmentEvidence"))
+    samples = evidence.get("creepSamples")
+    if not isinstance(samples, list):
+        return None
+
+    total = 0
+    observed_build_sample = False
+    for sample in samples:
+        if not isinstance(sample, dict):
+            continue
+        task = string_value(sample.get("task")) or string_value(sample.get("dispatchAssignedTask"))
+        if task != "build":
+            continue
+        carried = number_value(sample.get("carriedEnergy"))
+        if carried is None:
+            continue
+        observed_build_sample = True
+        total += max(0, carried)
+
+    return total if observed_build_sample else None
 
 
 def build_construction_deadlock_reason(
