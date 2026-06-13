@@ -8777,6 +8777,46 @@ def command_self_test(_args: argparse.Namespace) -> int:
 
             self.assertTrue(result["ok"])
 
+        def test_postdeploy_health_gate_rejects_secondary_room_construction_blocker(self) -> None:
+            result = evaluate_postdeploy_health_gate(
+                {
+                    "ok": True,
+                    "mode": "summary",
+                    "room_summaries": [
+                        {
+                            "room": "shardTest/E1N1",
+                            "owned_creeps": 2,
+                            "owned_spawns": 1,
+                            "owner": "owner",
+                            "constructionSiteCount": 0,
+                            "pendingBuildProgress": 0,
+                        },
+                        {
+                            "room": "shardTest/E2N2",
+                            "owned_creeps": 2,
+                            "owned_spawns": 1,
+                            "owner": "owner",
+                            "constructionSiteCount": 3,
+                            "pendingBuildProgress": 1200,
+                            "buildCarriedEnergy": 0,
+                            "buildProgress": 0,
+                            "taskCounts": {"build": 0},
+                            "buildBlockedReason": "no_build_execution",
+                        },
+                    ],
+                },
+                {"ok": True, "mode": "alert", "alert": False, "reasons": []},
+            )
+
+            construction = result["construction_acceptance"]
+            secondary = next(room for room in construction["rooms"] if room["room"] == "shardTest/E2N2")
+            self.assertFalse(result["ok"])
+            self.assertEqual(construction["status"], "blocked")
+            self.assertEqual(construction["pass_count"], 1)
+            self.assertEqual(construction["blocked_count"], 1)
+            self.assertEqual(secondary["status"], "blocked")
+            self.assertEqual(secondary["reason"], "no_build_execution")
+
         def test_postdeploy_health_gate_rejects_enemy_spawn_without_owned_recovery(self) -> None:
             result = evaluate_postdeploy_health_gate(
                 {

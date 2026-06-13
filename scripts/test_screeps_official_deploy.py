@@ -490,8 +490,10 @@ class OfficialDeployTest(unittest.TestCase):
                 evidence_path=deploy_path,
                 repo_root=repo_root,
             )
+            commands: list[list[str]] = []
 
             def command_runner(command: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+                commands.append(command)
                 return subprocess.CompletedProcess(command, 0, stdout='{"ok": true}\n', stderr="")
 
             health_gate = deploy.run_postdeploy_health_gate(cfg, env={}, runner=command_runner)
@@ -500,6 +502,11 @@ class OfficialDeployTest(unittest.TestCase):
             self.assertTrue(health_gate["ok"])
             self.assertTrue(paired_path.exists())
             self.assertFalse((evidence_dir / "postdeploy-health-gate.json").exists())
+            self.assertEqual(commands[0][1:3], [str(repo_root / "scripts" / "screeps-runtime-monitor.py"), "summary"])
+            self.assertNotIn("--room", commands[0])
+            self.assertEqual(commands[1][1:3], [str(repo_root / "scripts" / "screeps-runtime-monitor.py"), "alert"])
+            self.assertNotIn("--room", commands[1])
+            self.assertIn("--force-alert-image", commands[1])
 
     def test_postdeploy_health_gate_uses_default_path_without_deploy_evidence_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

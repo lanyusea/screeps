@@ -24,7 +24,7 @@ on:
         type: boolean
         default: false
       confirmation:
-        description: "Required for deploy mode: deploy main to shardX/E29N55"
+        description: "Required for deploy mode: deploy main to shardX/E29N55 (primary upload target; postdeploy construction gate covers all owned rooms)."
         required: false
         type: string
 
@@ -127,7 +127,7 @@ jobs:
             --confirm "$CONFIRMATION" \
             --evidence-path "$EVIDENCE_DIR/official-screeps-deploy.json"
 
-      - name: Post-deploy live survival gate
+      - name: Post-deploy live all-owned-room health and construction gate
         if: ${{ inputs.mode == 'deploy' }}
         env:
           SCREEPS_AUTH_TOKEN: ${{ secrets.SCREEPS_AUTH_TOKEN }}
@@ -137,12 +137,10 @@ jobs:
         run: |
           mkdir -p runtime-artifacts/runtime-summary-console
           python3 scripts/screeps-runtime-monitor.py summary \
-            --room "$SCREEPS_SHARD/$SCREEPS_ROOM" \
             --out-dir runtime-artifacts/screeps-monitor \
             --runtime-summary-out-dir runtime-artifacts/runtime-summary-console \
             > "$EVIDENCE_DIR/postdeploy-summary.json"
           python3 scripts/screeps-runtime-monitor.py alert \
-            --room "$SCREEPS_SHARD/$SCREEPS_ROOM" \
             --out-dir runtime-artifacts/screeps-monitor \
             --runtime-summary-dir runtime-artifacts/runtime-summary-console \
             --force-alert-image \

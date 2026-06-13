@@ -37,7 +37,7 @@ DEFAULT_BRANCH = "main"
 DEFAULT_SHARD = world_profiles.PERSISTENT_DEFAULTS.shard
 DEFAULT_ROOM = world_profiles.PERSISTENT_DEFAULTS.room
 DEFAULT_TIMEOUT_SECONDS = 30
-DEFAULT_MONITOR_TIMEOUT_SECONDS = 120
+DEFAULT_MONITOR_TIMEOUT_SECONDS = 660
 DEFAULT_ROLLBACK_RECOVERY_TIMEOUT_SECONDS = 300
 DEFAULT_ROLLBACK_RECOVERY_POLL_SECONDS = 15
 AUTH_TOKEN_ENV = "SCREEPS_AUTH_TOKEN"
@@ -944,16 +944,15 @@ def run_postdeploy_health_gate(
 ) -> dict[str, Any]:
     """Capture post-deploy summary/alert evidence and evaluate the health gate."""
     cfg.evidence_dir.mkdir(parents=True, exist_ok=True)
-    room = f"{cfg.shard}/{cfg.room}"
     out_dir = cfg.repo_root / "runtime-artifacts" / "screeps-monitor"
     summary_path = cfg.evidence_dir / "postdeploy-summary.json"
     alert_path = cfg.evidence_dir / "postdeploy-alert.json"
     health_path = postdeploy_health_gate_path(cfg)
 
-    run_monitor_json(cfg, ["summary", "--room", room, "--out-dir", str(out_dir)], summary_path, env=env, runner=runner)
+    run_monitor_json(cfg, ["summary", "--out-dir", str(out_dir)], summary_path, env=env, runner=runner)
     run_monitor_json(
         cfg,
-        ["alert", "--room", room, "--out-dir", str(out_dir), "--force-alert-image"],
+        ["alert", "--out-dir", str(out_dir), "--force-alert-image"],
         alert_path,
         env=env,
         runner=runner,
