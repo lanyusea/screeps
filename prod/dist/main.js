@@ -36026,7 +36026,9 @@ function hasHealthyRoomEnergyBuffer2(room) {
   return energyAvailable !== null && energyAvailable >= getEffectiveRoomEnergyBufferThreshold(room);
 }
 function isControllerDowngradeGuardActive2(room) {
-  const controller = room.controller;
+  return isOwnedControllerDowngradeGuardActive(room.controller);
+}
+function isOwnedControllerDowngradeGuardActive(controller) {
   return (controller == null ? void 0 : controller.my) === true && typeof controller.ticksToDowngrade === "number" && controller.ticksToDowngrade <= CONTROLLER_DOWNGRADE_GUARD_TICKS;
 }
 function hasActiveSpawningSpawn2(room) {
@@ -36143,7 +36145,7 @@ function runControllerSustainMovement(creep) {
   return true;
 }
 function selectControllerSustainHomeConstructionTask(creep, sustain, roomName) {
-  if (sustain.role !== "upgrader" || roomName !== sustain.homeRoom || sustain.homeRoom === sustain.targetRoom) {
+  if (sustain.role !== "upgrader" || roomName !== sustain.homeRoom || sustain.homeRoom === sustain.targetRoom || isControllerSustainTargetDowngradeGuardActive(sustain)) {
     return null;
   }
   const currentTask = creep.memory.task;
@@ -36169,6 +36171,9 @@ function selectControllerSustainHomeConstructionTask(creep, sustain, roomName) {
   }
   const constructionSite = getTaskTarget(selectedTask);
   return isConstructionSite(constructionSite) && isRoomObjectInRoom(constructionSite, sustain.homeRoom) ? selectedTask : null;
+}
+function isControllerSustainTargetDowngradeGuardActive(sustain) {
+  return isOwnedControllerDowngradeGuardActive(getVisibleRoomController2(sustain.targetRoom));
 }
 function isControllerSustainHomeConstructionTask(task, homeRoom) {
   if (task.type === "build") {
