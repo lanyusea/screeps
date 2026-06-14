@@ -825,13 +825,19 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       return territoryControllerTask;
     }
 
-    const interRoomRecallTask = selectInterRoomForeignRoomRecallTask(creep, carriedEnergy);
-    if (interRoomRecallTask) {
-      return interRoomRecallTask;
-    }
-
     let hasPriorityEnergySink = false;
     if (getFreeEnergyCapacity(creep) > 0) {
+      const foreignColonyConstructionBacklogEnergyAcquisitionTask =
+        selectForeignColonyConstructionBacklogEnergyAcquisitionTask(creep);
+      if (foreignColonyConstructionBacklogEnergyAcquisitionTask) {
+        return foreignColonyConstructionBacklogEnergyAcquisitionTask;
+      }
+
+      const interRoomRecallTask = selectInterRoomForeignRoomRecallTask(creep, carriedEnergy);
+      if (interRoomRecallTask) {
+        return interRoomRecallTask;
+      }
+
       const storedProtectedConstructionEnergyAcquisitionTask =
         selectStoredProtectedSourceContainerConstructionEnergyAcquisitionTask(creep);
       if (storedProtectedConstructionEnergyAcquisitionTask) {
@@ -3136,6 +3142,92 @@ function selectInterRoomForeignRoomRecallTask(
     : selectInterRoomHomeEnergyAcquisitionTask(creep);
 }
 
+function selectForeignColonyConstructionBacklogEnergyAcquisitionTask(
+  creep: Creep
+): Extract<CreepTaskMemory, { type: 'withdraw' }> | null {
+  const colonyRoom = getCreepColonyRoom(creep);
+  if (
+    !colonyRoom ||
+    isWorkerInColonyRoom(creep) ||
+    creep.memory?.role !== 'worker' ||
+    creep.memory?.controllerSustain?.role === 'upgrader' ||
+    creep.memory?.territory !== undefined ||
+    creep.memory?.spawnSupport !== undefined ||
+    creep.memory?.interRoomEnergyHaul !== undefined ||
+    getFreeEnergyCapacity(creep) <= 0 ||
+    getActiveWorkParts(creep) <= 0 ||
+    colonyRoom.controller?.my !== true ||
+    shouldGuardControllerDowngrade(colonyRoom.controller) ||
+    hasVisibleHostilePresence(colonyRoom) ||
+    !checkEnergyBufferForStoredConstructionSpending(colonyRoom)
+  ) {
+    return null;
+  }
+
+  const constructionSite = selectForeignColonyConstructionBacklogEnergyTarget(creep, colonyRoom);
+  if (!constructionSite) {
+    return null;
+  }
+
+  const source = selectForeignColonyConstructionBacklogStorageSource(creep, colonyRoom, constructionSite);
+  return source
+    ? {
+        type: 'withdraw',
+        targetId: source.id as Id<AnyStoreStructure>,
+        constructionSiteId: constructionSite.id
+      }
+    : null;
+}
+
+function selectForeignColonyConstructionBacklogEnergyTarget(
+  creep: Creep,
+  colonyRoom: Room
+): ConstructionSite | null {
+  const constructionSites = findConstructionSites(colonyRoom).filter((site) => site.my !== false);
+  if (constructionSites.length === 0) {
+    return null;
+  }
+
+  const constructionReservationContext = createConstructionReservationContext(colonyRoom);
+  const priorityContext = buildWorkerConstructionSiteImpactPriorityContextForRoom(
+    creep,
+    colonyRoom,
+    constructionSites
+  );
+  return selectUnreservedConstructionBacklogEnergyTarget(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    priorityContext
+  );
+}
+
+function selectForeignColonyConstructionBacklogStorageSource(
+  creep: Creep,
+  colonyRoom: Room,
+  constructionSite: ConstructionSite
+): StructureStorage | null {
+  const storage = getVisibleRoomStorage(colonyRoom);
+  if (
+    !storage ||
+    !isBuilderConstructionEnergySourceForSite(constructionSite, storage) ||
+    !isSafeStoredEnergySource(storage as AnyStructure, {
+      creepOwnerUsername: getCreepOwnerUsername(creep),
+      hasHostilePresence: false,
+      room: colonyRoom
+    })
+  ) {
+    return null;
+  }
+
+  const storedEnergy = getStoredEnergy(storage);
+  const availableEnergy = getStorageEnergyAvailableForWithdrawal(colonyRoom, storage, storedEnergy);
+  const plannedWithdrawal = Math.min(getFreeEnergyCapacity(creep), availableEnergy);
+  return plannedWithdrawal > 0 && withdrawFromStorage(colonyRoom, plannedWithdrawal, storage, storedEnergy)
+    ? storage
+    : null;
+}
+
 function selectInterRoomEnergyHaulingTask(
   creep: Creep,
   carriedEnergy: number
@@ -4106,24 +4198,32 @@ function buildWorkerConstructionSiteImpactPriorityContext(
   creep: Creep,
   constructionSites: ConstructionSite[]
 ): ConstructionSiteImpactPriorityContext {
+  return buildWorkerConstructionSiteImpactPriorityContextForRoom(creep, creep.room, constructionSites);
+}
+
+function buildWorkerConstructionSiteImpactPriorityContextForRoom(
+  creep: Creep,
+  room: Room,
+  constructionSites: ConstructionSite[]
+): ConstructionSiteImpactPriorityContext {
   const context: ConstructionSiteImpactPriorityContext =
-    creep.room.controller?.my === true ? { claimedRoomName: creep.room.name } : {};
-  if (isPostClaimConstructionRoom(creep.room.name)) {
-    context.postClaimRoomName = creep.room.name;
+    room.controller?.my === true ? { claimedRoomName: room.name } : {};
+  if (isPostClaimConstructionRoom(room.name)) {
+    context.postClaimRoomName = room.name;
   }
-  if (shouldPrioritizeSourceLogisticsConstruction(creep.room)) {
+  if (shouldPrioritizeSourceLogisticsConstruction(room)) {
     context.prioritizeSourceLogisticsForEnergyStarvation = true;
   }
   if (constructionSites.some(isRoadConstructionSite)) {
-    context.criticalRoadContext = buildWorkerCriticalRoadLogisticsContext(creep);
+    context.criticalRoadContext = buildCriticalRoadLogisticsContext(room, { colonyRoomName: getCreepColonyName(creep) });
   }
 
   if (constructionSites.some(isContainerConstructionSite)) {
-    context.sources = findConstructionPrioritySources(creep.room);
+    context.sources = findConstructionPrioritySources(room);
   }
 
   if (constructionSites.some(isRampartConstructionSite)) {
-    context.protectedRampartAnchors = findConstructionPriorityProtectedRampartAnchors(creep.room);
+    context.protectedRampartAnchors = findConstructionPriorityProtectedRampartAnchors(room);
   }
 
   return context;
