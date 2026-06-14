@@ -458,6 +458,14 @@ function selectCriticalCpuWorkerTask(creep: Creep, cpuBudget: RuntimeCpuBudget):
     });
   }
 
+  const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
+  if (criticalRepairTarget) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: 'repair',
+      targetId: criticalRepairTarget.id as Id<Structure>
+    });
+  }
+
   const controllerSustainConstructionBacklogTask = selectLocalConstructionBacklogBeforeControllerSustainUpgradeTask(
     creep,
     creep.room.controller,
@@ -466,14 +474,6 @@ function selectCriticalCpuWorkerTask(creep: Creep, cpuBudget: RuntimeCpuBudget):
   );
   if (controllerSustainConstructionBacklogTask) {
     return applyMinimumUsefulLoadPolicy(creep, controllerSustainConstructionBacklogTask);
-  }
-
-  const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
-  if (criticalRepairTarget) {
-    return applyMinimumUsefulLoadPolicy(creep, {
-      type: 'repair',
-      targetId: criticalRepairTarget.id as Id<Structure>
-    });
   }
 
   const loadedControllerProgressTask = selectNonCriticalCpuLoadedControllerProgressTask(
