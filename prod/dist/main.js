@@ -36120,6 +36120,14 @@ function runControllerSustainMovement(creep) {
     }
     return false;
   }
+  const homeConstructionTask = selectControllerSustainHomeConstructionTask(creep, sustain, roomName);
+  if (homeConstructionTask) {
+    clearEnergyDropoffOptimizationMemory(creep);
+    clearBuildTargetStuckTelemetry(creep);
+    creep.memory.task = homeConstructionTask;
+    executeAssignedTask(creep, homeConstructionTask);
+    return true;
+  }
   if (sustain.role === "hauler" && shouldControllerSustainHaulerLoadAtHome(creep, sustain, roomName)) {
     const energyTask = selectControllerSustainHaulerEnergyTask(creep);
     if (energyTask) {
@@ -36133,6 +36141,25 @@ function runControllerSustainMovement(creep) {
   clearAssignedTask(creep);
   moveTowardRoom3(creep, selectControllerSustainDestinationRoom(creep, sustain, roomName));
   return true;
+}
+function selectControllerSustainHomeConstructionTask(creep, sustain, roomName) {
+  if (sustain.role !== "upgrader" || roomName !== sustain.homeRoom || sustain.homeRoom === sustain.targetRoom || creep.memory.task !== void 0 || getActiveWorkParts3(creep) <= 0 || hasVisibleHostileCreeps2(creep.room)) {
+    return null;
+  }
+  if (getCarriedEnergy4(creep) <= 0) {
+    return selectConstructionBacklogEnergyAcquisitionTask(creep);
+  }
+  const selectedTask = selectWorkerTaskForRunner(creep);
+  if ((selectedTask == null ? void 0 : selectedTask.type) !== "build") {
+    return null;
+  }
+  const constructionSite = getTaskTarget(selectedTask);
+  return isConstructionSite(constructionSite) && isRoomObjectInRoom(constructionSite, sustain.homeRoom) ? selectedTask : null;
+}
+function isRoomObjectInRoom(object, roomName) {
+  var _a2;
+  const objectRoomName = (_a2 = object.pos) == null ? void 0 : _a2.roomName;
+  return typeof objectRoomName !== "string" || objectRoomName === roomName;
 }
 function shouldControllerSustainHaulerLoadAtHome(creep, sustain, roomName) {
   return roomName === sustain.homeRoom && getFreeTransferEnergyCapacity(creep) > 0;

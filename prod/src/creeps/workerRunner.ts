@@ -1796,6 +1796,15 @@ function runControllerSustainMovement(creep: Creep): boolean {
     return false;
   }
 
+  const homeConstructionTask = selectControllerSustainHomeConstructionTask(creep, sustain, roomName);
+  if (homeConstructionTask) {
+    clearEnergyDropoffOptimizationMemory(creep);
+    clearBuildTargetStuckTelemetry(creep);
+    creep.memory.task = homeConstructionTask;
+    executeAssignedTask(creep, homeConstructionTask);
+    return true;
+  }
+
   if (sustain.role === 'hauler' && shouldControllerSustainHaulerLoadAtHome(creep, sustain, roomName)) {
     const energyTask = selectControllerSustainHaulerEnergyTask(creep);
     if (energyTask) {
@@ -1810,6 +1819,42 @@ function runControllerSustainMovement(creep: Creep): boolean {
   clearAssignedTask(creep);
   moveTowardRoom(creep, selectControllerSustainDestinationRoom(creep, sustain, roomName));
   return true;
+}
+
+function selectControllerSustainHomeConstructionTask(
+  creep: Creep,
+  sustain: CreepControllerSustainMemory,
+  roomName: string | undefined
+): CreepTaskMemory | null {
+  if (
+    sustain.role !== 'upgrader' ||
+    roomName !== sustain.homeRoom ||
+    sustain.homeRoom === sustain.targetRoom ||
+    creep.memory.task !== undefined ||
+    getActiveWorkParts(creep) <= 0 ||
+    hasVisibleHostileCreeps(creep.room)
+  ) {
+    return null;
+  }
+
+  if (getCarriedEnergy(creep) <= 0) {
+    return selectConstructionBacklogEnergyAcquisitionTask(creep);
+  }
+
+  const selectedTask = selectWorkerTaskForRunner(creep);
+  if (selectedTask?.type !== 'build') {
+    return null;
+  }
+
+  const constructionSite = getTaskTarget(selectedTask);
+  return isConstructionSite(constructionSite) && isRoomObjectInRoom(constructionSite, sustain.homeRoom)
+    ? selectedTask
+    : null;
+}
+
+function isRoomObjectInRoom(object: RoomObject, roomName: string): boolean {
+  const objectRoomName = (object as RoomObject & { pos?: { roomName?: unknown } }).pos?.roomName;
+  return typeof objectRoomName !== 'string' || objectRoomName === roomName;
 }
 
 function shouldControllerSustainHaulerLoadAtHome(
