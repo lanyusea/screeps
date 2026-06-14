@@ -1829,12 +1829,26 @@ function selectControllerSustainHomeConstructionTask(
   if (
     sustain.role !== 'upgrader' ||
     roomName !== sustain.homeRoom ||
-    sustain.homeRoom === sustain.targetRoom ||
-    creep.memory.task !== undefined ||
-    getActiveWorkParts(creep) <= 0 ||
-    hasVisibleHostileCreeps(creep.room)
+    sustain.homeRoom === sustain.targetRoom
   ) {
     return null;
+  }
+
+  const currentTask = creep.memory.task;
+  if (currentTask) {
+    if (!isControllerSustainHomeConstructionTask(currentTask, sustain.homeRoom)) {
+      return null;
+    }
+  }
+
+  if (getActiveWorkParts(creep) <= 0 || hasVisibleHostileCreeps(creep.room)) {
+    return null;
+  }
+
+  if (currentTask) {
+    if (!shouldReplaceTask(creep, currentTask)) {
+      return currentTask;
+    }
   }
 
   if (getCarriedEnergy(creep) <= 0) {
@@ -1850,6 +1864,23 @@ function selectControllerSustainHomeConstructionTask(
   return isConstructionSite(constructionSite) && isRoomObjectInRoom(constructionSite, sustain.homeRoom)
     ? selectedTask
     : null;
+}
+
+function isControllerSustainHomeConstructionTask(task: CreepTaskMemory, homeRoom: string): boolean {
+  if (task.type === 'build') {
+    const constructionSite = getTaskTarget(task);
+    return isConstructionSite(constructionSite) && isRoomObjectInRoom(constructionSite, homeRoom);
+  }
+
+  if (!isConstructionWithdrawReservationTask(task)) {
+    return false;
+  }
+
+  const game = (globalThis as unknown as { Game?: Partial<Pick<Game, 'getObjectById'>> }).Game;
+  const getObjectById = game?.getObjectById as ((id: string) => unknown) | undefined;
+  const constructionSite =
+    typeof getObjectById === 'function' ? getObjectById(String(task.constructionSiteId)) : null;
+  return isConstructionSite(constructionSite) && isRoomObjectInRoom(constructionSite, homeRoom);
 }
 
 function isRoomObjectInRoom(object: RoomObject, roomName: string): boolean {

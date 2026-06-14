@@ -36143,8 +36143,22 @@ function runControllerSustainMovement(creep) {
   return true;
 }
 function selectControllerSustainHomeConstructionTask(creep, sustain, roomName) {
-  if (sustain.role !== "upgrader" || roomName !== sustain.homeRoom || sustain.homeRoom === sustain.targetRoom || creep.memory.task !== void 0 || getActiveWorkParts3(creep) <= 0 || hasVisibleHostileCreeps2(creep.room)) {
+  if (sustain.role !== "upgrader" || roomName !== sustain.homeRoom || sustain.homeRoom === sustain.targetRoom) {
     return null;
+  }
+  const currentTask = creep.memory.task;
+  if (currentTask) {
+    if (!isControllerSustainHomeConstructionTask(currentTask, sustain.homeRoom)) {
+      return null;
+    }
+  }
+  if (getActiveWorkParts3(creep) <= 0 || hasVisibleHostileCreeps2(creep.room)) {
+    return null;
+  }
+  if (currentTask) {
+    if (!shouldReplaceTask(creep, currentTask)) {
+      return currentTask;
+    }
   }
   if (getCarriedEnergy4(creep) <= 0) {
     return selectConstructionBacklogEnergyAcquisitionTask(creep);
@@ -36155,6 +36169,19 @@ function selectControllerSustainHomeConstructionTask(creep, sustain, roomName) {
   }
   const constructionSite = getTaskTarget(selectedTask);
   return isConstructionSite(constructionSite) && isRoomObjectInRoom(constructionSite, sustain.homeRoom) ? selectedTask : null;
+}
+function isControllerSustainHomeConstructionTask(task, homeRoom) {
+  if (task.type === "build") {
+    const constructionSite2 = getTaskTarget(task);
+    return isConstructionSite(constructionSite2) && isRoomObjectInRoom(constructionSite2, homeRoom);
+  }
+  if (!isConstructionWithdrawReservationTask(task)) {
+    return false;
+  }
+  const game = globalThis.Game;
+  const getObjectById6 = game == null ? void 0 : game.getObjectById;
+  const constructionSite = typeof getObjectById6 === "function" ? getObjectById6(String(task.constructionSiteId)) : null;
+  return isConstructionSite(constructionSite) && isRoomObjectInRoom(constructionSite, homeRoom);
 }
 function isRoomObjectInRoom(object, roomName) {
   var _a2;
