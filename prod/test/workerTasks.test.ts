@@ -15650,6 +15650,65 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(sustainUpgrader)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
+  it('lets non-imminent E29N56 downgrade guard yield to local sustain construction under low bucket', () => {
+    const site = {
+      id: 'wall-site1',
+      my: true,
+      structureType: 'constructedWall',
+      progress: 270,
+      progressTotal: 1_005,
+      pos: makeRoomPosition(20, 24, 'E29N56')
+    } as ConstructionSite;
+    const spawn = makeFullSpawnEnergyStructure('spawn1', 'E29N56');
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS - 201
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N56',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300,
+      myStructures: [spawn as AnyOwnedStructure],
+      structures: [spawn as AnyStructure]
+    });
+    const sustainUpgrader = {
+      name: 'worker-E29N56-2176240',
+      memory: {
+        role: 'worker',
+        colony: 'E29N56',
+        controllerSustain: { homeRoom: 'E29N56', targetRoom: 'E29N56', role: 'upgrader' },
+        task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 88 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 12 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'wall-site1' ? 4 : 3)) },
+      room
+    } as unknown as Creep;
+    const idleWorker = {
+      name: 'worker-E29N56-2176048',
+      memory: { role: 'worker', colony: 'E29N56' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ SustainUpgrader: sustainUpgrader, IdleWorker: idleWorker });
+    setCpuBucket(791);
+
+    expect(selectWorkerTask(sustainUpgrader)).toEqual({ type: 'build', targetId: 'wall-site1' });
+  });
+
   it('keeps critical CPU repair before E29N56 local sustain construction', () => {
     const site = {
       id: 'wall-site1',
