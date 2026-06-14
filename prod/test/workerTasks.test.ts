@@ -31,6 +31,7 @@ import {
   selectWorkerEnergyCriticalAcquisitionTask,
   isWorkerRepairTargetComplete,
   selectWorkerTask,
+  shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill,
   shouldSwitchLowLoadWorkerEnergyAcquisitionTaskForYield
 } from '../src/tasks/workerTasks';
 import { BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING } from '../src/defense/defensePlanner';
@@ -15536,7 +15537,30 @@ describe('selectWorkerTask', () => {
       type: 'upgrade',
       targetId: 'controller1' as Id<StructureController>
     });
+    const spawnRefillCoverage = {
+      name: 'SpawnRefillCoverage',
+      memory: {
+        role: 'worker',
+        colony: 'E29N56',
+        task: { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 1_300 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0))
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'spawn1' ? 1 : 4)) },
+      room
+    } as unknown as Creep;
+
     setGameCreeps({ SustainUpgrader: sustainUpgrader, ControllerCoverage: controllerCoverage });
+    expect(shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(sustainUpgrader)).toBe(true);
+
+    setGameCreeps({
+      SustainUpgrader: sustainUpgrader,
+      ControllerCoverage: controllerCoverage,
+      SpawnRefillCoverage: spawnRefillCoverage
+    });
+    expect(shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(sustainUpgrader)).toBe(false);
 
     expect(selectWorkerTask(sustainUpgrader)).toEqual({ type: 'build', targetId: 'road-site1' });
   });
