@@ -27740,7 +27740,7 @@ function getErrNoPathCode2() {
 var CONTROLLER_DOWNGRADE_GUARD_TICKS = 5e3;
 var CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 var CRITICAL_SPAWN_REPAIR_HITS_RATIO = 0.25;
-var EMERGENCY_RAMPART_REPAIR_HITS_CEILING = 1e4;
+var CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING = 5e4;
 var ACTIVE_RAMPART_REPAIR_HITS_CEILING = 12e4;
 var IDLE_RAMPART_REPAIR_HITS_CEILING2 = 15e4;
 var TOWER_REFILL_ENERGY_FLOOR = 500;
@@ -32849,7 +32849,7 @@ function hasLoadedRampartRepairAssignmentCapacity(creep, structure) {
   return isWorkerAssignedToRepairTarget(creep, structure) || !hasOtherLoadedWorkerAssignedToRepairTarget(creep, structure);
 }
 function isUrgentBarrierRepairTarget(structure) {
-  return isWorkerBarrierRepairStructure(structure) && structure.hits < Math.min(structure.hitsMax, BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING);
+  return isWorkerBarrierRepairStructure(structure) && (isCriticalOwnedRampartRepairTarget(structure) || structure.hits < Math.min(structure.hitsMax, BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING));
 }
 function hasOtherWorkerAssignedToRepairTarget(creep, structure) {
   return getRoomOwnedCreeps2(creep.room).some(
@@ -32900,7 +32900,7 @@ function isCriticalOwnedSpawnRepairTarget(structure) {
   return isOwnedSpawnRepairTarget(structure) && !isWorkerRepairTargetComplete(structure) && getHitsRatio(structure) <= CRITICAL_SPAWN_REPAIR_HITS_RATIO;
 }
 function isEmergencyOwnedRampartRepairTarget(structure) {
-  return matchesStructureType19(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure) && !isWorkerRepairTargetComplete(structure) && structure.hits < BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING;
+  return isCriticalOwnedRampartRepairTarget(structure);
 }
 function isActiveOwnedRampartRepairTarget(structure) {
   const repairCeiling = Math.min(structure.hitsMax, ACTIVE_RAMPART_REPAIR_HITS_CEILING);
@@ -32917,12 +32917,21 @@ function isWorkerRepairTargetComplete(structure) {
 }
 function getWorkerRepairHitsCeiling(structure) {
   if (isWorkerBarrierRepairStructure(structure)) {
-    if (shouldUseBootstrapDefenseFloorRepairCap(getStructureRoom(structure))) {
-      return Math.min(structure.hitsMax, BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING);
+    if (matchesStructureType19(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure)) {
+      return Math.min(
+        structure.hitsMax,
+        Math.max(getBarrierRepairHitsCeiling(structure), CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING)
+      );
     }
-    return Math.min(structure.hitsMax, IDLE_RAMPART_REPAIR_HITS_CEILING2);
+    return getBarrierRepairHitsCeiling(structure);
   }
   return structure.hitsMax;
+}
+function getBarrierRepairHitsCeiling(structure) {
+  if (shouldUseBootstrapDefenseFloorRepairCap(getStructureRoom(structure))) {
+    return Math.min(structure.hitsMax, BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING);
+  }
+  return Math.min(structure.hitsMax, IDLE_RAMPART_REPAIR_HITS_CEILING2);
 }
 function getStructureRoom(structure) {
   var _a2;
@@ -32933,6 +32942,9 @@ function isWorkerBarrierRepairStructure(structure) {
 }
 function isOwnedRampart(structure) {
   return structure.my === true;
+}
+function isCriticalOwnedRampartRepairTarget(structure) {
+  return matchesStructureType19(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure) && Number.isFinite(structure.hits) && Number.isFinite(structure.hitsMax) && structure.hits < Math.min(structure.hitsMax, CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING);
 }
 function compareRepairTargets(left, right) {
   return getRepairPriority(left) - getRepairPriority(right) || getHitsRatio(left) - getHitsRatio(right) || left.hits - right.hits || String(left.id).localeCompare(String(right.id));
@@ -34420,7 +34432,7 @@ function isUrgentOwnedRampartRepairTask(task) {
   return Boolean(rampart && isUrgentOwnedRampartRepairTarget(rampart));
 }
 function isUrgentOwnedRampartRepairTarget(structure) {
-  return matchesStructureType20(structure.structureType, "STRUCTURE_RAMPART", "rampart") && structure.my === true && typeof structure.hits === "number" && typeof structure.hitsMax === "number" && Number.isFinite(structure.hits) && Number.isFinite(structure.hitsMax) && structure.hits < Math.min(structure.hitsMax, BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING);
+  return isCriticalOwnedRampartRepairTarget(structure);
 }
 function isControllerDowngradeGuardTask(creep, task) {
   var _a2;
@@ -35593,7 +35605,7 @@ function isProtectedRepairTargetForConstructionBacklog(creep, target) {
     return true;
   }
   if (isBuildPreemptionBarrierRepairTarget(target)) {
-    if (isBuildPreemptionOwnedRampart(target) && target.hits <= EMERGENCY_RAMPART_REPAIR_HITS_CEILING) {
+    if (isBuildPreemptionOwnedRampart(target) && isCriticalOwnedRampartRepairTarget(target)) {
       return true;
     }
     if (target.hits <= BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING) {
@@ -35713,7 +35725,7 @@ function isCriticalCpuOwnedSpawnRepairTarget(structure) {
   return isCriticalCpuRepairStructureType(structure, "STRUCTURE_SPAWN", "spawn") && structure.my === true && !isWorkerRepairTargetComplete(structure) && getCriticalCpuRepairHitsRatio(structure) <= CRITICAL_SPAWN_REPAIR_HITS_RATIO;
 }
 function isCriticalCpuNearFloorOwnedRampartRepairTarget(structure) {
-  return isCriticalCpuOwnedRampart(structure) && !isWorkerRepairTargetComplete(structure) && structure.hits < BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING;
+  return isCriticalCpuOwnedRampart(structure) && isCriticalOwnedRampartRepairTarget(structure);
 }
 function isCriticalCpuThreatenedBarrierRepairTarget(structure) {
   return isCriticalCpuBarrierRepairTarget(structure) && !isWorkerRepairTargetComplete(structure);
@@ -36704,7 +36716,7 @@ function isUrgentRepairTarget(target) {
     return true;
   }
   if (isBuildPreemptionBarrierRepairTarget(target)) {
-    return isBuildPreemptionOwnedRampart(target) && target.hits <= EMERGENCY_RAMPART_REPAIR_HITS_CEILING || target.hits <= BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING;
+    return isBuildPreemptionOwnedRampart(target) && isCriticalOwnedRampartRepairTarget(target) || target.hits <= BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING;
   }
   return isBuildPreemptionCriticalRoadOrContainerRepairTarget(target);
 }
