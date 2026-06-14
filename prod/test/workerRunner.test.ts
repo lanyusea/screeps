@@ -7,6 +7,7 @@ import {
 import * as workerTasks from '../src/tasks/workerTasks';
 import {
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
+  CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING,
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
   IDLE_RAMPART_REPAIR_HITS_CEILING,
   TOWER_REFILL_ENERGY_FLOOR,
@@ -5784,6 +5785,77 @@ describe('runWorker', () => {
     expect(build).not.toHaveBeenCalled();
   });
 
+  it('preempts retained transfer for issue 1879 low-hit owned rampart repair', () => {
+    const rampart = {
+      id: 'rampart-issue-1879',
+      structureType: 'rampart',
+      my: true,
+      hits: CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING - 20_199,
+      hitsMax: 30_000_000
+    } as StructureRampart;
+    const tower = {
+      id: 'tower1',
+      structureType: 'tower',
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(300),
+        getFreeCapacity: jest.fn().mockReturnValue(700)
+      }
+    } as unknown as StructureTower;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const repair = jest.fn().mockReturnValue(0);
+    const transfer = jest.fn();
+    const room = {
+      name: 'E29N55',
+      energyAvailable: 550,
+      energyCapacityAvailable: 2_300,
+      controller,
+      find: jest.fn((type: number) => {
+        if (type === FIND_MY_STRUCTURES) {
+          return [tower];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [rampart, tower];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const creep = {
+      name: 'TransferWorker',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'transfer', targetId: 'tower1' as Id<AnyStoreStructure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(100),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      repair,
+      transfer,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { TransferWorker: creep },
+      getObjectById: jest.fn((id: string) =>
+        id === 'rampart-issue-1879' ? rampart : id === 'tower1' ? tower : null
+      ) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'repair', targetId: 'rampart-issue-1879' });
+    expect(repair).toHaveBeenCalledWith(rampart);
+    expect(transfer).not.toHaveBeenCalled();
+  });
+
   it('preempts low-load harvesting for defense-floor owned rampart repair before construction recovery', () => {
     const source = { id: 'source1', energy: 3_000 } as Source;
     const site = {
@@ -7794,7 +7866,7 @@ describe('runWorker', () => {
       id: 'rampart-routine',
       my: true,
       structureType: 'rampart',
-      hits: BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING + 1,
+      hits: CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING + 1,
       hitsMax: 30_000_000
     } as StructureRampart;
     const controller = {

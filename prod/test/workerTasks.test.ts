@@ -1,6 +1,7 @@
 import {
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
   ACTIVE_RAMPART_REPAIR_HITS_CEILING,
+  CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING,
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
   CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO,
   CRITICAL_SPAWN_REPAIR_HITS_RATIO,
@@ -19,6 +20,7 @@ import {
   URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
   WORKER_PRE_HARVEST_REGEN_THRESHOLD,
   estimateNearTermSpawnExtensionRefillReserve,
+  isCriticalOwnedRampartRepairTarget,
   isWorkerPreHarvestSource,
   canLevelUpController,
   canSpendWorkerEnergyOnConstructionSite,
@@ -7762,7 +7764,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'tower-low' });
   });
 
-  it('caps bootstrap barrier repairs at the defense floor ceiling', () => {
+  it('caps bootstrap wall repairs at the defense floor and ramparts at the critical floor', () => {
     const structures: AnyStructure[] = [];
     const room = makeWorkerTaskRoom({
       controller: {
@@ -7778,24 +7780,40 @@ describe('selectWorkerTask', () => {
       my: true,
       pos: makeRoomPosition(17, 24, 'E29N55')
     });
-    const rampartAtCap = makeStructure(
-      'rampart-at-cap',
-      'rampart' as StructureConstant,
+    const wallAtDefenseCap = makeStructure(
+      'wall-at-defense-cap',
+      'constructedWall' as StructureConstant,
       BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING,
       300_000,
-      { my: true, pos: makeRoomPosition(17, 24, 'E29N55'), room }
+      { pos: makeRoomPosition(17, 24, 'E29N55'), room }
     );
-    const rampartBelowCap = makeStructure(
-      'rampart-below-cap',
-      'rampart' as StructureConstant,
+    const wallBelowDefenseCap = makeStructure(
+      'wall-below-defense-cap',
+      'constructedWall' as StructureConstant,
       BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING - 1,
+      300_000,
+      { pos: makeRoomPosition(17, 24, 'E29N55'), room }
+    );
+    const rampartAtCriticalCap = makeStructure(
+      'rampart-at-critical-cap',
+      'rampart' as StructureConstant,
+      CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING,
       300_000,
       { my: true, pos: makeRoomPosition(17, 24, 'E29N55'), room }
     );
-    structures.push(spawn, rampartAtCap, rampartBelowCap);
+    const rampartBelowCriticalCap = makeStructure(
+      'rampart-below-critical-cap',
+      'rampart' as StructureConstant,
+      CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING - 1,
+      300_000,
+      { my: true, pos: makeRoomPosition(17, 24, 'E29N55'), room }
+    );
+    structures.push(spawn, wallAtDefenseCap, wallBelowDefenseCap, rampartAtCriticalCap, rampartBelowCriticalCap);
 
-    expect(isWorkerRepairTargetComplete(rampartAtCap)).toBe(true);
-    expect(isWorkerRepairTargetComplete(rampartBelowCap)).toBe(false);
+    expect(isWorkerRepairTargetComplete(wallAtDefenseCap)).toBe(true);
+    expect(isWorkerRepairTargetComplete(wallBelowDefenseCap)).toBe(false);
+    expect(isWorkerRepairTargetComplete(rampartAtCriticalCap)).toBe(true);
+    expect(isWorkerRepairTargetComplete(rampartBelowCriticalCap)).toBe(false);
   });
 
   it('keeps threatened bootstrap barriers repairable above the defense floor cap while hostiles are visible', () => {
@@ -9898,6 +9916,67 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-recurring-alert' });
   });
 
+  it('repairs issue 1879 low-hit owned ramparts before non-critical tower refill', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const tower = makeEnergySinkWithEnergy('tower-needs-energy', 'tower' as StructureConstant, 300, 700);
+    const rampart = makeStructure(
+      'rampart-issue-1879',
+      'rampart' as StructureConstant,
+      29_801,
+      30_000_000,
+      { my: true }
+    );
+    const creep = {
+      name: 'AlertRepairer',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(100) },
+      room: makeWorkerTaskRoom({
+        name: 'E29N55',
+        controller,
+        energyAvailable: 550,
+        energyCapacityAvailable: 2_300,
+        myStructures: [tower as AnyOwnedStructure],
+        structures: [rampart]
+      })
+    } as unknown as Creep;
+
+    expect(isCriticalOwnedRampartRepairTarget(rampart as Structure)).toBe(true);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-issue-1879' });
+  });
+
+  it('does not classify owned ramparts above the critical repair floor as urgent', () => {
+    const criticalRampart = makeStructure(
+      'rampart-critical',
+      'rampart' as StructureConstant,
+      CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING - 1,
+      30_000_000,
+      { my: true }
+    );
+    const healthyRampart = makeStructure(
+      'rampart-healthy',
+      'rampart' as StructureConstant,
+      CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING,
+      30_000_000,
+      { my: true }
+    );
+    const hostileRampart = makeStructure(
+      'rampart-hostile',
+      'rampart' as StructureConstant,
+      CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING - 1,
+      30_000_000,
+      { my: false }
+    );
+
+    expect(isCriticalOwnedRampartRepairTarget(criticalRampart as Structure)).toBe(true);
+    expect(isCriticalOwnedRampartRepairTarget(healthyRampart as Structure)).toBe(false);
+    expect(isCriticalOwnedRampartRepairTarget(hostileRampart as Structure)).toBe(false);
+  });
+
   it('spends low carried energy on defense-floor rampart repair before construction recovery', () => {
     const site = { id: 'wall-site1', my: true, structureType: 'constructedWall' } as ConstructionSite;
     const source = makeSource('source1', 20, 20, 'E29N55');
@@ -9943,6 +10022,51 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-defense-floor' });
   });
 
+  it('spends low carried energy on issue 1879 rampart repair before construction recovery', () => {
+    const site = { id: 'wall-site1', my: true, structureType: 'constructedWall' } as ConstructionSite;
+    const source = makeSource('source1', 20, 20, 'E29N55');
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const rampart = makeStructure(
+      'rampart-issue-1879',
+      'rampart' as StructureConstant,
+      28_401,
+      30_000_000,
+      { my: true }
+    );
+    const room = makeWorkerTaskRoom({
+      name: 'E29N55',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 550,
+      energyCapacityAvailable: 2_300,
+      myStructures: [fullSpawn as AnyOwnedStructure],
+      sources: [source],
+      structures: [rampart]
+    });
+    const creep = {
+      name: 'LowLoadBuilder',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'harvest', targetId: 'source1' as Id<Source> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(4),
+        getFreeCapacity: jest.fn().mockReturnValue(96)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ LowLoadBuilder: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-issue-1879' });
+  });
+
   it('keeps normal construction ahead of non-emergency rampart maintenance', () => {
     const site = { id: 'wall-site1', my: true, structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
@@ -9954,7 +10078,7 @@ describe('selectWorkerTask', () => {
     const rampart = makeStructure(
       'rampart-non-emergency',
       'rampart' as StructureConstant,
-      BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING + 1,
+      CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING + 1,
       300_000,
       { my: true }
     );
