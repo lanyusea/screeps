@@ -27854,7 +27854,15 @@ function selectCriticalCpuWorkerTask(creep, cpuBudget) {
     return selectCriticalCpuEnergyAcquisitionTask(creep);
   }
   const controller = creep.room.controller;
-  if (controller && shouldGuardControllerDowngradeForWorkerLoad(creep, controller, { allowConstructionBacklogYield: false }) && canUpgradeController(controller)) {
+  const constructionSites = findConstructionSites(creep.room);
+  const constructionReservationContext = constructionSites.length > 0 ? createConstructionReservationContext(creep.room) : createEmptyConstructionReservationContext();
+  const controllerSustainConstructionBacklogTask = selectLocalConstructionBacklogBeforeControllerSustainUpgradeTask(
+    creep,
+    controller,
+    constructionSites,
+    constructionReservationContext
+  );
+  if (controller && shouldGuardControllerDowngradeForWorkerLoad(creep, controller, { allowConstructionBacklogYield: false }) && canUpgradeController(controller) && !controllerSustainConstructionBacklogTask) {
     return { type: "upgrade", targetId: controller.id };
   }
   const criticalSpawnRepairTarget = selectCriticalOwnedSpawnRepairTarget(creep);
@@ -27905,8 +27913,6 @@ function selectCriticalCpuWorkerTask(creep, cpuBudget) {
     };
   }
   const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
-  const constructionSites = findConstructionSites(creep.room);
-  const constructionReservationContext = constructionSites.length > 0 ? createConstructionReservationContext(creep.room) : createEmptyConstructionReservationContext();
   const boundedConstructionBacklogTask = priorityTowerEnergySink ? selectBoundedConstructionBacklogTaskBeforeNonCriticalRefill(
     creep,
     constructionSites,
@@ -27929,12 +27935,6 @@ function selectCriticalCpuWorkerTask(creep, cpuBudget) {
       targetId: criticalRepairTarget.id
     });
   }
-  const controllerSustainConstructionBacklogTask = selectLocalConstructionBacklogBeforeControllerSustainUpgradeTask(
-    creep,
-    creep.room.controller,
-    constructionSites,
-    constructionReservationContext
-  );
   if (controllerSustainConstructionBacklogTask) {
     return applyMinimumUsefulLoadPolicy(creep, controllerSustainConstructionBacklogTask);
   }

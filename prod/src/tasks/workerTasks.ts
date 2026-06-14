@@ -370,10 +370,22 @@ function selectCriticalCpuWorkerTask(creep: Creep, cpuBudget: RuntimeCpuBudget):
   }
 
   const controller = creep.room.controller;
+  const constructionSites = findConstructionSites(creep.room);
+  const constructionReservationContext =
+    constructionSites.length > 0
+      ? createConstructionReservationContext(creep.room)
+      : createEmptyConstructionReservationContext();
+  const controllerSustainConstructionBacklogTask = selectLocalConstructionBacklogBeforeControllerSustainUpgradeTask(
+    creep,
+    controller,
+    constructionSites,
+    constructionReservationContext
+  );
   if (
     controller &&
     shouldGuardControllerDowngradeForWorkerLoad(creep, controller, { allowConstructionBacklogYield: false }) &&
-    canUpgradeController(controller)
+    canUpgradeController(controller) &&
+    !controllerSustainConstructionBacklogTask
   ) {
     return { type: 'upgrade', targetId: controller.id };
   }
@@ -434,11 +446,6 @@ function selectCriticalCpuWorkerTask(creep: Creep, cpuBudget: RuntimeCpuBudget):
   }
 
   const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
-  const constructionSites = findConstructionSites(creep.room);
-  const constructionReservationContext =
-    constructionSites.length > 0
-      ? createConstructionReservationContext(creep.room)
-      : createEmptyConstructionReservationContext();
   const boundedConstructionBacklogTask = priorityTowerEnergySink
     ? selectBoundedConstructionBacklogTaskBeforeNonCriticalRefill(
       creep,
@@ -466,12 +473,6 @@ function selectCriticalCpuWorkerTask(creep: Creep, cpuBudget: RuntimeCpuBudget):
     });
   }
 
-  const controllerSustainConstructionBacklogTask = selectLocalConstructionBacklogBeforeControllerSustainUpgradeTask(
-    creep,
-    creep.room.controller,
-    constructionSites,
-    constructionReservationContext
-  );
   if (controllerSustainConstructionBacklogTask) {
     return applyMinimumUsefulLoadPolicy(creep, controllerSustainConstructionBacklogTask);
   }
