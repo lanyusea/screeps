@@ -6640,6 +6640,185 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertIsNone(reason)
         self.assertEqual(next_state, 0)
 
+    def test_recent_build_execution_evidence_clears_worker_assignment_gap_state(self) -> None:
+        cases = {
+            "build action result": {"buildActionResult": "succeeded"},
+            "build action success counts": {"buildActionResultCounts": {"succeeded": 2}},
+            "build carried energy": {"buildCarriedEnergy": 20},
+            "sampled build carried energy": {
+                "buildCarriedEnergy": 0,
+                "workerAssignmentEvidence": {
+                    "available": True,
+                    "creepSamples": [{"name": "WorkerA", "task": "build", "carriedEnergy": 20}],
+                },
+            },
+            "construction acceptance pass": {
+                "constructionAcceptance": {
+                    "ok": True,
+                    "status": "pass",
+                    "reason": "build_energy_carried",
+                    "buildCarriedEnergy": 20,
+                },
+            },
+        }
+
+        for name, evidence in cases.items():
+            with self.subTest(name=name):
+                runtime_room = {
+                    "roomName": "E29N55",
+                    "shard": "shardX",
+                    monitor.RUNTIME_SUMMARY_SOURCE_METADATA_KEY: monitor.MONITOR_RUNTIME_SUMMARY_SOURCE,
+                    monitor.RUNTIME_SUMMARY_TICK_METADATA_KEY: 1200,
+                    "workerAssignmentEvidenceAvailable": True,
+                    "taskCounts": {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 2},
+                    "constructionSiteCount": 1,
+                    "pendingBuildProgress": 50,
+                    "constructionDeadlockTicks": 1,
+                    "buildBlockedReason": monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON,
+                    **evidence,
+                }
+
+                reason, next_state = monitor.detect_worker_assignment_gap_sustained_reason(
+                    monitor.RoomRef(shard="shardX", room="E29N55"),
+                    runtime_room,
+                    make_worker_assignment_gap_metrics(),
+                    {"start_tick": 1000, "last_tick": 1100, "consecutive_ticks": 100},
+                    1200,
+                )
+
+                self.assertIsNone(reason)
+                self.assertEqual(next_state, 0)
+
+    def test_recent_build_execution_capture_history_clears_worker_assignment_gap_state(self) -> None:
+        runtime_room = {
+            "roomName": "E29N55",
+            "shard": "shardX",
+            monitor.RUNTIME_SUMMARY_SOURCE_METADATA_KEY: monitor.MONITOR_RUNTIME_SUMMARY_SOURCE,
+            monitor.RUNTIME_SUMMARY_TICK_METADATA_KEY: 1200,
+            "workerAssignmentEvidenceAvailable": True,
+            "taskCounts": {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 2},
+            "constructionSiteCount": 1,
+            "pendingBuildProgress": 50,
+            "constructionDeadlockTicks": 1,
+            "buildCarriedEnergy": 0,
+            "buildBlockedReason": monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON,
+            monitor.RUNTIME_SUMMARY_CAPTURE_HISTORY_METADATA_KEY: [
+                {
+                    "runtimeSummaryTick": 1150,
+                    "buildActionResultCounts": {"succeeded": 1},
+                    "buildBlockedReason": monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON,
+                    "constructionSiteCount": 1,
+                }
+            ],
+        }
+
+        reason, next_state = monitor.detect_worker_assignment_gap_sustained_reason(
+            monitor.RoomRef(shard="shardX", room="E29N55"),
+            runtime_room,
+            make_worker_assignment_gap_metrics(),
+            {"start_tick": 1000, "last_tick": 1100, "consecutive_ticks": 100},
+            1200,
+        )
+
+        self.assertIsNone(reason)
+        self.assertEqual(next_state, 0)
+
+    def test_stale_build_execution_evidence_does_not_clear_newer_worker_assignment_gap(self) -> None:
+        runtime_room = {
+            "roomName": "E29N55",
+            "shard": "shardX",
+            monitor.RUNTIME_SUMMARY_SOURCE_METADATA_KEY: monitor.MONITOR_RUNTIME_SUMMARY_SOURCE,
+            monitor.RUNTIME_SUMMARY_TICK_METADATA_KEY: 1040,
+            "workerAssignmentEvidenceAvailable": True,
+            "taskCounts": {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 2},
+            "constructionSiteCount": 1,
+            "pendingBuildProgress": 50,
+            "constructionDeadlockTicks": 1,
+            "buildCarriedEnergy": 20,
+            "buildBlockedReason": monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON,
+        }
+
+        reason, next_state = monitor.detect_worker_assignment_gap_sustained_reason(
+            monitor.RoomRef(shard="shardX", room="E29N55"),
+            runtime_room,
+            make_worker_assignment_gap_metrics(),
+            {"start_tick": 1000, "last_tick": 1100, "consecutive_ticks": 100},
+            1200,
+        )
+
+        self.assertIsNotNone(reason)
+        assert reason is not None
+        self.assertEqual(reason["kind"], monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND)
+        self.assertEqual(reason["buildBlockedReason"], monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON)
+        self.assertEqual(next_state["consecutive_ticks"], 200)
+
+    def test_untimestamped_build_execution_evidence_does_not_clear_newer_worker_assignment_gap(self) -> None:
+        runtime_room = {
+            "roomName": "E29N55",
+            "shard": "shardX",
+            monitor.RUNTIME_SUMMARY_SOURCE_METADATA_KEY: monitor.MONITOR_RUNTIME_SUMMARY_SOURCE,
+            "workerAssignmentEvidenceAvailable": True,
+            "taskCounts": {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 2},
+            "constructionSiteCount": 1,
+            "pendingBuildProgress": 50,
+            "constructionDeadlockTicks": 1,
+            "buildCarriedEnergy": 20,
+            "buildBlockedReason": monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON,
+        }
+
+        self.assertFalse(monitor.runtime_summary_evidence_is_recent(runtime_room, 1200))
+        self.assertFalse(
+            monitor.runtime_summary_evidence_is_recent(
+                {monitor.RUNTIME_SUMMARY_TICK_METADATA_KEY: 1200},
+                None,
+            )
+        )
+
+        reason, next_state = monitor.detect_worker_assignment_gap_sustained_reason(
+            monitor.RoomRef(shard="shardX", room="E29N55"),
+            runtime_room,
+            make_worker_assignment_gap_metrics(),
+            {"start_tick": 1000, "last_tick": 1100, "consecutive_ticks": 100},
+            1200,
+        )
+
+        self.assertIsNotNone(reason)
+        assert reason is not None
+        self.assertEqual(reason["kind"], monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND)
+        self.assertEqual(reason["buildBlockedReason"], monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON)
+        self.assertEqual(next_state["consecutive_ticks"], 200)
+
+    def test_worker_assignment_gap_stays_active_without_build_execution_evidence(self) -> None:
+        runtime_room = {
+            "roomName": "E29N55",
+            "shard": "shardX",
+            monitor.RUNTIME_SUMMARY_SOURCE_METADATA_KEY: monitor.MONITOR_RUNTIME_SUMMARY_SOURCE,
+            monitor.RUNTIME_SUMMARY_TICK_METADATA_KEY: 1200,
+            "workerAssignmentEvidenceAvailable": True,
+            "taskCounts": {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 2},
+            "constructionSiteCount": 1,
+            "pendingBuildProgress": 50,
+            "constructionDeadlockTicks": 1,
+            "buildCarriedEnergy": 0,
+            "buildActionResultCounts": {"succeeded": 0},
+            "constructionActivity": {"buildProgress": 0},
+            "buildBlockedReason": monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON,
+        }
+
+        reason, next_state = monitor.detect_worker_assignment_gap_sustained_reason(
+            monitor.RoomRef(shard="shardX", room="E29N55"),
+            runtime_room,
+            make_worker_assignment_gap_metrics(),
+            {"start_tick": 1000, "last_tick": 1100, "consecutive_ticks": 100},
+            1200,
+        )
+
+        self.assertIsNotNone(reason)
+        assert reason is not None
+        self.assertEqual(reason["kind"], monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND)
+        self.assertEqual(reason["buildBlockedReason"], monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON)
+        self.assertEqual(next_state["consecutive_ticks"], 200)
+
     def test_stale_recovered_summary_does_not_clear_newer_worker_assignment_gap(self) -> None:
         console_payload = {
             "type": "runtime-summary",
