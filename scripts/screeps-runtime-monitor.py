@@ -233,6 +233,8 @@ CPU_USED_OVER_LIMIT_KIND = "cpu_used_over_limit"
 CPU_TELEMETRY_MISSING_KIND = "cpu_telemetry_missing"
 CPU_BUCKET_LOW_THRESHOLD = 1_000
 CPU_BUCKET_CRITICAL_THRESHOLD = 100
+CPU_BUCKET_RECOVERY_ALERT_FLOOR = 900
+CPU_BUCKET_RECOVERY_ALERT_GRACE_TICKS = 20
 POSTDEPLOY_CONSOLE_CAPTURE_UNAVAILABLE_SUPPRESSION = "postdeploy_console_capture_unavailable"
 POSTDEPLOY_OPTIONAL_CAPTURE_ERROR_TERMS = (
     "websocket",
@@ -1713,6 +1715,33 @@ def runtime_cpu_evidence_expected(room: dict[str, Any]) -> bool:
     )
 
 
+def runtime_low_bucket_is_near_threshold_recovery(runtime_room: dict[str, Any]) -> bool:
+    bucket = runtime_cpu_bucket(runtime_room)
+    if bucket is None or bucket < CPU_BUCKET_RECOVERY_ALERT_FLOOR or bucket >= CPU_BUCKET_LOW_THRESHOLD:
+        return False
+
+    used = runtime_cpu_used(runtime_room)
+    limit = runtime_cpu_limit(runtime_room)
+    if used is None or limit is None or limit <= 0 or used > limit:
+        return False
+
+    low_bucket_ticks = runtime_low_bucket_ticks(runtime_room)
+    if low_bucket_ticks is None or low_bucket_ticks > CPU_BUCKET_RECOVERY_ALERT_GRACE_TICKS:
+        return False
+
+    pressure = runtime_cpu_pressure(runtime_room)
+    alerts = set(runtime_cpu_signal_values(runtime_room, "alerts"))
+    reasons = set(runtime_cpu_signal_values(runtime_room, "reasons"))
+    return not (
+        pressure == "critical"
+        or "bucketEmptyRepeated" in alerts
+        or "criticalBucket" in alerts
+        or "criticalBucket" in reasons
+        or "sustainedUsedOverLimit" in alerts
+        or "usedOverLimit" in reasons
+    )
+
+
 def detect_cpu_bucket_kind(runtime_room: dict[str, Any] | None) -> str | None:
     if not isinstance(runtime_room, dict):
         return None
@@ -1739,6 +1768,8 @@ def detect_cpu_bucket_kind(runtime_room: dict[str, Any] | None) -> str | None:
         or (bucket is not None and bucket < CPU_BUCKET_LOW_THRESHOLD)
     )
     if low_bucket:
+        if runtime_low_bucket_is_near_threshold_recovery(runtime_room):
+            return None
         return CPU_BUCKET_LOW_KIND
     return None
 

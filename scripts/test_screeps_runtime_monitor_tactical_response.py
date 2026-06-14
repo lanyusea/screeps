@@ -2831,6 +2831,86 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(report["priority"], "P1")
         self.assertEqual(report["categories"], [monitor.CPU_BUCKET_LOW_KIND])
 
+    def test_near_threshold_under_limit_low_bucket_gets_short_recovery_grace(self) -> None:
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "worker-1": {
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "name": "worker-1",
+                    "x": 23,
+                    "y": 25,
+                },
+            }
+        )
+
+        def runtime_room(bucket: int, low_bucket_ticks: int) -> dict[str, object]:
+            return {
+                "roomName": "E26S49",
+                "cpuUsed": 12.095116700000062,
+                "cpuLimit": 70,
+                "cpuBucket": bucket,
+                "lowBucketTicks": low_bucket_ticks,
+                monitor.RUNTIME_SUMMARY_CPU_METADATA_KEY: {
+                    "used": 12.095116700000062,
+                    "limit": 70,
+                    "bucket": bucket,
+                    "pressure": "degraded",
+                    "alerts": ["lowBucket"],
+                    "reasons": ["lowBucket"],
+                    "lowBucketTicks": low_bucket_ticks,
+                },
+            }
+
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            snapshot,
+            {"baseline_established": True, "owner": "owner"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room(928, 19),
+        )
+
+        self.assertEqual(emitted, [])
+        self.assertEqual(suppressed, [])
+        self.assertIsNone(
+            monitor.detect_cpu_bucket_reason(
+                monitor.RoomRef(shard="shardX", room="E26S49"),
+                runtime_room(928, 19),
+            )
+        )
+
+        sustained, _suppressed, _state = monitor.evaluate_room_alert(
+            snapshot,
+            {"baseline_established": True, "owner": "owner"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room(928, 21),
+        )
+
+        self.assertEqual([reason["kind"] for reason in sustained], [monitor.CPU_BUCKET_LOW_KIND])
+        self.assertEqual(sustained[0]["lowBucketTicks"], 21)
+
+        deeper, _suppressed, _state = monitor.evaluate_room_alert(
+            snapshot,
+            {"baseline_established": True, "owner": "owner"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room(888, 19),
+        )
+
+        self.assertEqual([reason["kind"] for reason in deeper], [monitor.CPU_BUCKET_LOW_KIND])
+        self.assertEqual(deeper[0]["bucket"], 888)
+
     def test_low_bucket_recovery_alerts_runtime_but_not_postdeploy_health_gate(self) -> None:
         snapshot = make_snapshot(
             {
