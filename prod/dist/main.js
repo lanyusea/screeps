@@ -28245,6 +28245,10 @@ function selectHeuristicWorkerTask(creep) {
       if (constructionBacklogEnergyAcquisitionTask) {
         return constructionBacklogEnergyAcquisitionTask;
       }
+      const constructionBacklogFallbackEnergyAcquisitionTask = selectConstructionBacklogFallbackEnergyAcquisitionTask(creep);
+      if (constructionBacklogFallbackEnergyAcquisitionTask) {
+        return constructionBacklogFallbackEnergyAcquisitionTask;
+      }
       const nearbyWorkerEnergyAcquisitionTask = selectNearbyWorkerEnergyAcquisitionTask(creep);
       if (nearbyWorkerEnergyAcquisitionTask) {
         return nearbyWorkerEnergyAcquisitionTask;
@@ -31384,6 +31388,34 @@ function selectConstructionBacklogEnergyAcquisitionTask(creep) {
     return null;
   }
   return candidates.sort(compareBuilderEnergyAcquisitionCandidates)[0].task;
+}
+function selectConstructionBacklogFallbackEnergyAcquisitionTask(creep) {
+  if (getFreeEnergyCapacity9(creep) <= 0 || getActiveWorkParts2(creep) <= 0 || hasVisibleHostilePresence3(creep.room)) {
+    return null;
+  }
+  const constructionSites = findConstructionSites(creep.room);
+  if (constructionSites.length === 0) {
+    return null;
+  }
+  const constructionReservationContext = createConstructionReservationContext(creep.room);
+  const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const constructionSite = selectUnreservedConstructionBacklogEnergyTarget(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    constructionPriorityContext
+  );
+  if (!constructionSite) {
+    return null;
+  }
+  const fallbackTask = selectWorkerEnergyAcquisitionTask(creep);
+  if ((fallbackTask == null ? void 0 : fallbackTask.type) !== "withdraw" || typeof fallbackTask.constructionSiteId === "string") {
+    return null;
+  }
+  return {
+    ...fallbackTask,
+    constructionSiteId: constructionSite.id
+  };
 }
 function findBuilderEnergyAcquisitionCandidates(creep, constructionSite) {
   const context = {
