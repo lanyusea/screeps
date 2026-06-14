@@ -106,6 +106,7 @@ CONSTRUCTION_ACTIVITY_CANDIDATE_SUPPRESSED = "candidate_suppressed"
 CONSTRUCTION_ACTIVITY_NO_VIABLE_CANDIDATE = "no_viable_candidate"
 WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND = "worker_assignment_gap_sustained"
 WORKER_ASSIGNMENT_GAP_REQUIRED_TICKS = 100
+CONSTRUCTION_EXECUTION_EVIDENCE_RECENT_TICKS = WORKER_ASSIGNMENT_GAP_REQUIRED_TICKS
 WORKER_ASSIGNMENT_GAP_RECOVERY_TICK_TOLERANCE = 0
 WORKER_ASSIGNMENT_STALL_KIND = "worker_assignment_stall"
 WORKER_ASSIGNMENT_STALL_REQUIRED_TICKS = 100
@@ -136,6 +137,11 @@ BUILD_ACTION_RESULT_NAMES = (
 )
 BUILD_ACTION_FAILURE_RESULT_NAMES = tuple(
     result for result in BUILD_ACTION_RESULT_NAMES if result != "succeeded"
+)
+CONSTRUCTION_EXECUTION_ACCEPTANCE_PASS_REASONS = (
+    "build_action_succeeded",
+    "build_energy_carried",
+    "build_progress_observed",
 )
 MAX_CREEP_MEMORY_ASSIGNMENT_EVIDENCE_PER_ROOM = 12
 MAX_CREEP_MEMORY_ASSIGNMENT_STRING_LENGTH = 96
@@ -1979,6 +1985,19 @@ def runtime_pending_build_progress(room: dict[str, Any] | None) -> int | float |
     )
 
 
+def runtime_build_progress(room: dict[str, Any] | None) -> int | float | None:
+    if not isinstance(room, dict):
+        return None
+    return first_number_value(
+        room,
+        ("buildProgress",),
+        ("constructionActivity", "buildProgress"),
+        ("resources", "productiveEnergy", "buildProgress"),
+        ("resources", "productiveEnergy", "constructionActivity", "buildProgress"),
+        ("construction", "buildProgress"),
+    )
+
+
 def runtime_build_carried_energy(room: dict[str, Any] | None) -> int | float | None:
     if not isinstance(room, dict):
         return None
@@ -2073,6 +2092,95 @@ def runtime_build_action_result_counts(room: dict[str, Any] | None) -> dict[str,
         if build_action_count(counts) > 0:
             return counts
     return {}
+
+
+def runtime_construction_acceptance_pass_evidence(room: dict[str, Any] | None) -> bool:
+    if not isinstance(room, dict):
+        return False
+    for path in (
+        ("constructionAcceptance",),
+        ("construction_acceptance",),
+        ("construction", "acceptance"),
+        ("resources", "productiveEnergy", "constructionAcceptance"),
+        ("resources", "productiveEnergy", "construction_acceptance"),
+    ):
+        acceptance = as_dict(nested_value(room, *path))
+        if not acceptance:
+            continue
+        if acceptance.get("ok") is not True and string_value(acceptance.get("status")) != "pass":
+            continue
+        reason = string_value(acceptance.get("reason"))
+        if reason in CONSTRUCTION_EXECUTION_ACCEPTANCE_PASS_REASONS:
+            return True
+        if runtime_build_action_result(acceptance) == "succeeded":
+            return True
+        build_action_counts = runtime_build_action_result_counts(acceptance)
+        if build_action_counts.get("succeeded", 0) > 0:
+            return True
+        build_carried_energy = runtime_build_carried_energy(acceptance)
+        if build_carried_energy is not None and build_carried_energy > 0:
+            return True
+        build_progress = runtime_build_progress(acceptance)
+        if build_progress is not None and build_progress > 0:
+            return True
+    return False
+
+
+def runtime_construction_execution_evidence(room: dict[str, Any] | None) -> bool:
+    if not isinstance(room, dict):
+        return False
+    if runtime_build_action_result(room) == "succeeded":
+        return True
+    build_action_counts = runtime_build_action_result_counts(room)
+    if build_action_counts.get("succeeded", 0) > 0:
+        return True
+    build_carried_energy = runtime_build_carried_energy(room)
+    if build_carried_energy is not None and build_carried_energy > 0:
+        return True
+    build_progress = runtime_build_progress(room)
+    if build_progress is not None and build_progress > 0:
+        return True
+    return runtime_construction_acceptance_pass_evidence(room)
+
+
+def runtime_summary_evidence_tick(room: dict[str, Any] | None) -> int | None:
+    tick = runtime_summary_room_tick(room)
+    if tick is not None:
+        return tick
+    if isinstance(room, dict):
+        return tick_number(room.get("runtimeSummaryTick"))
+    return None
+
+
+def runtime_summary_evidence_is_recent(
+    room: dict[str, Any] | None,
+    current_tick_value: Any,
+    max_age_ticks: int = CONSTRUCTION_EXECUTION_EVIDENCE_RECENT_TICKS,
+) -> bool:
+    current_tick = tick_number(current_tick_value)
+    room_tick = runtime_summary_evidence_tick(room)
+    if current_tick is None or room_tick is None:
+        return True
+    return room_tick + max_age_ticks >= current_tick
+
+
+def recent_runtime_construction_execution_evidence(
+    room: dict[str, Any] | None,
+    current_tick_value: Any,
+) -> bool:
+    if not isinstance(room, dict):
+        return False
+    if runtime_construction_execution_evidence(room) and runtime_summary_evidence_is_recent(room, current_tick_value):
+        return True
+    history = room.get(RUNTIME_SUMMARY_CAPTURE_HISTORY_METADATA_KEY)
+    if not isinstance(history, list):
+        return False
+    return any(
+        isinstance(entry, dict)
+        and runtime_construction_execution_evidence(entry)
+        and runtime_summary_evidence_is_recent(entry, current_tick_value)
+        for entry in history
+    )
 
 
 def runtime_worker_assignment_build_carried_energy(room: dict[str, Any]) -> int | float | None:
@@ -2823,6 +2931,8 @@ def worker_assignment_gap_active(
     if site_count is None:
         site_count = metrics_site_count
     if worker_assignment_stall_evidence(runtime_room, metrics) is not None:
+        return False, None, site_count
+    if recent_runtime_construction_execution_evidence(runtime_room, current_tick_value):
         return False, None, site_count
     runtime_assignment_evidence_available = runtime_worker_assignment_evidence_available(runtime_room)
     runtime_blocked_reason = runtime_build_blocked_reason(runtime_room) if runtime_assignment_evidence_available else None
@@ -5275,7 +5385,11 @@ def runtime_summary_room_has_monitor_alert_fields(room: dict[str, Any], payload:
         or runtime_summary_payload_has_cpu_fields(payload)
         or runtime_construction_site_count(room) is not None
         or runtime_pending_build_progress(room) is not None
+        or runtime_build_progress(room) is not None
         or runtime_build_carried_energy(room) is not None
+        or runtime_build_action_result(room) is not None
+        or bool(runtime_build_action_result_counts(room))
+        or runtime_construction_acceptance_pass_evidence(room)
         or runtime_build_blocked_reason(room) is not None
         or bool(as_dict(room.get("constructionActivity")))
         or runtime_productive_assignment_count(room) is not None
@@ -5558,6 +5672,18 @@ def runtime_summary_capture_history_entry(room: dict[str, Any]) -> dict[str, Any
     pending_build_progress = runtime_pending_build_progress(room)
     if pending_build_progress is not None:
         entry["pendingBuildProgress"] = pending_build_progress
+    build_progress = runtime_build_progress(room)
+    if build_progress is not None:
+        entry["buildProgress"] = build_progress
+    build_carried_energy = runtime_build_carried_energy(room)
+    if build_carried_energy is not None:
+        entry["buildCarriedEnergy"] = build_carried_energy
+    build_action_result = runtime_build_action_result(room)
+    if build_action_result is not None:
+        entry["buildActionResult"] = build_action_result
+    build_action_result_counts = runtime_build_action_result_counts(room)
+    if build_action_result_counts:
+        entry["buildActionResultCounts"] = dict(build_action_result_counts)
     build_blocked_reason = runtime_build_blocked_reason(room)
     if build_blocked_reason is not None:
         entry["buildBlockedReason"] = build_blocked_reason
@@ -7676,14 +7802,7 @@ def postdeploy_construction_room_name(room: dict[str, Any]) -> str:
 
 
 def postdeploy_construction_build_progress(room: dict[str, Any]) -> int | float | None:
-    return first_number_value(
-        room,
-        ("buildProgress",),
-        ("constructionActivity", "buildProgress"),
-        ("resources", "productiveEnergy", "buildProgress"),
-        ("resources", "productiveEnergy", "constructionActivity", "buildProgress"),
-        ("construction", "buildProgress"),
-    )
+    return runtime_build_progress(room)
 
 
 def postdeploy_construction_build_task_count(room: dict[str, Any]) -> int | float | None:
