@@ -31,6 +31,7 @@ import {
   selectWorkerEnergyCriticalAcquisitionTask,
   isWorkerRepairTargetComplete,
   selectWorkerTask,
+  shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill,
   shouldSwitchLowLoadWorkerEnergyAcquisitionTaskForYield
 } from '../src/tasks/workerTasks';
 import { BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING } from '../src/defense/defensePlanner';
@@ -15479,6 +15480,89 @@ describe('selectWorkerTask', () => {
     setGameCreeps({ SustainUpgrader: sustainUpgrader, ControllerCoverage: controllerCoverage });
 
     expect(selectWorkerTask(sustainUpgrader)).toEqual({ type: 'build', targetId: 'container-site1' });
+  });
+
+  it('uses a loaded E29N56 sustain upgrader on uncovered construction when an active spawn refill is covered', () => {
+    const site = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 700,
+      progressTotal: 1_000,
+      pos: makeRoomPosition(20, 24, 'E29N56')
+    } as ConstructionSite;
+    const activeSpawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 300, 0, {
+      my: true,
+      spawning: { name: 'worker-E29N56-next', remainingTime: 10 },
+      pos: makeRoomPosition(17, 24, 'E29N56')
+    }) as StructureSpawn;
+    const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 603_990, {
+      my: true,
+      pos: makeRoomPosition(18, 23, 'E29N56')
+    }) as StructureStorage;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N56',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300,
+      myStructures: [activeSpawn as AnyOwnedStructure],
+      structures: [activeSpawn as unknown as AnyStructure, storage as AnyStructure]
+    });
+    (room as { storage?: StructureStorage }).storage = storage;
+    const sustainUpgrader = {
+      name: 'worker-E29N56-2167049',
+      memory: {
+        role: 'worker',
+        colony: 'E29N56',
+        controllerSustain: { homeRoom: 'E29N56', targetRoom: 'E29N56', role: 'upgrader' },
+        task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'road-site1' ? 4 : 3)) },
+      room
+    } as unknown as Creep;
+    const controllerCoverage = makeLoadedWorker(room, {
+      type: 'upgrade',
+      targetId: 'controller1' as Id<StructureController>
+    });
+    const spawnRefillCoverage = {
+      name: 'SpawnRefillCoverage',
+      memory: {
+        role: 'worker',
+        colony: 'E29N56',
+        task: { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 1_300 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0))
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'spawn1' ? 1 : 4)) },
+      room
+    } as unknown as Creep;
+
+    setGameCreeps({ SustainUpgrader: sustainUpgrader, ControllerCoverage: controllerCoverage });
+    expect(shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(sustainUpgrader)).toBe(true);
+
+    setGameCreeps({
+      SustainUpgrader: sustainUpgrader,
+      ControllerCoverage: controllerCoverage,
+      SpawnRefillCoverage: spawnRefillCoverage
+    });
+    expect(shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(sustainUpgrader)).toBe(false);
+
+    expect(selectWorkerTask(sustainUpgrader)).toEqual({ type: 'build', targetId: 'road-site1' });
   });
 
   it('keeps local E29N57 controller sustain upgrading when construction already has builder coverage', () => {

@@ -1796,11 +1796,15 @@ function shouldYieldLocalControllerSustainUpgradeToConstruction(creep: Creep): b
     creep.room.controller?.my === true &&
     !isControllerDowngradeImminentForLowLoadReturn(creep.room.controller) &&
     !hasVisibleHostilePresence(creep.room) &&
-    !hasActiveSpawningSpawn(creep.room) &&
+    !shouldActiveSpawnBlockControllerSustainConstructionYield(creep) &&
     !hasSameRoomWorkerAssignedToTask(creep.room, creep, 'build') &&
     hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep) &&
     hasSpendableConstructionBacklog(creep)
   );
+}
+
+function shouldActiveSpawnBlockControllerSustainConstructionYield(creep: Creep): boolean {
+  return hasActiveSpawningSpawn(creep.room) && shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep);
 }
 
 function hasVisibleOwnedConstructionDemand(room: Room | undefined): boolean {
