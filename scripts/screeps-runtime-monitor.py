@@ -233,6 +233,18 @@ CPU_USED_OVER_LIMIT_KIND = "cpu_used_over_limit"
 CPU_TELEMETRY_MISSING_KIND = "cpu_telemetry_missing"
 CPU_BUCKET_LOW_THRESHOLD = 1_000
 CPU_BUCKET_CRITICAL_THRESHOLD = 100
+POSTDEPLOY_CONSOLE_CAPTURE_UNAVAILABLE_SUPPRESSION = "postdeploy_console_capture_unavailable"
+POSTDEPLOY_OPTIONAL_CAPTURE_ERROR_TERMS = (
+    "websocket",
+    "websockets",
+    "connect",
+    "connection",
+    "timed out",
+    "timeout",
+    "network",
+    "temporary failure",
+    "name or service not known",
+)
 CPU_BUCKET_ROUTES = [
     {"issue": "#1490", "topic": "runtime_alert"},
     {"issue": "#906", "topic": "metric_taxonomy"},
@@ -8089,7 +8101,65 @@ def postdeploy_non_blocking_runtime_reason(reason: dict[str, Any]) -> dict[str, 
     }
 
 
-def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_payload: dict[str, Any]) -> dict[str, Any]:
+def postdeploy_console_capture_status_summary(status: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: status[key]
+        for key in (
+            "captureStatus",
+            "processStatus",
+            "exitCode",
+            "source",
+            "error",
+            "statusPath",
+            "websocketUrl",
+            "requestedChannels",
+        )
+        if key in status
+    }
+
+
+def postdeploy_console_capture_unavailable(status: dict[str, Any] | None) -> bool:
+    if not isinstance(status, dict):
+        return False
+    if status.get("source") != "live-official-console":
+        return False
+    if status.get("captureOk") is True:
+        return False
+    if status.get("captureStatus") != "capture_error" and status.get("processStatus") != "capture_error":
+        return False
+
+    error = str(status.get("error", "")).lower()
+    return any(term in error for term in POSTDEPLOY_OPTIONAL_CAPTURE_ERROR_TERMS)
+
+
+def postdeploy_missing_cpu_reason_is_optional_capture_failure(
+    reason: dict[str, Any],
+    console_capture_status: dict[str, Any] | None,
+) -> bool:
+    return reason.get("kind") == CPU_TELEMETRY_MISSING_KIND and postdeploy_console_capture_unavailable(
+        console_capture_status
+    )
+
+
+def postdeploy_non_blocking_console_capture_reason(
+    reason: dict[str, Any],
+    console_capture_status: dict[str, Any] | None,
+) -> dict[str, Any]:
+    result = {
+        **reason,
+        "non_blocking": True,
+        "suppression_reason": POSTDEPLOY_CONSOLE_CAPTURE_UNAVAILABLE_SUPPRESSION,
+    }
+    if isinstance(console_capture_status, dict):
+        result["consoleCaptureStatus"] = postdeploy_console_capture_status_summary(console_capture_status)
+    return result
+
+
+def evaluate_postdeploy_health_gate(
+    summary_payload: dict[str, Any],
+    alert_payload: dict[str, Any],
+    console_capture_status: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     reasons: list[dict[str, Any]] = []
     non_blocking_reasons: list[dict[str, Any]] = []
     if summary_payload.get("ok") is not True:
@@ -8106,7 +8176,11 @@ def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_paylo
                     "message": reason.get("message", "runtime alert active"),
                     "source": reason,
                 }
-                if postdeploy_runtime_reason_blocks_health_gate(reason):
+                if postdeploy_missing_cpu_reason_is_optional_capture_failure(reason, console_capture_status):
+                    non_blocking_reasons.append(
+                        postdeploy_non_blocking_console_capture_reason(active_alert, console_capture_status)
+                    )
+                elif postdeploy_runtime_reason_blocks_health_gate(reason):
                     reasons.append(active_alert)
                 else:
                     non_blocking_reasons.append(postdeploy_non_blocking_runtime_reason(active_alert))
@@ -8131,7 +8205,11 @@ def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_paylo
             if threshold_reason is not None:
                 reasons.append(threshold_reason)
             for cpu_reason in detect_cpu_runtime_reasons(runtime_summary_room_ref(room), room, require_cpu_evidence=True):
-                if postdeploy_runtime_reason_blocks_health_gate(cpu_reason):
+                if postdeploy_missing_cpu_reason_is_optional_capture_failure(cpu_reason, console_capture_status):
+                    non_blocking_reasons.append(
+                        postdeploy_non_blocking_console_capture_reason(cpu_reason, console_capture_status)
+                    )
+                elif postdeploy_runtime_reason_blocks_health_gate(cpu_reason):
                     reasons.append(cpu_reason)
                 else:
                     non_blocking_reasons.append(postdeploy_non_blocking_runtime_reason(cpu_reason))
@@ -8183,13 +8261,21 @@ def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_paylo
     }
     if non_blocking_reasons:
         result["non_blocking_reasons"] = non_blocking_reasons
+    if isinstance(console_capture_status, dict):
+        result["console_capture_status"] = postdeploy_console_capture_status_summary(console_capture_status)
     return result
 
 
 def command_health_gate(args: argparse.Namespace) -> int:
     summary_payload = load_json_file(args.summary)
     alert_payload = load_json_file(args.alert)
-    result = evaluate_postdeploy_health_gate(summary_payload, alert_payload)
+    console_capture_status = None
+    console_capture_status_path = getattr(args, "console_capture_status", None)
+    if console_capture_status_path:
+        status_path = Path(console_capture_status_path).expanduser()
+        if status_path.exists():
+            console_capture_status = load_json_file(str(status_path))
+    result = evaluate_postdeploy_health_gate(summary_payload, alert_payload, console_capture_status)
     print_json(result, [os.environ.get("SCREEPS_AUTH_TOKEN", "")])
     return 0 if result["ok"] else 1
 
@@ -8429,6 +8515,14 @@ def build_parser() -> argparse.ArgumentParser:
     health_gate = subcommands.add_parser("health-gate", help="fail when post-deploy summary/alert evidence violates survival invariants")
     health_gate.add_argument("--summary", required=True, help="summary JSON path produced by the summary command")
     health_gate.add_argument("--alert", required=True, help="alert JSON path produced by the alert command")
+    health_gate.add_argument(
+        "--console-capture-status",
+        default=None,
+        help=(
+            "Optional status JSON from screeps_runtime_summary_console_capture.py. "
+            "When live console capture fails at import/connect time, postdeploy CPU telemetry absence is evidence-only."
+        ),
+    )
     health_gate.set_defaults(func=command_health_gate)
 
     tactical_response = subcommands.add_parser(

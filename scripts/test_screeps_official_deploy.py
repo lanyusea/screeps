@@ -546,6 +546,7 @@ class OfficialDeployTest(unittest.TestCase):
             paired_path = evidence_dir / "postdeploy-health-gate-rollback.json"
             expected_out_dir = repo_root / "runtime-artifacts" / "screeps-monitor"
             expected_runtime_summary_dir = repo_root / "runtime-artifacts" / "runtime-summary-console"
+            expected_capture_status_path = evidence_dir / "postdeploy-runtime-summary-console-status.json"
 
             self.assertTrue(health_gate["ok"])
             self.assertTrue(paired_path.exists())
@@ -557,6 +558,9 @@ class OfficialDeployTest(unittest.TestCase):
             self.assertIn("--out-dir", commands[0])
             capture_out_dir_index = commands[0].index("--out-dir")
             self.assertEqual(commands[0][capture_out_dir_index + 1], str(expected_runtime_summary_dir))
+            self.assertIn("--status-file", commands[0])
+            capture_status_index = commands[0].index("--status-file")
+            self.assertEqual(commands[0][capture_status_index + 1], str(expected_capture_status_path))
             self.assertIn("--live-timeout-seconds", commands[0])
             self.assertEqual(commands[1][1:3], [str(repo_root / "scripts" / "screeps-runtime-monitor.py"), "summary"])
             self.assertIn("--out-dir", commands[1])
@@ -575,6 +579,10 @@ class OfficialDeployTest(unittest.TestCase):
             self.assertEqual(commands[2][alert_runtime_dir_index + 1], str(expected_runtime_summary_dir))
             self.assertNotIn("--room", commands[2])
             self.assertIn("--force-alert-image", commands[2])
+            self.assertEqual(commands[3][1:3], [str(repo_root / "scripts" / "screeps-runtime-monitor.py"), "health-gate"])
+            self.assertIn("--console-capture-status", commands[3])
+            health_status_index = commands[3].index("--console-capture-status")
+            self.assertEqual(commands[3][health_status_index + 1], str(expected_capture_status_path))
 
     def test_postdeploy_health_gate_uses_default_path_without_deploy_evidence_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -610,6 +618,20 @@ class OfficialDeployTest(unittest.TestCase):
         self.assertIn("if: ${{ inputs.mode == 'deploy' }}", text[install_step_index:install_index])
         self.assertLess(install_index, text.index(deploy_upload_marker))
         self.assertLess(install_index, text.index(capture_marker))
+
+    def test_official_deploy_workflow_archives_and_passes_live_capture_status(self) -> None:
+        workflow = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "official-screeps-deploy.yml"
+        text = workflow.read_text(encoding="utf-8")
+        capture_status_marker = '--status-file "$EVIDENCE_DIR/postdeploy-runtime-summary-console-status.json"'
+        health_gate_status_marker = (
+            '--console-capture-status "$EVIDENCE_DIR/postdeploy-runtime-summary-console-status.json"'
+        )
+
+        self.assertIn(capture_status_marker, text)
+        self.assertIn(health_gate_status_marker, text)
+        self.assertLess(text.index(capture_status_marker), text.index(health_gate_status_marker))
+        self.assertIn("runtime-artifacts/official-screeps-deploy/", text)
+        self.assertIn("runtime-artifacts/runtime-summary-console/", text)
 
     def test_recovery_summary_reader_scopes_single_target_and_collects_all_for_multiple_targets(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

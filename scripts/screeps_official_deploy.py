@@ -943,6 +943,11 @@ def postdeploy_runtime_summary_console_dir(cfg: DeployConfig) -> Path:
     return cfg.repo_root / "runtime-artifacts" / "runtime-summary-console"
 
 
+def postdeploy_console_capture_status_path(cfg: DeployConfig) -> Path:
+    """Return the archived live-console capture status sidecar path."""
+    return cfg.evidence_dir / "postdeploy-runtime-summary-console-status.json"
+
+
 def run_postdeploy_console_capture(
     cfg: DeployConfig,
     *,
@@ -962,6 +967,8 @@ def run_postdeploy_console_capture(
             str(out_dir),
             "--artifact-name",
             "postdeploy-runtime-summary-console.log",
+            "--status-file",
+            str(postdeploy_console_capture_status_path(cfg)),
             "--format",
             "status-line",
             "--live-timeout-seconds",
@@ -989,6 +996,7 @@ def run_postdeploy_health_gate(
     summary_path = cfg.evidence_dir / "postdeploy-summary.json"
     alert_path = cfg.evidence_dir / "postdeploy-alert.json"
     health_path = postdeploy_health_gate_path(cfg)
+    capture_status_path = postdeploy_console_capture_status_path(cfg)
 
     run_postdeploy_console_capture(cfg, env=env, runner=runner)
     run_monitor_json(
@@ -1020,7 +1028,15 @@ def run_postdeploy_health_gate(
     )
     return run_monitor_json(
         cfg,
-        ["health-gate", "--summary", str(summary_path), "--alert", str(alert_path)],
+        [
+            "health-gate",
+            "--summary",
+            str(summary_path),
+            "--alert",
+            str(alert_path),
+            "--console-capture-status",
+            str(capture_status_path),
+        ],
         health_path,
         env=env,
         runner=runner,
