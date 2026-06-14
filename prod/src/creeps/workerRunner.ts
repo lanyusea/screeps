@@ -484,7 +484,13 @@ function selectAssignedBuildEnergyAcquisitionTask(
   currentTask: CreepTaskMemory | null | undefined,
   selectedTask: CreepTaskMemory | null
 ): CreepTaskMemory | null {
-  if (currentTask?.type !== 'build' || (selectedTask !== null && selectedTask.type !== 'build')) {
+  const buildTask =
+    selectedTask?.type === 'build'
+      ? selectedTask
+      : currentTask?.type === 'build'
+        ? currentTask
+        : null;
+  if (!buildTask || (selectedTask !== null && selectedTask.type !== 'build')) {
     return selectedTask;
   }
 
@@ -497,6 +503,10 @@ function selectAssignedBuildEnergyAcquisitionTask(
   }
 
   const carriedEnergy = getUsedTransferEnergy(creep);
+  if (currentTask?.type !== 'build' && carriedEnergy > 0) {
+    return selectedTask;
+  }
+
   if (carriedEnergy > 0 && !hasLowWorkerEnergyLoad(creep)) {
     return selectedTask;
   }
