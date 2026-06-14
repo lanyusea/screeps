@@ -126,7 +126,7 @@ RUNTIME_SUMMARY_SOURCE_METADATA_KEY = "__runtimeSummarySource"
 RUNTIME_SUMMARY_CPU_METADATA_KEY = "__runtimeSummaryCpu"
 MONITOR_RUNTIME_SUMMARY_SOURCE = "screeps-runtime-monitor"
 ASSIGNED_WORKER_TASK_NAMES = ("harvest", "pickup", "withdraw", "transfer", "build", "repair", "upgrade")
-WORKER_TASK_COUNT_NAMES = ("harvest", "transfer", "build", "repair", "upgrade")
+WORKER_TASK_COUNT_NAMES = ASSIGNED_WORKER_TASK_NAMES
 BUILD_ACTION_RESULT_NAMES = (
     "succeeded",
     "failed_no_energy",
@@ -3252,6 +3252,28 @@ def runtime_none_task_worker_count(room: dict[str, Any] | None) -> int | float |
     return max(0, fallback_count) if fallback_count is not None else None
 
 
+def runtime_none_task_count_explained_by_productive_assignments(
+    room: dict[str, Any] | None,
+    worker_count: int | float,
+) -> bool:
+    if not isinstance(room, dict) or worker_count <= 0:
+        return False
+    assigned_count = runtime_assigned_task_count(room)
+    productive_count = runtime_productive_assignment_count(room)
+    if assigned_count is None or productive_count is None:
+        return False
+    if assigned_count < worker_count or productive_count < worker_count:
+        return False
+    unassigned_count = first_number_value(
+        room,
+        ("workerAssignmentEvidence", "unassignedWorkerCount"),
+        ("resources", "productiveEnergy", "unassignedWorkerCount"),
+        ("productiveEnergy", "unassignedWorkerCount"),
+        ("unassignedWorkerCount",),
+    )
+    return unassigned_count is None or unassigned_count <= 0
+
+
 def runtime_assigned_task_count(room: dict[str, Any] | None) -> int | float | None:
     if not isinstance(room, dict):
         return None
@@ -3324,6 +3346,8 @@ def owned_room_none_task_worker_ratio_evidence(runtime_room: dict[str, Any] | No
     worker_count = runtime_worker_count_from_summary(runtime_room)
     none_count = runtime_none_task_worker_count(runtime_room)
     if worker_count is None or none_count is None or worker_count <= 0 or none_count <= 0:
+        return None
+    if runtime_none_task_count_explained_by_productive_assignments(runtime_room, worker_count):
         return None
 
     none_ratio = none_count / worker_count
