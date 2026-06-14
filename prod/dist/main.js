@@ -35207,13 +35207,17 @@ function selectWorkerTaskContext(creep, currentTask) {
 }
 function selectAssignedBuildEnergyAcquisitionTask(creep, currentTask, selectedTask) {
   var _a2, _b;
-  if ((currentTask == null ? void 0 : currentTask.type) !== "build" || selectedTask !== null && selectedTask.type !== "build") {
+  const buildTask = (selectedTask == null ? void 0 : selectedTask.type) === "build" ? selectedTask : (currentTask == null ? void 0 : currentTask.type) === "build" ? currentTask : null;
+  if (!buildTask || selectedTask !== null && selectedTask.type !== "build") {
     return selectedTask;
   }
   if (getFreeTransferEnergyCapacity(creep) <= 0 || getActiveWorkParts3(creep) <= 0 || hasVisibleHostileCreeps2(creep.room)) {
     return selectedTask;
   }
   const carriedEnergy = getUsedTransferEnergy(creep);
+  if ((currentTask == null ? void 0 : currentTask.type) !== "build" && carriedEnergy > 0) {
+    return selectedTask;
+  }
   if (carriedEnergy > 0 && !hasLowWorkerEnergyLoad(creep)) {
     return selectedTask;
   }
