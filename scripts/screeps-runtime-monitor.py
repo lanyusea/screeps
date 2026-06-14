@@ -2160,7 +2160,7 @@ def runtime_summary_evidence_is_recent(
     current_tick = tick_number(current_tick_value)
     room_tick = runtime_summary_evidence_tick(room)
     if current_tick is None or room_tick is None:
-        return True
+        return False
     return room_tick + max_age_ticks >= current_tick
 
 
