@@ -11,6 +11,7 @@ import os
 import re
 import sys
 import tempfile
+import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,6 +40,10 @@ CONSOLE_CHANNELS_ENV = "SCREEPS_CONSOLE_CHANNELS"
 LIVE_TIMEOUT_ENV = "SCREEPS_CONSOLE_CAPTURE_TIMEOUT_SECONDS"
 LIVE_MAX_MESSAGES_ENV = "SCREEPS_CONSOLE_CAPTURE_MAX_MESSAGES"
 WORLD_PROFILE_ENV = world_profiles.WORLD_PROFILE_ENV
+CHANNEL_SOURCE_CLI = "cli"
+CHANNEL_SOURCE_ENV = "env"
+CHANNEL_SOURCE_AUTHENTICATED_USER = "authenticated-user"
+CHANNEL_SOURCE_FALLBACK_DEFAULT = "fallback-default"
 SAFE_ARTIFACT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 CAPTURE_STATUS_CLEAN_RUNTIME_SUMMARY = "clean_runtime_summary"
 CAPTURE_STATUS_CPU_ONLY = "cpu_only"
@@ -87,6 +92,7 @@ class LiveConsoleContext:
     channels: list[str]
     timeout_seconds: float
     max_messages: int
+    channel_metadata: dict[str, object] | None = None
 
     @property
     def base_ws(self) -> str:
@@ -472,16 +478,79 @@ def resolve_console_channels(cli_channels: list[str] | None) -> list[str]:
     return parse_console_channels(os.environ.get(CONSOLE_CHANNELS_ENV))
 
 
+def short_error_text(value: object, limit: int = 180) -> str:
+    text = str(value).replace("\n", " ").strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def fetch_authenticated_user_id(base_http: str, token: str) -> str:
+    request = urllib.request.Request(
+        base_http.rstrip("/") + "/api/auth/me",
+        headers={
+            "X-Token": token,
+            "User-Agent": "screeps-runtime-summary-console-capture/1.0",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        payload = json.load(response)
+    if not isinstance(payload, dict):
+        raise RuntimeError("authenticated user response was not a JSON object")
+    for key in ("_id", "id", "userId", "user_id"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    raise RuntimeError("authenticated user response did not include a user id")
+
+
+def default_live_console_channels(base_http: str, token: str) -> tuple[list[str], dict[str, object]]:
+    try:
+        user_id = fetch_authenticated_user_id(base_http, token)
+    except Exception as exc:  # noqa: BLE001 - fallback remains diagnosable in the status sidecar
+        return (
+            list(DEFAULT_CONSOLE_CHANNELS),
+            {
+                "channelSource": CHANNEL_SOURCE_FALLBACK_DEFAULT,
+                "channelDiscoveryStatus": "unavailable",
+                "channelDiscoveryError": sanitize_error_text(short_error_text(exc), [token]),
+            },
+        )
+    return (
+        [f"user:{user_id}/console"],
+        {
+            "channelSource": CHANNEL_SOURCE_AUTHENTICATED_USER,
+            "channelDiscoveryStatus": "ok",
+        },
+    )
+
+
+def resolve_live_console_channels(
+    cli_channels: list[str] | None,
+    base_http: str,
+    token: str,
+) -> tuple[list[str], dict[str, object]]:
+    if cli_channels:
+        return parse_console_channels(",".join(cli_channels)), {"channelSource": CHANNEL_SOURCE_CLI}
+    env_channels = os.environ.get(CONSOLE_CHANNELS_ENV)
+    if env_channels is not None and env_channels.strip():
+        return parse_console_channels(env_channels), {"channelSource": CHANNEL_SOURCE_ENV}
+    return default_live_console_channels(base_http, token)
+
+
 def live_console_context_from_args(args: argparse.Namespace) -> LiveConsoleContext:
     token = os.environ.get(AUTH_TOKEN_ENV)
     if not token:
         raise RuntimeError(f"{AUTH_TOKEN_ENV} is required for --live-official-console")
+    base_http = str(args.api_url).rstrip("/")
+    channels, channel_metadata = resolve_live_console_channels(args.console_channel, base_http, token)
     return LiveConsoleContext(
-        base_http=str(args.api_url).rstrip("/"),
+        base_http=base_http,
         token=token,
-        channels=resolve_console_channels(args.console_channel),
+        channels=channels,
         timeout_seconds=args.live_timeout_seconds,
         max_messages=args.live_max_messages,
+        channel_metadata=channel_metadata,
     )
 
 
@@ -556,13 +625,16 @@ def persist_live_official_console_artifact(
     websockets_module: Any | None = None,
 ) -> PersistResult:
     capture = asyncio.run(collect_live_official_console_lines(ctx, websockets_module=websockets_module))
+    metadata_extra = capture.metadata()
+    if ctx.channel_metadata:
+        metadata_extra.update(ctx.channel_metadata)
     return persist_runtime_summary_artifact(
         input_paths=["live-official-console"],
         out_dir=out_dir,
         out_file=out_file,
         artifact_name=artifact_name,
         input_lines=capture.console_lines,
-        metadata_extra=capture.metadata(),
+        metadata_extra=metadata_extra,
     )
 
 
@@ -742,7 +814,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         help=(
             "Console websocket channel to subscribe. May be repeated or comma-separated. "
-            f"Default: ${CONSOLE_CHANNELS_ENV} or {','.join(DEFAULT_CONSOLE_CHANNELS)}."
+            f"Default: ${CONSOLE_CHANNELS_ENV}, or the authenticated user's console channel in live mode."
         ),
     )
     parser.add_argument(
@@ -772,10 +844,12 @@ def main(
         parser.error("inputs cannot be used with --live-official-console")
 
     status_path = resolve_status_path(args)
+    live_context: LiveConsoleContext | None = None
     try:
         if args.live_official_console:
+            live_context = live_console_context_from_args(args)
             result = persist_live_official_console_artifact(
-                ctx=live_console_context_from_args(args),
+                ctx=live_context,
                 out_dir=Path(args.out_dir),
                 out_file=Path(args.out_file) if args.out_file else None,
                 artifact_name=args.artifact_name,
@@ -793,6 +867,11 @@ def main(
             token = os.environ.get(AUTH_TOKEN_ENV, "")
             error_text = sanitize_error_text(str(exc), [token])
             error_metadata = build_error_metadata(args, error_text)
+            if live_context is not None:
+                error_metadata["requestedChannels"] = live_context.channels
+                error_metadata["websocketUrl"] = live_context.websocket_url
+                if live_context.channel_metadata:
+                    error_metadata.update(live_context.channel_metadata)
             try_write_status_file(
                 status_path,
                 build_status_payload(

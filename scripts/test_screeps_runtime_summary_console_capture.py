@@ -426,6 +426,34 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
         self.assertNotIn(secret, metadata_text)
         self.assertNotIn("#runtime-summary", metadata_text)
 
+    def test_live_official_console_default_resolves_authenticated_user_channel(self) -> None:
+        secret = "SECRET_TOKEN_VALUE"
+        with (
+            mock.patch.dict(capture.os.environ, {capture.AUTH_TOKEN_ENV: secret}, clear=True),
+            mock.patch.object(capture, "fetch_authenticated_user_id", return_value="610fbfda4f18fea6135e8fad"),
+        ):
+            args = capture.build_parser().parse_args(["--live-official-console"])
+            ctx = capture.live_console_context_from_args(args)
+
+        self.assertEqual(ctx.channels, ["user:610fbfda4f18fea6135e8fad/console"])
+        self.assertEqual(ctx.channel_metadata["channelSource"], capture.CHANNEL_SOURCE_AUTHENTICATED_USER)
+        self.assertEqual(ctx.channel_metadata["channelDiscoveryStatus"], "ok")
+
+    def test_live_official_console_default_falls_back_with_channel_diagnostic(self) -> None:
+        secret = "SECRET_TOKEN_VALUE"
+        with mock.patch.object(
+            capture,
+            "fetch_authenticated_user_id",
+            side_effect=RuntimeError(f"auth failed for {secret}"),
+        ):
+            channels, metadata = capture.default_live_console_channels("https://screeps.com", secret)
+
+        self.assertEqual(channels, ["console"])
+        self.assertEqual(metadata["channelSource"], capture.CHANNEL_SOURCE_FALLBACK_DEFAULT)
+        self.assertEqual(metadata["channelDiscoveryStatus"], "unavailable")
+        self.assertIn("[redacted]", metadata["channelDiscoveryError"])
+        self.assertNotIn(secret, json.dumps(metadata, sort_keys=True))
+
     def test_cli_live_official_console_reports_channels_without_secrets_or_artifact_contents(self) -> None:
         secret = "VERY_SECRET_TOKEN_VALUE"
         websocket = FakeWebSocket(
@@ -491,6 +519,7 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
         self.assertEqual(status["runtimeSummaryLineCount"], 1)
         self.assertEqual(status["cpuSummaryLineCount"], 0)
         self.assertEqual(status["statusPath"], str(status_path))
+        self.assertEqual(status["channelSource"], capture.CHANNEL_SOURCE_ENV)
         self.assertIn("outer_cron_finalization", status["finalizationHint"])
         self.assertEqual(websocket.sent, [f"auth {secret}", "subscribe console", "subscribe console:shardX"])
         self.assertNotIn(secret, output.getvalue())
@@ -503,7 +532,7 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
                 "auth ok",
                 json.dumps(
                     [
-                        "console",
+                        "user:610fbfda4f18fea6135e8fad/console",
                         {
                             "messages": {
                                 "log": [
@@ -525,6 +554,7 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
             with (
                 mock.patch.dict(capture.os.environ, {capture.AUTH_TOKEN_ENV: secret}),
                 mock.patch.object(capture, "import_websockets_module", return_value=websockets_module),
+                mock.patch.object(capture, "fetch_authenticated_user_id", return_value="610fbfda4f18fea6135e8fad"),
             ):
                 exit_code = capture.main(
                     [
@@ -561,6 +591,13 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
         self.assertFalse(status["captureOk"])
         self.assertEqual(status["runtimeSummaryLineCount"], 0)
         self.assertEqual(status["cpuSummaryLineCount"], 1)
+        self.assertEqual(status["requestedChannels"], ["user:610fbfda4f18fea6135e8fad/console"])
+        self.assertEqual(status["channelSource"], capture.CHANNEL_SOURCE_AUTHENTICATED_USER)
+        self.assertEqual(status["channelDiscoveryStatus"], "ok")
+        self.assertEqual(
+            websocket.sent,
+            [f"auth {secret}", "subscribe user:610fbfda4f18fea6135e8fad/console"],
+        )
         self.assertEqual(artifact_text, "#cpu-summary {\"used\":13.1,\"bucket\":1775}")
         self.assertNotIn(secret, json.dumps(status, sort_keys=True))
 
@@ -576,6 +613,7 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
             with (
                 mock.patch.dict(capture.os.environ, {capture.AUTH_TOKEN_ENV: secret}),
                 mock.patch.object(capture, "import_websockets_module", return_value=websockets_module),
+                mock.patch.object(capture, "fetch_authenticated_user_id", return_value="610fbfda4f18fea6135e8fad"),
             ):
                 exit_code = capture.main(
                     [
@@ -605,9 +643,11 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
         self.assertEqual(report["persistedLineCount"], 0)
         self.assertEqual(report["outputPath"], None)
         self.assertEqual(report["receivedMessageCount"], 0)
+        self.assertEqual(report["requestedChannels"], ["user:610fbfda4f18fea6135e8fad/console"])
         self.assertEqual(status["processStatus"], "completed")
         self.assertEqual(status["captureStatus"], capture.CAPTURE_STATUS_NO_MESSAGES)
         self.assertFalse(status["captureOk"])
+        self.assertEqual(websocket.sent, [f"auth {secret}", "subscribe user:610fbfda4f18fea6135e8fad/console"])
         self.assertFalse((out_dir / "empty.log").exists())
 
     def test_live_official_console_timeout_without_match_does_not_write_artifact(self) -> None:
@@ -653,6 +693,7 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
             error = io.StringIO()
             with (
                 mock.patch.dict(capture.os.environ, {capture.AUTH_TOKEN_ENV: secret}),
+                mock.patch.object(capture, "fetch_authenticated_user_id", return_value="610fbfda4f18fea6135e8fad"),
                 mock.patch.object(
                     capture,
                     "import_websockets_module",
@@ -683,6 +724,8 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
         self.assertEqual(status["processStatus"], "capture_error")
         self.assertEqual(status["exitCode"], 1)
         self.assertEqual(status["captureStatus"], capture.CAPTURE_STATUS_ERROR)
+        self.assertEqual(status["requestedChannels"], ["user:610fbfda4f18fea6135e8fad/console"])
+        self.assertEqual(status["channelSource"], capture.CHANNEL_SOURCE_AUTHENTICATED_USER)
         self.assertIn("websockets", status["error"])
         self.assertNotIn(secret, json.dumps(status, sort_keys=True))
 
