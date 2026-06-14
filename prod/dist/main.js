@@ -36026,7 +36026,9 @@ function hasHealthyRoomEnergyBuffer2(room) {
   return energyAvailable !== null && energyAvailable >= getEffectiveRoomEnergyBufferThreshold(room);
 }
 function isControllerDowngradeGuardActive2(room) {
-  const controller = room.controller;
+  return isOwnedControllerDowngradeGuardActive(room.controller);
+}
+function isOwnedControllerDowngradeGuardActive(controller) {
   return (controller == null ? void 0 : controller.my) === true && typeof controller.ticksToDowngrade === "number" && controller.ticksToDowngrade <= CONTROLLER_DOWNGRADE_GUARD_TICKS;
 }
 function hasActiveSpawningSpawn2(room) {
@@ -36120,6 +36122,14 @@ function runControllerSustainMovement(creep) {
     }
     return false;
   }
+  const homeConstructionTask = selectControllerSustainHomeConstructionTask(creep, sustain, roomName);
+  if (homeConstructionTask) {
+    clearEnergyDropoffOptimizationMemory(creep);
+    clearBuildTargetStuckTelemetry(creep);
+    creep.memory.task = homeConstructionTask;
+    executeAssignedTask(creep, homeConstructionTask);
+    return true;
+  }
   if (sustain.role === "hauler" && shouldControllerSustainHaulerLoadAtHome(creep, sustain, roomName)) {
     const energyTask = selectControllerSustainHaulerEnergyTask(creep);
     if (energyTask) {
@@ -36133,6 +36143,55 @@ function runControllerSustainMovement(creep) {
   clearAssignedTask(creep);
   moveTowardRoom3(creep, selectControllerSustainDestinationRoom(creep, sustain, roomName));
   return true;
+}
+function selectControllerSustainHomeConstructionTask(creep, sustain, roomName) {
+  if (sustain.role !== "upgrader" || roomName !== sustain.homeRoom || sustain.homeRoom === sustain.targetRoom || isControllerSustainTargetDowngradeGuardActive(sustain)) {
+    return null;
+  }
+  const currentTask = creep.memory.task;
+  if (currentTask) {
+    if (!isControllerSustainHomeConstructionTask(currentTask, sustain.homeRoom)) {
+      return null;
+    }
+  }
+  if (getActiveWorkParts3(creep) <= 0 || hasVisibleHostileCreeps2(creep.room)) {
+    return null;
+  }
+  if (currentTask) {
+    if (!shouldReplaceTask(creep, currentTask)) {
+      return currentTask;
+    }
+  }
+  if (getCarriedEnergy4(creep) <= 0) {
+    return selectConstructionBacklogEnergyAcquisitionTask(creep);
+  }
+  const selectedTask = selectWorkerTaskForRunner(creep);
+  if ((selectedTask == null ? void 0 : selectedTask.type) !== "build") {
+    return null;
+  }
+  const constructionSite = getTaskTarget(selectedTask);
+  return isConstructionSite(constructionSite) && isRoomObjectInRoom(constructionSite, sustain.homeRoom) ? selectedTask : null;
+}
+function isControllerSustainTargetDowngradeGuardActive(sustain) {
+  return isOwnedControllerDowngradeGuardActive(getVisibleRoomController2(sustain.targetRoom));
+}
+function isControllerSustainHomeConstructionTask(task, homeRoom) {
+  if (task.type === "build") {
+    const constructionSite2 = getTaskTarget(task);
+    return isConstructionSite(constructionSite2) && isRoomObjectInRoom(constructionSite2, homeRoom);
+  }
+  if (!isConstructionWithdrawReservationTask(task)) {
+    return false;
+  }
+  const game = globalThis.Game;
+  const getObjectById6 = game == null ? void 0 : game.getObjectById;
+  const constructionSite = typeof getObjectById6 === "function" ? getObjectById6(String(task.constructionSiteId)) : null;
+  return isConstructionSite(constructionSite) && isRoomObjectInRoom(constructionSite, homeRoom);
+}
+function isRoomObjectInRoom(object, roomName) {
+  var _a2;
+  const objectRoomName = (_a2 = object.pos) == null ? void 0 : _a2.roomName;
+  return typeof objectRoomName !== "string" || objectRoomName === roomName;
 }
 function shouldControllerSustainHaulerLoadAtHome(creep, sustain, roomName) {
   return roomName === sustain.homeRoom && getFreeTransferEnergyCapacity(creep) > 0;
