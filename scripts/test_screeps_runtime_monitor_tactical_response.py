@@ -366,6 +366,78 @@ def none_task_runtime_room(
     }
 
 
+def productive_assignment_legacy_none_task_runtime_room(
+    room: str,
+    tick: int,
+    *,
+    worker_tasks: list[str],
+    task_counts: dict[str, int],
+) -> dict[str, object]:
+    worker_count = len(worker_tasks)
+    return {
+        "roomName": room,
+        "shard": "shardX",
+        monitor.RUNTIME_SUMMARY_SOURCE_METADATA_KEY: monitor.MONITOR_RUNTIME_SUMMARY_SOURCE,
+        monitor.RUNTIME_SUMMARY_TICK_METADATA_KEY: tick,
+        "workerCount": worker_count,
+        "workerAssignmentEvidenceAvailable": True,
+        "workerAssignmentEvidence": {
+            "source": "runtime-summary",
+            "available": True,
+            "tick": tick,
+            "workerCount": worker_count,
+            "assignedTaskCount": worker_count,
+            "productiveAssignmentCount": worker_count,
+            "unassignedWorkerCount": 0,
+            "creepSamples": [
+                {
+                    "name": f"worker-{room}-{index}",
+                    "role": "worker",
+                    "task": task,
+                    "dispatchAssignedTask": task,
+                    "dispatchSelectedTask": task,
+                    "dispatchTick": tick,
+                    "memoryAvailable": True,
+                }
+                for index, task in enumerate(worker_tasks, start=1)
+            ],
+        },
+        "taskCounts": dict(task_counts),
+        "constructionSiteCount": 0,
+        "constructionDeadlockTicks": 0,
+        "resources": {
+            "productiveEnergy": {
+                "workerAssignmentEvidenceAvailable": True,
+                "assignedWorkerCount": worker_count,
+                "productiveAssignmentCount": worker_count,
+                "constructionSiteCount": 0,
+                "constructionDeadlockTicks": 0,
+                "pendingBuildProgress": 0,
+                "buildBlockedReason": "no_construction_sites",
+            }
+        },
+    }
+
+
+def productive_assignment_legacy_none_task_capture(
+    room: str,
+    tick: int,
+    *,
+    worker_count: int,
+    task_counts: dict[str, int],
+) -> dict[str, object]:
+    return {
+        "roomName": room,
+        "shard": "shardX",
+        "runtimeSummaryTick": tick,
+        "workerCount": worker_count,
+        "assignedTaskCount": worker_count,
+        "productiveAssignmentCount": worker_count,
+        "noneTaskWorkerCount": task_counts.get("none", 0),
+        "taskCounts": dict(task_counts),
+    }
+
+
 def worker_deadlock_runtime_summary_payload(
     room: str,
     tick: int,
@@ -1470,6 +1542,114 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(emitted, [])
         self.assertEqual(suppressed, [])
         self.assertEqual(next_state["rule_counts"][monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND], 0)
+
+    def test_monitor_task_counts_classify_energy_acquisition_assignments(self) -> None:
+        counts = monitor.worker_task_counts(
+            [
+                {
+                    "type": "creep",
+                    "name": "worker-pickup",
+                    "memory": {"role": "worker", "task": {"type": "pickup", "targetId": "drop1"}},
+                },
+                {
+                    "type": "creep",
+                    "name": "worker-withdraw",
+                    "memory": {"role": "worker", "task": {"type": "withdraw", "targetId": "container1"}},
+                },
+                {
+                    "type": "creep",
+                    "name": "worker-unknown",
+                    "memory": {"role": "worker", "task": {"type": "signController", "targetId": "ctrl1"}},
+                },
+            ]
+        )
+
+        self.assertEqual(counts["pickup"], 1)
+        self.assertEqual(counts["withdraw"], 1)
+        self.assertEqual(counts["none"], 1)
+
+    def test_owned_room_legacy_none_task_ratio_productive_assignments_stay_silent(self) -> None:
+        cases = [
+            (
+                "E29N55",
+                {
+                    "build": 0,
+                    "harvest": 0,
+                    "none": 2,
+                    "repair": 0,
+                    "transfer": 0,
+                    "upgrade": 2,
+                },
+                ["upgrade", "upgrade", "pickup", "withdraw"],
+                3,
+                2359,
+            ),
+            (
+                "E29N57",
+                {
+                    "build": 1,
+                    "harvest": 0,
+                    "none": 3,
+                    "repair": 0,
+                    "transfer": 0,
+                    "upgrade": 0,
+                },
+                ["build", "withdraw", "withdraw", "withdraw"],
+                2,
+                1146,
+            ),
+        ]
+
+        for room, task_counts, worker_tasks, consecutive_captures, consecutive_ticks in cases:
+            with self.subTest(room=room):
+                tick = 2161274
+                runtime_room = productive_assignment_legacy_none_task_runtime_room(
+                    room,
+                    tick,
+                    worker_tasks=worker_tasks,
+                    task_counts=task_counts,
+                )
+                runtime_room[monitor.RUNTIME_SUMMARY_CAPTURE_HISTORY_METADATA_KEY] = [
+                    productive_assignment_legacy_none_task_capture(
+                        room,
+                        tick,
+                        worker_count=len(worker_tasks),
+                        task_counts=task_counts,
+                    ),
+                    productive_assignment_legacy_none_task_capture(
+                        room,
+                        tick - consecutive_ticks,
+                        worker_count=len(worker_tasks),
+                        task_counts=task_counts,
+                    ),
+                ]
+                previous_state = {
+                    "baseline_established": True,
+                    "owner": "lanyusea",
+                    "rule_counts": {
+                        monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND: {
+                            "start_tick": tick - consecutive_ticks,
+                            "last_tick": tick,
+                            "consecutive_ticks": consecutive_ticks,
+                            "consecutive_captures": consecutive_captures,
+                        }
+                    },
+                }
+
+                emitted, suppressed, next_state = monitor.evaluate_room_alert(
+                    make_owned_room_snapshot(room, tick, worker_count=len(worker_tasks)),
+                    previous_state,
+                    now=200,
+                    debounce_seconds=300,
+                    runtime_room_summary=runtime_room,
+                )
+
+                self.assertEqual(suppressed, [])
+                self.assertNotIn(
+                    monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND,
+                    [reason["kind"] for reason in emitted],
+                )
+                self.assertEqual(next_state["rule_counts"][monitor.OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND], 0)
 
     def test_owned_room_sustained_none_task_ratio_alerts_without_room_dead(self) -> None:
         first_tick = 2090100
@@ -4823,7 +5003,16 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(room["workerLoadEfficiency"]["unavailableReason"], unavailable_reason)
         self.assertEqual(
             room["taskCounts"],
-            {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
+            {
+                "harvest": 0,
+                "pickup": 0,
+                "withdraw": 0,
+                "transfer": 0,
+                "build": 0,
+                "repair": 0,
+                "upgrade": 0,
+                "none": 0,
+            },
         )
         self.assertEqual(room["workerCarriedEnergy"], 48)
         self.assertEqual(room["resources"]["workerCarriedEnergy"], 48)
@@ -5287,7 +5476,16 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertNotIn("workerAssignmentEvidenceUnavailableReason", productive_energy)
         self.assertEqual(
             room["taskCounts"],
-            {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
+            {
+                "harvest": 0,
+                "pickup": 0,
+                "withdraw": 0,
+                "transfer": 0,
+                "build": 0,
+                "repair": 0,
+                "upgrade": 0,
+                "none": 0,
+            },
         )
         self.assertEqual(room["constructionDeadlockTicks"], 0)
         self.assertNotIn("buildBlockedReason", room)
