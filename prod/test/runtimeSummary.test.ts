@@ -1895,9 +1895,71 @@ describe('runtime telemetry summaries', () => {
 
     const payload = parseLoggedSummary();
     const [room] = payload.rooms as Array<Record<string, unknown>>;
-    expect((room.resources as Record<string, Record<string, unknown>>).productiveEnergy.buildBlockedReason).toBe(
-      'worker_assignment_gap'
+    const productiveEnergy = (room.resources as Record<string, Record<string, unknown>>).productiveEnergy;
+    expect(productiveEnergy.buildBlockedReason).toBe('worker_assignment_gap');
+    expect(productiveEnergy.constructionActivity).toMatchObject({
+      state: 'candidate_suppressed',
+      accepted: true,
+      reason: 'worker_assignment_gap',
+      constructionSiteCount: 1,
+      pendingBuildProgress: 50,
+      buildCarriedEnergy: 0,
+      buildProgress: 0,
+      workerAssignmentEvidenceAvailable: true,
+      buildBlockedReason: 'worker_assignment_gap'
+    });
+  });
+
+  it('treats successful build actions as active construction evidence even after builders spend their energy', () => {
+    const worker = makeWorker(
+      {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'build', targetId: 'rampart-site' as Id<ConstructionSite> },
+        buildActionTelemetry: {
+          resultCounts: { succeeded: 15 },
+          lastResult: 'succeeded',
+          lastTargetId: 'rampart-site',
+          lastTick: RUNTIME_SUMMARY_INTERVAL
+        }
+      },
+      0,
+      'SpentBuilder'
     );
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      roomName: 'E29N55',
+      includeEventLog: false,
+      creeps: [worker],
+      constructionSites: [
+        { id: 'rampart-site', structureType: TEST_GLOBALS.STRUCTURE_RAMPART, progress: 265, progressTotal: 1_000 }
+      ]
+    });
+
+    emitRuntimeSummary([colony], [worker]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    const productiveEnergy = (room.resources as Record<string, Record<string, unknown>>).productiveEnergy;
+    expect(room.taskCounts).toMatchObject({ build: 1 });
+    expect(room.buildActionResultCounts).toMatchObject({ succeeded: 15 });
+    expect(productiveEnergy).toMatchObject({
+      constructionSiteCount: 1,
+      pendingBuildProgress: 735,
+      buildCarriedEnergy: 0
+    });
+    expect(productiveEnergy).not.toHaveProperty('buildBlockedReason');
+    expect(productiveEnergy.constructionActivity).toMatchObject({
+      state: 'active',
+      accepted: true,
+      reason: 'site_backlog_visible',
+      constructionSiteCount: 1,
+      pendingBuildProgress: 735,
+      buildCarriedEnergy: 0,
+      buildProgress: 0,
+      workerAssignmentEvidenceAvailable: true
+    });
+    expect(worker.memory.buildActionTelemetry).toBeUndefined();
   });
 
   it('marks construction activity as no viable candidate when no site or scored build candidate exists', () => {
