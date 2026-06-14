@@ -2651,7 +2651,7 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(report["priority"], "P1")
         self.assertEqual(report["categories"], [monitor.CPU_BUCKET_LOW_KIND])
 
-    def test_low_bucket_recovery_alerts_health_gate_and_tactical_response(self) -> None:
+    def test_low_bucket_recovery_alerts_runtime_but_not_postdeploy_health_gate(self) -> None:
         snapshot = make_snapshot(
             {
                 "spawn1": {
@@ -2719,8 +2719,9 @@ class TacticalResponseBridgeTest(unittest.TestCase):
             {"ok": True, "mode": "alert", "alert": True, "reasons": emitted, "rooms": ["shardX/E26S49"]},
         )
 
-        self.assertFalse(health["ok"])
-        self.assertIn(monitor.CPU_BUCKET_LOW_KIND, [reason["kind"] for reason in health["reasons"]])
+        self.assertTrue(health["ok"])
+        self.assertEqual(health["reasons"], [])
+        self.assertIn(monitor.CPU_BUCKET_LOW_KIND, [reason["kind"] for reason in health["non_blocking_reasons"]])
 
         report = monitor.build_tactical_response_report(
             {"ok": True, "mode": "alert", "alert": True, "reasons": emitted, "rooms": ["shardX/E26S49"]}
@@ -2729,6 +2730,48 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(report["severity"], "high")
         self.assertEqual(report["priority"], "P1")
         self.assertEqual(report["categories"], [monitor.CPU_BUCKET_LOW_KIND])
+
+    def test_postdeploy_health_gate_allows_under_limit_cpu_bucket_recovery_noise(self) -> None:
+        runtime_room = {
+            "room": "shardX/E26S49",
+            "roomName": "E26S49",
+            monitor.RUNTIME_SUMMARY_CPU_METADATA_KEY: {
+                "used": 20.6,
+                "limit": 70,
+                "bucket": 888,
+                "pressure": "degraded",
+                "alerts": ["lowBucket"],
+                "reasons": ["lowBucket"],
+                "lowBucketTicks": 21,
+            },
+            "cpuUsed": 20.6,
+            "cpuLimit": 70,
+            "cpuBucket": 888,
+            "lowBucketTicks": 21,
+            "owned_creeps": 1,
+            "owned_spawns": 1,
+            "creeps": 1,
+            "spawns": 1,
+            "owner": "owner",
+            "constructionSiteCount": 0,
+            "pendingBuildProgress": 0,
+        }
+        cpu_reason = monitor.build_cpu_bucket_reason(
+            monitor.RoomRef(shard="shardX", room="E26S49"),
+            runtime_room,
+            monitor.CPU_BUCKET_LOW_KIND,
+        )
+
+        health = monitor.evaluate_postdeploy_health_gate(
+            {"ok": True, "mode": "summary", "room_summaries": [runtime_room]},
+            {"ok": True, "mode": "alert", "alert": True, "reasons": [cpu_reason], "rooms": ["shardX/E26S49"]},
+        )
+
+        self.assertTrue(health["ok"], health["reasons"])
+        self.assertEqual(health["reasons"], [])
+        non_blocking_kinds = [reason["kind"] for reason in health["non_blocking_reasons"]]
+        self.assertIn("postdeploy_active_alert", non_blocking_kinds)
+        self.assertIn(monitor.CPU_BUCKET_LOW_KIND, non_blocking_kinds)
 
     def test_cpu_used_over_limit_alerts_health_gate_and_tactical_response(self) -> None:
         snapshot = make_snapshot(
