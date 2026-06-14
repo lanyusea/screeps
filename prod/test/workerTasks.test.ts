@@ -15565,6 +15565,133 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(sustainUpgrader)).toEqual({ type: 'build', targetId: 'road-site1' });
   });
 
+  it('uses a loaded E29N56 local sustain upgrader on visible construction at the spawn recovery floor', () => {
+    const site = {
+      id: 'wall-site1',
+      my: true,
+      structureType: 'constructedWall',
+      progress: 0,
+      progressTotal: 1_005,
+      pos: makeRoomPosition(20, 24, 'E29N56')
+    } as ConstructionSite;
+    const spawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 300, 0, {
+      my: true,
+      pos: makeRoomPosition(17, 24, 'E29N56')
+    }) as StructureSpawn;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N56',
+      constructionSites: [site],
+      controller,
+      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY,
+      energyCapacityAvailable: 1_300,
+      myStructures: [spawn as AnyOwnedStructure],
+      structures: [spawn as AnyStructure]
+    });
+    const sustainUpgrader = {
+      name: 'worker-E29N56-2171723',
+      memory: {
+        role: 'worker',
+        colony: 'E29N56',
+        controllerSustain: { homeRoom: 'E29N56', targetRoom: 'E29N56', role: 'upgrader' },
+        task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'wall-site1' ? 4 : 3)) },
+      room
+    } as unknown as Creep;
+    const loader = {
+      name: 'worker-E29N56-2173146',
+      memory: {
+        role: 'worker',
+        colony: 'E29N56',
+        task: { type: 'withdraw', targetId: 'spawn1' as Id<AnyStoreStructure> }
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ SustainUpgrader: sustainUpgrader, Loader: loader });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      ...((globalThis as unknown as { Game?: Partial<Game> }).Game ?? {}),
+      time: 2_173_197,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(20.7),
+        limit: 70,
+        bucket: 776,
+        tickLimit: 500
+      } as unknown as CPU
+    };
+
+    expect(selectWorkerTask(sustainUpgrader)).toEqual({ type: 'build', targetId: 'wall-site1' });
+  });
+
+  it('keeps E29N56 local sustain upgrading when controller downgrade is imminent', () => {
+    const site = {
+      id: 'wall-site1',
+      my: true,
+      structureType: 'constructedWall',
+      progress: 0,
+      progressTotal: 1_005,
+      pos: makeRoomPosition(20, 24, 'E29N56')
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: LOW_LOAD_CONTROLLER_DOWNGRADE_IMMINENT_TICKS - 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N56',
+      constructionSites: [site],
+      controller,
+      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY,
+      energyCapacityAvailable: 1_300
+    });
+    const sustainUpgrader = {
+      name: 'worker-E29N56-2171723',
+      memory: {
+        role: 'worker',
+        colony: 'E29N56',
+        controllerSustain: { homeRoom: 'E29N56', targetRoom: 'E29N56', role: 'upgrader' },
+        task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room
+    } as unknown as Creep;
+    const loader = {
+      name: 'worker-E29N56-2173146',
+      memory: { role: 'worker', colony: 'E29N56' },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ SustainUpgrader: sustainUpgrader, Loader: loader });
+
+    expect(selectWorkerTask(sustainUpgrader)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
   it('keeps local E29N57 controller sustain upgrading when construction already has builder coverage', () => {
     const site = {
       id: 'container-site1',
