@@ -8035,8 +8035,39 @@ def postdeploy_room_coverage_reasons(payload: dict[str, Any], source: str) -> li
     return reasons
 
 
+def postdeploy_runtime_reason_blocks_health_gate(reason: dict[str, Any]) -> bool:
+    if reason.get("kind") != CPU_BUCKET_LOW_KIND:
+        return True
+
+    bucket = first_number_value(reason, ("cpuBucket",), ("cpu_bucket",), ("bucket",))
+    if bucket is None or bucket <= CPU_BUCKET_CRITICAL_THRESHOLD:
+        return True
+
+    used = first_number_value(reason, ("cpuUsed",), ("cpu_used",), ("used",))
+    limit = first_number_value(reason, ("cpuLimit",), ("cpu_limit",), ("limit",))
+    if used is not None and limit is not None and used > limit:
+        return True
+
+    alerts = set(string_list_values(reason.get("alerts")))
+    reasons = set(string_list_values(reason.get("reasons")))
+    return (
+        reason.get("pressure") == "critical"
+        or "criticalBucket" in alerts
+        or "criticalBucket" in reasons
+    )
+
+
+def postdeploy_non_blocking_runtime_reason(reason: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **reason,
+        "non_blocking": True,
+        "suppression_reason": "postdeploy_cpu_bucket_recovering",
+    }
+
+
 def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_payload: dict[str, Any]) -> dict[str, Any]:
     reasons: list[dict[str, Any]] = []
+    non_blocking_reasons: list[dict[str, Any]] = []
     if summary_payload.get("ok") is not True:
         reasons.append({"kind": "postdeploy_summary_failed", "message": "post-deploy summary did not report ok=true"})
     if alert_payload.get("ok") is not True:
@@ -8046,7 +8077,15 @@ def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_paylo
     if alert_payload.get("alert") is True:
         for reason in alert_payload.get("reasons") if isinstance(alert_payload.get("reasons"), list) else []:
             if isinstance(reason, dict):
-                reasons.append({"kind": "postdeploy_active_alert", "message": reason.get("message", "runtime alert active"), "source": reason})
+                active_alert = {
+                    "kind": "postdeploy_active_alert",
+                    "message": reason.get("message", "runtime alert active"),
+                    "source": reason,
+                }
+                if postdeploy_runtime_reason_blocks_health_gate(reason):
+                    reasons.append(active_alert)
+                else:
+                    non_blocking_reasons.append(postdeploy_non_blocking_runtime_reason(active_alert))
 
     room_summaries = summary_payload.get("room_summaries")
     artifact_path = summary_payload.get("runtime_summary_artifact")
@@ -8067,7 +8106,11 @@ def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_paylo
             threshold_reason = threshold_exceeds_capacity_reason(room)
             if threshold_reason is not None:
                 reasons.append(threshold_reason)
-            reasons.extend(detect_cpu_runtime_reasons(runtime_summary_room_ref(room), room, require_cpu_evidence=True))
+            for cpu_reason in detect_cpu_runtime_reasons(runtime_summary_room_ref(room), room, require_cpu_evidence=True):
+                if postdeploy_runtime_reason_blocks_health_gate(cpu_reason):
+                    reasons.append(cpu_reason)
+                else:
+                    non_blocking_reasons.append(postdeploy_non_blocking_runtime_reason(cpu_reason))
             if owner_missing:
                 creeps = 0
                 spawns = 0
@@ -8109,11 +8152,14 @@ def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_paylo
                     }
                 )
     construction_acceptance = evaluate_postdeploy_construction_acceptance(room_summaries)
-    return {
+    result = {
         "ok": not reasons and construction_acceptance.get("ok") is True,
         "reasons": reasons,
         "construction_acceptance": construction_acceptance,
     }
+    if non_blocking_reasons:
+        result["non_blocking_reasons"] = non_blocking_reasons
+    return result
 
 
 def command_health_gate(args: argparse.Namespace) -> int:
