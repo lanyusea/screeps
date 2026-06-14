@@ -28895,7 +28895,10 @@ function shouldYieldControllerSustainUpgradeToConstruction(creep, sustain) {
 }
 function shouldYieldLocalControllerSustainUpgradeToConstruction(creep) {
   var _a2;
-  return ((_a2 = creep.room.controller) == null ? void 0 : _a2.my) === true && !isControllerDowngradeImminentForLowLoadReturn(creep.room.controller) && !hasVisibleHostilePresence3(creep.room) && !hasActiveSpawningSpawn(creep.room) && !hasSameRoomWorkerAssignedToTask(creep.room, creep, "build") && hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep) && hasSpendableConstructionBacklog(creep);
+  return ((_a2 = creep.room.controller) == null ? void 0 : _a2.my) === true && !isControllerDowngradeImminentForLowLoadReturn(creep.room.controller) && !hasVisibleHostilePresence3(creep.room) && !shouldActiveSpawnBlockControllerSustainConstructionYield(creep) && !hasSameRoomWorkerAssignedToTask(creep.room, creep, "build") && hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep) && hasSpendableConstructionBacklog(creep);
+}
+function shouldActiveSpawnBlockControllerSustainConstructionYield(creep) {
+  return hasActiveSpawningSpawn(creep.room) && shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep);
 }
 function hasVisibleOwnedConstructionDemand(room) {
   if (typeof FIND_CONSTRUCTION_SITES !== "number" || typeof (room == null ? void 0 : room.find) !== "function") {
