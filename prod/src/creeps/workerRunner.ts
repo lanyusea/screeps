@@ -3,7 +3,7 @@ import {
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
   CRITICAL_SPAWN_REPAIR_HITS_RATIO,
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
-  EMERGENCY_RAMPART_REPAIR_HITS_CEILING,
+  isCriticalOwnedRampartRepairTarget,
   MINIMUM_USEFUL_LOAD_RATIO,
   selectWorkerPreHarvestTask,
   isUpgraderBoostActive,
@@ -1098,7 +1098,7 @@ function isProtectedRepairTargetForConstructionBacklog(creep: Creep, target: unk
   }
 
   if (isBuildPreemptionBarrierRepairTarget(target)) {
-    if (isBuildPreemptionOwnedRampart(target) && target.hits <= EMERGENCY_RAMPART_REPAIR_HITS_CEILING) {
+    if (isBuildPreemptionOwnedRampart(target) && isCriticalOwnedRampartRepairTarget(target)) {
       return true;
     }
 
@@ -1300,11 +1300,7 @@ function isCriticalCpuOwnedSpawnRepairTarget(structure: AnyStructure): structure
 }
 
 function isCriticalCpuNearFloorOwnedRampartRepairTarget(structure: AnyStructure): structure is StructureRampart {
-  return (
-    isCriticalCpuOwnedRampart(structure) &&
-    !isWorkerRepairTargetComplete(structure) &&
-    structure.hits < BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING
-  );
+  return isCriticalCpuOwnedRampart(structure) && isCriticalOwnedRampartRepairTarget(structure);
 }
 
 function isCriticalCpuThreatenedBarrierRepairTarget(
@@ -2905,7 +2901,7 @@ function isUrgentRepairTarget(target: unknown): boolean {
 
   if (isBuildPreemptionBarrierRepairTarget(target)) {
     return (
-      (isBuildPreemptionOwnedRampart(target) && target.hits <= EMERGENCY_RAMPART_REPAIR_HITS_CEILING) ||
+      (isBuildPreemptionOwnedRampart(target) && isCriticalOwnedRampartRepairTarget(target)) ||
       target.hits <= BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING
     );
   }

@@ -2,9 +2,9 @@ import { getStorageEnergyReserveThreshold } from '../economy/energyBuffer';
 import {
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
+  isCriticalOwnedRampartRepairTarget,
   selectWorkerEnergyCriticalAcquisitionTask
 } from '../tasks/workerTasks';
-import { BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING } from '../defense/defensePlanner';
 import { getSafeWorkerWithdrawEnergyAmount } from '../economy/workerConstructionWithdrawBudget';
 
 export const WORKER_ENERGY_CRITICAL_SPAWN_EXIT_THRESHOLD =
@@ -260,15 +260,7 @@ function isUrgentOwnedRampartRepairTask(task: Extract<CreepTaskMemory, { type: '
 }
 
 function isUrgentOwnedRampartRepairTarget(structure: StructureRampart): boolean {
-  return (
-    matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') &&
-    structure.my === true &&
-    typeof structure.hits === 'number' &&
-    typeof structure.hitsMax === 'number' &&
-    Number.isFinite(structure.hits) &&
-    Number.isFinite(structure.hitsMax) &&
-    structure.hits < Math.min(structure.hitsMax, BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING)
-  );
+  return isCriticalOwnedRampartRepairTarget(structure);
 }
 
 function isControllerDowngradeGuardTask(

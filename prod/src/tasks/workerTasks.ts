@@ -95,6 +95,7 @@ export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
 export const CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 export const CRITICAL_SPAWN_REPAIR_HITS_RATIO = 0.25;
 export const EMERGENCY_RAMPART_REPAIR_HITS_CEILING = 10_000;
+export const CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING = 50_000;
 export const ACTIVE_RAMPART_REPAIR_HITS_CEILING = 120_000;
 // Keep routine barrier maintenance above the monitor's critical rampart damage band.
 export const IDLE_RAMPART_REPAIR_HITS_CEILING = 150_000;
@@ -911,6 +912,12 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       const constructionBacklogEnergyAcquisitionTask = selectConstructionBacklogEnergyAcquisitionTask(creep);
       if (constructionBacklogEnergyAcquisitionTask) {
         return constructionBacklogEnergyAcquisitionTask;
+      }
+
+      const constructionBacklogFallbackEnergyAcquisitionTask =
+        selectConstructionBacklogFallbackEnergyAcquisitionTask(creep);
+      if (constructionBacklogFallbackEnergyAcquisitionTask) {
+        return constructionBacklogFallbackEnergyAcquisitionTask;
       }
 
       const nearbyWorkerEnergyAcquisitionTask = selectNearbyWorkerEnergyAcquisitionTask(creep);
@@ -5830,6 +5837,41 @@ export function selectConstructionBacklogEnergyAcquisitionTask(
   return candidates.sort(compareBuilderEnergyAcquisitionCandidates)[0].task;
 }
 
+function selectConstructionBacklogFallbackEnergyAcquisitionTask(
+  creep: Creep
+): Extract<CreepTaskMemory, { type: 'withdraw' }> | null {
+  if (getFreeEnergyCapacity(creep) <= 0 || getActiveWorkParts(creep) <= 0 || hasVisibleHostilePresence(creep.room)) {
+    return null;
+  }
+
+  const constructionSites = findConstructionSites(creep.room);
+  if (constructionSites.length === 0) {
+    return null;
+  }
+
+  const constructionReservationContext = createConstructionReservationContext(creep.room);
+  const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const constructionSite = selectUnreservedConstructionBacklogEnergyTarget(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    constructionPriorityContext
+  );
+  if (!constructionSite) {
+    return null;
+  }
+
+  const fallbackTask = selectWorkerEnergyAcquisitionTask(creep);
+  if (fallbackTask?.type !== 'withdraw' || typeof fallbackTask.constructionSiteId === 'string') {
+    return null;
+  }
+
+  return {
+    ...fallbackTask,
+    constructionSiteId: constructionSite.id
+  };
+}
+
 export function findBuilderEnergyAcquisitionCandidates(
   creep: Creep,
   constructionSite: ConstructionSite
@@ -8152,7 +8194,8 @@ function hasLoadedRampartRepairAssignmentCapacity(creep: Creep, structure: Struc
 function isUrgentBarrierRepairTarget(structure: RepairableWorkerStructure): boolean {
   return (
     isWorkerBarrierRepairStructure(structure) &&
-    structure.hits < Math.min(structure.hitsMax, BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING)
+    (isCriticalOwnedRampartRepairTarget(structure) ||
+      structure.hits < Math.min(structure.hitsMax, BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING))
   );
 }
 
@@ -8242,12 +8285,7 @@ function isCriticalOwnedSpawnRepairTarget(structure: AnyStructure): structure is
 }
 
 function isEmergencyOwnedRampartRepairTarget(structure: AnyStructure): structure is StructureRampart {
-  return (
-    matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') &&
-    isOwnedRampart(structure) &&
-    !isWorkerRepairTargetComplete(structure) &&
-    structure.hits < BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING
-  );
+  return isCriticalOwnedRampartRepairTarget(structure);
 }
 
 function isActiveOwnedRampartRepairTarget(structure: AnyStructure): structure is StructureRampart {
@@ -8273,14 +8311,25 @@ export function isWorkerRepairTargetComplete(structure: Structure): boolean {
 
 function getWorkerRepairHitsCeiling(structure: Structure): number {
   if (isWorkerBarrierRepairStructure(structure)) {
-    if (shouldUseBootstrapDefenseFloorRepairCap(getStructureRoom(structure))) {
-      return Math.min(structure.hitsMax, BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING);
+    if (matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') && isOwnedRampart(structure)) {
+      return Math.min(
+        structure.hitsMax,
+        Math.max(getBarrierRepairHitsCeiling(structure), CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING)
+      );
     }
 
-    return Math.min(structure.hitsMax, IDLE_RAMPART_REPAIR_HITS_CEILING);
+    return getBarrierRepairHitsCeiling(structure);
   }
 
   return structure.hitsMax;
+}
+
+function getBarrierRepairHitsCeiling(structure: Structure): number {
+  if (shouldUseBootstrapDefenseFloorRepairCap(getStructureRoom(structure))) {
+    return Math.min(structure.hitsMax, BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING);
+  }
+
+  return Math.min(structure.hitsMax, IDLE_RAMPART_REPAIR_HITS_CEILING);
 }
 
 function getStructureRoom(structure: Structure): Room {
@@ -8296,6 +8345,16 @@ function isWorkerBarrierRepairStructure(structure: Structure): boolean {
 
 function isOwnedRampart(structure: Structure): structure is StructureRampart {
   return (structure as Partial<StructureRampart>).my === true;
+}
+
+export function isCriticalOwnedRampartRepairTarget(structure: Structure): structure is StructureRampart {
+  return (
+    matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') &&
+    isOwnedRampart(structure) &&
+    Number.isFinite(structure.hits) &&
+    Number.isFinite(structure.hitsMax) &&
+    structure.hits < Math.min(structure.hitsMax, CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING)
+  );
 }
 
 function compareRepairTargets(left: RepairableWorkerStructure, right: RepairableWorkerStructure): number {
