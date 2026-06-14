@@ -14681,6 +14681,7 @@ var MAX_SPAWN_SITE_SCAN_RADIUS = 8;
 var RESIDUAL_ROAD_SEED_MAX_RADIUS = 6;
 var RESIDUAL_ROAD_SEED_MAX_PLACEMENT_ATTEMPTS = 4;
 var MIN_RESIDUAL_CONSTRUCTION_SEED_WORKERS = 1;
+var MIN_RCL_FOR_HEALTHY_BUFFER_RESIDUAL_ROAD_SEED = 6;
 var DEFAULT_TERRAIN_WALL_MASK12 = 1;
 var OK_CODE7 = 0;
 var ERR_FULL_CODE3 = -8;
@@ -15064,7 +15065,7 @@ function getResidualStoredEnergyRoadSeedBlocker(colony, result, budgetState, opt
     };
   }
   const storedEnergyAvailableForConstruction = getRoomStoredEnergyAvailableForConstruction(colony.room);
-  if (budgetState.energyReserved > 0 || storedEnergyAvailableForConstruction < CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY) {
+  if (budgetState.energyReserved > 0 || !hasResidualRoadSeedConstructionEnergy(colony, storedEnergyAvailableForConstruction, options)) {
     return {
       reason: "residual_road_seed_stored_energy_unavailable",
       details: {
@@ -15105,6 +15106,20 @@ function getResidualStoredEnergyRoadSeedBlocker(colony, result, budgetState, opt
     };
   }
   return null;
+}
+function hasResidualRoadSeedConstructionEnergy(colony, storedEnergyAvailableForConstruction, options) {
+  if (storedEnergyAvailableForConstruction >= CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY) {
+    return true;
+  }
+  return canUseHealthyRoomEnergyForResidualRoadSeed(colony, options);
+}
+function canUseHealthyRoomEnergyForResidualRoadSeed(colony, options) {
+  const room = colony.room;
+  const rcl = getOwnedRoomRcl6(room);
+  if (rcl < MIN_RCL_FOR_HEALTHY_BUFFER_RESIDUAL_ROAD_SEED || !isResidualConstructionSeedRoomSafe(colony, countVisibleHostileThreats(room), rcl) || getOptionalRoomEnergyAvailable(room) === null) {
+    return false;
+  }
+  return checkEnergyBufferForSpending(room, getConstructionEnergyReservation("road", options));
 }
 function countResidualConstructionWorkerCoverage(room, creeps) {
   return Math.max(
