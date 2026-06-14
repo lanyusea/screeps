@@ -24,6 +24,7 @@ import { TERRITORY_RESERVATION_RENEWAL_TICKS } from '../src/territory/territoryP
 import { LOW_CPU_BUCKET_THRESHOLD } from '../src/runtime/cpuBudget';
 import { installVisibleOwnedRcl6ColonyRoomDefault } from './helpers/territoryControlGate';
 import { selectSpawnEnergyReservationRefillTarget } from '../src/economy/spawnEnergyReservation';
+import { MINIMUM_WORKER_SPAWN_ENERGY } from '../src/economy/energyBuffer';
 
 function withRangeTo<T extends { id: string }>(object: T, rangesByTargetId: Record<string, number>): T {
   return {
@@ -8674,6 +8675,246 @@ describe('runWorker', () => {
         assignedTask: 'build'
       });
       expect(build).toHaveBeenCalledWith(site);
+      expect(upgradeController).not.toHaveBeenCalled();
+    } finally {
+      selectWorkerTask.mockRestore();
+    }
+  });
+
+  it('recovers a single retained upgrader to construction when stored surplus preserves spawn recovery', () => {
+    const site = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 4_754,
+      progressTotal: 5_000,
+      pos: { x: 22, y: 24, roomName: 'E29N56' } as RoomPosition
+    } as ConstructionSite;
+    const storage = {
+      id: 'storage1',
+      structureType: 'storage',
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 593_641 : 0)),
+        getFreeCapacity: jest.fn().mockReturnValue(10_000)
+      }
+    } as unknown as StructureStorage;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      spawning: null,
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 300 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0))
+      }
+    } as unknown as StructureSpawn;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const roomCreeps: Creep[] = [];
+    const room = {
+      name: 'E29N56',
+      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY,
+      energyCapacityAvailable: 1_300,
+      controller,
+      storage,
+      find: jest.fn(
+        (type: number, options?: { filter?: (object: AnyOwnedStructure | Creep) => boolean }) => {
+          if (type === FIND_MY_STRUCTURES) {
+            const structures = [spawn, storage] as unknown as AnyOwnedStructure[];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          if (type === FIND_STRUCTURES) {
+            return [spawn, storage];
+          }
+
+          if (type === FIND_MY_CREEPS) {
+            return options?.filter ? roomCreeps.filter(options.filter) : roomCreeps;
+          }
+
+          if (type === FIND_CONSTRUCTION_SITES) {
+            return [site];
+          }
+
+          if (type === FIND_HOSTILE_CREEPS) {
+            return [];
+          }
+
+          return [];
+        }
+      )
+    } as unknown as Room;
+    const build = jest.fn().mockReturnValue(0);
+    const upgradeController = jest.fn();
+    const selectedUpgradeTask = { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } as const;
+    const creep = {
+      name: 'LoadedUpgrader',
+      memory: {
+        role: 'worker',
+        colony: 'E29N56',
+        task: selectedUpgradeTask
+      },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 73 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 27 : 0))
+      },
+      pos: {
+        getRangeTo: jest.fn((target: RoomObject) => (String((target as { id?: string }).id) === 'road-site1' ? 3 : 12))
+      },
+      room,
+      build,
+      upgradeController,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    roomCreeps.push(creep);
+    const selectWorkerTask = jest.spyOn(workerTasks, 'selectWorkerTask').mockReturnValue(selectedUpgradeTask);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { LoadedUpgrader: creep },
+      rooms: { E29N56: room },
+      time: 1_882_759,
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'road-site1') {
+          return site;
+        }
+
+        if (id === 'controller1') {
+          return controller;
+        }
+
+        if (id === 'spawn1') {
+          return spawn;
+        }
+
+        return id === 'storage1' ? storage : null;
+      })
+    };
+
+    try {
+      runWorker(creep);
+
+      expect(creep.memory.task).toEqual({ type: 'build', targetId: 'road-site1' });
+      expect(creep.memory.workerDispatchDiagnostic).toMatchObject({
+        currentTask: 'upgrade',
+        baseSelectedTask: 'upgrade',
+        selectedTask: 'build',
+        assignedTask: 'build'
+      });
+      expect(build).toHaveBeenCalledWith(site);
+      expect(upgradeController).not.toHaveBeenCalled();
+    } finally {
+      selectWorkerTask.mockRestore();
+    }
+  });
+
+  it('uses energy recovery instead of assignment-gap construction below the spawn energy floor', () => {
+    const site = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 4_754,
+      progressTotal: 5_000
+    } as ConstructionSite;
+    const storage = {
+      id: 'storage1',
+      structureType: 'storage',
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 593_641 : 0)),
+        getFreeCapacity: jest.fn().mockReturnValue(10_000)
+      }
+    } as unknown as StructureStorage;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const roomCreeps: Creep[] = [];
+    const room = {
+      name: 'E29N56',
+      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY - 1,
+      energyCapacityAvailable: 1_300,
+      controller,
+      storage,
+      find: jest.fn(
+        (type: number, options?: { filter?: (object: AnyOwnedStructure | Creep) => boolean }) => {
+          if (type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES) {
+            const structures = [storage] as unknown as AnyOwnedStructure[];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          if (type === FIND_MY_CREEPS) {
+            return options?.filter ? roomCreeps.filter(options.filter) : roomCreeps;
+          }
+
+          if (type === FIND_CONSTRUCTION_SITES) {
+            return [site];
+          }
+
+          if (type === FIND_HOSTILE_CREEPS) {
+            return [];
+          }
+
+          return [];
+        }
+      )
+    } as unknown as Room;
+    const upgradeController = jest.fn().mockReturnValue(0);
+    const withdraw = jest.fn().mockReturnValue(0);
+    const selectedUpgradeTask = { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } as const;
+    const creep = {
+      name: 'LoadedUpgrader',
+      memory: {
+        role: 'worker',
+        colony: 'E29N56',
+        task: selectedUpgradeTask
+      },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 73 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 27 : 0))
+      },
+      room,
+      build: jest.fn(),
+      withdraw,
+      upgradeController,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    roomCreeps.push(creep);
+    const selectWorkerTask = jest.spyOn(workerTasks, 'selectWorkerTask').mockReturnValue(selectedUpgradeTask);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { LoadedUpgrader: creep },
+      rooms: { E29N56: room },
+      time: 1_882_760,
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'road-site1') {
+          return site;
+        }
+
+        if (id === 'controller1') {
+          return controller;
+        }
+
+        return id === 'storage1' ? storage : null;
+      })
+    };
+
+    try {
+      runWorker(creep);
+
+      expect(creep.memory.task).toEqual({ type: 'withdraw', targetId: 'storage1' });
+      expect(creep.memory.workerDispatchDiagnostic).toMatchObject({
+        currentTask: 'upgrade',
+        baseSelectedTask: 'upgrade',
+        energyCriticalTask: 'withdraw',
+        selectedTask: 'withdraw',
+        assignedTask: 'withdraw'
+      });
+      expect(creep.build).not.toHaveBeenCalled();
+      expect(withdraw).toHaveBeenCalledWith(storage, RESOURCE_ENERGY, 27);
       expect(upgradeController).not.toHaveBeenCalled();
     } finally {
       selectWorkerTask.mockRestore();

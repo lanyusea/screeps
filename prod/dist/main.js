@@ -35288,10 +35288,13 @@ function applyWorkerAssignmentGapRecoveryTask(creep, currentTask, selectionConte
   return recoveryTask ? { ...selectionContext, selectedTask: recoveryTask } : selectionContext;
 }
 function selectWorkerAssignmentGapRecoveryTask(creep, currentTask, selectionContext) {
+  var _a2;
   if (!isWorkerAssignmentGapRecoverySelection(creep, currentTask, selectionContext.selectedTask)) {
     return null;
   }
-  if (getUsedTransferEnergy(creep) <= 0 || hasLowWorkerEnergyLoad(creep) || getActiveWorkParts3(creep) <= 0 || !hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) || hasVisibleHostileCreeps2(creep.room) || currentTask && isDedicatedSourceContainerHarvestTask(creep, currentTask)) {
+  const hasStoredConstructionRecoveryEnergy = hasStoredEnergyForAssignmentGapRecoveryConstruction(creep.room);
+  const hasMinimumWorkerCoverage = hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) || hasStoredConstructionRecoveryEnergy && ((currentTask == null ? void 0 : currentTask.type) === "upgrade" || ((_a2 = selectionContext.selectedTask) == null ? void 0 : _a2.type) === "upgrade");
+  if (getUsedTransferEnergy(creep) <= 0 || hasLowWorkerEnergyLoad(creep) || getActiveWorkParts3(creep) <= 0 || !hasMinimumWorkerCoverage || hasVisibleHostileCreeps2(creep.room) || currentTask && isDedicatedSourceContainerHarvestTask(creep, currentTask)) {
     return null;
   }
   const constructionSite = selectWorkerAssignmentGapRecoveryConstructionSite(creep);

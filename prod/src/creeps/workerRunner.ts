@@ -588,11 +588,16 @@ function selectWorkerAssignmentGapRecoveryTask(
     return null;
   }
 
+  const hasStoredConstructionRecoveryEnergy = hasStoredEnergyForAssignmentGapRecoveryConstruction(creep.room);
+  const hasMinimumWorkerCoverage =
+    hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) ||
+    (hasStoredConstructionRecoveryEnergy &&
+      (currentTask?.type === 'upgrade' || selectionContext.selectedTask?.type === 'upgrade'));
   if (
     getUsedTransferEnergy(creep) <= 0 ||
     hasLowWorkerEnergyLoad(creep) ||
     getActiveWorkParts(creep) <= 0 ||
-    !hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) ||
+    !hasMinimumWorkerCoverage ||
     hasVisibleHostileCreeps(creep.room) ||
     (currentTask && isDedicatedSourceContainerHarvestTask(creep, currentTask))
   ) {
