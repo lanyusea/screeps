@@ -40,6 +40,33 @@ class FlushBrokenWriter:
         raise OSError("test stream has no file descriptor")
 
 
+class RuntimeBrokenWriter(io.StringIO):
+    def __init__(self) -> None:
+        super().__init__()
+        self.write_attempts = 0
+
+    def write(self, _text: str) -> int:
+        self.write_attempts += 1
+        raise RuntimeError("[Errno 32] Broken pipe")
+
+
+class RuntimeFlushBrokenWriter:
+    def __init__(self) -> None:
+        self.flush_attempts = 0
+        self.write_attempts = 0
+
+    def write(self, text: str) -> int:
+        self.write_attempts += 1
+        return len(text)
+
+    def flush(self) -> None:
+        self.flush_attempts += 1
+        raise RuntimeError("[Errno 32] Broken pipe")
+
+    def fileno(self) -> int:
+        raise OSError("test stream has no file descriptor")
+
+
 def write_json(path: Path, payload: JsonObject) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
@@ -1237,6 +1264,75 @@ class ScreepsRlControlLoopLedgersTest(unittest.TestCase):
         self.assertEqual(payload["onlineUtilityStatus"], "UNPROVEN")
         self.assertEqual(payload["candidatePolicyId"], "candidate-a")
         self.assertEqual(json.loads(emitted)["artifact"], "out/policy-advantage.json")
+
+    def test_policy_advantage_treats_runtime_broken_stdout_as_delivery_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = write_fixture_artifacts(root)
+            output = root / "out" / "policy-advantage.json"
+            stdout = RuntimeBrokenWriter()
+            stderr = io.StringIO()
+
+            exit_code = ledgers.main(
+                [
+                    "policy-advantage",
+                    "--repo-root",
+                    str(root),
+                    "--artifact-root",
+                    str(artifact_root),
+                    "--output",
+                    str(output),
+                    "--created-at",
+                    "2026-06-05T00:00:01Z",
+                    "--stdout-bytes",
+                    "180",
+                ],
+                stdout=stdout,
+                stderr=stderr,
+            )
+            payload = read_json(output)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stderr.getvalue(), "")
+        self.assertEqual(stdout.write_attempts, 1)
+        self.assertEqual(payload["type"], ledgers.POLICY_ADVANTAGE_TYPE)
+        self.assertEqual(payload["onlineUtilityStatus"], "UNPROVEN")
+        self.assertEqual(payload["githubComment"], "skipped_no_atomic_issue")
+
+    def test_policy_advantage_treats_runtime_flush_broken_stdout_as_delivery_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = write_fixture_artifacts(root)
+            output = root / "out" / "policy-advantage.json"
+            stdout = RuntimeFlushBrokenWriter()
+            stderr = io.StringIO()
+
+            exit_code = ledgers.main(
+                [
+                    "policy-advantage",
+                    "--repo-root",
+                    str(root),
+                    "--artifact-root",
+                    str(artifact_root),
+                    "--output",
+                    str(output),
+                    "--created-at",
+                    "2026-06-05T00:00:01Z",
+                    "--stdout-bytes",
+                    "180",
+                ],
+                stdout=stdout,
+                stderr=stderr,
+            )
+            payload = read_json(output)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stderr.getvalue(), "")
+        self.assertEqual(stdout.write_attempts, 1)
+        self.assertEqual(stdout.flush_attempts, 1)
+        self.assertEqual(payload["type"], ledgers.POLICY_ADVANTAGE_TYPE)
+        self.assertEqual(payload["onlineUtilityStatus"], "UNPROVEN")
+        self.assertEqual(payload["githubComment"], "skipped_no_atomic_issue")
 
     def test_policy_advantage_derives_evidence_fields_from_current_policy(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
