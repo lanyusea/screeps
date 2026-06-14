@@ -29749,9 +29749,9 @@ function selectInterRoomForeignRoomRecallTask(creep, carriedEnergy) {
   return carriedEnergy > 0 ? selectInterRoomForeignRoomReturnTask(creep, carriedEnergy) : selectInterRoomHomeEnergyAcquisitionTask(creep);
 }
 function selectForeignColonyConstructionBacklogEnergyAcquisitionTask(creep) {
-  var _a2, _b, _c, _d, _e;
+  var _a2, _b, _c, _d, _e, _f, _g;
   const colonyRoom = getCreepColonyRoom(creep);
-  if (!colonyRoom || isWorkerInColonyRoom(creep) || ((_a2 = creep.memory) == null ? void 0 : _a2.role) !== "worker" || ((_b = creep.memory) == null ? void 0 : _b.territory) !== void 0 || ((_c = creep.memory) == null ? void 0 : _c.spawnSupport) !== void 0 || ((_d = creep.memory) == null ? void 0 : _d.interRoomEnergyHaul) !== void 0 || getFreeEnergyCapacity9(creep) <= 0 || getActiveWorkParts2(creep) <= 0 || ((_e = colonyRoom.controller) == null ? void 0 : _e.my) !== true || shouldGuardControllerDowngrade2(colonyRoom.controller) || hasVisibleHostilePresence3(colonyRoom) || !checkEnergyBufferForStoredConstructionSpending(colonyRoom)) {
+  if (!colonyRoom || isWorkerInColonyRoom(creep) || ((_a2 = creep.memory) == null ? void 0 : _a2.role) !== "worker" || ((_c = (_b = creep.memory) == null ? void 0 : _b.controllerSustain) == null ? void 0 : _c.role) === "upgrader" || ((_d = creep.memory) == null ? void 0 : _d.territory) !== void 0 || ((_e = creep.memory) == null ? void 0 : _e.spawnSupport) !== void 0 || ((_f = creep.memory) == null ? void 0 : _f.interRoomEnergyHaul) !== void 0 || getFreeEnergyCapacity9(creep) <= 0 || getActiveWorkParts2(creep) <= 0 || ((_g = colonyRoom.controller) == null ? void 0 : _g.my) !== true || shouldGuardControllerDowngrade2(colonyRoom.controller) || hasVisibleHostilePresence3(colonyRoom) || !checkEnergyBufferForStoredConstructionSpending(colonyRoom)) {
     return null;
   }
   const constructionSite = selectForeignColonyConstructionBacklogEnergyTarget(creep, colonyRoom);

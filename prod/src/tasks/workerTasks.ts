@@ -3150,6 +3150,7 @@ function selectForeignColonyConstructionBacklogEnergyAcquisitionTask(
     !colonyRoom ||
     isWorkerInColonyRoom(creep) ||
     creep.memory?.role !== 'worker' ||
+    creep.memory?.controllerSustain?.role === 'upgrader' ||
     creep.memory?.territory !== undefined ||
     creep.memory?.spawnSupport !== undefined ||
     creep.memory?.interRoomEnergyHaul !== undefined ||

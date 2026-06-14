@@ -9571,7 +9571,7 @@ describe('runWorker', () => {
     }
   });
 
-  it('recalls an empty E29N56 controller-sustain worker for visible home construction backlog', () => {
+  it('keeps an empty E29N56 controller-sustain upgrader off home construction withdraws', () => {
     const site = {
       id: 'storage-site1',
       my: true,
@@ -9707,19 +9707,12 @@ describe('runWorker', () => {
 
     runWorker(creep);
 
-    expect(creep.memory.task).toEqual({
-      type: 'withdraw',
-      targetId: 'storage1',
-      constructionSiteId: 'storage-site1'
-    });
+    expect(creep.memory.task).toBeUndefined();
     expect(creep.memory.workerDispatchDiagnostic).toMatchObject({
-      selectedTask: 'withdraw',
-      selectedTargetId: 'storage1',
-      assignedTask: 'withdraw',
-      assignedTargetId: 'storage1'
+      reason: 'no_selected_task_idle'
     });
-    expect(withdraw).toHaveBeenCalledWith(storage, RESOURCE_ENERGY, 100);
-    expect(moveTo).toHaveBeenCalledWith(storage, { range: 1 });
+    expect(withdraw).not.toHaveBeenCalled();
+    expect(moveTo).not.toHaveBeenCalled();
   });
 
   it('assigns an E29N57 construction withdraw when backlog exists and stored energy is nearby', () => {
