@@ -27929,6 +27929,15 @@ function selectCriticalCpuWorkerTask(creep, cpuBudget) {
       targetId: criticalRepairTarget.id
     });
   }
+  const controllerSustainConstructionBacklogTask = selectLocalConstructionBacklogBeforeControllerSustainUpgradeTask(
+    creep,
+    creep.room.controller,
+    constructionSites,
+    constructionReservationContext
+  );
+  if (controllerSustainConstructionBacklogTask) {
+    return applyMinimumUsefulLoadPolicy(creep, controllerSustainConstructionBacklogTask);
+  }
   const loadedControllerProgressTask = selectNonCriticalCpuLoadedControllerProgressTask(
     creep,
     cpuBudget,
@@ -28608,6 +28617,15 @@ function selectHeuristicWorkerTask(creep) {
   if (controllerSustainBarrierMaintenanceTask) {
     return applyMinimumUsefulLoadPolicy(creep, controllerSustainBarrierMaintenanceTask);
   }
+  const controllerSustainConstructionBacklogTask = selectLocalConstructionBacklogBeforeControllerSustainUpgradeTask(
+    creep,
+    controller,
+    constructionSites,
+    constructionReservationContext
+  );
+  if (controllerSustainConstructionBacklogTask) {
+    return applyMinimumUsefulLoadPolicy(creep, controllerSustainConstructionBacklogTask);
+  }
   const controllerSustainUpgradeTask = selectControllerSustainUpgradeTask(creep, controller);
   if (controllerSustainUpgradeTask) {
     return applyMinimumUsefulLoadPolicy(creep, controllerSustainUpgradeTask);
@@ -28877,6 +28895,26 @@ function selectControllerSustainBarrierMaintenanceTask(creep, constructionSites)
   }
   const barrierMaintenanceTarget = selectRoutineBarrierMaintenanceRepairTarget(creep);
   return barrierMaintenanceTarget ? { type: "repair", targetId: barrierMaintenanceTarget.id } : null;
+}
+function selectLocalConstructionBacklogBeforeControllerSustainUpgradeTask(creep, controller, constructionSites, constructionReservationContext) {
+  var _a2, _b;
+  const sustain = (_a2 = creep.memory) == null ? void 0 : _a2.controllerSustain;
+  if ((sustain == null ? void 0 : sustain.role) !== "upgrader" || sustain.homeRoom !== sustain.targetRoom || sustain.targetRoom !== ((_b = creep.room) == null ? void 0 : _b.name) || (controller == null ? void 0 : controller.my) !== true || isControllerDowngradeImminentForLowLoadReturn(controller) || hasVisibleHostilePresence3(creep.room) || shouldActiveSpawnBlockControllerSustainConstructionYield(creep) || hasSameRoomWorkerAssignedToTask(creep.room, creep, "build") || !hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep) || !hasMinimumSpawnRecoveryEnergyForControllerSustainConstruction(creep.room) || shouldUpgradeForRcl3DefenseUnlock(creep, controller)) {
+    return null;
+  }
+  const priorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const constructionSite = selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    (site) => site.my !== false,
+    { priorityContext }
+  );
+  return constructionSite ? { type: "build", targetId: constructionSite.id } : null;
+}
+function hasMinimumSpawnRecoveryEnergyForControllerSustainConstruction(room) {
+  const energyAvailable = getRoomEnergyAvailable11(room);
+  return energyAvailable === null || energyAvailable >= MINIMUM_WORKER_SPAWN_ENERGY;
 }
 function selectUncoveredRoutineRampartMaintenanceTask(creep, constructionSites) {
   if (constructionSites.length > 0 || hasSameRoomWorkerAssignedToTask(creep.room, creep, "repair")) {
