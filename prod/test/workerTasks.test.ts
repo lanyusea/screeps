@@ -1382,7 +1382,11 @@ describe('selectWorkerTask', () => {
       getObjectById: jest.fn().mockReturnValue(constructionSite)
     };
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-near-creep' });
+    expect(selectWorkerTask(creep)).toEqual({
+      type: 'withdraw',
+      targetId: 'container-near-creep',
+      constructionSiteId: 'build-site1'
+    });
     expect(room.find).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
 
@@ -1445,7 +1449,11 @@ describe('selectWorkerTask', () => {
       getObjectById: jest.fn().mockReturnValue(constructionSite)
     };
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-small' });
+    expect(selectWorkerTask(creep)).toEqual({
+      type: 'withdraw',
+      targetId: 'container-small',
+      constructionSiteId: 'build-site1'
+    });
   });
 
   it('builder falls through to general stored-energy acquisition when site-local storage is below builder threshold', () => {
@@ -1503,7 +1511,11 @@ describe('selectWorkerTask', () => {
       getObjectById: jest.fn().mockReturnValue(constructionSite)
     };
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage-small' });
+    expect(selectWorkerTask(creep)).toEqual({
+      type: 'withdraw',
+      targetId: 'storage-small',
+      constructionSiteId: 'build-site1'
+    });
   });
 
   it('pre-buffers carried construction energy into storage near a distant construction site', () => {
@@ -13181,6 +13193,64 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({
       type: 'withdraw',
       targetId: 'container1',
+      constructionSiteId: 'road-site1'
+    });
+  });
+
+  it('tags E29N56 generic stored acquisition for construction when builder thresholds would leave a plain withdraw', () => {
+    const roadSite = withRangeTo(
+      {
+        id: 'road-site1',
+        my: true,
+        structureType: 'road',
+        progress: 232,
+        progressTotal: 1_500
+      } as ConstructionSite,
+      { 'container-buffer': 7 }
+    );
+    const container = makeStoredEnergyStructure(
+      'container-buffer',
+      'container' as StructureConstant,
+      BUILDER_STORAGE_WITHDRAW_MIN - 1
+    );
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N56',
+      constructionSites: [roadSite],
+      controller,
+      energyAvailable: 300,
+      energyCapacityAvailable: 1_300,
+      structures: [container as AnyStructure]
+    });
+    const creep = {
+      name: 'worker-E29N56-2154298',
+      memory: { role: 'worker', colony: 'E29N56' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          if (target.id === 'container-buffer') return 2;
+          return 9;
+        })
+      },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ [creep.name]: creep });
+
+    const task = selectWorkerTask(creep);
+
+    expect(task).toMatchObject({
+      type: 'withdraw',
+      targetId: 'container-buffer',
       constructionSiteId: 'road-site1'
     });
   });
