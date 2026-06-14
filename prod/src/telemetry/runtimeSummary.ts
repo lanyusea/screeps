@@ -3852,7 +3852,11 @@ function selectBuildBlockedReason(
     return 'construction_site_progress_unavailable';
   }
 
-  if ((events?.builtProgress ?? 0) > 0 || productiveAssignments.buildCarriedEnergy > 0) {
+  if (
+    (events?.builtProgress ?? 0) > 0 ||
+    productiveAssignments.buildCarriedEnergy > 0 ||
+    hasSuccessfulBuildActionTelemetry(colonyWorkers)
+  ) {
     return undefined;
   }
 
@@ -3867,6 +3871,13 @@ function selectBuildBlockedReason(
 
 function hasConstructionEnergyAcquisitionAssignment(colonyWorkers: Creep[]): boolean {
   return colonyWorkers.some(hasConstructionEnergyAcquisitionTask);
+}
+
+function hasSuccessfulBuildActionTelemetry(colonyWorkers: Creep[]): boolean {
+  return colonyWorkers.some((worker) => {
+    const succeeded = getFiniteNumber(worker.memory?.buildActionTelemetry?.resultCounts?.succeeded);
+    return succeeded !== null && succeeded > 0;
+  });
 }
 
 function selectWorkerAssignmentBlockedDetail(

@@ -44469,7 +44469,7 @@ function selectBuildBlockedReason(colony, colonyWorkers, productiveAssignments, 
   if (pendingBuildProgress <= 0) {
     return "construction_site_progress_unavailable";
   }
-  if (((_a2 = events == null ? void 0 : events.builtProgress) != null ? _a2 : 0) > 0 || productiveAssignments.buildCarriedEnergy > 0) {
+  if (((_a2 = events == null ? void 0 : events.builtProgress) != null ? _a2 : 0) > 0 || productiveAssignments.buildCarriedEnergy > 0 || hasSuccessfulBuildActionTelemetry(colonyWorkers)) {
     return void 0;
   }
   if (hasConstructionEnergyAcquisitionAssignment(colonyWorkers)) {
@@ -44479,6 +44479,13 @@ function selectBuildBlockedReason(colony, colonyWorkers, productiveAssignments, 
 }
 function hasConstructionEnergyAcquisitionAssignment(colonyWorkers) {
   return colonyWorkers.some(hasConstructionEnergyAcquisitionTask);
+}
+function hasSuccessfulBuildActionTelemetry(colonyWorkers) {
+  return colonyWorkers.some((worker) => {
+    var _a2, _b, _c;
+    const succeeded = getFiniteNumber((_c = (_b = (_a2 = worker.memory) == null ? void 0 : _a2.buildActionTelemetry) == null ? void 0 : _b.resultCounts) == null ? void 0 : _c.succeeded);
+    return succeeded !== null && succeeded > 0;
+  });
 }
 function selectWorkerAssignmentBlockedDetail(colony, colonyWorkers, roomEnergyStructures, constructionSites) {
   if (!colonyWorkers.some(isConstructionCapableWorker)) {
