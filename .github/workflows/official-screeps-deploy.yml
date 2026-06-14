@@ -144,6 +144,7 @@ jobs:
             --live-official-console \
             --out-dir runtime-artifacts/runtime-summary-console \
             --artifact-name postdeploy-runtime-summary-console.log \
+            --status-file "$EVIDENCE_DIR/postdeploy-runtime-summary-console-status.json" \
             --format status-line \
             --live-timeout-seconds 45 || true
           python3 scripts/screeps-runtime-monitor.py summary \
@@ -158,6 +159,7 @@ jobs:
           python3 scripts/screeps-runtime-monitor.py health-gate \
             --summary "$EVIDENCE_DIR/postdeploy-summary.json" \
             --alert "$EVIDENCE_DIR/postdeploy-alert.json" \
+            --console-capture-status "$EVIDENCE_DIR/postdeploy-runtime-summary-console-status.json" \
             > "$EVIDENCE_DIR/postdeploy-health-gate.json"
 
       - name: Upload deploy evidence
@@ -165,5 +167,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: official-screeps-deploy-evidence
-          path: runtime-artifacts/official-screeps-deploy/
+          path: |
+            runtime-artifacts/official-screeps-deploy/
+            runtime-artifacts/runtime-summary-console/
           if-no-files-found: ignore

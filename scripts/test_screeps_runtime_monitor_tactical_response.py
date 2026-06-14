@@ -3227,6 +3227,97 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(cpu_reason["missing"], ["cpu.used", "cpu.bucket"])
         self.assertNotIn("postdeploy_room_dead", [reason["kind"] for reason in health["reasons"]])
 
+    def test_postdeploy_health_gate_treats_optional_console_import_failure_as_evidence_only(self) -> None:
+        health = monitor.evaluate_postdeploy_health_gate(
+            {
+                "ok": True,
+                "mode": "summary",
+                "room_summaries": [
+                    {
+                        "room": "shardX/E26S49",
+                        "owned_creeps": 1,
+                        "owned_spawns": 1,
+                        "creeps": 1,
+                        "spawns": 1,
+                        "owner": "owner",
+                        "constructionSiteCount": 0,
+                        "pendingBuildProgress": 0,
+                    }
+                ],
+            },
+            {
+                "ok": True,
+                "mode": "alert",
+                "alert": True,
+                "reasons": [
+                    {
+                        "kind": monitor.CPU_TELEMETRY_MISSING_KIND,
+                        "message": "missing current CPU telemetry",
+                        "room": "shardX/E26S49",
+                    }
+                ],
+            },
+            {
+                "captureOk": False,
+                "captureStatus": "capture_error",
+                "processStatus": "capture_error",
+                "exitCode": 1,
+                "source": "live-official-console",
+                "error": "Python package 'websockets' is required for --live-official-console",
+            },
+        )
+
+        self.assertTrue(health["ok"], health["reasons"])
+        self.assertEqual(health["reasons"], [])
+        non_blocking_reason = next(
+            reason
+            for reason in health["non_blocking_reasons"]
+            if reason["kind"] == monitor.CPU_TELEMETRY_MISSING_KIND
+        )
+        self.assertEqual(
+            non_blocking_reason["suppression_reason"],
+            monitor.POSTDEPLOY_CONSOLE_CAPTURE_UNAVAILABLE_SUPPRESSION,
+        )
+        active_reason = next(
+            reason for reason in health["non_blocking_reasons"] if reason["kind"] == "postdeploy_active_alert"
+        )
+        self.assertEqual(
+            active_reason["suppression_reason"],
+            monitor.POSTDEPLOY_CONSOLE_CAPTURE_UNAVAILABLE_SUPPRESSION,
+        )
+        self.assertEqual(health["console_capture_status"]["captureStatus"], "capture_error")
+
+    def test_postdeploy_health_gate_keeps_missing_cpu_blocking_after_completed_console_capture(self) -> None:
+        health = monitor.evaluate_postdeploy_health_gate(
+            {
+                "ok": True,
+                "mode": "summary",
+                "room_summaries": [
+                    {
+                        "room": "shardX/E26S49",
+                        "owned_creeps": 1,
+                        "owned_spawns": 1,
+                        "creeps": 1,
+                        "spawns": 1,
+                        "owner": "owner",
+                        "constructionSiteCount": 0,
+                        "pendingBuildProgress": 0,
+                    }
+                ],
+            },
+            {"ok": True, "mode": "alert", "alert": False, "reasons": []},
+            {
+                "captureOk": False,
+                "captureStatus": "no_messages",
+                "processStatus": "completed",
+                "exitCode": 0,
+                "source": "live-official-console",
+            },
+        )
+
+        self.assertFalse(health["ok"])
+        self.assertIn(monitor.CPU_TELEMETRY_MISSING_KIND, [reason["kind"] for reason in health["reasons"]])
+
     def test_cpu_bucket_alert_does_not_mask_hostile_or_damage_alerts(self) -> None:
         previous = {
             "baseline_established": True,
