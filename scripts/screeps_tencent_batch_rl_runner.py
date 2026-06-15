@@ -1228,6 +1228,9 @@ class Controller:
             "requestedSignatures": copy.deepcopy(handoff.get("requestedSignatures")),
             "noCompute": True,
             "paidRunAttempted": False,
+            "computeAttempted": False,
+            "scaleOutAttempted": False,
+            "remoteTrainingAttempted": False,
             "reason": handoff.get("reason"),
             "nextAction": handoff.get("nextAction"),
         }
@@ -3845,6 +3848,9 @@ def build_paid_failure_validation_plan_handoff(
         "explicitValidationArgument": f"--allow-paid-failure-recurrence-validation {signature}",
         "noCompute": True,
         "paidRunAttempted": False,
+        "computeAttempted": False,
+        "scaleOutAttempted": False,
+        "remoteTrainingAttempted": False,
         "currentLaunch": copy.deepcopy(current_launch),
         "currentValidationPlan": copy.deepcopy(current_validation_plan),
         "knownFix": copy.deepcopy(known_fix),
@@ -3861,7 +3867,12 @@ def build_paid_failure_validation_plan_handoff(
             "officialMmoWritesAllowed": False,
             "secretsPrinted": False,
             "remoteExecutionAttempted": False,
+            "remoteTrainingAttempted": False,
+            "paidRunAttempted": False,
+            "computeAttempted": False,
             "scaleOutAttempted": False,
+            "requiresTencentScaleOut": False,
+            "requiresPaidCompute": False,
         },
     }
     if consumed_failure is not None:
