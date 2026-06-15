@@ -41094,7 +41094,7 @@ function hasLocalSupportWorkerDemand(context) {
 function hasSpawnPresentLocalWorkerRecoveryShortfall(context) {
   var _a2;
   const roomName = context.colony.room.name;
-  if (((_a2 = context.colony.room.controller) == null ? void 0 : _a2.my) !== true || context.survival.hostilePresence || context.survival.controllerDowngradeGuard || !hasOwnedSpawnInRoom2(roomName)) {
+  if (((_a2 = context.colony.room.controller) == null ? void 0 : _a2.my) !== true || context.survival.hostilePresence || !hasOwnedSpawnInRoom2(roomName)) {
     return false;
   }
   const creeps = getGameCreeps4();
@@ -53586,7 +53586,7 @@ function shouldRunShedCpuColonyPlanning(colony, roleCounts, survivalAssessment) 
 function hasSpawnPresentLocalWorkerRecoveryShortfall2(colony, survivalAssessment) {
   var _a2, _b;
   const roomName = colony.room.name;
-  if (((_a2 = colony.room.controller) == null ? void 0 : _a2.my) !== true || survivalAssessment.hostilePresence || survivalAssessment.controllerDowngradeGuard || !hasOwnedIdleSpawnInRoom(roomName)) {
+  if (((_a2 = colony.room.controller) == null ? void 0 : _a2.my) !== true || survivalAssessment.hostilePresence || !hasOwnedIdleSpawnInRoom(roomName)) {
     return false;
   }
   const creeps = Object.values((_b = Game.creeps) != null ? _b : {});
@@ -54283,7 +54283,7 @@ function shouldBypassSpawnEnergyBuffer(spawnRequest, roleCounts, availableEnergy
 function isSpawnPresentLocalWorkerRecoverySpawnRequest(spawnRequest, availableEnergy, bodyCost, survivalAssessment) {
   var _a2;
   const roomName = spawnRequest.memory.colony;
-  if (spawnRequest.memory.role !== "worker" || spawnRequest.memory.controllerUpgrade !== void 0 || spawnRequest.memory.controllerSustain !== void 0 || ((_a2 = spawnRequest.spawn.room) == null ? void 0 : _a2.name) !== roomName || survivalAssessment.hostilePresence || survivalAssessment.controllerDowngradeGuard || availableEnergy < bodyCost) {
+  if (spawnRequest.memory.role !== "worker" || spawnRequest.memory.controllerUpgrade !== void 0 || spawnRequest.memory.controllerSustain !== void 0 || ((_a2 = spawnRequest.spawn.room) == null ? void 0 : _a2.name) !== roomName || survivalAssessment.hostilePresence || availableEnergy < bodyCost) {
     return false;
   }
   return hasSpawnPresentLocalWorkerRecoveryShortfall2(
