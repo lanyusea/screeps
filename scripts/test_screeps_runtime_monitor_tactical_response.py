@@ -6690,6 +6690,23 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(report["categories"], [monitor.SUSTAINED_CONSTRUCTION_STALL_KIND])
         self.assertIn("#1894", report["triggers"][0]["metadata"]["related_issues"])
 
+    def test_sustained_construction_stall_requires_runtime_summary_capture_window(self) -> None:
+        room = "E29N55"
+        previous_state: dict[str, object] = {"baseline_established": True, "owner": "lanyusea"}
+
+        for tick in [2090100, 2090110, 2090120]:
+            emitted, suppressed, previous_state = monitor.evaluate_room_alert(
+                make_owned_worker_room_snapshot(room, tick),
+                previous_state,
+                now=100,
+                debounce_seconds=300,
+                runtime_room_summary=None,
+            )
+
+            self.assertEqual(suppressed, [])
+            self.assertNotIn(monitor.SUSTAINED_CONSTRUCTION_STALL_KIND, [reason["kind"] for reason in emitted])
+            self.assertEqual(previous_state["rule_counts"][monitor.SUSTAINED_CONSTRUCTION_STALL_KIND], 0)
+
     def test_sustained_construction_stall_recovery_captures_stay_silent(self) -> None:
         room = "E29N55"
         cases = {

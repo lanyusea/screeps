@@ -4001,40 +4001,7 @@ def detect_sustained_construction_stall_reason(
         evidence, state = capture_window
         return build_sustained_construction_stall_reason(ref, evidence, state), state
 
-    evidence = sustained_construction_stall_evidence(runtime_room, metrics, current_tick_value)
-    if evidence is None:
-        return None, 0
-
-    current_tick = tick_number(evidence.get("runtimeSummaryTick"))
-    if current_tick is None:
-        current_tick = tick_number(current_tick_value)
-    if current_tick is None:
-        preserved_state = sustained_construction_stall_previous_state(previous_rule_state)
-        return None, preserved_state or 0
-
-    previous_state = sustained_construction_stall_previous_state(previous_rule_state)
-    previous_last_tick = tick_number(previous_state.get("last_tick"))
-    previous_pending_build_progress = number_value(previous_state.get("pendingBuildProgress"))
-    pending_build_progress = number_value(evidence.get("pendingBuildProgress"))
-    if (
-        previous_pending_build_progress is not None
-        and pending_build_progress is not None
-        and pending_build_progress < previous_pending_build_progress
-    ):
-        return None, 0
-
-    state = sustained_construction_stall_next_state(
-        previous_state,
-        current_tick,
-        pending_build_progress if pending_build_progress is not None else 0,
-    )
-    evidence["consecutiveCaptures"] = state["consecutive_captures"]
-    evidence["thresholdCaptures"] = SUSTAINED_CONSTRUCTION_STALL_REQUIRED_CONSECUTIVE_CAPTURES
-    if previous_last_tick is not None and current_tick <= previous_last_tick:
-        return None, state
-    if state["consecutive_captures"] >= SUSTAINED_CONSTRUCTION_STALL_REQUIRED_CONSECUTIVE_CAPTURES:
-        return build_sustained_construction_stall_reason(ref, evidence, state), state
-    return None, state
+    return None, 0
 
 
 def alert_reason_kind(reason: dict[str, Any]) -> str:
