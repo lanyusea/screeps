@@ -791,13 +791,15 @@ def build_runtime_sample_cadence_diagnostics(
     source_max_age = finite_positive_number(source_max_age_hours)
     runtime_summary_artifacts = runtime_summary_count if isinstance(runtime_summary_count, int) else None
     samples_per_runtime_artifact: float | None = None
+    precise_samples_per_runtime_artifact: float | None = None
     estimated_additional_runtime_artifacts: int | None = None
     if runtime_summary_artifacts is not None and runtime_summary_artifacts > 0 and sample_count > 0:
-        samples_per_runtime_artifact = round(sample_count / runtime_summary_artifacts, 3)
+        precise_samples_per_runtime_artifact = sample_count / runtime_summary_artifacts
+        samples_per_runtime_artifact = round(precise_samples_per_runtime_artifact, 3)
         if sample_deficit > 0:
             estimated_additional_runtime_artifacts = max(
                 1,
-                math.ceil(sample_deficit / samples_per_runtime_artifact),
+                math.ceil(sample_deficit / precise_samples_per_runtime_artifact),
             )
 
     minimum_sample_cadence_minutes: float | None = None
@@ -805,8 +807,11 @@ def build_runtime_sample_cadence_diagnostics(
     required_successful_captures_per_window: int | None = None
     if source_max_age is not None and min_samples > 0:
         minimum_sample_cadence_minutes = round(source_max_age * 60 / min_samples, 1)
-        if samples_per_runtime_artifact is not None and samples_per_runtime_artifact > 0:
-            required_successful_captures_per_window = max(1, math.ceil(min_samples / samples_per_runtime_artifact))
+        if precise_samples_per_runtime_artifact is not None and precise_samples_per_runtime_artifact > 0:
+            required_successful_captures_per_window = max(
+                1,
+                math.ceil(min_samples / precise_samples_per_runtime_artifact),
+            )
             estimated_capture_cadence_minutes = round(
                 source_max_age * 60 / required_successful_captures_per_window,
                 1,
