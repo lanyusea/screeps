@@ -5174,6 +5174,35 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertIn("private_server_http_readiness_timeout", plan_payload["reason"])
         self.assertIn("localDiagnosticPlan", handoff)
         self.assertEqual(plan_payload["localDiagnosticPlan"], handoff["localDiagnosticPlan"])
+        self.assertIn("localDiagnosticHandoff", handoff)
+        self.assertEqual(plan_payload["localDiagnosticHandoff"], handoff["localDiagnosticHandoff"])
+        local_handoff = handoff["localDiagnosticHandoff"]
+        self.assertEqual(
+            local_handoff["mode"],
+            runner.LOCAL_NO_COMPUTE_PRIVATE_SERVER_HTTP_READINESS_DIAGNOSTIC_MODE,
+        )
+        self.assertEqual(
+            local_handoff["status"],
+            "private_server_http_readiness_timeout_local_diagnostic_required",
+        )
+        self.assertEqual(local_handoff["failure"]["classification"], "private_server_http_readiness_timeout")
+        self.assertEqual(local_handoff["failure"]["remoteTrainingFailureClass"], "remote_training_timeout")
+        self.assertEqual(local_handoff["failure"]["remoteTrainingTimeoutReason"], "private_server_http_readiness")
+        self.assertEqual(local_handoff["failure"]["successfulEnvironmentRows"], 19)
+        self.assertEqual(local_handoff["failure"]["failedEnvironmentRows"], 1)
+        self.assertEqual(local_handoff["validationPlan"]["path"], handoff["path"])
+        self.assertEqual(
+            local_handoff["validationPlan"]["signature"],
+            runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+        )
+        self.assertEqual(local_handoff["validationPlan"]["status"], handoff["status"])
+        self.assertTrue(local_handoff["validationPlan"]["requested"])
+        self.assertTrue(local_handoff["noPaidComputeGuard"]["noCompute"])
+        self.assertTrue(local_handoff["noPaidComputeGuard"]["noPaidRun"])
+        self.assertFalse(local_handoff["noPaidComputeGuard"]["paidRunAttempted"])
+        self.assertFalse(local_handoff["noPaidComputeGuard"]["requiresPaidCompute"])
+        self.assertIn("private-server HTTP readiness", local_handoff["recommendedLocalDiagnosticNextStep"])
+        self.assertIn("record-diagnostic-summary", local_handoff["recommendedLocalDiagnosticStepIds"])
         local_plan = handoff["localDiagnosticPlan"]
         self.assertEqual(
             local_plan["mode"],
@@ -5238,6 +5267,132 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             self.assertFalse(step["requiresTencentScaleOut"])
             self.assertFalse(step["requiresPaidCompute"])
             self.assertFalse(step["printsSecrets"])
+
+    def test_paid_failure_recurrence_guard_hands_off_readiness_timeout_diagnostic_without_signature(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD):
+                write_tencent_failure_summary(artifact_root, f"tencent-pg-room-busy-{index}")
+            prior_attempt_path = write_post_fix_validation_readiness_timeout_summary(
+                artifact_root,
+                "postfix-validation-run-20260601t231342z",
+            )
+            args = runner.parse_cli_args([
+                "run-single",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+                "--training-approach",
+                "policy_gradient",
+                "--scenario-id",
+                runner.MULTI_TIER_SCENARIO_ID,
+                "--ticks",
+                str(runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS),
+                "--workers",
+                "5",
+                "--scale-environments",
+                "5",
+                "--repetitions",
+                "20",
+                "--training-timeout-seconds",
+                "3600",
+            ])
+            artifact_dir = artifact_root / "new-run"
+
+            with mock.patch.object(
+                runner,
+                "paid_failure_recurrence_known_fix_status",
+                return_value={
+                    "signature": runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+                    "issue": "#1501",
+                    "pullRequest": "#1504",
+                    "mergeCommit": "95f960b2",
+                    "present": True,
+                    "evidence": "merge commit 95f960b2 is reachable from HEAD",
+                },
+            ):
+                events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
+            handoff = summary["outputs"]["validationPlanHandoff"]
+            plan_payload = json.loads(Path(handoff["path"]).read_text(encoding="utf-8"))
+
+        self.assertEqual(events, [])
+        self.assertEqual(
+            controller.final_status,
+            runner.PAID_FAILURE_RECURRENCE_VALIDATION_PLAN_REQUIRED_FINAL_STATUS,
+        )
+        self.assertEqual(
+            summary["finalStatus"],
+            runner.PAID_FAILURE_RECURRENCE_VALIDATION_PLAN_REQUIRED_FINAL_STATUS,
+        )
+        self.assertTrue(guard["blocked"])
+        self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_CONSUMED_STATUS)
+        validation = guard["postFixValidation"]
+        self.assertEqual(validation["status"], "consumed")
+        self.assertFalse(validation["requested"])
+        self.assertEqual(validation["priorAttempt"]["runId"], "postfix-validation-run-20260601t231342z")
+        self.assertEqual(validation["priorAttempt"]["remoteTrainingFailureClass"], "remote_training_timeout")
+        self.assertEqual(validation["priorAttempt"]["remoteTrainingTimeoutReason"], "private_server_http_readiness")
+        self.assertFalse(summary["execution"]["computeAttempted"])
+        self.assertFalse(summary["execution"]["paidRunAttempted"])
+        self.assertFalse(summary["execution"]["scaleOutAttempted"])
+        self.assertFalse(summary["execution"]["remoteTrainingAttempted"])
+        self.assertTrue(summary["execution"]["launchGuardNoCompute"])
+        self.assertEqual(handoff["status"], "validation_plan_required")
+        self.assertFalse(handoff["requested"])
+        self.assertEqual(
+            handoff["signature"],
+            runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+        )
+        self.assertIn("localDiagnosticPlan", handoff)
+        self.assertIn("localDiagnosticHandoff", handoff)
+        self.assertEqual(plan_payload["localDiagnosticPlan"], handoff["localDiagnosticPlan"])
+        self.assertEqual(plan_payload["localDiagnosticHandoff"], handoff["localDiagnosticHandoff"])
+        local_handoff = handoff["localDiagnosticHandoff"]
+        self.assertEqual(
+            local_handoff["mode"],
+            runner.LOCAL_NO_COMPUTE_PRIVATE_SERVER_HTTP_READINESS_DIAGNOSTIC_MODE,
+        )
+        self.assertEqual(
+            local_handoff["status"],
+            "private_server_http_readiness_timeout_local_diagnostic_required",
+        )
+        self.assertEqual(
+            local_handoff["failure"]["priorAttemptRunId"],
+            "postfix-validation-run-20260601t231342z",
+        )
+        self.assertEqual(local_handoff["failure"]["summaryPath"], str(prior_attempt_path))
+        self.assertEqual(local_handoff["failure"]["classification"], "private_server_http_readiness_timeout")
+        self.assertEqual(local_handoff["failure"]["remoteTrainingFailureClass"], "remote_training_timeout")
+        self.assertEqual(local_handoff["failure"]["remoteTrainingTimeoutReason"], "private_server_http_readiness")
+        self.assertEqual(local_handoff["failure"]["successfulEnvironmentRows"], 4)
+        self.assertEqual(local_handoff["failure"]["failedEnvironmentRows"], 1)
+        self.assertEqual(local_handoff["failure"]["completedEnvironmentRows"], 5)
+        self.assertEqual(local_handoff["validationPlan"]["path"], handoff["path"])
+        self.assertEqual(
+            local_handoff["validationPlan"]["signature"],
+            runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+        )
+        self.assertEqual(local_handoff["validationPlan"]["status"], "validation_plan_required")
+        self.assertFalse(local_handoff["validationPlan"]["requested"])
+        self.assertTrue(local_handoff["noPaidComputeGuard"]["noCompute"])
+        self.assertTrue(local_handoff["noPaidComputeGuard"]["noPaidRun"])
+        self.assertFalse(local_handoff["noPaidComputeGuard"]["paidRunAttempted"])
+        self.assertFalse(local_handoff["noPaidComputeGuard"]["computeAttempted"])
+        self.assertFalse(local_handoff["noPaidComputeGuard"]["scaleOutAttempted"])
+        self.assertFalse(local_handoff["noPaidComputeGuard"]["remoteTrainingAttempted"])
+        self.assertFalse(local_handoff["noPaidComputeGuard"]["requiresPaidCompute"])
+        self.assertFalse(local_handoff["noPaidComputeGuard"]["requiresTencentScaleOut"])
+        self.assertIn("paid run-single rerun", local_handoff["noPaidComputeGuard"]["blockedActions"])
+        self.assertIn("private-server HTTP readiness", local_handoff["recommendedLocalDiagnosticNextStep"])
+        self.assertIn("before any paid Tencent rerun", handoff["localDiagnosticPlan"]["reason"])
+        self.assertIn("inspect-prior-controller-summary", local_handoff["recommendedLocalDiagnosticStepIds"])
+        self.assertIn("private-smoke-dry-run", local_handoff["recommendedLocalDiagnosticStepIds"])
+        self.assertIn("record-diagnostic-summary", local_handoff["recommendedLocalDiagnosticStepIds"])
+        self.assertEqual(
+            summary["outputs"]["launchGuard"]["validationPlanHandoff"]["localDiagnosticHandoff"],
+            local_handoff,
+        )
 
     def test_paid_failure_recurrence_guard_explains_timeout_recovery_when_signature_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -1186,12 +1186,36 @@ class Controller:
         signature = text_value(handoff.get("signature")) or "unknown"
         path = self.validation_plan_handoff_path(signature)
         handoff["path"] = str(path)
+        consumed_failure = dict_value(handoff.get("consumedFailure"))
         local_plan = dict_value(handoff.get("localDiagnosticPlan"))
+        if (
+            local_plan is None
+            and consumed_failure_is_private_server_http_readiness_timeout(consumed_failure)
+        ):
+            handoff["localDiagnosticPlan"] = build_local_private_server_http_readiness_diagnostic_plan(
+                consumed_failure,
+                current_run_id=self.run_id,
+                signature=signature,
+            )
+            local_plan = dict_value(handoff.get("localDiagnosticPlan"))
         if local_plan is not None:
             handoff["localDiagnosticPlan"] = enrich_local_private_server_http_readiness_diagnostic_plan_paths(
                 local_plan,
                 artifact_dir=self.artifact_dir,
                 handoff_path=path,
+            )
+            local_plan = dict_value(handoff.get("localDiagnosticPlan"))
+        if (
+            local_plan is not None
+            and consumed_failure_is_private_server_http_readiness_timeout(consumed_failure)
+        ):
+            handoff["localDiagnosticHandoff"] = build_local_private_server_http_readiness_diagnostic_handoff(
+                consumed_failure,
+                signature=signature,
+                validation_plan_path=path,
+                validation_plan_status=text_value(handoff.get("status")) or "validation_plan_required",
+                requested=handoff.get("requested") is True,
+                local_plan=local_plan,
             )
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(canonical_json(handoff), encoding="utf-8")
@@ -1213,6 +1237,9 @@ class Controller:
         local_plan = dict_value(handoff.get("localDiagnosticPlan"))
         if local_plan is not None:
             summary["localDiagnosticPlan"] = copy.deepcopy(local_plan)
+        local_diagnostic_handoff = dict_value(handoff.get("localDiagnosticHandoff"))
+        if local_diagnostic_handoff is not None:
+            summary["localDiagnosticHandoff"] = copy.deepcopy(local_diagnostic_handoff)
         self.result["validationPlanHandoff"] = summary
         return summary
 
@@ -3304,6 +3331,12 @@ def paid_failure_guard_requires_explicit_validation_plan(guard: dict[str, Any]) 
 
 def paid_failure_consumed_validation_needs_new_bounded_plan(validation: dict[str, Any]) -> bool:
     consumed_failure = paid_failure_consumed_validation_failure_summary(validation)
+    return consumed_failure_is_private_server_http_readiness_timeout(consumed_failure)
+
+
+def consumed_failure_is_private_server_http_readiness_timeout(
+    consumed_failure: dict[str, Any] | None,
+) -> bool:
     if consumed_failure is None:
         return False
     return (
@@ -3697,6 +3730,70 @@ def build_local_private_server_http_readiness_diagnostic_plan(
     }
 
 
+def build_local_private_server_http_readiness_diagnostic_handoff(
+    consumed_failure: dict[str, Any],
+    *,
+    signature: str,
+    validation_plan_path: Path,
+    validation_plan_status: str,
+    requested: bool,
+    local_plan: dict[str, Any],
+) -> dict[str, Any]:
+    diagnostic_steps = local_plan.get("diagnosticSteps")
+    step_ids = [
+        step["id"]
+        for step in diagnostic_steps
+        if isinstance(step, dict) and isinstance(step.get("id"), str)
+    ] if isinstance(diagnostic_steps, list) else []
+    paid_hold = dict_value(local_plan.get("paidTencentRerunHold")) or {}
+    blocked_actions = paid_hold.get("blockedActions")
+    if not isinstance(blocked_actions, list):
+        blocked_actions = [
+            "Tencent ASG scale-out",
+            "paid run-single rerun",
+            "remote training",
+            "--allow-paid-failure-recurrence-validation rerun",
+        ]
+    return {
+        "mode": LOCAL_NO_COMPUTE_PRIVATE_SERVER_HTTP_READINESS_DIAGNOSTIC_MODE,
+        "status": "private_server_http_readiness_timeout_local_diagnostic_required",
+        "failure": {
+            "priorAttemptRunId": text_value(consumed_failure.get("priorAttemptRunId")),
+            "summaryPath": text_value(consumed_failure.get("summaryPath")),
+            "classification": text_value(consumed_failure.get("failureClassification")),
+            "remoteTrainingFailureClass": text_value(consumed_failure.get("remoteTrainingFailureClass")),
+            "remoteTrainingTimeoutReason": text_value(consumed_failure.get("remoteTrainingTimeoutReason")),
+            "successfulEnvironmentRows": consumed_failure.get("successfulEnvironmentRows"),
+            "failedEnvironmentRows": consumed_failure.get("failedEnvironmentRows"),
+            "completedEnvironmentRows": consumed_failure.get("completedEnvironmentRows"),
+            "ticksRun": consumed_failure.get("ticksRun"),
+        },
+        "recommendedLocalDiagnosticNextStep": (
+            "complete the localDiagnosticPlan diagnosticSteps locally, record the diagnostic summary, "
+            "and keep paid Tencent compute held until the private-server HTTP readiness evidence is reviewed"
+        ),
+        "recommendedLocalDiagnosticStepIds": step_ids,
+        "validationPlan": {
+            "path": str(validation_plan_path),
+            "signature": signature,
+            "status": validation_plan_status,
+            "requested": requested,
+        },
+        "noPaidComputeGuard": {
+            "noCompute": True,
+            "noPaidRun": True,
+            "paidRunAttempted": False,
+            "computeAttempted": False,
+            "scaleOutAttempted": False,
+            "remoteTrainingAttempted": False,
+            "requiresTencentScaleOut": False,
+            "requiresPaidCompute": False,
+            "blockedActions": copy.deepcopy(blocked_actions),
+        },
+        "paidTencentRerunHold": copy.deepcopy(paid_hold),
+    }
+
+
 def build_paid_failure_validation_plan_handoff(
     guard: dict[str, Any],
     *,
@@ -3771,11 +3868,7 @@ def build_paid_failure_validation_plan_handoff(
         handoff["consumedFailure"] = consumed_failure
     if (
         status == PAID_FAILURE_RECURRENCE_CONSUMED_FAILURE_PLAN_REQUIRED_FINAL_STATUS
-        and consumed_failure is not None
-        and (
-            text_value(consumed_failure.get("failureClassification")) == "private_server_http_readiness_timeout"
-            or text_value(consumed_failure.get("remoteTrainingTimeoutReason")) == "private_server_http_readiness"
-        )
+        and consumed_failure_is_private_server_http_readiness_timeout(consumed_failure)
     ):
         handoff["localDiagnosticPlan"] = build_local_private_server_http_readiness_diagnostic_plan(
             consumed_failure,
