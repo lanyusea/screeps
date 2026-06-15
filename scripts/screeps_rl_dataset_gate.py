@@ -42,6 +42,8 @@ DEFAULT_HOME_ROOM = world_profiles.PERSISTENT_DEFAULTS.room
 HOME_ROOM_ENV_VAR = "SCREEPS_HOME_ROOM"
 GATE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 SOURCE_TIMESTAMP_RE = re.compile(r"(\d{8}T\d{6}Z)")
+RUNTIME_ARTIFACTS_DIR_NAME = "runtime-artifacts"
+RUNTIME_SUMMARY_CONSOLE_DIR_NAME = "runtime-summary-console"
 E1_METRIC_FLOOR_KEYS = rollout_manager.METRIC_ORDER
 DERIVED_RUNTIME_KPI_FLOOR_SOURCE = "current_runtime_kpi_window"
 DERIVED_BASELINE_OBJECTIVE_TYPE = "screeps-rl-derived-runtime-kpi-baseline-objective"
@@ -762,14 +764,32 @@ def finite_positive_number(value: Any) -> float | None:
     return None
 
 
+def runtime_summary_console_root_from_path(path: str, *, allow_runtime_artifacts_parent: bool = False) -> str | None:
+    normalized = path.replace("\\", "/").rstrip("/")
+    if not normalized:
+        return None
+    parts = normalized.split("/")
+    if RUNTIME_SUMMARY_CONSOLE_DIR_NAME in parts:
+        index = parts.index(RUNTIME_SUMMARY_CONSOLE_DIR_NAME)
+        return "/".join(parts[: index + 1])
+    if allow_runtime_artifacts_parent and RUNTIME_ARTIFACTS_DIR_NAME in parts:
+        index = parts.index(RUNTIME_ARTIFACTS_DIR_NAME)
+        return "/".join([*parts[: index + 1], RUNTIME_SUMMARY_CONSOLE_DIR_NAME])
+    return None
+
+
 def first_runtime_summary_source_root(input_paths: Sequence[Any]) -> str:
     for path in input_paths:
-        if isinstance(path, str) and "runtime-summary-console" in path.replace("\\", "/"):
-            return path
+        if isinstance(path, str):
+            source_root = runtime_summary_console_root_from_path(path)
+            if source_root is not None:
+                return source_root
     for path in input_paths:
-        if isinstance(path, str) and path:
-            return path
-    return "runtime-artifacts/runtime-summary-console"
+        if isinstance(path, str):
+            source_root = runtime_summary_console_root_from_path(path, allow_runtime_artifacts_parent=True)
+            if source_root is not None:
+                return source_root
+    return dataset_export.CONSOLE_CAPTURE_INPUT_PATHS[-1]
 
 
 def command_string(parts: Sequence[str]) -> str:

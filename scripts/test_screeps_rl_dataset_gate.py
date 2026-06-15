@@ -525,6 +525,48 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
         self.assertEqual(cadence["estimatedSuccessfulCaptureCadenceMinutesAtObservedDensity"], 0.2)
         self.assertIn("about 3000 more successful runtime-summary captures", diagnostics["recommendedAction"])
 
+    def test_recovery_capture_command_uses_console_root_for_parent_artifact_inputs(self) -> None:
+        cases = (
+            (
+                ["/root/screeps/runtime-artifacts"],
+                "/root/screeps/runtime-artifacts/runtime-summary-console",
+            ),
+            (
+                list(dataset_export.DEFAULT_INPUT_PATHS),
+                "/root/screeps/runtime-artifacts/runtime-summary-console",
+            ),
+        )
+        for input_paths, expected_source_root in cases:
+            with self.subTest(input_paths=input_paths):
+                diagnostics = gate.dataset_source_diagnostics(
+                    {
+                        "sampleCount": 1,
+                        "sourceArtifactCount": 1,
+                        "runtimeSummaryArtifactCount": 1,
+                        "skippedFileReasons": {},
+                        "skippedSampleCount": 0,
+                        "skippedSampleReasons": {},
+                    },
+                    {
+                        "source": {
+                            "inputPaths": input_paths,
+                            "sourceMaxAgeHours": 24.0,
+                            "scannedFiles": 1,
+                            "sourceArtifactCount": 1,
+                            "matchedArtifactCount": 1,
+                            "skippedFileCount": 0,
+                            "skippedFileReasons": {},
+                        },
+                    },
+                    sample_count=1,
+                    min_samples=2,
+                )
+
+                cadence = diagnostics["sampleCadence"]
+                self.assertEqual(cadence["sourceRoot"], expected_source_root)
+                self.assertEqual(cadence["captureCommandArgs"][-2:], ["--out-dir", expected_source_root])
+                self.assertNotEqual(cadence["captureCommandArgs"][-1], input_paths[0].rstrip("/"))
+
     def test_run_rejects_dead_room_dataset_samples(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
