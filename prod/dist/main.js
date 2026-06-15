@@ -27851,7 +27851,7 @@ function hasActiveTerritoryControlAssignment(creep) {
 function selectCriticalCpuWorkerTask(creep, cpuBudget) {
   const carriedEnergy = getUsedEnergy2(creep);
   if (carriedEnergy <= 0) {
-    return selectCriticalCpuEnergyAcquisitionTask(creep);
+    return selectCriticalCpuEnergyAcquisitionTask(creep, cpuBudget);
   }
   const controller = creep.room.controller;
   const constructionSites = findConstructionSites(creep.room);
@@ -27937,6 +27937,10 @@ function selectCriticalCpuWorkerTask(creep, cpuBudget) {
   }
   if (controllerSustainConstructionBacklogTask) {
     return applyMinimumUsefulLoadPolicy(creep, controllerSustainConstructionBacklogTask);
+  }
+  const constructionRecoveryTask = canUseCriticalCpuConstructionRecovery(creep, cpuBudget) ? selectConstructionRecoveryCpuWorkerTask(creep) : null;
+  if (constructionRecoveryTask) {
+    return constructionRecoveryTask;
   }
   const loadedControllerProgressTask = selectNonCriticalCpuLoadedControllerProgressTask(
     creep,
@@ -28090,8 +28094,8 @@ function canSpendOnStoredProtectedConstructionBacklog(creep, site, priorityConte
 function isStoredProtectedConstructionBacklogSite(site, priorityContext) {
   return isRoadConstructionSite2(site) || isHighImpactConstructionSite(site, priorityContext);
 }
-function selectCriticalCpuEnergyAcquisitionTask(creep) {
-  var _a2, _b;
+function selectCriticalCpuEnergyAcquisitionTask(creep, cpuBudget) {
+  var _a2, _b, _c;
   if (getFreeEnergyCapacity9(creep) <= 0) {
     return null;
   }
@@ -28120,7 +28124,15 @@ function selectCriticalCpuEnergyAcquisitionTask(creep) {
   if (hasCriticalCpuRepairDemand(creep)) {
     return selectWorkerEnergyCriticalAcquisitionTask(creep);
   }
-  return (_b = selectStoredProtectedSourceContainerConstructionEnergyAcquisitionTask(creep)) != null ? _b : selectStoredProtectedConstructionBacklogEnergyAcquisitionTask(creep);
+  const storedProtectedConstructionEnergyTask = (_b = selectStoredProtectedSourceContainerConstructionEnergyAcquisitionTask(creep)) != null ? _b : selectStoredProtectedConstructionBacklogEnergyAcquisitionTask(creep);
+  if (storedProtectedConstructionEnergyTask) {
+    return storedProtectedConstructionEnergyTask;
+  }
+  return canUseCriticalCpuConstructionRecovery(creep, cpuBudget) ? (_c = selectConstructionBacklogEnergyAcquisitionTask(creep)) != null ? _c : selectConstructionBacklogFallbackEnergyAcquisitionTask(creep) : null;
+}
+function canUseCriticalCpuConstructionRecovery(creep, cpuBudget) {
+  const memory = creep.memory;
+  return !cpuBudget.critical && (memory == null ? void 0 : memory.role) === "worker" && memory.controllerSustain === void 0 && memory.interRoomEnergyHaul === void 0 && memory.spawnSupport === void 0 && memory.territory === void 0;
 }
 function hasCriticalCpuRepairDemand(creep) {
   return selectCriticalOwnedSpawnRepairTarget(creep) !== null || selectEmergencyOwnedRampartRepairTarget(creep) !== null || selectThreatenedBarrierRepairTarget(creep) !== null || selectCriticalInfrastructureRepairTarget(creep) !== null;
