@@ -20,6 +20,8 @@ SCHEMA_VERSION = 1
 CONTRACT_VERSION = 1
 CONTRACT_TYPE = "screeps-rl-rollout-gate-contract"
 CANARY_CONTRACT_TYPE = "screeps-rl-safe-canary-contract"
+CANARY_PLAN_TYPE = "screeps-rl-bounded-live-canary-plan"
+SCORECARD_TYPE = "screeps-rl-evaluation-scorecard"
 COMPARISON_TYPE = "screeps-rl-post-rollout-kpi-comparison"
 DECISION_TYPE = "screeps-rl-rollout-decision"
 ROLLBACK_TYPE = "screeps-rl-rollback-check"
@@ -31,6 +33,16 @@ LIVE_INFLUENCE_STATES = ("none", "shadow", "canary", "active", "rolled_back")
 DEFAULT_LIVE_INFLUENCE_STATE = "none"
 DEFAULT_LIVE_INFLUENCE_SURFACE = "none"
 LIVE_INFLUENCE_STATES_REQUIRING_REFS = ("canary", "active", "rolled_back")
+CANARY_PLAN_PASS_STATUSES = ("pass", "passed", "ok", "stable", "ready", "accepted")
+CANARY_PLAN_ACTIVE_WORLD_STATUS = "matched_main"
+CANARY_PLAN_SCORECARD_PASS_STATUS = "PASS"
+CANARY_PLAN_SCORECARD_STATUS_VALUES = (
+    CANARY_PLAN_SCORECARD_PASS_STATUS,
+    "HOLD",
+    "MIXED",
+    "ROLLBACK_REQUIRED",
+    "INCONCLUSIVE",
+)
 ALLOWED_LIVE_INFLUENCE_SURFACES: dict[str, JsonObject] = {
     "none": {
         "description": "no learned/tuned candidate influence reaches official MMO behavior",
@@ -149,6 +161,45 @@ def normalize_contract_text(value: str | None, default: str) -> str:
     if value is None or value == "":
         return default
     return value
+
+
+def normalize_status_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
+    return normalized or None
+
+
+def status_is_pass(value: str | None) -> bool:
+    normalized = normalize_status_text(value)
+    return normalized in CANARY_PLAN_PASS_STATUSES if normalized is not None else False
+
+
+def normalize_scorecard_status(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().upper().replace("-", "_").replace(" ", "_")
+    return normalized or None
+
+
+def text_present(value: Any) -> bool:
+    return isinstance(value, str) and value.strip() != ""
+
+
+def parse_bool_arg(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in ("1", "true", "yes", "y", "ok", "pass"):
+        return True
+    if normalized in ("0", "false", "no", "n", "fail", "blocked"):
+        return False
+    raise argparse.ArgumentTypeError(f"expected boolean value, got {value!r}")
+
+
+def parse_key_value_arg(value: str) -> tuple[str, str]:
+    key, separator, status = value.partition("=")
+    if not separator or not key.strip() or not status.strip():
+        raise argparse.ArgumentTypeError("expected KEY=VALUE")
+    return key.strip(), status.strip()
 
 
 def utc_now_iso() -> str:
@@ -684,6 +735,44 @@ def compare_metric(pre_value: Any, post_value: Any, spec: MetricSpec) -> JsonObj
     return result
 
 
+def evaluate_window_requirements(window: JsonObject, label: str) -> list[JsonObject]:
+    checks: list[JsonObject] = []
+
+    duration = number_or_none(window.get("durationHours"))
+    if duration is None:
+        checks.append({"label": label, "reason": "missing_duration_hours", "status": "fail"})
+    elif duration + EPSILON < DEFAULT_OBSERVATION_WINDOW_HOURS:
+        checks.append(
+            {
+                "actualHours": round_float(duration),
+                "label": label,
+                "reason": "duration_below_observation_window",
+                "requiredHours": DEFAULT_OBSERVATION_WINDOW_HOURS,
+                "status": "fail",
+            }
+        )
+    else:
+        checks.append({"actualHours": round_float(duration), "label": label, "status": "pass"})
+
+    sample_count = number_or_none(window.get("sampleCount"))
+    if sample_count is None:
+        checks.append({"label": label, "reason": "missing_sample_count", "status": "fail"})
+    elif sample_count + EPSILON < DEFAULT_MIN_OBSERVATION_SAMPLES:
+        checks.append(
+            {
+                "actualSamples": round_float(sample_count),
+                "label": label,
+                "reason": "samples_below_minimum",
+                "requiredSamples": DEFAULT_MIN_OBSERVATION_SAMPLES,
+                "status": "fail",
+            }
+        )
+    else:
+        checks.append({"actualSamples": round_float(sample_count), "label": label, "status": "pass"})
+
+    return checks
+
+
 def evaluate_observation_contract(
     pre_window: JsonObject,
     post_window: JsonObject,
@@ -700,43 +789,618 @@ def evaluate_observation_contract(
         }
 
     for label, window in (("pre", pre_window), ("post", post_window)):
-        duration = number_or_none(window.get("durationHours"))
-        if duration is None:
-            checks.append({"label": label, "reason": "missing_duration_hours", "status": "fail"})
-        elif duration + EPSILON < DEFAULT_OBSERVATION_WINDOW_HOURS:
-            checks.append(
-                {
-                    "actualHours": round_float(duration),
-                    "label": label,
-                    "reason": "duration_below_observation_window",
-                    "requiredHours": DEFAULT_OBSERVATION_WINDOW_HOURS,
-                    "status": "fail",
-                }
-            )
-        else:
-            checks.append({"actualHours": round_float(duration), "label": label, "status": "pass"})
-
-        sample_count = number_or_none(window.get("sampleCount"))
-        if sample_count is None:
-            checks.append({"label": label, "reason": "missing_sample_count", "status": "fail"})
-        elif sample_count + EPSILON < DEFAULT_MIN_OBSERVATION_SAMPLES:
-            checks.append(
-                {
-                    "actualSamples": round_float(sample_count),
-                    "label": label,
-                    "reason": "samples_below_minimum",
-                    "requiredSamples": DEFAULT_MIN_OBSERVATION_SAMPLES,
-                    "status": "fail",
-                }
-            )
-        else:
-            checks.append({"actualSamples": round_float(sample_count), "label": label, "status": "pass"})
+        checks.extend(evaluate_window_requirements(window, label))
 
     return {
         "checks": checks,
         "requiredHours": DEFAULT_OBSERVATION_WINDOW_HOURS,
         "requiredSamples": DEFAULT_MIN_OBSERVATION_SAMPLES,
         "status": "fail" if any(check["status"] == "fail" for check in checks) else "pass",
+    }
+
+
+def build_baseline_readiness(baseline_raw: JsonObject | None, baseline_source: str | None) -> JsonObject:
+    if baseline_raw is None:
+        return {
+            "blockingReasons": [{"field": "baselineKpi", "reason": "missing_baseline_kpi_window"}],
+            "metrics": {key: None for key in METRIC_ORDER},
+            "observation": {
+                "checks": [],
+                "requiredHours": DEFAULT_OBSERVATION_WINDOW_HOURS,
+                "requiredSamples": DEFAULT_MIN_OBSERVATION_SAMPLES,
+                "status": "fail",
+            },
+            "rawType": None,
+            "status": "fail",
+            "window": {"sourcePath": baseline_source},
+        }
+
+    baseline = normalize_kpi_window(baseline_raw, baseline_source)
+    checks = evaluate_window_requirements(baseline["window"], "baseline")
+    blocking_reasons: list[JsonObject] = [
+        {"scope": "baselineObservation", **check} for check in checks if check.get("status") == "fail"
+    ]
+    metric_checks: list[JsonObject] = []
+    for key, value in baseline["metrics"].items():
+        check = {
+            "metric": key,
+            "reason": "missing_baseline_metric" if value is None else "observed",
+            "status": "fail" if value is None else "pass",
+        }
+        metric_checks.append(check)
+        if value is None:
+            blocking_reasons.append({"metric": key, "reason": "missing_baseline_metric", "scope": "baselineMetric"})
+
+    observation = {
+        "checks": checks,
+        "requiredHours": DEFAULT_OBSERVATION_WINDOW_HOURS,
+        "requiredSamples": DEFAULT_MIN_OBSERVATION_SAMPLES,
+        "status": "fail" if any(check["status"] == "fail" for check in checks) else "pass",
+    }
+    status = "fail" if blocking_reasons else "pass"
+    return {
+        "blockingReasons": blocking_reasons,
+        "metricChecks": metric_checks,
+        "metrics": baseline["metrics"],
+        "observation": observation,
+        "rawType": baseline["rawType"],
+        "status": status,
+        "window": baseline["window"],
+    }
+
+
+def build_planning_safety_guards(
+    *,
+    official_mmo_write_allowed: bool = False,
+    paid_compute_allowed: bool = False,
+) -> JsonObject:
+    return {
+        "deploysCode": False,
+        "launchesCanary": False,
+        "officialMmoWritesAllowedDuringPlanning": official_mmo_write_allowed,
+        "paidComputeAllowed": paid_compute_allowed,
+        "planGeneratedOnly": True,
+        "prohibitedActions": [
+            "do not launch Tencent paid compute",
+            "do not scale ASGs",
+            "do not run official deploy",
+            "do not write official MMO state",
+            "do not train a new model",
+            "do not bypass validation-plan or no-compute guards",
+        ],
+        "trainsModel": False,
+        "writesOfficialMmo": False,
+    }
+
+
+def canary_plan_safety_blocking_reasons(safety: JsonObject) -> list[JsonObject]:
+    reasons: list[JsonObject] = []
+    if safety.get("paidComputeAllowed") is not False:
+        reasons.append({"field": "safetyGuards.paidComputeAllowed", "reason": "paid_compute_must_remain_held"})
+    if safety.get("officialMmoWritesAllowedDuringPlanning") is not False:
+        reasons.append(
+            {
+                "field": "safetyGuards.officialMmoWritesAllowedDuringPlanning",
+                "reason": "official_mmo_writes_must_remain_disallowed",
+            }
+        )
+    for field in ("deploysCode", "launchesCanary", "trainsModel", "writesOfficialMmo"):
+        if safety.get(field) is not False:
+            reasons.append({"field": f"safetyGuards.{field}", "reason": "planning_gate_must_not_execute_actions"})
+    return [{"scope": "safety", **reason} for reason in reasons]
+
+
+def canary_plan_text_blocking_reasons(fields: tuple[tuple[str, Any, str], ...]) -> list[JsonObject]:
+    return [
+        {"field": field, "reason": reason, "scope": "readiness"}
+        for field, value, reason in fields
+        if not text_present(value)
+    ]
+
+
+def build_candidate_scorecard_gate(
+    scorecard_raw: JsonObject | None,
+    scorecard_ref: str | None,
+    *,
+    candidate_id: str | None = None,
+    deploy_ref: str | None = None,
+    incumbent_baseline_ref: str | None = None,
+) -> JsonObject:
+    reasons: list[JsonObject] = []
+    overall_status: str | None = None
+    safety_regressions: list[Any] = []
+    non_safety_regressions: list[Any] = []
+    runtime_gate: JsonObject = {}
+    monotonic: JsonObject = {}
+
+    if not text_present(scorecard_ref):
+        reasons.append(
+            {
+                "field": "candidate.scorecardRef",
+                "reason": "missing_candidate_scorecard_ref",
+                "scope": "scorecardGate",
+            }
+        )
+    elif scorecard_raw is None:
+        reasons.append(
+            {
+                "field": "candidate.scorecardRef",
+                "reason": "missing_candidate_scorecard_artifact",
+                "scope": "scorecardGate",
+            }
+        )
+    else:
+        if scorecard_raw.get("type") != SCORECARD_TYPE:
+            reasons.append(
+                {
+                    "actual": scorecard_raw.get("type"),
+                    "field": "candidate.scorecard.type",
+                    "reason": "invalid_candidate_scorecard_type",
+                    "required": SCORECARD_TYPE,
+                    "scope": "scorecardGate",
+                }
+            )
+
+        scorecard_candidate = scorecard_raw.get("candidate")
+        scorecard_candidate = scorecard_candidate if isinstance(scorecard_candidate, dict) else {}
+        scorecard_candidate_id = scorecard_candidate.get("id")
+        if not text_present(scorecard_candidate_id):
+            reasons.append(
+                {
+                    "field": "candidate.scorecard.candidate.id",
+                    "reason": "missing_candidate_scorecard_candidate_id",
+                    "scope": "scorecardGate",
+                }
+            )
+        elif text_present(candidate_id) and scorecard_candidate_id != candidate_id:
+            reasons.append(
+                {
+                    "actual": scorecard_candidate_id,
+                    "field": "candidate.scorecard.candidate.id",
+                    "reason": "candidate_scorecard_candidate_id_mismatch",
+                    "required": candidate_id,
+                    "scope": "scorecardGate",
+                }
+            )
+
+        scorecard_candidate_commit = scorecard_candidate.get("commit")
+        scorecard_candidate_deploy_ref = scorecard_candidate.get("deployRef")
+        if (
+            text_present(deploy_ref)
+            and not text_present(scorecard_candidate_commit)
+            and not text_present(scorecard_candidate_deploy_ref)
+        ):
+            reasons.append(
+                {
+                    "field": "candidate.scorecard.candidate.deployBinding",
+                    "reason": "missing_candidate_scorecard_deploy_binding",
+                    "required": deploy_ref,
+                    "scope": "scorecardGate",
+                }
+            )
+        if (
+            text_present(scorecard_candidate_commit)
+            and text_present(deploy_ref)
+            and scorecard_candidate_commit != deploy_ref
+        ):
+            reasons.append(
+                {
+                    "actual": scorecard_candidate_commit,
+                    "field": "candidate.scorecard.candidate.commit",
+                    "reason": "candidate_scorecard_candidate_commit_mismatch",
+                    "required": deploy_ref,
+                    "scope": "scorecardGate",
+                }
+            )
+
+        if (
+            text_present(scorecard_candidate_deploy_ref)
+            and text_present(deploy_ref)
+            and scorecard_candidate_deploy_ref != deploy_ref
+        ):
+            reasons.append(
+                {
+                    "actual": scorecard_candidate_deploy_ref,
+                    "field": "candidate.scorecard.candidate.deployRef",
+                    "reason": "candidate_scorecard_candidate_deploy_ref_mismatch",
+                    "required": deploy_ref,
+                    "scope": "scorecardGate",
+                }
+            )
+
+        scorecard_baseline = scorecard_raw.get("baseline")
+        scorecard_baseline = scorecard_baseline if isinstance(scorecard_baseline, dict) else {}
+        scorecard_baseline_commit = scorecard_baseline.get("commit")
+        scorecard_baseline_deploy_ref = scorecard_baseline.get("deployRef")
+        if (
+            text_present(incumbent_baseline_ref)
+            and not text_present(scorecard_baseline_commit)
+            and not text_present(scorecard_baseline_deploy_ref)
+        ):
+            reasons.append(
+                {
+                    "field": "candidate.scorecard.baseline.binding",
+                    "reason": "missing_candidate_scorecard_baseline_binding",
+                    "required": incumbent_baseline_ref,
+                    "scope": "scorecardGate",
+                }
+            )
+        if (
+            text_present(scorecard_baseline_commit)
+            and text_present(incumbent_baseline_ref)
+            and scorecard_baseline_commit != incumbent_baseline_ref
+        ):
+            reasons.append(
+                {
+                    "actual": scorecard_baseline_commit,
+                    "field": "candidate.scorecard.baseline.commit",
+                    "reason": "candidate_scorecard_baseline_commit_mismatch",
+                    "required": incumbent_baseline_ref,
+                    "scope": "scorecardGate",
+                }
+            )
+        if (
+            text_present(scorecard_baseline_deploy_ref)
+            and text_present(incumbent_baseline_ref)
+            and scorecard_baseline_deploy_ref != incumbent_baseline_ref
+        ):
+            reasons.append(
+                {
+                    "actual": scorecard_baseline_deploy_ref,
+                    "field": "candidate.scorecard.baseline.deployRef",
+                    "reason": "candidate_scorecard_baseline_deploy_ref_mismatch",
+                    "required": incumbent_baseline_ref,
+                    "scope": "scorecardGate",
+                }
+            )
+
+        overall_gate = scorecard_raw.get("overallGate")
+        if not isinstance(overall_gate, dict):
+            reasons.append(
+                {
+                    "field": "candidate.scorecard.overallGate",
+                    "reason": "missing_candidate_scorecard_overall_gate",
+                    "scope": "scorecardGate",
+                }
+            )
+            overall_gate = {}
+
+        overall_status = normalize_scorecard_status(overall_gate.get("status"))
+        if overall_status != CANARY_PLAN_SCORECARD_PASS_STATUS:
+            reasons.append(
+                {
+                    "actual": overall_status,
+                    "allowedStatusValues": list(CANARY_PLAN_SCORECARD_STATUS_VALUES),
+                    "field": "candidate.scorecard.overallGate.status",
+                    "reason": "candidate_scorecard_status_must_pass",
+                    "required": CANARY_PLAN_SCORECARD_PASS_STATUS,
+                    "scope": "scorecardGate",
+                }
+            )
+
+        raw_safety_regressions = overall_gate.get("safetyRegressions")
+        safety_regressions = list(raw_safety_regressions) if isinstance(raw_safety_regressions, list) else []
+        if safety_regressions:
+            reasons.append(
+                {
+                    "actual": safety_regressions,
+                    "field": "candidate.scorecard.overallGate.safetyRegressions",
+                    "reason": "candidate_scorecard_safety_regressions",
+                    "required": [],
+                    "scope": "scorecardGate",
+                }
+            )
+
+        raw_non_safety_regressions = overall_gate.get("nonSafetyRegressions")
+        non_safety_regressions = (
+            list(raw_non_safety_regressions) if isinstance(raw_non_safety_regressions, list) else []
+        )
+        if non_safety_regressions:
+            reasons.append(
+                {
+                    "actual": non_safety_regressions,
+                    "field": "candidate.scorecard.overallGate.nonSafetyRegressions",
+                    "reason": "candidate_scorecard_dimension_regressions",
+                    "required": [],
+                    "scope": "scorecardGate",
+                }
+            )
+
+        raw_runtime_gate = overall_gate.get("runtimeCandidateGate")
+        runtime_gate = dict(raw_runtime_gate) if isinstance(raw_runtime_gate, dict) else {}
+        raw_monotonic = overall_gate.get("monotonic")
+        monotonic = dict(raw_monotonic) if isinstance(raw_monotonic, dict) else {}
+
+        if not safety_regressions and monotonic.get("noSafetyRegression") is not True:
+            reasons.append(
+                {
+                    "actual": monotonic.get("noSafetyRegression"),
+                    "field": "candidate.scorecard.overallGate.monotonic.noSafetyRegression",
+                    "reason": "candidate_scorecard_no_safety_regression_not_proven",
+                    "required": True,
+                    "scope": "scorecardGate",
+                }
+            )
+        if not non_safety_regressions and monotonic.get("noDimensionRegression") is not True:
+            reasons.append(
+                {
+                    "actual": monotonic.get("noDimensionRegression"),
+                    "field": "candidate.scorecard.overallGate.monotonic.noDimensionRegression",
+                    "reason": "candidate_scorecard_no_dimension_regression_not_proven",
+                    "required": True,
+                    "scope": "scorecardGate",
+                }
+            )
+
+        runtime_injection_proven = (
+            runtime_gate.get("runtimeParameterInjection") is True
+            and runtime_gate.get("runtimeParameterConsumption") is True
+            and monotonic.get("runtimeParameterInjectionProven") is True
+        )
+        if not runtime_injection_proven:
+            reasons.append(
+                {
+                    "actual": {
+                        "runtimeParameterConsumption": runtime_gate.get("runtimeParameterConsumption"),
+                        "runtimeParameterInjection": runtime_gate.get("runtimeParameterInjection"),
+                        "runtimeParameterInjectionProven": monotonic.get("runtimeParameterInjectionProven"),
+                    },
+                    "field": "candidate.scorecard.overallGate.runtimeCandidateGate",
+                    "reason": "candidate_scorecard_runtime_injection_not_proven",
+                    "required": True,
+                    "scope": "scorecardGate",
+                }
+            )
+
+    return {
+        "blockingReasons": reasons,
+        "nonSafetyRegressions": non_safety_regressions,
+        "overallStatus": overall_status,
+        "runtimeCandidateGate": runtime_gate,
+        "safetyRegressions": safety_regressions,
+        "sourceArtifact": scorecard_ref,
+        "status": "hold" if reasons else "pass",
+    }
+
+
+def build_canary_readiness_plan(
+    *,
+    active_world_ref: str | None = None,
+    active_world_status: str | None = None,
+    baseline_raw: JsonObject | None = None,
+    baseline_source: str | None = None,
+    candidate_id: str | None = None,
+    conclusion_records: list[tuple[str, str]] | None = None,
+    conclusion_registry_ref: str | None = None,
+    conclusion_summary: str | None = None,
+    construction_acceptance_status: str | None = None,
+    cpu_baseline_ref: str | None = None,
+    cpu_baseline_status: str | None = None,
+    created_at: str | None = None,
+    deploy_artifact: str | None = None,
+    deploy_ref: str | None = None,
+    health_gate_ok: bool | None = None,
+    incumbent_baseline_ref: str | None = None,
+    live_influence_state: str | None = "canary",
+    live_influence_surface: str | None = "bounded_high_level_strategy_knobs",
+    official_deploy_head: str | None = None,
+    official_deploy_run_id: str | None = None,
+    official_mmo_write_allowed: bool = False,
+    owned_creeps: float | int | None = None,
+    owned_spawns: float | int | None = None,
+    paid_compute_allowed: bool = False,
+    postdeploy_alert: bool | None = None,
+    postdeploy_alert_artifact: str | None = None,
+    postdeploy_health_gate_artifact: str | None = None,
+    postdeploy_summary_artifact: str | None = None,
+    rollback_ref: str | None = None,
+    scorecard_raw: JsonObject | None = None,
+    scorecard_ref: str | None = None,
+) -> JsonObject:
+    created = created_at or utc_now_iso()
+    baseline = build_baseline_readiness(baseline_raw, baseline_source)
+    canary_contract = build_safe_canary_contract(
+        candidate_id=candidate_id,
+        deploy_ref=deploy_ref,
+        rollback_ref=rollback_ref,
+        incumbent_baseline_ref=incumbent_baseline_ref,
+        live_influence_state=live_influence_state,
+        live_influence_surface=live_influence_surface,
+        created_at=created,
+        baseline_source=baseline_source,
+    )
+    safety = build_planning_safety_guards(
+        official_mmo_write_allowed=official_mmo_write_allowed,
+        paid_compute_allowed=paid_compute_allowed,
+    )
+    normalized_active_world = normalize_status_text(active_world_status)
+    normalized_construction = normalize_status_text(construction_acceptance_status)
+    normalized_cpu = normalize_status_text(cpu_baseline_status)
+    spawn_count = number_or_none(owned_spawns)
+    creep_count = number_or_none(owned_creeps)
+    scorecard_gate = build_candidate_scorecard_gate(
+        scorecard_raw,
+        scorecard_ref,
+        candidate_id=candidate_id,
+        deploy_ref=deploy_ref,
+        incumbent_baseline_ref=incumbent_baseline_ref,
+    )
+
+    blocking_reasons: list[JsonObject] = []
+    blocking_reasons.extend(baseline["blockingReasons"])
+    blocking_reasons.extend(canary_blocking_reasons(canary_contract))
+    blocking_reasons.extend(scorecard_gate["blockingReasons"])
+    blocking_reasons.extend(canary_plan_safety_blocking_reasons(safety))
+    blocking_reasons.extend(
+        canary_plan_text_blocking_reasons(
+            (
+                ("controlLoop.conclusionRegistryRef", conclusion_registry_ref, "missing_conclusion_registry_ref"),
+                ("officialDeploy.head", official_deploy_head, "missing_official_deploy_head"),
+                ("officialDeploy.runId", official_deploy_run_id, "missing_official_deploy_run_id"),
+                ("officialDeploy.artifacts.deploy", deploy_artifact, "missing_official_deploy_artifact"),
+                (
+                    "officialDeploy.artifacts.postdeploySummary",
+                    postdeploy_summary_artifact,
+                    "missing_postdeploy_summary_artifact",
+                ),
+                (
+                    "officialDeploy.artifacts.postdeployHealthGate",
+                    postdeploy_health_gate_artifact,
+                    "missing_postdeploy_health_gate_artifact",
+                ),
+                (
+                    "officialDeploy.artifacts.postdeployAlert",
+                    postdeploy_alert_artifact,
+                    "missing_postdeploy_alert_artifact",
+                ),
+            )
+        )
+    )
+
+    if not conclusion_records:
+        blocking_reasons.append(
+            {
+                "field": "controlLoop.conclusions",
+                "reason": "missing_conclusion_records",
+                "scope": "controlLoop",
+            }
+        )
+    if normalized_active_world != CANARY_PLAN_ACTIVE_WORLD_STATUS:
+        blocking_reasons.append(
+            {
+                "actual": active_world_status,
+                "field": "officialDeploy.activeWorldStatus",
+                "reason": "active_world_must_match_main",
+                "required": CANARY_PLAN_ACTIVE_WORLD_STATUS,
+                "scope": "officialDeploy",
+            }
+        )
+    if health_gate_ok is not True:
+        blocking_reasons.append(
+            {
+                "actual": health_gate_ok,
+                "field": "officialDeploy.healthGateOk",
+                "reason": "postdeploy_health_gate_must_be_ok",
+                "scope": "officialDeploy",
+            }
+        )
+    if postdeploy_alert is not False:
+        blocking_reasons.append(
+            {
+                "actual": postdeploy_alert,
+                "field": "officialDeploy.alert",
+                "reason": "postdeploy_alert_must_be_false",
+                "scope": "officialDeploy",
+            }
+        )
+    if normalized_construction != "pass":
+        blocking_reasons.append(
+            {
+                "actual": construction_acceptance_status,
+                "field": "constructionGate.status",
+                "reason": "construction_acceptance_must_pass",
+                "required": "pass",
+                "scope": "constructionGate",
+            }
+        )
+    if not status_is_pass(cpu_baseline_status):
+        blocking_reasons.append(
+            {
+                "actual": cpu_baseline_status,
+                "field": "cpuGate.status",
+                "reason": "cpu_baseline_must_pass",
+                "scope": "cpuGate",
+            }
+        )
+    elif not text_present(cpu_baseline_ref):
+        blocking_reasons.append(
+            {
+                "actual": cpu_baseline_ref,
+                "field": "cpuGate.sourceArtifact",
+                "reason": "missing_cpu_baseline_ref",
+                "scope": "cpuGate",
+            }
+        )
+    if spawn_count is None or spawn_count < 1:
+        blocking_reasons.append(
+            {
+                "actual": owned_spawns,
+                "field": "officialDeploy.ownedSpawns",
+                "reason": "owned_spawn_count_must_be_positive",
+                "scope": "officialDeploy",
+            }
+        )
+    if creep_count is None or creep_count < 1:
+        blocking_reasons.append(
+            {
+                "actual": owned_creeps,
+                "field": "officialDeploy.ownedCreeps",
+                "reason": "owned_creep_count_must_be_positive",
+                "scope": "officialDeploy",
+            }
+        )
+
+    readiness_status = "hold" if blocking_reasons else "ready"
+    return {
+        "type": CANARY_PLAN_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "canaryContract": canary_contract,
+        "candidate": {
+            "deployRef": deploy_ref,
+            "id": candidate_id,
+            "scorecardRef": scorecard_ref,
+        },
+        "controlLoop": {
+            "conclusionRegistryRef": conclusion_registry_ref,
+            "conclusions": [
+                {"conclusionId": conclusion_id, "status": status}
+                for conclusion_id, status in (conclusion_records or [])
+            ],
+            "summary": conclusion_summary,
+        },
+        "createdAt": created,
+        "cpuGate": {
+            "sourceArtifact": cpu_baseline_ref,
+            "status": normalized_cpu,
+        },
+        "scorecardGate": scorecard_gate,
+        "constructionGate": {
+            "postdeployHealthGateArtifact": postdeploy_health_gate_artifact,
+            "status": normalized_construction,
+        },
+        "incumbentBaseline": {
+            "kpiWindow": baseline,
+            "ref": incumbent_baseline_ref,
+        },
+        "issue": "#1583",
+        "mode": "planning_only",
+        "officialDeploy": {
+            "activeWorldRef": active_world_ref,
+            "activeWorldStatus": normalized_active_world,
+            "alert": postdeploy_alert,
+            "artifacts": {
+                "deploy": deploy_artifact,
+                "postdeployAlert": postdeploy_alert_artifact,
+                "postdeployHealthGate": postdeploy_health_gate_artifact,
+                "postdeploySummary": postdeploy_summary_artifact,
+            },
+            "head": official_deploy_head,
+            "healthGateOk": health_gate_ok,
+            "ownedCreeps": round_float(creep_count) if creep_count is not None else owned_creeps,
+            "ownedSpawns": round_float(spawn_count) if spawn_count is not None else owned_spawns,
+            "runId": official_deploy_run_id,
+        },
+        "readiness": {
+            "blockingReasons": blocking_reasons,
+            "nextAction": (
+                "controller may run the bounded canary dry-run/rollback gate with these refs"
+                if readiness_status == "ready"
+                else "do not launch canary; satisfy the blocking readiness reasons first"
+            ),
+            "status": readiness_status,
+        },
+        "rollbackTrigger": rollback_trigger_spec(),
+        "safetyGuards": safety,
     }
 
 
@@ -1054,6 +1718,59 @@ def build_parser() -> argparse.ArgumentParser:
     contract = subparsers.add_parser("contract", help="Print the KPI rollout gate contract.")
     contract.add_argument("--output", type=Path, help="Write JSON output to this path instead of stdout.")
 
+    canary_plan = subparsers.add_parser(
+        "canary-plan",
+        help="Build a planning-only bounded live canary readiness record.",
+    )
+    canary_plan.add_argument("--baseline", type=Path, help="Incumbent baseline KPI JSON fixture/report.")
+    canary_plan.add_argument("--candidate-id", help="Candidate strategy/model identifier.")
+    canary_plan.add_argument("--deploy-ref", help="Candidate deploy reference or bundle ref.")
+    canary_plan.add_argument("--scorecard-ref", help="Candidate-vs-baseline scorecard artifact ref.")
+    canary_plan.add_argument("--active-world-ref", help="Active world branch/ref observed after official deploy.")
+    canary_plan.add_argument(
+        "--active-world-status",
+        help="Expected to be matched_main after postdeploy evidence.",
+    )
+    canary_plan.add_argument("--official-deploy-head", help="Official deploy head SHA.")
+    canary_plan.add_argument("--official-deploy-run-id", help="Official deploy workflow run id.")
+    canary_plan.add_argument("--deploy-artifact", help="Official deploy JSON artifact path.")
+    canary_plan.add_argument("--postdeploy-summary-artifact", help="Postdeploy summary artifact path.")
+    canary_plan.add_argument("--postdeploy-health-gate-artifact", help="Postdeploy health-gate artifact path.")
+    canary_plan.add_argument("--postdeploy-alert-artifact", help="Postdeploy alert artifact path.")
+    canary_plan.add_argument("--health-gate-ok", type=parse_bool_arg, help="Whether the postdeploy health gate was ok.")
+    canary_plan.add_argument("--postdeploy-alert", type=parse_bool_arg, help="Whether the postdeploy alert fired.")
+    canary_plan.add_argument("--construction-acceptance-status", help="Postdeploy construction acceptance status.")
+    canary_plan.add_argument("--owned-spawns", type=float, help="Owned spawn count from postdeploy evidence.")
+    canary_plan.add_argument("--owned-creeps", type=float, help="Owned creep count from postdeploy evidence.")
+    canary_plan.add_argument("--cpu-baseline-status", help="CPU baseline gate status.")
+    canary_plan.add_argument("--cpu-baseline-ref", help="CPU baseline artifact/ref.")
+    canary_plan.add_argument("--conclusion-registry-ref", help="RL conclusion registry artifact/ref.")
+    canary_plan.add_argument("--conclusion-summary", help="Conclusion registry summary, for example ACTIONED=1,VALIDATING=1,CLOSED=2.")
+    canary_plan.add_argument(
+        "--conclusion",
+        action="append",
+        default=[],
+        type=parse_key_value_arg,
+        help="Conclusion status in CONCLUSION_ID=STATUS form. May be repeated.",
+    )
+    canary_plan.add_argument(
+        "--paid-compute-allowed",
+        action="store_true",
+        help="Record that paid compute would be allowed; this intentionally blocks readiness.",
+    )
+    canary_plan.add_argument(
+        "--official-mmo-write-allowed",
+        action="store_true",
+        help="Record that planning would allow official MMO writes; this intentionally blocks readiness.",
+    )
+    canary_plan.add_argument("--created-at", help="ISO UTC timestamp to record. Defaults to current UTC second.")
+    canary_plan.add_argument("--output", type=Path, help="Write JSON output to this path instead of stdout.")
+    add_canary_args(
+        canary_plan,
+        default_state="canary",
+        default_surface="bounded_high_level_strategy_knobs",
+    )
+
     dry_run = subparsers.add_parser("dry-run", help="Evaluate a dry-run rollout decision from pre/post KPI fixtures.")
     add_common_kpi_args(dry_run, "pre", "post")
     dry_run.add_argument("--candidate-id", help="Candidate strategy/model identifier.")
@@ -1100,6 +1817,48 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: Tex
     try:
         if args.command == "contract":
             write_output(build_gate_contract(), args.output, stdout)
+            return 0
+
+        if args.command == "canary-plan":
+            baseline = load_json(args.baseline) if args.baseline is not None else None
+            scorecard = load_json(Path(args.scorecard_ref)) if text_present(args.scorecard_ref) else None
+            write_output(
+                build_canary_readiness_plan(
+                    active_world_ref=args.active_world_ref,
+                    active_world_status=args.active_world_status,
+                    baseline_raw=baseline,
+                    baseline_source=str(args.baseline) if args.baseline is not None else None,
+                    candidate_id=args.candidate_id,
+                    conclusion_records=args.conclusion,
+                    conclusion_registry_ref=args.conclusion_registry_ref,
+                    conclusion_summary=args.conclusion_summary,
+                    construction_acceptance_status=args.construction_acceptance_status,
+                    cpu_baseline_ref=args.cpu_baseline_ref,
+                    cpu_baseline_status=args.cpu_baseline_status,
+                    created_at=args.created_at,
+                    deploy_artifact=args.deploy_artifact,
+                    deploy_ref=args.deploy_ref,
+                    health_gate_ok=args.health_gate_ok,
+                    incumbent_baseline_ref=args.incumbent_baseline_ref,
+                    live_influence_state=args.live_influence_state,
+                    live_influence_surface=args.live_influence_surface,
+                    official_deploy_head=args.official_deploy_head,
+                    official_deploy_run_id=args.official_deploy_run_id,
+                    official_mmo_write_allowed=args.official_mmo_write_allowed,
+                    owned_creeps=args.owned_creeps,
+                    owned_spawns=args.owned_spawns,
+                    paid_compute_allowed=args.paid_compute_allowed,
+                    postdeploy_alert=args.postdeploy_alert,
+                    postdeploy_alert_artifact=args.postdeploy_alert_artifact,
+                    postdeploy_health_gate_artifact=args.postdeploy_health_gate_artifact,
+                    postdeploy_summary_artifact=args.postdeploy_summary_artifact,
+                    rollback_ref=args.rollback_ref,
+                    scorecard_raw=scorecard,
+                    scorecard_ref=args.scorecard_ref,
+                ),
+                args.output,
+                stdout,
+            )
             return 0
 
         if args.command == "dry-run":
