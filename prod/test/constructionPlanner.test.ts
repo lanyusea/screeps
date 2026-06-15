@@ -1136,6 +1136,106 @@ describe('owned room construction planner', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(18, 23, TEST_GLOBALS.STRUCTURE_ROAD);
   });
 
+  it('seeds a residual road from a mature healthy room buffer when stored surplus is reserved', () => {
+    installOpenTerrain();
+    const source = makeSource('source-a', 35, 35);
+    const { room, colony } = makeColony({
+      controllerLevel: 6,
+      energyAvailable: 2_300,
+      energyCapacityAvailable: 2_300,
+      structures: [
+        ...makeRecoveredRcl6ResidualConstructionStructures(source).filter(
+          (structure) => structure.id !== 'storage-existing'
+        ),
+        makeStoredStructure('storage-existing', TEST_GLOBALS.STRUCTURE_STORAGE, 18, 24, 800)
+      ],
+      sources: [source],
+      pathsByTarget: {}
+    });
+
+    const result = planConstructionForColony(colony, {
+      creeps: makeWorkerCreeps(5),
+      respectRoomEnergyBuffer: true,
+      strategyRegistry: DEFAULT_STRATEGY_REGISTRY,
+      runtimeStrategyConstructionEnabled: true,
+      runtimeStrategyConstructionFallbackPriorities: false,
+      maxPlacementsPerRoom: 1,
+      maxContainerSitesPerTick: 1,
+      maxPendingContainerSites: 1,
+      roadOptions: {
+        maxSitesPerTick: 1,
+        maxPendingRoadSites: 1,
+        maxTargetsPerTick: 1
+      }
+    });
+
+    expect(result.placements).toEqual([
+      {
+        priority: 'road',
+        roomName: 'W1N1',
+        structureType: TEST_GLOBALS.STRUCTURE_ROAD,
+        result: OK_CODE,
+        energyReserved: 50,
+        x: 18,
+        y: 23
+      }
+    ]);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(18, 23, TEST_GLOBALS.STRUCTURE_ROAD);
+  });
+
+  it('keeps residual road seeding blocked when the road reservation would pierce the room buffer', () => {
+    installOpenTerrain();
+    const source = makeSource('source-a', 35, 35);
+    const { room, colony } = makeColony({
+      controllerLevel: 6,
+      energyAvailable: 849,
+      energyCapacityAvailable: 2_300,
+      structures: [
+        ...makeRecoveredRcl6ResidualConstructionStructures(source).filter(
+          (structure) => structure.id !== 'storage-existing'
+        ),
+        makeStoredStructure('storage-existing', TEST_GLOBALS.STRUCTURE_STORAGE, 18, 24, 800)
+      ],
+      sources: [source],
+      pathsByTarget: {}
+    });
+
+    const result = planConstructionForColony(colony, {
+      creeps: makeWorkerCreeps(5),
+      respectRoomEnergyBuffer: true,
+      strategyRegistry: DEFAULT_STRATEGY_REGISTRY,
+      runtimeStrategyConstructionEnabled: true,
+      runtimeStrategyConstructionFallbackPriorities: false,
+      emitConstructionBlockerDiagnostics: true,
+      maxPlacementsPerRoom: 1,
+      maxContainerSitesPerTick: 1,
+      maxPendingContainerSites: 1,
+      roadOptions: {
+        maxSitesPerTick: 1,
+        maxPendingRoadSites: 1,
+        maxTargetsPerTick: 1
+      }
+    });
+
+    expect(result.placements).toEqual([]);
+    expect(result.blockedPlacements).toEqual([
+      {
+        priority: 'road',
+        roomName: 'W1N1',
+        structureType: TEST_GLOBALS.STRUCTURE_ROAD,
+        blockedReason: 'residual_road_seed_stored_energy_unavailable',
+        details: {
+          storedEnergyAvailableForConstruction: 0,
+          storedEnergyMinimum: 300,
+          pendingConstructionSiteCount: 0,
+          successfulPlacementCount: 0
+        }
+      }
+    ]);
+    expect(room.createConstructionSite).not.toHaveBeenCalled();
+  });
+
   it('seeds a stored-energy road from visible workers when planner options omit creeps', () => {
     installOpenTerrain();
     const source = makeSource('source-a', 35, 35);
