@@ -6690,6 +6690,45 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(report["categories"], [monitor.SUSTAINED_CONSTRUCTION_STALL_KIND])
         self.assertIn("#1894", report["triggers"][0]["metadata"]["related_issues"])
 
+    def test_sustained_construction_stall_requires_fresh_runtime_summary_capture_window(self) -> None:
+        room = "E29N55"
+        ticks = [2090100, 2090110, 2090120]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            for index, tick in enumerate(ticks, start=1):
+                (runtime_dir / f"runtime-summary-console-20260601T00000{index}Z.log").write_text(
+                    "#runtime-summary "
+                    + json.dumps(construction_stall_runtime_summary_payload(room, tick))
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+            warnings: list[str] = []
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room=room)],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        runtime_room = runtime_rooms[f"shardX/{room}"]
+        self.assertEqual(
+            runtime_room[monitor.RUNTIME_SUMMARY_CAPTURE_HISTORY_METADATA_KEY][0]["runtimeSummaryTick"],
+            ticks[-1],
+        )
+
+        emitted, suppressed, next_state = monitor.evaluate_room_alert(
+            make_owned_worker_room_snapshot(room, ticks[-1] + 25),
+            {"baseline_established": True, "owner": "lanyusea"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertNotIn(monitor.SUSTAINED_CONSTRUCTION_STALL_KIND, [reason["kind"] for reason in emitted])
+        self.assertEqual(next_state["rule_counts"][monitor.SUSTAINED_CONSTRUCTION_STALL_KIND], 0)
+
     def test_sustained_construction_stall_requires_runtime_summary_capture_window(self) -> None:
         room = "E29N55"
         previous_state: dict[str, object] = {"baseline_established": True, "owner": "lanyusea"}

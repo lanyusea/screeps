@@ -3872,6 +3872,8 @@ def sustained_construction_stall_capture_window_evidence(
     captures = sustained_construction_stall_consecutive_captures(runtime_room)
     if len(captures) < SUSTAINED_CONSTRUCTION_STALL_REQUIRED_CONSECUTIVE_CAPTURES:
         return None
+    if not worker_assignment_capture_window_is_fresh(captures, current_tick_value):
+        return None
     evidence = sustained_construction_stall_evidence(captures[0], metrics, current_tick_value)
     if evidence is None:
         evidence = sustained_construction_stall_evidence(runtime_room, metrics, current_tick_value)
