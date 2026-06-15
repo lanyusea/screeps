@@ -107,6 +107,9 @@ def reducer_report(
 
 def scorecard_artifact(
     *,
+    baseline_commit: str | None = "incumbent-ref",
+    baseline_deploy_ref: str | None = None,
+    baseline_id: str | None = "incumbent-baseline",
     candidate_commit: str | None = "candidate-ref",
     candidate_deploy_ref: str | None = None,
     candidate_id: str | None = "candidate-top-construction",
@@ -145,6 +148,15 @@ def scorecard_artifact(
         candidate["deployRef"] = candidate_deploy_ref
     if candidate:
         artifact["candidate"] = candidate
+    baseline: JsonObject = {}
+    if baseline_id is not None:
+        baseline["id"] = baseline_id
+    if baseline_commit is not None:
+        baseline["commit"] = baseline_commit
+    if baseline_deploy_ref is not None:
+        baseline["deployRef"] = baseline_deploy_ref
+    if baseline:
+        artifact["baseline"] = baseline
     return artifact
 
 
@@ -328,6 +340,36 @@ class RlRolloutManagerTest(unittest.TestCase):
         self.assertEqual(plan["readiness"]["status"], "hold")
         self.assertTrue(
             any(reason.get("reason") == "missing_candidate_scorecard_deploy_binding" for reason in reasons)
+        )
+
+    def test_canary_readiness_plan_holds_for_scorecard_baseline_mismatch(self) -> None:
+        for artifact_kwargs, expected_reason in (
+            ({"baseline_commit": "other-incumbent-ref"}, "candidate_scorecard_baseline_commit_mismatch"),
+            (
+                {"baseline_commit": None, "baseline_deploy_ref": "other-incumbent-ref"},
+                "candidate_scorecard_baseline_deploy_ref_mismatch",
+            ),
+        ):
+            with self.subTest(expected_reason=expected_reason):
+                plan = manager.build_canary_readiness_plan(
+                    **ready_canary_plan_kwargs(scorecard_raw=scorecard_artifact(**artifact_kwargs))
+                )
+
+                reasons = plan["readiness"]["blockingReasons"]
+                self.assertEqual(plan["readiness"]["status"], "hold")
+                self.assertTrue(any(reason.get("reason") == expected_reason for reason in reasons))
+
+    def test_canary_readiness_plan_holds_without_scorecard_baseline_binding(self) -> None:
+        plan = manager.build_canary_readiness_plan(
+            **ready_canary_plan_kwargs(
+                scorecard_raw=scorecard_artifact(baseline_commit=None, baseline_deploy_ref=None)
+            )
+        )
+
+        reasons = plan["readiness"]["blockingReasons"]
+        self.assertEqual(plan["readiness"]["status"], "hold")
+        self.assertTrue(
+            any(reason.get("reason") == "missing_candidate_scorecard_baseline_binding" for reason in reasons)
         )
 
     def test_canary_readiness_plan_holds_without_required_gates_or_safety(self) -> None:

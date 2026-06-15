@@ -904,6 +904,7 @@ def build_candidate_scorecard_gate(
     *,
     candidate_id: str | None = None,
     deploy_ref: str | None = None,
+    incumbent_baseline_ref: str | None = None,
 ) -> JsonObject:
     reasons: list[JsonObject] = []
     overall_status: str | None = None
@@ -1003,6 +1004,52 @@ def build_candidate_scorecard_gate(
                     "field": "candidate.scorecard.candidate.deployRef",
                     "reason": "candidate_scorecard_candidate_deploy_ref_mismatch",
                     "required": deploy_ref,
+                    "scope": "scorecardGate",
+                }
+            )
+
+        scorecard_baseline = scorecard_raw.get("baseline")
+        scorecard_baseline = scorecard_baseline if isinstance(scorecard_baseline, dict) else {}
+        scorecard_baseline_commit = scorecard_baseline.get("commit")
+        scorecard_baseline_deploy_ref = scorecard_baseline.get("deployRef")
+        if (
+            text_present(incumbent_baseline_ref)
+            and not text_present(scorecard_baseline_commit)
+            and not text_present(scorecard_baseline_deploy_ref)
+        ):
+            reasons.append(
+                {
+                    "field": "candidate.scorecard.baseline.binding",
+                    "reason": "missing_candidate_scorecard_baseline_binding",
+                    "required": incumbent_baseline_ref,
+                    "scope": "scorecardGate",
+                }
+            )
+        if (
+            text_present(scorecard_baseline_commit)
+            and text_present(incumbent_baseline_ref)
+            and scorecard_baseline_commit != incumbent_baseline_ref
+        ):
+            reasons.append(
+                {
+                    "actual": scorecard_baseline_commit,
+                    "field": "candidate.scorecard.baseline.commit",
+                    "reason": "candidate_scorecard_baseline_commit_mismatch",
+                    "required": incumbent_baseline_ref,
+                    "scope": "scorecardGate",
+                }
+            )
+        if (
+            text_present(scorecard_baseline_deploy_ref)
+            and text_present(incumbent_baseline_ref)
+            and scorecard_baseline_deploy_ref != incumbent_baseline_ref
+        ):
+            reasons.append(
+                {
+                    "actual": scorecard_baseline_deploy_ref,
+                    "field": "candidate.scorecard.baseline.deployRef",
+                    "reason": "candidate_scorecard_baseline_deploy_ref_mismatch",
+                    "required": incumbent_baseline_ref,
                     "scope": "scorecardGate",
                 }
             )
@@ -1176,6 +1223,7 @@ def build_canary_readiness_plan(
         scorecard_ref,
         candidate_id=candidate_id,
         deploy_ref=deploy_ref,
+        incumbent_baseline_ref=incumbent_baseline_ref,
     )
 
     blocking_reasons: list[JsonObject] = []
