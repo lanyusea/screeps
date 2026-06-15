@@ -418,6 +418,155 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
         self.assertIn("configured max-age window", diagnostics["recommendedAction"])
         self.assertNotIn("Noneh", diagnostics["recommendedAction"])
 
+    def test_insufficient_runtime_samples_reports_exact_cadence_requirements(self) -> None:
+        diagnostics = gate.dataset_source_diagnostics(
+            {
+                "sampleCount": 9,
+                "sourceArtifactCount": 69,
+                "runtimeSummaryArtifactCount": 3,
+                "skippedFileReasons": {
+                    "incomplete_derived_runtime_summary": 47,
+                    "older_than_max_age": 6686,
+                },
+                "skippedSampleCount": 0,
+                "skippedSampleReasons": {},
+            },
+            {
+                "source": {
+                    "inputPaths": ["runtime-artifacts/runtime-summary-console"],
+                    "sourceMaxAgeHours": 24.0,
+                    "scannedFiles": 69,
+                    "sourceArtifactCount": 69,
+                    "matchedArtifactCount": 3,
+                    "skippedFileCount": 6733,
+                    "skippedFileReasons": {
+                        "incomplete_derived_runtime_summary": 47,
+                        "older_than_max_age": 6686,
+                    },
+                },
+            },
+            sample_count=9,
+            min_samples=20,
+        )
+
+        cadence = diagnostics["sampleCadence"]
+        self.assertEqual(diagnostics["status"], "blocked")
+        self.assertEqual(diagnostics["classification"], "insufficient_runtime_samples")
+        self.assertIn("Need 11 more accepted runtime-summary samples", diagnostics["recommendedAction"])
+        self.assertIn("about 4 more successful runtime-summary captures", diagnostics["recommendedAction"])
+        self.assertEqual(cadence["minimumSamples"], 20)
+        self.assertEqual(cadence["currentSamples"], 9)
+        self.assertEqual(cadence["minimumAdditionalSamples"], 11)
+        self.assertEqual(cadence["sourceRoot"], "runtime-artifacts/runtime-summary-console")
+        self.assertEqual(cadence["observedSamplesPerRuntimeSummaryArtifact"], 3.0)
+        self.assertEqual(cadence["estimatedAdditionalRuntimeSummaryArtifactsAtObservedDensity"], 4)
+        self.assertEqual(cadence["minimumAcceptedSampleCadenceMinutes"], 72.0)
+        self.assertEqual(cadence["requiredSuccessfulCapturesPerSourceWindowAtObservedDensity"], 7)
+        self.assertEqual(cadence["estimatedSuccessfulCaptureCadenceMinutesAtObservedDensity"], 205.7)
+        self.assertEqual(cadence["olderThanMaxAgeFileCount"], 6686)
+        self.assertEqual(cadence["incompleteDerivedRuntimeSummaryFileCount"], 47)
+        self.assertEqual(
+            cadence["captureCommandArgs"],
+            [
+                "python3",
+                "scripts/screeps_runtime_summary_console_capture.py",
+                "--live-official-console",
+                "--format",
+                "status-line",
+                "--out-dir",
+                "runtime-artifacts/runtime-summary-console",
+            ],
+        )
+        self.assertEqual(
+            cadence["exportCheckCommandArgs"],
+            [
+                "python3",
+                "scripts/screeps_rl_dataset_export.py",
+                "--console-capture-only",
+                "--sample-limit",
+                "20",
+                "--source-max-age-hours",
+                "24",
+            ],
+        )
+        self.assertIn("#cpu-summary-only captures do not count", " ".join(cadence["notes"]))
+
+    def test_sparse_runtime_samples_use_unrounded_density_for_cadence_estimates(self) -> None:
+        diagnostics = gate.dataset_source_diagnostics(
+            {
+                "sampleCount": 1,
+                "sourceArtifactCount": 3000,
+                "runtimeSummaryArtifactCount": 3000,
+                "skippedFileReasons": {},
+                "skippedSampleCount": 0,
+                "skippedSampleReasons": {},
+            },
+            {
+                "source": {
+                    "inputPaths": ["runtime-artifacts/runtime-summary-console"],
+                    "sourceMaxAgeHours": 24.0,
+                    "scannedFiles": 3000,
+                    "sourceArtifactCount": 3000,
+                    "matchedArtifactCount": 3000,
+                    "skippedFileCount": 0,
+                    "skippedFileReasons": {},
+                },
+            },
+            sample_count=1,
+            min_samples=2,
+        )
+
+        cadence = diagnostics["sampleCadence"]
+        self.assertEqual(diagnostics["status"], "blocked")
+        self.assertEqual(diagnostics["classification"], "insufficient_runtime_samples")
+        self.assertEqual(cadence["observedSamplesPerRuntimeSummaryArtifact"], 0.0)
+        self.assertEqual(cadence["estimatedAdditionalRuntimeSummaryArtifactsAtObservedDensity"], 3000)
+        self.assertEqual(cadence["requiredSuccessfulCapturesPerSourceWindowAtObservedDensity"], 6000)
+        self.assertEqual(cadence["estimatedSuccessfulCaptureCadenceMinutesAtObservedDensity"], 0.2)
+        self.assertIn("about 3000 more successful runtime-summary captures", diagnostics["recommendedAction"])
+
+    def test_recovery_capture_command_uses_console_root_for_parent_artifact_inputs(self) -> None:
+        cases = (
+            (
+                ["/root/screeps/runtime-artifacts"],
+                "/root/screeps/runtime-artifacts/runtime-summary-console",
+            ),
+            (
+                list(dataset_export.DEFAULT_INPUT_PATHS),
+                "/root/screeps/runtime-artifacts/runtime-summary-console",
+            ),
+        )
+        for input_paths, expected_source_root in cases:
+            with self.subTest(input_paths=input_paths):
+                diagnostics = gate.dataset_source_diagnostics(
+                    {
+                        "sampleCount": 1,
+                        "sourceArtifactCount": 1,
+                        "runtimeSummaryArtifactCount": 1,
+                        "skippedFileReasons": {},
+                        "skippedSampleCount": 0,
+                        "skippedSampleReasons": {},
+                    },
+                    {
+                        "source": {
+                            "inputPaths": input_paths,
+                            "sourceMaxAgeHours": 24.0,
+                            "scannedFiles": 1,
+                            "sourceArtifactCount": 1,
+                            "matchedArtifactCount": 1,
+                            "skippedFileCount": 0,
+                            "skippedFileReasons": {},
+                        },
+                    },
+                    sample_count=1,
+                    min_samples=2,
+                )
+
+                cadence = diagnostics["sampleCadence"]
+                self.assertEqual(cadence["sourceRoot"], expected_source_root)
+                self.assertEqual(cadence["captureCommandArgs"][-2:], ["--out-dir", expected_source_root])
+                self.assertNotEqual(cadence["captureCommandArgs"][-1], input_paths[0].rstrip("/"))
+
     def test_run_rejects_dead_room_dataset_samples(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

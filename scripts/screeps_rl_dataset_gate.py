@@ -36,10 +36,14 @@ DEFAULT_SHADOW_ARTIFACT_LIMIT = 200
 QUALITY_REJECTED_SAMPLE_LOG_LIMIT = 50
 QUALITY_TOP_REJECTED_BUCKET_LIMIT = 10
 STALE_QUALITY_SOURCE_AGE_HOURS = 24.0
+RUNTIME_SUMMARY_CAPTURE_COMMAND = "python3 scripts/screeps_runtime_summary_console_capture.py"
+CONSOLE_CAPTURE_EXPORT_COMMAND = "python3 scripts/screeps_rl_dataset_export.py"
 DEFAULT_HOME_ROOM = world_profiles.PERSISTENT_DEFAULTS.room
 HOME_ROOM_ENV_VAR = "SCREEPS_HOME_ROOM"
 GATE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 SOURCE_TIMESTAMP_RE = re.compile(r"(\d{8}T\d{6}Z)")
+RUNTIME_ARTIFACTS_DIR_NAME = "runtime-artifacts"
+RUNTIME_SUMMARY_CONSOLE_DIR_NAME = "runtime-summary-console"
 E1_METRIC_FLOOR_KEYS = rollout_manager.METRIC_ORDER
 DERIVED_RUNTIME_KPI_FLOOR_SOURCE = "current_runtime_kpi_window"
 DERIVED_BASELINE_OBJECTIVE_TYPE = "screeps-rl-derived-runtime-kpi-baseline-objective"
@@ -752,6 +756,141 @@ def source_max_age_window_text(source_max_age_hours: Any) -> str:
     return "configured max-age window"
 
 
+def finite_positive_number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)) and math.isfinite(float(value)) and float(value) > 0:
+        return float(value)
+    return None
+
+
+def runtime_summary_console_root_from_path(path: str, *, allow_runtime_artifacts_parent: bool = False) -> str | None:
+    normalized = path.replace("\\", "/").rstrip("/")
+    if not normalized:
+        return None
+    parts = normalized.split("/")
+    if RUNTIME_SUMMARY_CONSOLE_DIR_NAME in parts:
+        index = parts.index(RUNTIME_SUMMARY_CONSOLE_DIR_NAME)
+        return "/".join(parts[: index + 1])
+    if allow_runtime_artifacts_parent and RUNTIME_ARTIFACTS_DIR_NAME in parts:
+        index = parts.index(RUNTIME_ARTIFACTS_DIR_NAME)
+        return "/".join([*parts[: index + 1], RUNTIME_SUMMARY_CONSOLE_DIR_NAME])
+    return None
+
+
+def first_runtime_summary_source_root(input_paths: Sequence[Any]) -> str:
+    for path in input_paths:
+        if isinstance(path, str):
+            source_root = runtime_summary_console_root_from_path(path)
+            if source_root is not None:
+                return source_root
+    for path in input_paths:
+        if isinstance(path, str):
+            source_root = runtime_summary_console_root_from_path(path, allow_runtime_artifacts_parent=True)
+            if source_root is not None:
+                return source_root
+    return dataset_export.CONSOLE_CAPTURE_INPUT_PATHS[-1]
+
+
+def command_string(parts: Sequence[str]) -> str:
+    return " ".join(parts)
+
+
+def build_runtime_sample_cadence_diagnostics(
+    *,
+    input_paths: Sequence[Any],
+    sample_count: int,
+    min_samples: int,
+    runtime_summary_count: Any,
+    source_artifact_count: Any,
+    source_max_age_hours: Any,
+    skipped_file_reasons: Any,
+) -> JsonObject:
+    sample_deficit = max(0, min_samples - sample_count)
+    source_root = first_runtime_summary_source_root(input_paths)
+    source_max_age = finite_positive_number(source_max_age_hours)
+    runtime_summary_artifacts = runtime_summary_count if isinstance(runtime_summary_count, int) else None
+    samples_per_runtime_artifact: float | None = None
+    precise_samples_per_runtime_artifact: float | None = None
+    estimated_additional_runtime_artifacts: int | None = None
+    if runtime_summary_artifacts is not None and runtime_summary_artifacts > 0 and sample_count > 0:
+        precise_samples_per_runtime_artifact = sample_count / runtime_summary_artifacts
+        samples_per_runtime_artifact = round(precise_samples_per_runtime_artifact, 3)
+        if sample_deficit > 0:
+            estimated_additional_runtime_artifacts = max(
+                1,
+                math.ceil(sample_deficit / precise_samples_per_runtime_artifact),
+            )
+
+    minimum_sample_cadence_minutes: float | None = None
+    estimated_capture_cadence_minutes: float | None = None
+    required_successful_captures_per_window: int | None = None
+    if source_max_age is not None and min_samples > 0:
+        minimum_sample_cadence_minutes = round(source_max_age * 60 / min_samples, 1)
+        if precise_samples_per_runtime_artifact is not None and precise_samples_per_runtime_artifact > 0:
+            required_successful_captures_per_window = max(
+                1,
+                math.ceil(min_samples / precise_samples_per_runtime_artifact),
+            )
+            estimated_capture_cadence_minutes = round(
+                source_max_age * 60 / required_successful_captures_per_window,
+                1,
+            )
+
+    capture_command = [
+        *RUNTIME_SUMMARY_CAPTURE_COMMAND.split(),
+        "--live-official-console",
+        "--format",
+        "status-line",
+        "--out-dir",
+        source_root,
+    ]
+    export_command = [
+        *CONSOLE_CAPTURE_EXPORT_COMMAND.split(),
+        "--console-capture-only",
+        "--sample-limit",
+        str(min_samples),
+    ]
+    if source_max_age is not None:
+        export_command.extend(["--source-max-age-hours", f"{source_max_age:g}"])
+
+    older_than_max_age_count = None
+    incomplete_derived_count = None
+    if isinstance(skipped_file_reasons, dict):
+        older_than_max_age = skipped_file_reasons.get("older_than_max_age")
+        incomplete_derived = skipped_file_reasons.get(dataset_export.INCOMPLETE_DERIVED_RUNTIME_SUMMARY_SKIP_REASON)
+        older_than_max_age_count = older_than_max_age if isinstance(older_than_max_age, int) else None
+        incomplete_derived_count = incomplete_derived if isinstance(incomplete_derived, int) else None
+
+    return {
+        "status": "blocked" if sample_deficit > 0 else "pass",
+        "classification": "insufficient_runtime_samples" if sample_deficit > 0 else "sample_floor_satisfied",
+        "minimumSamples": min_samples,
+        "currentSamples": sample_count,
+        "minimumAdditionalSamples": sample_deficit,
+        "runtimeSummaryArtifactCount": runtime_summary_count,
+        "sourceArtifactCount": source_artifact_count,
+        "sourceRoot": source_root,
+        "sourceMaxAgeHours": source_max_age_hours,
+        "olderThanMaxAgeFileCount": older_than_max_age_count,
+        "incompleteDerivedRuntimeSummaryFileCount": incomplete_derived_count,
+        "observedSamplesPerRuntimeSummaryArtifact": samples_per_runtime_artifact,
+        "estimatedAdditionalRuntimeSummaryArtifactsAtObservedDensity": estimated_additional_runtime_artifacts,
+        "minimumAcceptedSampleCadenceMinutes": minimum_sample_cadence_minutes,
+        "estimatedSuccessfulCaptureCadenceMinutesAtObservedDensity": estimated_capture_cadence_minutes,
+        "requiredSuccessfulCapturesPerSourceWindowAtObservedDensity": required_successful_captures_per_window,
+        "successCondition": f"next console-capture-only export reports sampleCount >= {min_samples}",
+        "captureCommand": command_string(capture_command),
+        "captureCommandArgs": capture_command,
+        "exportCheckCommand": command_string(export_command),
+        "exportCheckCommandArgs": export_command,
+        "notes": [
+            "Only exact-prefix #runtime-summary lines increase this floor; #cpu-summary-only captures do not count.",
+            "The capture command reads the official console websocket and persists local artifacts; it does not write MMO state.",
+        ],
+    }
+
+
 def dataset_source_diagnostics(
     dataset_summary: JsonObject,
     run_manifest: JsonObject,
@@ -776,6 +915,16 @@ def dataset_source_diagnostics(
             "classification": "sample_floor_satisfied",
             "inputPaths": input_paths,
         }
+
+    sample_cadence = build_runtime_sample_cadence_diagnostics(
+        input_paths=input_paths,
+        sample_count=sample_count,
+        min_samples=min_samples,
+        runtime_summary_count=runtime_summary_count,
+        source_artifact_count=source_artifact_count,
+        source_max_age_hours=source_max_age_hours,
+        skipped_file_reasons=skipped_file_reasons,
+    )
 
     if (
         source_artifact_count == 0
@@ -807,7 +956,23 @@ def dataset_source_diagnostics(
         )
     else:
         classification = "insufficient_runtime_samples"
-        recommended_action = "Collect more current runtime-summary samples before treating the full E1 gate as fresh."
+        deficit = sample_cadence["minimumAdditionalSamples"]
+        artifact_estimate = sample_cadence["estimatedAdditionalRuntimeSummaryArtifactsAtObservedDensity"]
+        cadence = sample_cadence["estimatedSuccessfulCaptureCadenceMinutesAtObservedDensity"]
+        estimate_text = (
+            f" about {artifact_estimate} more successful runtime-summary captures at the observed density"
+            if isinstance(artifact_estimate, int)
+            else " enough successful runtime-summary captures"
+        )
+        cadence_text = (
+            f"; maintain roughly <= {cadence:g} minutes between successful captures inside the source window"
+            if isinstance(cadence, (int, float))
+            else ""
+        )
+        recommended_action = (
+            f"Need {deficit} more accepted runtime-summary samples before treating the full E1 gate as fresh; "
+            f"collect{estimate_text}{cadence_text}, then rerun the console-capture-only export."
+        )
 
     return {
         "status": "blocked",
@@ -822,6 +987,7 @@ def dataset_source_diagnostics(
         "skippedFileReasons": skipped_file_reasons,
         "skippedSampleCount": skipped_sample_count,
         "skippedSampleReasons": skipped_sample_reasons,
+        "sampleCadence": sample_cadence,
     }
 
 
@@ -852,6 +1018,7 @@ def evaluate_dataset_readiness(
             sample_count >= min_samples,
             actual=sample_count,
             required=min_samples,
+            **({"sampleCadence": diagnostics.get("sampleCadence")} if sample_count < min_samples else {}),
         ),
         pass_fail_check("ticks_match_manifest_count", ticks_count == sample_count, ticksRows=ticks_count),
         pass_fail_check(
