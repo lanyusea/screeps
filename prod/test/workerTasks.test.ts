@@ -10106,6 +10106,39 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-issue-1879' });
   });
 
+  it('repairs recurrent issue 1879 ramparts before construction while still above the old alert floor', () => {
+    const site = { id: 'wall-site1', my: true, structureType: 'constructedWall' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const rampart = makeStructure(
+      'rampart-issue-1879-recurrent',
+      'rampart' as StructureConstant,
+      56_501,
+      30_000_000,
+      { my: true }
+    );
+    const creep = {
+      name: 'AlertRepairer',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(100) },
+      room: makeWorkerTaskRoom({
+        name: 'E29N55',
+        constructionSites: [site],
+        controller,
+        energyAvailable: 550,
+        energyCapacityAvailable: 2_300,
+        structures: [rampart]
+      })
+    } as unknown as Creep;
+
+    expect(isCriticalOwnedRampartRepairTarget(rampart as Structure)).toBe(true);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-issue-1879-recurrent' });
+  });
+
   it('does not classify owned ramparts above the critical repair floor as urgent', () => {
     const criticalRampart = makeStructure(
       'rampart-critical',
