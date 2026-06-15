@@ -198,6 +198,8 @@ export function runWorker(creep: Creep): void {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForSpawnReservationRefill(currentTask, spawnReservationRefillTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPreemptEnergyAcquisitionTaskForConstructionBacklog(creep, currentTask, selectedTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForNearFullConstruction(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForProductiveBacklog(creep, currentTask, selectedTask)) {
@@ -219,6 +221,8 @@ export function runWorker(creep: Creep): void {
   } else if (shouldPreemptBuildTaskForConstructionEnergyAcquisition(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptTransferTaskForControllerDowngradeGuard(creep, currentTask, selectedTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPreemptTransferTaskForConstructionEnergyAcquisition(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptTransferTaskForConstructionBacklog(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
@@ -460,10 +464,20 @@ function selectWorkerTaskContext(
     currentTask,
     effectiveEnergyCriticalTask ?? baseSelectedTask
   );
-  const selectedTaskAfterBuildEnergyAcquisition = selectAssignedBuildEnergyAcquisitionTask(
+  const constructionBacklogEnergyAcquisitionTask = selectConstructionBacklogEnergyAcquisitionRecoveryTask(
     creep,
     currentTask,
     spawnReservationRefillTask ?? effectiveEnergyCriticalTask ?? baseSelectedTask
+  );
+  const constructionRecoveryTask =
+    effectiveEnergyCriticalTask === null ? constructionBacklogEnergyAcquisitionTask : null;
+  const selectedTaskAfterBuildEnergyAcquisition = selectAssignedBuildEnergyAcquisitionTask(
+    creep,
+    currentTask,
+    constructionRecoveryTask ??
+      spawnReservationRefillTask ??
+      effectiveEnergyCriticalTask ??
+      baseSelectedTask
   );
   const selectedTask =
     selectConstructionWithdrawCompletionBuildTask(
@@ -477,6 +491,62 @@ function selectWorkerTaskContext(
     selectedTask,
     spawnReservationRefillTask
   };
+}
+
+function selectConstructionBacklogEnergyAcquisitionRecoveryTask(
+  creep: Creep,
+  currentTask: CreepTaskMemory | null | undefined,
+  selectedTask: CreepTaskMemory | null
+): Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' }> | null {
+  if (!shouldSelectConstructionBacklogEnergyAcquisitionRecoveryTask(creep, currentTask, selectedTask)) {
+    return null;
+  }
+
+  const constructionTask = selectConstructionBacklogEnergyAcquisitionTask(creep);
+  return constructionTask && canExecuteTask(creep, constructionTask) ? constructionTask : null;
+}
+
+function shouldSelectConstructionBacklogEnergyAcquisitionRecoveryTask(
+  creep: Creep,
+  currentTask: CreepTaskMemory | null | undefined,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  if (
+    getFreeTransferEnergyCapacity(creep) <= 0 ||
+    getActiveWorkParts(creep) <= 0 ||
+    hasVisibleHostileCreeps(creep.room)
+  ) {
+    return false;
+  }
+
+  if (!hasStoredEnergyForAssignmentGapRecoveryConstruction(creep.room)) {
+    return false;
+  }
+
+  if (isDowngradeGuardUpgradeTask(creep, currentTask ?? null) || isDowngradeGuardUpgradeTask(creep, selectedTask)) {
+    return false;
+  }
+
+  if (isCriticalSpawnRefillTask(currentTask) || isCriticalSpawnRefillTask(selectedTask)) {
+    return false;
+  }
+
+  return (
+    isConstructionBacklogEnergyAcquisitionRecoveryTask(currentTask) &&
+    isConstructionBacklogEnergyAcquisitionRecoveryTask(selectedTask)
+  );
+}
+
+function isConstructionBacklogEnergyAcquisitionRecoveryTask(
+  task: CreepTaskMemory | null | undefined
+): boolean {
+  return (
+    task === undefined ||
+    task === null ||
+    (isEnergyAcquisitionTask(task) && !isConstructionWithdrawReservationTask(task)) ||
+    task.type === 'transfer' ||
+    task.type === 'upgrade'
+  );
 }
 
 function selectAssignedBuildEnergyAcquisitionTask(
@@ -554,6 +624,7 @@ function canConstructionWithdrawCompletionOverrideSelectedTask(
     selectedTask === null ||
     isEnergyAcquisitionTask(selectedTask) ||
     selectedTask.type === 'build' ||
+    (selectedTask.type === 'transfer' && !isCriticalSpawnRefillTask(selectedTask)) ||
     (selectedTask.type === 'upgrade' && !isDowngradeGuardUpgradeTask(creep, selectedTask))
   );
 }
@@ -1657,7 +1728,10 @@ function hasHealthyRoomEnergyBuffer(room: Room): boolean {
 }
 
 function isControllerDowngradeGuardActive(room: Room): boolean {
-  const controller = room.controller;
+  return isOwnedControllerDowngradeGuardActive(room.controller);
+}
+
+function isOwnedControllerDowngradeGuardActive(controller: StructureController | null | undefined): boolean {
   return (
     controller?.my === true &&
     typeof controller.ticksToDowngrade === 'number' &&
@@ -1796,6 +1870,15 @@ function runControllerSustainMovement(creep: Creep): boolean {
     return false;
   }
 
+  const homeConstructionTask = selectControllerSustainHomeConstructionTask(creep, sustain, roomName);
+  if (homeConstructionTask) {
+    clearEnergyDropoffOptimizationMemory(creep);
+    clearBuildTargetStuckTelemetry(creep);
+    creep.memory.task = homeConstructionTask;
+    executeAssignedTask(creep, homeConstructionTask);
+    return true;
+  }
+
   if (sustain.role === 'hauler' && shouldControllerSustainHaulerLoadAtHome(creep, sustain, roomName)) {
     const energyTask = selectControllerSustainHaulerEnergyTask(creep);
     if (energyTask) {
@@ -1810,6 +1893,78 @@ function runControllerSustainMovement(creep: Creep): boolean {
   clearAssignedTask(creep);
   moveTowardRoom(creep, selectControllerSustainDestinationRoom(creep, sustain, roomName));
   return true;
+}
+
+function selectControllerSustainHomeConstructionTask(
+  creep: Creep,
+  sustain: CreepControllerSustainMemory,
+  roomName: string | undefined
+): CreepTaskMemory | null {
+  if (
+    sustain.role !== 'upgrader' ||
+    roomName !== sustain.homeRoom ||
+    sustain.homeRoom === sustain.targetRoom ||
+    isControllerSustainTargetDowngradeGuardActive(sustain)
+  ) {
+    return null;
+  }
+
+  const currentTask = creep.memory.task;
+  if (currentTask) {
+    if (!isControllerSustainHomeConstructionTask(currentTask, sustain.homeRoom)) {
+      return null;
+    }
+  }
+
+  if (getActiveWorkParts(creep) <= 0 || hasVisibleHostileCreeps(creep.room)) {
+    return null;
+  }
+
+  if (currentTask) {
+    if (!shouldReplaceTask(creep, currentTask)) {
+      return currentTask;
+    }
+  }
+
+  if (getCarriedEnergy(creep) <= 0) {
+    return selectConstructionBacklogEnergyAcquisitionTask(creep);
+  }
+
+  const selectedTask = selectWorkerTaskForRunner(creep);
+  if (selectedTask?.type !== 'build') {
+    return null;
+  }
+
+  const constructionSite = getTaskTarget(selectedTask);
+  return isConstructionSite(constructionSite) && isRoomObjectInRoom(constructionSite, sustain.homeRoom)
+    ? selectedTask
+    : null;
+}
+
+function isControllerSustainTargetDowngradeGuardActive(sustain: CreepControllerSustainMemory): boolean {
+  return isOwnedControllerDowngradeGuardActive(getVisibleRoomController(sustain.targetRoom));
+}
+
+function isControllerSustainHomeConstructionTask(task: CreepTaskMemory, homeRoom: string): boolean {
+  if (task.type === 'build') {
+    const constructionSite = getTaskTarget(task);
+    return isConstructionSite(constructionSite) && isRoomObjectInRoom(constructionSite, homeRoom);
+  }
+
+  if (!isConstructionWithdrawReservationTask(task)) {
+    return false;
+  }
+
+  const game = (globalThis as unknown as { Game?: Partial<Pick<Game, 'getObjectById'>> }).Game;
+  const getObjectById = game?.getObjectById as ((id: string) => unknown) | undefined;
+  const constructionSite =
+    typeof getObjectById === 'function' ? getObjectById(String(task.constructionSiteId)) : null;
+  return isConstructionSite(constructionSite) && isRoomObjectInRoom(constructionSite, homeRoom);
+}
+
+function isRoomObjectInRoom(object: RoomObject, roomName: string): boolean {
+  const objectRoomName = (object as RoomObject & { pos?: { roomName?: unknown } }).pos?.roomName;
+  return typeof objectRoomName !== 'string' || objectRoomName === roomName;
 }
 
 function shouldControllerSustainHaulerLoadAtHome(
@@ -2255,9 +2410,7 @@ function recordInvalidBuildActionTarget(creep: Creep, task: CreepTaskMemory): vo
 }
 
 function assignNextTask(creep: Creep): CreepTaskMemory | null {
-  const baseTask = selectWorkerTaskForRunner(creep);
-  const task = selectWorkerEnergyCriticalTask(creep, creep.memory.task, baseTask) ?? baseTask;
-  return assignSelectedTask(creep, task);
+  return assignSelectedTask(creep, selectWorkerTaskContext(creep, creep.memory.task).selectedTask);
 }
 
 function shouldReplaceTask(creep: Creep, task: CreepTaskMemory): boolean {
@@ -2393,6 +2546,20 @@ function shouldPreemptEnergyAcquisitionTaskForSpawnReservationRefill(
     isEnergyAcquisitionTask(task) &&
     spawnReservationRefillTask?.type === 'transfer' &&
     !isSameTask(task, spawnReservationRefillTask)
+  );
+}
+
+function shouldPreemptEnergyAcquisitionTaskForConstructionBacklog(
+  creep: Creep,
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  return (
+    isEnergyAcquisitionTask(task) &&
+    !isConstructionWithdrawReservationTask(task) &&
+    !isDedicatedSourceContainerHarvestTask(creep, task) &&
+    isConstructionWithdrawReservationTask(selectedTask) &&
+    !isSameTask(task, selectedTask)
   );
 }
 
@@ -2663,6 +2830,20 @@ function shouldPreemptTransferTaskForControllerDowngradeGuard(
   }
 
   return isDowngradeGuardUpgradeTask(creep, selectedTask);
+}
+
+function shouldPreemptTransferTaskForConstructionEnergyAcquisition(
+  creep: Creep,
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  return (
+    task.type === 'transfer' &&
+    isConstructionWithdrawReservationTask(selectedTask) &&
+    !isSameTask(task, selectedTask) &&
+    getFreeTransferEnergyCapacity(creep) > 0 &&
+    !isCriticalSpawnRefillTask(task)
+  );
 }
 
 function shouldPreemptTransferTaskForConstructionBacklog(
