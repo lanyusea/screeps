@@ -92,7 +92,7 @@ Repeat policy values:
 Controller contract:
 
 - Default low-quota threshold: suppress non-P0 `openai-codex` jobs when weekly remaining quota is below `10%`.
-- Protected Codex runway: continuation worker `f66ed36d7be0`, runtime alert `1df5ef0c3835`, and RL flywheel steward `aed8362e4501`.
+- Protected Codex runway: continuation worker `f66ed36d7be0` and RL flywheel steward `aed8362e4501`. The high-frequency runtime alert `1df5ef0c3835` is intentionally on `deepseek/deepseek-v4-flash` to avoid consuming Codex quota during normal silent health checks.
 - Unknown, missing, or malformed quota telemetry fails safe by allowing protected P0 Codex jobs and suppressing non-P0 Codex jobs with an explicit `UNKNOWN_QUOTA` report.
 - Reset self-healing: if the telemetry `resetAt`/`resets_at` time is in the past, the guard treats the weekly budget as reset and previously suppressed jobs become eligible without manual state cleanup.
 - Do not attach raw Codex session logs to Discord or GitHub; pass a redacted quota JSON export when possible.
@@ -110,7 +110,7 @@ python3 scripts/check_codex_quota_budget.py \
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Screeps autonomous continuation worker | `f66ed36d7be0` | `8,28,48 * * * *` | `discord:#task-queue` | `openai-codex` | `gpt-5.5` | `/root/screeps` | `high-horizon` | P0 | Dispatcher/reconciler for safe work lanes. |
 | Screeps P0 agent operations monitor | `75cedbb77150` | `7,37 * * * *` | `discord:1497820688843800776` | `deepseek` | `deepseek-v4-flash` | `-` | `forever` | P0 | Autonomous-system health monitor, registry-drift detector, and consolidated Tencent Cloud cost guard. |
-| Screeps runtime room alert text check | `1df5ef0c3835` | `1,16,31,46 * * * *` | `discord:1497588512436785284` | `openai-codex` | `gpt-5.5` | `-` | `forever` | P0 | Runtime alert/tactical response for all owned rooms; no-alert runs return exactly `[SILENT]`. |
+| Screeps runtime room alert text check | `1df5ef0c3835` | `1,16,31,46 * * * *` | `discord:1497588512436785284` | `deepseek` | `deepseek-v4-flash` | `-` | `forever` | P0 | Runtime alert/tactical response for all owned rooms; no-alert runs return exactly `[SILENT]`; intentionally off Codex quota. |
 | Screeps owner-decision escalation fanout | `bbc7f783075e` | `3,13,23,33,43,53 * * * *` | `discord:1497586175580311654` | `deepseek` | `deepseek-v4-flash` | `-` | `high-horizon` | P0 | Mirrors fresh unresolved owner-action decisions to the canonical decisions route. |
 | Screeps runtime room summary images | `befcbb7b2d60` | `58 * * * *` | `discord:1497588267057680385` | `deepseek` | `deepseek-v4-flash` | `-` | `high-horizon` | P1 | Runtime summary report/images for all owned rooms. |
 | Screeps console capture (live energy telemetry) | `7ee147327ba6` | `*/30 * * * *` | `local` | `deepseek` | `deepseek-v4-flash` | `-` | `forever` | P1 | Local bounded console/energy telemetry collector. |
