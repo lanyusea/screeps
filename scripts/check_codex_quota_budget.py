@@ -32,7 +32,6 @@ DEFAULT_WEEKLY_WINDOW_MINUTES = 10080
 DEFAULT_RESERVED_CODEX_JOB_IDS = frozenset(
     {
         "f66ed36d7be0",  # autonomous continuation worker
-        "1df5ef0c3835",  # runtime room alert text check
         "aed8362e4501",  # RL flywheel steward
     }
 )
