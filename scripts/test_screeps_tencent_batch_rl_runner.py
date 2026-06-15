@@ -5157,6 +5157,10 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
             handoff["requestedSignatures"],
         )
+        self.assertFalse(handoff["paidRunAttempted"])
+        self.assertFalse(handoff["computeAttempted"])
+        self.assertFalse(handoff["scaleOutAttempted"])
+        self.assertFalse(handoff["remoteTrainingAttempted"])
         self.assertEqual(
             handoff["consumedFailure"]["priorAttemptRunId"],
             "postfix-validation-run-20260601t231342z",
@@ -5174,6 +5178,16 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertNotIn("signature was not requested", handoff["nextAction"])
         self.assertEqual(plan_payload["status"], handoff["status"])
         self.assertTrue(plan_payload["requested"])
+        self.assertFalse(plan_payload["paidRunAttempted"])
+        self.assertFalse(plan_payload["computeAttempted"])
+        self.assertFalse(plan_payload["scaleOutAttempted"])
+        self.assertFalse(plan_payload["remoteTrainingAttempted"])
+        self.assertFalse(plan_payload["safety"]["paidRunAttempted"])
+        self.assertFalse(plan_payload["safety"]["computeAttempted"])
+        self.assertFalse(plan_payload["safety"]["scaleOutAttempted"])
+        self.assertFalse(plan_payload["safety"]["remoteTrainingAttempted"])
+        self.assertFalse(plan_payload["safety"]["requiresPaidCompute"])
+        self.assertFalse(plan_payload["safety"]["requiresTencentScaleOut"])
         self.assertEqual(plan_payload["consumedFailure"], handoff["consumedFailure"])
         self.assertIn("private_server_http_readiness_timeout", plan_payload["reason"])
         self.assertIn("localDiagnosticPlan", handoff)
@@ -5261,6 +5275,18 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(local_plan["safety"]["requiresTencentScaleOut"])
         self.assertFalse(local_plan["safety"]["secretsPrinted"])
         commands = "\n".join(step["command"] for step in local_plan["diagnosticSteps"])
+        self.assertEqual(
+            [step["id"] for step in local_plan["diagnosticSteps"]],
+            [
+                "inspect-prior-controller-summary",
+                "inspect-prior-simulator-artifacts",
+                "private-smoke-self-test",
+                "private-smoke-dry-run",
+                "simulator-harness-self-test",
+                "simulator-harness-dry-run",
+                "record-diagnostic-summary",
+            ],
+        )
         self.assertIn("private_server_http_readiness_timeout", local_plan["reason"])
         self.assertIn(str(prior_attempt_path), commands)
         self.assertIn("scripts/screeps-private-smoke.py self-test", commands)
