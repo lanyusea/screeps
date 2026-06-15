@@ -6903,14 +6903,12 @@ def validate_tencent_s3_validation_scale_cap(args: argparse.Namespace, scale_env
 
 
 def policy_gradient_samples_per_candidate(args: argparse.Namespace) -> int:
-    repetitions = max(1, int(getattr(args, "repetitions", 1) or 1))
-    scale_environments = resolve_scale_environment_count(args) or 1
-    return repetitions * scale_environments
+    # The card validator gates the weakest candidate after row expansion, not total rows.
+    return max(1, int(getattr(args, "repetitions", 1) or 1))
 
 
 def policy_gradient_min_repetitions_for_trust(args: argparse.Namespace) -> int:
-    scale_environments = resolve_scale_environment_count(args) or 1
-    return max(1, math.ceil(POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE / scale_environments))
+    return POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE
 
 
 def policy_gradient_trust_sample_request(args: argparse.Namespace) -> dict[str, Any] | None:
