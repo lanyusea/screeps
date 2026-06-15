@@ -6753,6 +6753,45 @@ describe('planSpawn', () => {
     });
   });
 
+  it('keeps E29N56 local worker recovery active under controller downgrade guard', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'E29N56',
+      constructionSiteCount: 2,
+      energyAvailable: 300,
+      energyCapacityAvailable: 1300,
+      controller: {
+        ...makeSafeOwnedController(4),
+        ticksToDowngrade: 1_600
+      } as StructureController
+    });
+    const remoteRoom = { name: 'E29N57' } as Room;
+    const offRoomWorkers = Object.fromEntries(
+      Array.from({ length: 5 }, (_, index) => [
+        `RemoteWorker${index}`,
+        {
+          name: `worker-E29N56-${index}`,
+          ticksToLive: 1_000,
+          memory: {
+            role: 'worker',
+            colony: 'E29N56'
+          },
+          room: remoteRoom
+        } as Creep
+      ])
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: offRoomWorkers,
+      spawns: { SpawnE29N56: spawn }
+    };
+
+    expect(planSpawn(colony, { worker: 5, sourceHarvester: 1 }, 2_198_910)).toEqual({
+      spawn,
+      body: SCALED_WORKER_300,
+      name: 'worker-E29N56-2198910',
+      memory: { role: 'worker', colony: 'E29N56' }
+    });
+  });
+
   it('plans an affordable worker body below the minimum functional worker target', () => {
     const { colony, spawn } = makeColony({ energyAvailable: 400, energyCapacityAvailable: 600 });
 

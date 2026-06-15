@@ -591,7 +591,6 @@ function hasSpawnPresentLocalWorkerRecoveryShortfall(
   if (
     colony.room.controller?.my !== true ||
     survivalAssessment.hostilePresence ||
-    survivalAssessment.controllerDowngradeGuard ||
     !hasOwnedIdleSpawnInRoom(roomName)
   ) {
     return false;
@@ -1617,7 +1616,6 @@ function isSpawnPresentLocalWorkerRecoverySpawnRequest(
     spawnRequest.memory.controllerSustain !== undefined ||
     spawnRequest.spawn.room?.name !== roomName ||
     survivalAssessment.hostilePresence ||
-    survivalAssessment.controllerDowngradeGuard ||
     availableEnergy < bodyCost
   ) {
     return false;

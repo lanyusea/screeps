@@ -680,7 +680,6 @@ function hasSpawnPresentLocalWorkerRecoveryShortfall(context: SpawnPlanningConte
   if (
     context.colony.room.controller?.my !== true ||
     context.survival.hostilePresence ||
-    context.survival.controllerDowngradeGuard ||
     !hasOwnedSpawnInRoom(roomName)
   ) {
     return false;
