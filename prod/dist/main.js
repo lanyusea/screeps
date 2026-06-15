@@ -35435,10 +35435,10 @@ function shouldSelectConstructionBacklogEnergyAcquisitionRecoveryTask(creep, cur
   if (isCriticalSpawnRefillTask(currentTask) || isCriticalSpawnRefillTask(selectedTask)) {
     return false;
   }
-  return isConstructionBacklogEnergyAcquisitionRecoveryTask(currentTask) && isConstructionBacklogEnergyAcquisitionRecoveryTask(selectedTask);
+  return isConstructionBacklogEnergyAcquisitionRecoveryTask(creep, currentTask) && isConstructionBacklogEnergyAcquisitionRecoveryTask(creep, selectedTask);
 }
-function isConstructionBacklogEnergyAcquisitionRecoveryTask(task) {
-  return task === void 0 || task === null || isEnergyAcquisitionTask2(task) && !isConstructionWithdrawReservationTask(task) || task.type === "transfer" || task.type === "upgrade";
+function isConstructionBacklogEnergyAcquisitionRecoveryTask(creep, task) {
+  return task === void 0 || task === null || isEnergyAcquisitionTask2(task) && !isConstructionWithdrawReservationTask(task) || task.type === "build" && hasLowWorkerEnergyLoad(creep) || task.type === "transfer" || task.type === "upgrade";
 }
 function selectAssignedBuildEnergyAcquisitionTask(creep, currentTask, selectedTask) {
   var _a2, _b;
