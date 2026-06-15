@@ -4320,7 +4320,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 "--scale-environments",
                 "5",
                 "--repetitions",
-                "5",
+                "20",
                 "--allow-paid-failure-recurrence-validation",
                 runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
             ])
@@ -4358,7 +4358,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(guard["postFixValidation"]["priorAttempt"]["environmentsRun"], 0)
         self.assertEqual(
             guard["currentLaunch"]["policyGradientTrustSampleRequest"]["requestedSamplesPerCandidate"],
-            25,
+            20,
         )
         self.assertTrue(guard["currentLaunch"]["policyGradientTrustSampleRequest"]["meetsTrustSampleTarget"])
         self.assertEqual(controller.final_status, "completed")
@@ -4392,7 +4392,9 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 "--scale-environments",
                 "5",
                 "--repetitions",
-                "5",
+                "20",
+                "--training-timeout-seconds",
+                "7200",
                 "--postfix-validation-signature",
                 runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
             ])
@@ -4713,7 +4715,9 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 "--scale-environments",
                 "5",
                 "--repetitions",
-                "5",
+                "20",
+                "--training-timeout-seconds",
+                "7200",
                 "--postfix-validation-signature",
                 runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
             ])
@@ -5153,6 +5157,10 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
             handoff["requestedSignatures"],
         )
+        self.assertFalse(handoff["paidRunAttempted"])
+        self.assertFalse(handoff["computeAttempted"])
+        self.assertFalse(handoff["scaleOutAttempted"])
+        self.assertFalse(handoff["remoteTrainingAttempted"])
         self.assertEqual(
             handoff["consumedFailure"]["priorAttemptRunId"],
             "postfix-validation-run-20260601t231342z",
@@ -5170,6 +5178,16 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertNotIn("signature was not requested", handoff["nextAction"])
         self.assertEqual(plan_payload["status"], handoff["status"])
         self.assertTrue(plan_payload["requested"])
+        self.assertFalse(plan_payload["paidRunAttempted"])
+        self.assertFalse(plan_payload["computeAttempted"])
+        self.assertFalse(plan_payload["scaleOutAttempted"])
+        self.assertFalse(plan_payload["remoteTrainingAttempted"])
+        self.assertFalse(plan_payload["safety"]["paidRunAttempted"])
+        self.assertFalse(plan_payload["safety"]["computeAttempted"])
+        self.assertFalse(plan_payload["safety"]["scaleOutAttempted"])
+        self.assertFalse(plan_payload["safety"]["remoteTrainingAttempted"])
+        self.assertFalse(plan_payload["safety"]["requiresPaidCompute"])
+        self.assertFalse(plan_payload["safety"]["requiresTencentScaleOut"])
         self.assertEqual(plan_payload["consumedFailure"], handoff["consumedFailure"])
         self.assertIn("private_server_http_readiness_timeout", plan_payload["reason"])
         self.assertIn("localDiagnosticPlan", handoff)
@@ -5257,6 +5275,18 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(local_plan["safety"]["requiresTencentScaleOut"])
         self.assertFalse(local_plan["safety"]["secretsPrinted"])
         commands = "\n".join(step["command"] for step in local_plan["diagnosticSteps"])
+        self.assertEqual(
+            [step["id"] for step in local_plan["diagnosticSteps"]],
+            [
+                "inspect-prior-controller-summary",
+                "inspect-prior-simulator-artifacts",
+                "private-smoke-self-test",
+                "private-smoke-dry-run",
+                "simulator-harness-self-test",
+                "simulator-harness-dry-run",
+                "record-diagnostic-summary",
+            ],
+        )
         self.assertIn("private_server_http_readiness_timeout", local_plan["reason"])
         self.assertIn(str(prior_attempt_path), commands)
         self.assertIn("scripts/screeps-private-smoke.py self-test", commands)
@@ -6136,7 +6166,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             {f"tencent-pg-room-busy-{index}" for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD)},
         )
 
-    def test_no_arg_preflight_defaults_to_multi_tier_policy_gradient_without_repeat_guard(self) -> None:
+    def test_no_arg_preflight_defaults_to_multi_tier_policy_gradient_trust_repetitions(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             artifact_root = Path(temp_dir) / "batch-runs"
             for run_id in ("tencent-pg-1", "tencent-pg-2", "tencent-pg-3"):
@@ -6156,7 +6186,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(args.scenario_id, runner.MULTI_TIER_SCENARIO_ID)
         self.assertTrue(args.require_multi_tier_scenario)
         self.assertEqual(args.workers, 5)
-        self.assertEqual(args.repetitions, 4)
+        self.assertEqual(args.repetitions, 20)
         self.assertFalse(args.run_id.startswith("tencent-single-"))
         self.assertEqual(controller.final_status, "preflight_ok")
         self.assertEqual(summary["finalStatus"], "preflight_ok")
@@ -6197,9 +6227,76 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(args.scenario_id, runner.MULTI_TIER_SCENARIO_ID)
         self.assertTrue(args.require_multi_tier_scenario)
         self.assertEqual(args.workers, 5)
-        self.assertEqual(args.repetitions, 4)
+        self.assertEqual(args.repetitions, 20)
         self.assertEqual(runner.policy_gradient_samples_per_candidate(args), 20)
         self.assertEqual(runner.effective_training_ticks(args), runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
+
+    def test_no_arg_policy_gradient_card_generation_satisfies_gradient_trust_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            args = runner.parse_cli_args([
+                "preflight",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(root),
+            ])
+            controller = runner.Controller(args=args, run_id=args.run_id, artifact_dir=root / "new-run")
+            validate_called = False
+
+            def fake_run_cp(name: str, cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                nonlocal validate_called
+                if name == "generate_experiment_card":
+                    output = Path(cmd[cmd.index("--output") + 1])
+                    output.parent.mkdir(parents=True, exist_ok=True)
+                    requested_scenario_id = cmd[cmd.index("--scenario-id") + 1]
+                    payload = card_helper.build_card(
+                        dataset_run_id="dataset-test",
+                        code_commit="a" * 40,
+                        training_approach="policy_gradient",
+                        created_at="2026-06-15T16:27:40Z",
+                        loop_a_card_supply="--loop-a-policy-gradient-supply" in cmd,
+                        scenario_id=requested_scenario_id,
+                        require_multi_tier_scenario="--require-multi-tier-scenario" in cmd,
+                    )
+                    payload["simulation"]["repetitions"] = 1
+                    output.write_text(json.dumps(payload), encoding="utf-8")
+                elif name == "validate_experiment_card":
+                    validate_called = True
+                    card_path = Path(cmd[cmd.index("--input") + 1])
+                    card_helper.validate_card(json.loads(card_path.read_text(encoding="utf-8")))
+                return subprocess.CompletedProcess(cmd, 0, "{}", "")
+
+            with mock.patch.object(controller, "run_cp", side_effect=fake_run_cp):
+                controller.generate_experiment_card()
+
+            card = json.loads((root / "new-run" / "experiment_card.json").read_text(encoding="utf-8"))
+
+        self.assertTrue(validate_called)
+        self.assertEqual(card["training_approach"], "policy_gradient")
+        self.assertEqual(card["simulation"]["workers"], 5)
+        self.assertEqual(card["simulation"]["scale_environments"], 5)
+        self.assertEqual(card["simulation"]["repetitions"], 20)
+        self.assertEqual(
+            card["policy_gradient"]["validation_sample_request"]["requestedSamplesPerCandidate"],
+            20,
+        )
+        self.assertTrue(card["policy_gradient"]["validation_sample_request"]["meetsTrustSampleTarget"])
+        low_repetition_plan = card_helper.policy_gradient_trust_sample_plan(
+            repetitions=4,
+            scale_environments=5,
+            variant_count=len(card["strategy_variants"]),
+            required_samples_per_candidate=runner.POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE,
+        )
+        self.assertEqual(low_repetition_plan["minimumSamplesPerCandidate"], 4)
+        self.assertEqual(low_repetition_plan["requiredRepetitions"], 20)
+        selected_plan = card_helper.policy_gradient_trust_sample_plan(
+            repetitions=card["simulation"]["repetitions"],
+            scale_environments=card["simulation"]["scale_environments"],
+            variant_count=len(card["strategy_variants"]),
+            required_samples_per_candidate=runner.POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE,
+        )
+        self.assertEqual(selected_plan["minimumSamplesPerCandidate"], 20)
 
     def test_effective_training_ticks_preserves_non_policy_gradient_request(self) -> None:
         args = controller_args()
@@ -6572,7 +6669,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(args.scenario_id, runner.MULTI_TIER_SCENARIO_ID)
         self.assertTrue(args.require_multi_tier_scenario)
         self.assertEqual(args.workers, 5)
-        self.assertEqual(args.repetitions, 4)
+        self.assertEqual(args.repetitions, 20)
 
     def test_policy_gradient_legacy_v0_default_resolves_to_active_multi_tier_scenario(self) -> None:
         args = controller_args()
@@ -6618,7 +6715,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         runner.apply_cli_scenario_defaults(args)
 
         self.assertEqual(args.workers, 5)
-        self.assertEqual(args.repetitions, 4)
+        self.assertEqual(args.repetitions, 20)
 
     def test_generate_experiment_card_writes_multi_environment_scale_proof_spec(self) -> None:
         args = controller_args()
