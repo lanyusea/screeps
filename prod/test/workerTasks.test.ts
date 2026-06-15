@@ -14929,6 +14929,112 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(builder)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
+  it('keeps safe all-owned construction productive during low-bucket shedding', () => {
+    const fullSpawn = makeFullSpawnEnergyStructure('spawn-full', 'E29N55');
+    const site = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 935,
+      progressTotal: 5_000,
+      pos: makeRoomPosition(22, 21, 'E29N55')
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N55',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 820,
+      energyCapacityAvailable: 2_300,
+      myStructures: [fullSpawn as AnyOwnedStructure]
+    });
+    const builder = {
+      name: 'LowBucketBuilder',
+      memory: { role: 'worker', colony: 'E29N55' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === 'work' ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    const coverageWorker = {
+      name: 'CoverageWorker',
+      memory: { role: 'worker', colony: 'E29N55' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === 'work' ? 1 : 0)),
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ LowBucketBuilder: builder, CoverageWorker: coverageWorker });
+    setCpuBucket(758);
+
+    expect(canSpendWorkerEnergyOnConstructionSite(builder, site)).toBe(true);
+    expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'road-site1' });
+  });
+
+  it('tags storage-rich construction acquisition during low-bucket shedding', () => {
+    const fullSpawn = makeFullSpawnEnergyStructure('spawn-full', 'E29N56');
+    const site = {
+      id: 'rampart-site1',
+      my: true,
+      structureType: 'rampart',
+      progress: 660,
+      progressTotal: 5_000,
+      pos: makeRoomPosition(24, 24, 'E29N56')
+    } as ConstructionSite;
+    const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 628_626, {
+      my: true,
+      pos: makeRoomPosition(20, 20, 'E29N56')
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N56',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 800,
+      energyCapacityAvailable: 1_300,
+      myStructures: [fullSpawn as AnyOwnedStructure],
+      structures: [storage as AnyStructure]
+    });
+    const worker = {
+      name: 'ConstructionWithdrawWorker',
+      memory: { role: 'worker', colony: 'E29N56' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === 'work' ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(100)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            storage1: 2,
+            'rampart-site1': 6
+          };
+          return ranges[String(target.id)] ?? 99;
+        })
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ ConstructionWithdrawWorker: worker });
+    setCpuBucket(758);
+
+    expect(selectWorkerTask(worker)).toEqual({
+      type: 'withdraw',
+      targetId: 'storage1',
+      constructionSiteId: 'rampart-site1'
+    });
+  });
+
   it('reserves a loaded worker for container construction when container surplus protects recovery energy', () => {
     const site = {
       id: 'source-container-site1',

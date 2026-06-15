@@ -27938,6 +27938,10 @@ function selectCriticalCpuWorkerTask(creep, cpuBudget) {
   if (controllerSustainConstructionBacklogTask) {
     return applyMinimumUsefulLoadPolicy(creep, controllerSustainConstructionBacklogTask);
   }
+  const constructionRecoveryTask = canUseCriticalCpuConstructionRecovery(creep) ? selectConstructionRecoveryCpuWorkerTask(creep) : null;
+  if (constructionRecoveryTask) {
+    return constructionRecoveryTask;
+  }
   const loadedControllerProgressTask = selectNonCriticalCpuLoadedControllerProgressTask(
     creep,
     cpuBudget,
@@ -28091,7 +28095,7 @@ function isStoredProtectedConstructionBacklogSite(site, priorityContext) {
   return isRoadConstructionSite2(site) || isHighImpactConstructionSite(site, priorityContext);
 }
 function selectCriticalCpuEnergyAcquisitionTask(creep) {
-  var _a2, _b;
+  var _a2, _b, _c;
   if (getFreeEnergyCapacity9(creep) <= 0) {
     return null;
   }
@@ -28120,7 +28124,15 @@ function selectCriticalCpuEnergyAcquisitionTask(creep) {
   if (hasCriticalCpuRepairDemand(creep)) {
     return selectWorkerEnergyCriticalAcquisitionTask(creep);
   }
-  return (_b = selectStoredProtectedSourceContainerConstructionEnergyAcquisitionTask(creep)) != null ? _b : selectStoredProtectedConstructionBacklogEnergyAcquisitionTask(creep);
+  const storedProtectedConstructionEnergyTask = (_b = selectStoredProtectedSourceContainerConstructionEnergyAcquisitionTask(creep)) != null ? _b : selectStoredProtectedConstructionBacklogEnergyAcquisitionTask(creep);
+  if (storedProtectedConstructionEnergyTask) {
+    return storedProtectedConstructionEnergyTask;
+  }
+  return canUseCriticalCpuConstructionRecovery(creep) ? (_c = selectConstructionBacklogEnergyAcquisitionTask(creep)) != null ? _c : selectConstructionBacklogFallbackEnergyAcquisitionTask(creep) : null;
+}
+function canUseCriticalCpuConstructionRecovery(creep) {
+  const memory = creep.memory;
+  return (memory == null ? void 0 : memory.role) === "worker" && memory.controllerSustain === void 0 && memory.interRoomEnergyHaul === void 0 && memory.spawnSupport === void 0 && memory.territory === void 0;
 }
 function hasCriticalCpuRepairDemand(creep) {
   return selectCriticalOwnedSpawnRepairTarget(creep) !== null || selectEmergencyOwnedRampartRepairTarget(creep) !== null || selectThreatenedBarrierRepairTarget(creep) !== null || selectCriticalInfrastructureRepairTarget(creep) !== null;

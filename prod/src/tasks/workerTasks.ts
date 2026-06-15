@@ -477,6 +477,13 @@ function selectCriticalCpuWorkerTask(creep: Creep, cpuBudget: RuntimeCpuBudget):
     return applyMinimumUsefulLoadPolicy(creep, controllerSustainConstructionBacklogTask);
   }
 
+  const constructionRecoveryTask = canUseCriticalCpuConstructionRecovery(creep)
+    ? selectConstructionRecoveryCpuWorkerTask(creep)
+    : null;
+  if (constructionRecoveryTask) {
+    return constructionRecoveryTask;
+  }
+
   const loadedControllerProgressTask = selectNonCriticalCpuLoadedControllerProgressTask(
     creep,
     cpuBudget,
@@ -749,9 +756,27 @@ function selectCriticalCpuEnergyAcquisitionTask(
     return selectWorkerEnergyCriticalAcquisitionTask(creep);
   }
 
-  return (
+  const storedProtectedConstructionEnergyTask =
     selectStoredProtectedSourceContainerConstructionEnergyAcquisitionTask(creep) ??
-    selectStoredProtectedConstructionBacklogEnergyAcquisitionTask(creep)
+    selectStoredProtectedConstructionBacklogEnergyAcquisitionTask(creep);
+  if (storedProtectedConstructionEnergyTask) {
+    return storedProtectedConstructionEnergyTask;
+  }
+
+  return canUseCriticalCpuConstructionRecovery(creep)
+    ? selectConstructionBacklogEnergyAcquisitionTask(creep) ??
+        selectConstructionBacklogFallbackEnergyAcquisitionTask(creep)
+    : null;
+}
+
+function canUseCriticalCpuConstructionRecovery(creep: Creep): boolean {
+  const memory = creep.memory;
+  return (
+    memory?.role === 'worker' &&
+    memory.controllerSustain === undefined &&
+    memory.interRoomEnergyHaul === undefined &&
+    memory.spawnSupport === undefined &&
+    memory.territory === undefined
   );
 }
 
