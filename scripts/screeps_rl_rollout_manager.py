@@ -963,6 +963,20 @@ def build_candidate_scorecard_gate(
             )
 
         scorecard_candidate_commit = scorecard_candidate.get("commit")
+        scorecard_candidate_deploy_ref = scorecard_candidate.get("deployRef")
+        if (
+            text_present(deploy_ref)
+            and not text_present(scorecard_candidate_commit)
+            and not text_present(scorecard_candidate_deploy_ref)
+        ):
+            reasons.append(
+                {
+                    "field": "candidate.scorecard.candidate.deployBinding",
+                    "reason": "missing_candidate_scorecard_deploy_binding",
+                    "required": deploy_ref,
+                    "scope": "scorecardGate",
+                }
+            )
         if (
             text_present(scorecard_candidate_commit)
             and text_present(deploy_ref)
@@ -978,7 +992,6 @@ def build_candidate_scorecard_gate(
                 }
             )
 
-        scorecard_candidate_deploy_ref = scorecard_candidate.get("deployRef")
         if (
             text_present(scorecard_candidate_deploy_ref)
             and text_present(deploy_ref)

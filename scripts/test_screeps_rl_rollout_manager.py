@@ -317,6 +317,19 @@ class RlRolloutManagerTest(unittest.TestCase):
                 self.assertEqual(plan["readiness"]["status"], "hold")
                 self.assertTrue(any(reason.get("reason") == expected_reason for reason in reasons))
 
+    def test_canary_readiness_plan_holds_without_scorecard_deploy_binding(self) -> None:
+        plan = manager.build_canary_readiness_plan(
+            **ready_canary_plan_kwargs(
+                scorecard_raw=scorecard_artifact(candidate_commit=None, candidate_deploy_ref=None)
+            )
+        )
+
+        reasons = plan["readiness"]["blockingReasons"]
+        self.assertEqual(plan["readiness"]["status"], "hold")
+        self.assertTrue(
+            any(reason.get("reason") == "missing_candidate_scorecard_deploy_binding" for reason in reasons)
+        )
+
     def test_canary_readiness_plan_holds_without_required_gates_or_safety(self) -> None:
         plan = manager.build_canary_readiness_plan(
             active_world_status="stale",
