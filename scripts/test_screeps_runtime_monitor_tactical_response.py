@@ -485,6 +485,69 @@ def worker_deadlock_runtime_summary_payload(
     return {"type": "runtime-summary", "tick": tick, "rooms": [room_summary]}
 
 
+def construction_stall_runtime_summary_payload(
+    room: str,
+    tick: int,
+    *,
+    pending_build_progress: int = 1200,
+    build_carried_energy: int = 0,
+    build_progress: int = 0,
+    build_blocked_reason: str = monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON,
+) -> dict[str, object]:
+    blocked_workers = [
+        {
+            "name": "WorkerA",
+            "task": "upgrade",
+            "carriedEnergy": 0,
+            "freeCapacity": 100,
+            "buildBlockedReason": "build_blocked_no_carried_energy",
+            "dispatchReason": "no_build_energy",
+            "dispatchTick": tick,
+        }
+    ]
+    productive_energy = {
+        "workerAssignmentEvidenceAvailable": True,
+        "workerCount": 2,
+        "productiveAssignmentCount": 0,
+        "constructionSiteCount": 1,
+        "pendingBuildProgress": pending_build_progress,
+        "buildCarriedEnergy": build_carried_energy,
+        "buildProgress": build_progress,
+        "buildBlockedReason": build_blocked_reason,
+        "workerAssignmentBlockedDetail": "no_builder_with_energy",
+        "workerAssignmentBlockedWorkers": blocked_workers,
+    }
+    return {
+        "type": "runtime-summary",
+        "tick": tick,
+        "rooms": [
+            {
+                "roomName": room,
+                "shard": "shardX",
+                "workerAssignmentEvidenceAvailable": True,
+                "workerAssignmentEvidence": {
+                    "source": "runtime-summary",
+                    "available": True,
+                    "tick": tick,
+                    "workerCount": 2,
+                    "assignedTaskCount": 0,
+                    "productiveAssignmentCount": 0,
+                },
+                "workerCount": 2,
+                "taskCounts": {"harvest": 1, "transfer": 0, "build": 0, "repair": 0, "upgrade": 1, "none": 0},
+                "constructionSiteCount": 1,
+                "pendingBuildProgress": pending_build_progress,
+                "buildCarriedEnergy": build_carried_energy,
+                "constructionActivity": {"buildProgress": build_progress},
+                "buildBlockedReason": build_blocked_reason,
+                "workerAssignmentBlockedDetail": "no_builder_with_energy",
+                "workerAssignmentBlockedWorkers": blocked_workers,
+                "resources": {"productiveEnergy": productive_energy},
+            }
+        ],
+    }
+
+
 def make_worker_assignment_gap_metrics() -> monitor.RoomSummaryMetrics:
     return monitor.RoomSummaryMetrics(
         structures=[],
@@ -6562,6 +6625,132 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(report["priority"], "P2")
         self.assertIn("#1580", report["triggers"][0]["metadata"]["related_issues"])
         self.assertIn("#1553", report["triggers"][0]["metadata"]["related_issues"])
+
+    def test_sustained_construction_stall_alerts_after_three_runtime_summaries(self) -> None:
+        room = "E29N55"
+        ticks = [2090100, 2090110, 2090120]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            for index, tick in enumerate(ticks, start=1):
+                (runtime_dir / f"runtime-summary-console-20260601T00000{index}Z.log").write_text(
+                    "#runtime-summary "
+                    + json.dumps(construction_stall_runtime_summary_payload(room, tick))
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+            warnings: list[str] = []
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room=room)],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        runtime_room = runtime_rooms[f"shardX/{room}"]
+        self.assertEqual(
+            len(runtime_room[monitor.RUNTIME_SUMMARY_CAPTURE_HISTORY_METADATA_KEY]),
+            monitor.SUSTAINED_CONSTRUCTION_STALL_REQUIRED_CONSECUTIVE_CAPTURES,
+        )
+
+        emitted, suppressed, next_state = monitor.evaluate_room_alert(
+            make_owned_worker_room_snapshot(room, ticks[-1]),
+            {"baseline_established": True, "owner": "lanyusea"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        reason = next(reason for reason in emitted if reason["kind"] == monitor.SUSTAINED_CONSTRUCTION_STALL_KIND)
+        self.assertEqual(reason["priority"], "P1")
+        self.assertEqual(reason["severity"], "high")
+        self.assertEqual(reason["room"], f"shardX/{room}")
+        self.assertEqual(reason["pendingBuildProgress"], 1200)
+        self.assertEqual(reason["buildCarriedEnergy"], 0)
+        self.assertEqual(reason["buildBlockedReason"], monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON)
+        self.assertEqual(reason["workerAssignmentBlockedDetail"], "no_builder_with_energy")
+        self.assertEqual(reason["workerAssignmentEvidence"]["productiveAssignmentCount"], 0)
+        self.assertEqual(reason["consecutiveCaptures"], 3)
+        self.assertEqual(reason["thresholdCaptures"], 3)
+        self.assertEqual(reason["tickWindow"], {"startTick": ticks[0], "endTick": ticks[-1]})
+        self.assertEqual(reason["runtimeSummaryTick"], ticks[-1])
+        self.assertIn("pendingBuildProgress=1200", reason["message"])
+        self.assertIn("buildCarriedEnergy=0", reason["message"])
+        self.assertIn("buildBlockedReason=worker_assignment_gap", reason["message"])
+        self.assertEqual(
+            next_state["rule_counts"][monitor.SUSTAINED_CONSTRUCTION_STALL_KIND]["consecutive_captures"],
+            3,
+        )
+
+        report = monitor.build_tactical_response_report(
+            {"ok": True, "mode": "alert", "alert": True, "reasons": [reason], "rooms": [f"shardX/{room}"]}
+        )
+        self.assertEqual(report["priority"], "P1")
+        self.assertEqual(report["categories"], [monitor.SUSTAINED_CONSTRUCTION_STALL_KIND])
+        self.assertIn("#1894", report["triggers"][0]["metadata"]["related_issues"])
+
+    def test_sustained_construction_stall_recovery_captures_stay_silent(self) -> None:
+        room = "E29N55"
+        cases = {
+            "pending progress decreases": [
+                construction_stall_runtime_summary_payload(room, 2090100, pending_build_progress=1200),
+                construction_stall_runtime_summary_payload(room, 2090110, pending_build_progress=1200),
+                construction_stall_runtime_summary_payload(room, 2090120, pending_build_progress=900),
+            ],
+            "build carried energy appears": [
+                construction_stall_runtime_summary_payload(room, 2090100),
+                construction_stall_runtime_summary_payload(room, 2090110),
+                construction_stall_runtime_summary_payload(room, 2090120, build_carried_energy=50),
+            ],
+            "build progress appears": [
+                construction_stall_runtime_summary_payload(room, 2090100),
+                construction_stall_runtime_summary_payload(room, 2090110),
+                construction_stall_runtime_summary_payload(room, 2090120, build_progress=5),
+            ],
+        }
+
+        for name, payloads in cases.items():
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    runtime_dir = Path(temp_dir)
+                    for index, payload in enumerate(payloads, start=1):
+                        (runtime_dir / f"runtime-summary-console-20260601T00000{index}Z.log").write_text(
+                            "#runtime-summary " + json.dumps(payload) + "\n",
+                            encoding="utf-8",
+                        )
+
+                    warnings: list[str] = []
+                    runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                        runtime_dir,
+                        [monitor.RoomRef(shard="shardX", room=room)],
+                        warnings,
+                    )
+
+                self.assertEqual(warnings, [])
+                emitted, suppressed, next_state = monitor.evaluate_room_alert(
+                    make_owned_worker_room_snapshot(room, 2090120),
+                    {
+                        "baseline_established": True,
+                        "owner": "lanyusea",
+                        "rule_counts": {
+                            monitor.SUSTAINED_CONSTRUCTION_STALL_KIND: {
+                                "start_tick": 2090000,
+                                "last_tick": 2090110,
+                                "consecutive_ticks": 110,
+                                "consecutive_captures": 2,
+                                "pendingBuildProgress": 1200,
+                            }
+                        },
+                    },
+                    now=100,
+                    debounce_seconds=300,
+                    runtime_room_summary=runtime_rooms[f"shardX/{room}"],
+                )
+
+                self.assertEqual(suppressed, [])
+                self.assertNotIn(monitor.SUSTAINED_CONSTRUCTION_STALL_KIND, [reason["kind"] for reason in emitted])
+                self.assertEqual(next_state["rule_counts"][monitor.SUSTAINED_CONSTRUCTION_STALL_KIND], 0)
 
     def test_worker_deadlock_console_capture_window_requires_fresh_latest_capture(self) -> None:
         room = "E29N57"

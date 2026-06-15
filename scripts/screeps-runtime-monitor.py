@@ -111,6 +111,8 @@ WORKER_ASSIGNMENT_GAP_RECOVERY_TICK_TOLERANCE = 0
 WORKER_ASSIGNMENT_STALL_KIND = "worker_assignment_stall"
 WORKER_ASSIGNMENT_STALL_REQUIRED_TICKS = 100
 WORKER_ASSIGNMENT_STALL_REQUIRED_CONSECUTIVE_CAPTURES = 4
+SUSTAINED_CONSTRUCTION_STALL_KIND = "sustained_construction_stall"
+SUSTAINED_CONSTRUCTION_STALL_REQUIRED_CONSECUTIVE_CAPTURES = 3
 OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND = "owned_room_none_task_worker_ratio_sustained"
 OWNED_ROOM_NONE_TASK_WORKER_RATIO_THRESHOLD = 0.5
 OWNED_ROOM_NONE_TASK_WORKER_COUNT_THRESHOLD = 2
@@ -305,6 +307,10 @@ WORKER_ASSIGNMENT_STALL_ROUTES = [
     {"issue": "#1573", "topic": "worker_deadlock_alert"},
     {"issue": "#906", "topic": "gameplay_behavior_metric"},
 ]
+SUSTAINED_CONSTRUCTION_STALL_ROUTES = [
+    {"issue": "#1894", "topic": "sustained_construction_stall_alert"},
+    {"issue": "#906", "topic": "gameplay_behavior_metric"},
+]
 OWNED_ROOM_NONE_TASK_WORKER_RATIO_ROUTES = [
     {"issue": "#1767", "topic": "runtime_monitor_alert"},
     {"issue": "#1776", "topic": "secondary_room_standby_behavior"},
@@ -458,6 +464,19 @@ TACTICAL_CATEGORY_RULES: dict[str, dict[str, Any]] = {
                 "P2_consecutive_captures": WORKER_ASSIGNMENT_STALL_REQUIRED_CONSECUTIVE_CAPTURES,
             },
             "routes_to": WORKER_ASSIGNMENT_STALL_ROUTES,
+        },
+    },
+    SUSTAINED_CONSTRUCTION_STALL_KIND: {
+        "severity": "high",
+        "decision": "codex_hotfix",
+        "actions": ["capture_runtime_context", "inspect_resource_state", "start_hotfix_gate"],
+        "metadata": {
+            "metric": "pendingBuildProgress/buildCarriedEnergy",
+            "related_issues": [str(route["issue"]) for route in SUSTAINED_CONSTRUCTION_STALL_ROUTES],
+            "thresholds": {
+                "P1_consecutive_captures": SUSTAINED_CONSTRUCTION_STALL_REQUIRED_CONSECUTIVE_CAPTURES,
+            },
+            "routes_to": SUSTAINED_CONSTRUCTION_STALL_ROUTES,
         },
     },
     OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND: {
@@ -614,6 +633,7 @@ TACTICAL_REASON_CATEGORY_MAP = {
     EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND: [EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND],
     WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND: [WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND],
     WORKER_ASSIGNMENT_STALL_KIND: [WORKER_ASSIGNMENT_STALL_KIND],
+    SUSTAINED_CONSTRUCTION_STALL_KIND: [SUSTAINED_CONSTRUCTION_STALL_KIND],
     OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND: [OWNED_ROOM_NONE_TASK_WORKER_RATIO_KIND],
     "postdeploy_no_owned_spawn": ["spawn_collapse"],
     "owned_spawns=0": ["spawn_collapse"],
@@ -1576,6 +1596,17 @@ def worker_assignment_stall_metadata() -> dict[str, Any]:
             "P2_consecutive_captures": WORKER_ASSIGNMENT_STALL_REQUIRED_CONSECUTIVE_CAPTURES,
         },
         "routes_to": [dict(route) for route in WORKER_ASSIGNMENT_STALL_ROUTES],
+    }
+
+
+def sustained_construction_stall_metadata() -> dict[str, Any]:
+    return {
+        "metric": "pendingBuildProgress/buildCarriedEnergy",
+        "related_issues": [str(route["issue"]) for route in SUSTAINED_CONSTRUCTION_STALL_ROUTES],
+        "thresholds": {
+            "P1_consecutive_captures": SUSTAINED_CONSTRUCTION_STALL_REQUIRED_CONSECUTIVE_CAPTURES,
+        },
+        "routes_to": [dict(route) for route in SUSTAINED_CONSTRUCTION_STALL_ROUTES],
     }
 
 
@@ -3676,6 +3707,336 @@ def detect_worker_assignment_stall_reason(
     return None, state
 
 
+def construction_stall_worker_assignment_evidence(room: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(room, dict):
+        return {}
+
+    raw_evidence = as_dict(room.get("workerAssignmentEvidence"))
+    evidence: dict[str, Any] = {
+        "available": runtime_worker_assignment_evidence_available(room),
+    }
+    source = string_value(raw_evidence.get("source"))
+    if source is not None:
+        evidence["source"] = source
+    tick = runtime_worker_summary_tick(room)
+    if tick is None:
+        tick = runtime_summary_evidence_tick(room)
+    if tick is not None:
+        evidence["tick"] = tick
+    worker_count = runtime_worker_count_from_summary(room)
+    if worker_count is not None:
+        evidence["workerCount"] = worker_count
+    assigned_task_count = runtime_assigned_task_count(room)
+    if assigned_task_count is not None:
+        evidence["assignedTaskCount"] = assigned_task_count
+    productive_assignment_count = runtime_productive_assignment_count(room)
+    if productive_assignment_count is not None:
+        evidence["productiveAssignmentCount"] = productive_assignment_count
+    task_counts = as_dict(room.get("taskCounts"))
+    if task_counts:
+        evidence["taskCounts"] = dict(task_counts)
+    blocked_detail = runtime_worker_assignment_blocked_detail(room)
+    if blocked_detail is not None:
+        evidence["workerAssignmentBlockedDetail"] = blocked_detail
+    blocked_workers = runtime_worker_assignment_blocked_workers(room)
+    if blocked_workers:
+        evidence["workerAssignmentBlockedWorkers"] = blocked_workers
+    return evidence
+
+
+def sustained_construction_stall_evidence(
+    runtime_room: dict[str, Any] | None,
+    metrics: RoomSummaryMetrics,
+    current_tick_value: Any,
+) -> dict[str, Any] | None:
+    pending_build_progress = runtime_pending_build_progress(runtime_room)
+    if pending_build_progress is None:
+        pending_build_progress = metrics.pending_build_progress
+    if pending_build_progress <= 0:
+        return None
+
+    build_carried_energy = runtime_build_carried_energy(runtime_room)
+    if build_carried_energy is None:
+        build_carried_energy = metrics.build_carried_energy
+    if build_carried_energy is None or build_carried_energy > 0:
+        return None
+
+    build_progress = runtime_build_progress(runtime_room)
+    if build_progress is not None and build_progress > 0:
+        return None
+    if runtime_construction_execution_evidence(runtime_room):
+        return None
+
+    construction_site_count = runtime_construction_site_count(runtime_room)
+    if construction_site_count is None:
+        construction_site_count = len(metrics.construction_sites)
+    build_count = runtime_task_count(runtime_room or {}, "build")
+    if build_count is None:
+        build_count = metrics.task_counts.get("build")
+    build_blocked_reason = runtime_build_blocked_reason(runtime_room) or metrics.build_blocked_reason or "unknown"
+    runtime_summary_tick = runtime_summary_evidence_tick(runtime_room)
+    if runtime_summary_tick is None:
+        runtime_summary_tick = tick_number(current_tick_value)
+
+    evidence: dict[str, Any] = {
+        "constructionSiteCount": construction_site_count,
+        "pendingBuildProgress": pending_build_progress,
+        "buildCarriedEnergy": build_carried_energy,
+        "buildProgress": build_progress,
+        "build": build_count,
+        "buildBlockedReason": build_blocked_reason,
+        "workerAssignmentEvidence": construction_stall_worker_assignment_evidence(runtime_room),
+        "runtimeSummaryTick": runtime_summary_tick,
+    }
+    blocked_detail = runtime_worker_assignment_blocked_detail(runtime_room)
+    if blocked_detail is not None:
+        evidence["workerAssignmentBlockedDetail"] = blocked_detail
+    blocked_workers = runtime_worker_assignment_blocked_workers(runtime_room)
+    if blocked_workers:
+        evidence["workerAssignmentBlockedWorkers"] = blocked_workers
+    artifact_timestamp = runtime_room.get(RUNTIME_SUMMARY_ARTIFACT_TIMESTAMP_METADATA_KEY) if isinstance(runtime_room, dict) else None
+    if isinstance(artifact_timestamp, (int, float, str)) and artifact_timestamp:
+        evidence["runtimeSummaryArtifactTimestamp"] = artifact_timestamp
+    artifact_path = runtime_room.get(RUNTIME_SUMMARY_ARTIFACT_PATH_METADATA_KEY) if isinstance(runtime_room, dict) else None
+    if isinstance(artifact_path, str) and artifact_path:
+        evidence["runtimeSummaryArtifactPath"] = artifact_path
+    artifact_line = number_value(runtime_room.get(RUNTIME_SUMMARY_ARTIFACT_LINE_METADATA_KEY)) if isinstance(runtime_room, dict) else None
+    if artifact_line is not None:
+        evidence["runtimeSummaryArtifactLine"] = int(artifact_line)
+    return evidence
+
+
+def sustained_construction_stall_capture_matches(capture: dict[str, Any]) -> bool:
+    pending_build_progress = runtime_pending_build_progress(capture)
+    if pending_build_progress is None or pending_build_progress <= 0:
+        return False
+    build_carried_energy = runtime_build_carried_energy(capture)
+    if build_carried_energy is None or build_carried_energy > 0:
+        return False
+    return not runtime_construction_execution_evidence(capture)
+
+
+def sustained_construction_stall_consecutive_captures(
+    runtime_room: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    captures = runtime_summary_capture_history(runtime_room)
+    if not captures:
+        return []
+
+    consecutive: list[dict[str, Any]] = []
+    newer_pending_build_progress: int | float | None = None
+    for capture in captures:
+        if not sustained_construction_stall_capture_matches(capture):
+            break
+        pending_build_progress = runtime_pending_build_progress(capture)
+        if (
+            pending_build_progress is not None
+            and newer_pending_build_progress is not None
+            and newer_pending_build_progress < pending_build_progress
+        ):
+            break
+        consecutive.append(capture)
+        newer_pending_build_progress = pending_build_progress
+    return consecutive
+
+
+def sustained_construction_stall_capture_state(
+    captures: list[dict[str, Any]],
+    current_tick_value: Any,
+) -> dict[str, int | float]:
+    current_tick = tick_number(captures[0].get("runtimeSummaryTick")) if captures else None
+    start_tick = tick_number(captures[-1].get("runtimeSummaryTick")) if captures else None
+    if current_tick is None:
+        current_tick = tick_number(current_tick_value)
+    if start_tick is None:
+        start_tick = current_tick
+    if current_tick is None:
+        current_tick = start_tick if start_tick is not None else 0
+    if start_tick is None:
+        start_tick = current_tick
+    pending_build_progress = runtime_pending_build_progress(captures[0]) if captures else None
+    return {
+        "start_tick": start_tick,
+        "last_tick": current_tick,
+        "consecutive_ticks": max(0, current_tick - start_tick),
+        "consecutive_captures": len(captures),
+        "pendingBuildProgress": pending_build_progress if pending_build_progress is not None else 0,
+    }
+
+
+def sustained_construction_stall_capture_window_evidence(
+    runtime_room: dict[str, Any] | None,
+    metrics: RoomSummaryMetrics,
+    current_tick_value: Any,
+) -> tuple[dict[str, Any], dict[str, int | float]] | None:
+    captures = sustained_construction_stall_consecutive_captures(runtime_room)
+    if len(captures) < SUSTAINED_CONSTRUCTION_STALL_REQUIRED_CONSECUTIVE_CAPTURES:
+        return None
+    evidence = sustained_construction_stall_evidence(captures[0], metrics, current_tick_value)
+    if evidence is None:
+        evidence = sustained_construction_stall_evidence(runtime_room, metrics, current_tick_value)
+    if evidence is None:
+        return None
+    evidence["consecutiveCaptures"] = len(captures)
+    evidence["thresholdCaptures"] = SUSTAINED_CONSTRUCTION_STALL_REQUIRED_CONSECUTIVE_CAPTURES
+    evidence["runtimeSummaryCaptures"] = captures
+    evidence["runtimeSummaryCapturePaths"] = worker_assignment_capture_paths(captures)
+    return evidence, sustained_construction_stall_capture_state(captures, current_tick_value)
+
+
+def sustained_construction_stall_previous_state(value: Any) -> dict[str, int | float]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, int | float] = {}
+    for key in ("start_tick", "last_tick", "consecutive_ticks"):
+        tick = tick_number(value.get(key))
+        if tick is not None:
+            result[key] = tick
+    consecutive_captures = number_value(value.get("consecutive_captures"))
+    if consecutive_captures is not None:
+        result["consecutive_captures"] = int(consecutive_captures)
+    pending_build_progress = number_value(value.get("pendingBuildProgress"))
+    if pending_build_progress is not None:
+        result["pendingBuildProgress"] = pending_build_progress
+    return result
+
+
+def sustained_construction_stall_next_state(
+    previous_state: dict[str, int | float],
+    current_tick: int,
+    pending_build_progress: int | float,
+) -> dict[str, int | float]:
+    previous_start_tick = tick_number(previous_state.get("start_tick"))
+    previous_last_tick = tick_number(previous_state.get("last_tick"))
+    previous_captures = number_value(previous_state.get("consecutive_captures"))
+    previous_pending_build_progress = number_value(previous_state.get("pendingBuildProgress"))
+
+    if previous_start_tick is not None and previous_last_tick is not None and current_tick <= previous_last_tick:
+        return {
+            "start_tick": previous_start_tick,
+            "last_tick": previous_last_tick,
+            "consecutive_ticks": max(
+                0,
+                int(number_value(previous_state.get("consecutive_ticks")) or previous_last_tick - previous_start_tick),
+            ),
+            "consecutive_captures": int(previous_captures) if previous_captures is not None else 1,
+            "pendingBuildProgress": (
+                previous_pending_build_progress
+                if previous_pending_build_progress is not None
+                else pending_build_progress
+            ),
+        }
+
+    if previous_start_tick is None or previous_last_tick is None or current_tick < previous_last_tick:
+        start_tick = current_tick
+        consecutive_captures = 1
+    else:
+        start_tick = previous_start_tick
+        consecutive_captures = (int(previous_captures) if previous_captures is not None else 1) + 1
+    return {
+        "start_tick": start_tick,
+        "last_tick": current_tick,
+        "consecutive_ticks": max(0, current_tick - start_tick),
+        "consecutive_captures": consecutive_captures,
+        "pendingBuildProgress": pending_build_progress,
+    }
+
+
+def build_sustained_construction_stall_reason(
+    ref: RoomRef,
+    evidence: dict[str, Any],
+    state: dict[str, int | float],
+) -> dict[str, Any]:
+    consecutive_captures = int(number_value(state.get("consecutive_captures")) or 0)
+    start_tick = tick_number(state.get("start_tick")) or 0
+    current_tick = tick_number(state.get("last_tick")) or start_tick
+    tick_window = {"startTick": start_tick, "endTick": current_tick}
+    build_blocked_reason = evidence.get("buildBlockedReason") or "unknown"
+    return {
+        "kind": SUSTAINED_CONSTRUCTION_STALL_KIND,
+        "room": ref.key,
+        "shard": ref.shard,
+        "room_name": ref.room,
+        "severity": "high",
+        "priority": "P1",
+        **evidence,
+        "start_tick": start_tick,
+        "current_tick": current_tick,
+        "tickWindow": tick_window,
+        "consecutive_ticks": max(0, current_tick - start_tick),
+        "consecutiveCaptures": consecutive_captures,
+        "thresholdCaptures": SUSTAINED_CONSTRUCTION_STALL_REQUIRED_CONSECUTIVE_CAPTURES,
+        "next_action": (
+            "Codex triage: inspect worker assignment and construction execution for the affected room; "
+            "verify pendingBuildProgress decreases or buildCarriedEnergy/buildProgress appears in fresh runtime-summary captures."
+        ),
+        "owner_ping": False,
+        "metadata": sustained_construction_stall_metadata(),
+        "message": (
+            f"{SUSTAINED_CONSTRUCTION_STALL_KIND} in {ref.key}: pendingBuildProgress="
+            f"{format_energy_value(evidence.get('pendingBuildProgress'))}, buildCarriedEnergy="
+            f"{format_energy_value(evidence.get('buildCarriedEnergy'))}, buildProgress="
+            f"{format_energy_value(evidence.get('buildProgress'))}, buildBlockedReason={build_blocked_reason} "
+            f"across {consecutive_captures} consecutive runtime-summary observations "
+            f"(threshold={SUSTAINED_CONSTRUCTION_STALL_REQUIRED_CONSECUTIVE_CAPTURES}) "
+            f"from tick {start_tick} to {current_tick}."
+        ),
+        "signature": f"{SUSTAINED_CONSTRUCTION_STALL_KIND}:{ref.key}",
+    }
+
+
+def detect_sustained_construction_stall_reason(
+    ref: RoomRef,
+    runtime_room: dict[str, Any] | None,
+    metrics: RoomSummaryMetrics,
+    previous_rule_state: Any,
+    current_tick_value: Any,
+) -> tuple[dict[str, Any] | None, dict[str, int | float] | int]:
+    capture_window = sustained_construction_stall_capture_window_evidence(
+        runtime_room,
+        metrics,
+        current_tick_value,
+    )
+    if capture_window is not None:
+        evidence, state = capture_window
+        return build_sustained_construction_stall_reason(ref, evidence, state), state
+
+    evidence = sustained_construction_stall_evidence(runtime_room, metrics, current_tick_value)
+    if evidence is None:
+        return None, 0
+
+    current_tick = tick_number(evidence.get("runtimeSummaryTick"))
+    if current_tick is None:
+        current_tick = tick_number(current_tick_value)
+    if current_tick is None:
+        preserved_state = sustained_construction_stall_previous_state(previous_rule_state)
+        return None, preserved_state or 0
+
+    previous_state = sustained_construction_stall_previous_state(previous_rule_state)
+    previous_last_tick = tick_number(previous_state.get("last_tick"))
+    previous_pending_build_progress = number_value(previous_state.get("pendingBuildProgress"))
+    pending_build_progress = number_value(evidence.get("pendingBuildProgress"))
+    if (
+        previous_pending_build_progress is not None
+        and pending_build_progress is not None
+        and pending_build_progress < previous_pending_build_progress
+    ):
+        return None, 0
+
+    state = sustained_construction_stall_next_state(
+        previous_state,
+        current_tick,
+        pending_build_progress if pending_build_progress is not None else 0,
+    )
+    evidence["consecutiveCaptures"] = state["consecutive_captures"]
+    evidence["thresholdCaptures"] = SUSTAINED_CONSTRUCTION_STALL_REQUIRED_CONSECUTIVE_CAPTURES
+    if previous_last_tick is not None and current_tick <= previous_last_tick:
+        return None, state
+    if state["consecutive_captures"] >= SUSTAINED_CONSTRUCTION_STALL_REQUIRED_CONSECUTIVE_CAPTURES:
+        return build_sustained_construction_stall_reason(ref, evidence, state), state
+    return None, state
+
+
 def alert_reason_kind(reason: dict[str, Any]) -> str:
     value = reason.get("kind")
     return value.lower() if isinstance(value, str) else ""
@@ -3950,6 +4311,18 @@ def evaluate_room_alert(
     rule_counts[WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND] = worker_assignment_gap_state
     if worker_assignment_gap_candidate is not None:
         detected.append(worker_assignment_gap_candidate)
+
+    previous_construction_stall_state = rule_counts.get(SUSTAINED_CONSTRUCTION_STALL_KIND)
+    construction_stall_candidate, construction_stall_state = detect_sustained_construction_stall_reason(
+        snapshot.ref,
+        runtime_room_summary if owned_room_for_worker_alerts else None,
+        current_metrics,
+        previous_construction_stall_state,
+        snapshot.tick,
+    )
+    rule_counts[SUSTAINED_CONSTRUCTION_STALL_KIND] = construction_stall_state
+    if construction_stall_candidate is not None:
+        detected.append(construction_stall_candidate)
 
     construction_deadlock_candidate = detect_construction_deadlock_reason(
         snapshot.ref,
