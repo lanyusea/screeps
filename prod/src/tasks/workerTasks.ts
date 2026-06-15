@@ -95,7 +95,8 @@ export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
 export const CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 export const CRITICAL_SPAWN_REPAIR_HITS_RATIO = 0.25;
 export const EMERGENCY_RAMPART_REPAIR_HITS_CEILING = 10_000;
-export const CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING = 50_000;
+// Keep a buffer above the monitor alert band so visible construction does not let ramparts decay across it.
+export const CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING = 60_000;
 export const ACTIVE_RAMPART_REPAIR_HITS_CEILING = 120_000;
 // Keep routine barrier maintenance above the monitor's critical rampart damage band.
 export const IDLE_RAMPART_REPAIR_HITS_CEILING = 150_000;
