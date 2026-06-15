@@ -9114,6 +9114,149 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'road-site1' });
   });
 
+  it('routes a low-load E29N55 repair worker to residual construction when critical repair is covered', () => {
+    const towerSite = {
+      id: 'tower-site1',
+      my: true,
+      structureType: 'tower',
+      progress: 0,
+      progressTotal: 5_000,
+      pos: makeRoomPosition(22, 21, 'E29N55')
+    } as ConstructionSite;
+    const roadSite = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 50,
+      progressTotal: 1_500,
+      pos: makeRoomPosition(23, 21, 'E29N55')
+    } as ConstructionSite;
+    const damagedContainer = makeStoredEnergyContainerWithCapacity('critical-container1', 778, 2_000, {
+      hits: 600,
+      hitsMax: 2_000,
+      pos: makeRoomPosition(18, 24, 'E29N55')
+    });
+    const fullSpawn = makeFullSpawnEnergyStructure('spawn-full', 'E29N55');
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N55',
+      constructionSites: [roadSite, towerSite],
+      controller,
+      energyAvailable: 300,
+      energyCapacityAvailable: 2_300,
+      myStructures: [fullSpawn as AnyOwnedStructure],
+      structures: [fullSpawn as AnyStructure, damagedContainer as AnyStructure]
+    });
+    const builder = {
+      name: 'worker-E29N55-2193683',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'repair', targetId: 'critical-container1' as Id<Structure> }
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 6 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 94 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'critical-container1': 2,
+            'road-site1': 5,
+            'tower-site1': 6
+          };
+          return ranges[String(target.id)] ?? 20;
+        })
+      },
+      room
+    } as unknown as Creep;
+    const repairCoverage = {
+      name: 'worker-E29N55-2193707',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'repair', targetId: 'critical-container1' as Id<Structure> }
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+      },
+      room
+    } as unknown as Creep;
+    const harvestCoverage = {
+      name: 'worker-E29N55-2193826',
+      memory: { role: 'worker', colony: 'E29N55', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Builder: builder, RepairCoverage: repairCoverage, HarvestCoverage: harvestCoverage });
+
+    expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'tower-site1' });
+  });
+
+  it('keeps E29N55 critical container repair when no other worker covers the repair target', () => {
+    const site = {
+      id: 'tower-site1',
+      my: true,
+      structureType: 'tower',
+      progress: 0,
+      progressTotal: 5_000
+    } as ConstructionSite;
+    const damagedContainer = makeStoredEnergyContainerWithCapacity('critical-container1', 778, 2_000, {
+      hits: 600,
+      hitsMax: 2_000
+    });
+    const fullSpawn = makeFullSpawnEnergyStructure('spawn-full', 'E29N55');
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N55',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 300,
+      energyCapacityAvailable: 2_300,
+      myStructures: [fullSpawn as AnyOwnedStructure],
+      structures: [fullSpawn as AnyStructure, damagedContainer as AnyStructure]
+    });
+    const repairer = {
+      name: 'worker-E29N55-only-repairer',
+      memory: { role: 'worker', colony: 'E29N55' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+      },
+      room
+    } as unknown as Creep;
+    const emptyWorker = {
+      name: 'worker-E29N55-empty',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Repairer: repairer, EmptyWorker: emptyWorker });
+
+    expect(selectWorkerTask(repairer)).toEqual({ type: 'repair', targetId: 'critical-container1' });
+  });
+
   it('keeps ordinary refill before construction when no worker covers the spawn floor', () => {
     const site = {
       id: 'road-site1',
