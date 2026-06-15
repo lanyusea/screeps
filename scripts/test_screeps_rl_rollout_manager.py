@@ -164,8 +164,9 @@ def ready_canary_plan_kwargs(
     *,
     scorecard_raw: JsonObject | None = None,
     scorecard_ref: str = "runtime-artifacts/rl-control-loop/scorecards/candidate-top-construction.json",
+    **overrides: Any,
 ) -> JsonObject:
-    return {
+    kwargs: JsonObject = {
         "active_world_ref": "14df4ae442fb68e1273aa69c182daa0328e2d868",
         "active_world_status": "matched_main",
         "baseline_raw": kpi_window(),
@@ -199,6 +200,8 @@ def ready_canary_plan_kwargs(
         "scorecard_raw": scorecard_raw if scorecard_raw is not None else scorecard_artifact(),
         "scorecard_ref": scorecard_ref,
     }
+    kwargs.update(overrides)
+    return kwargs
 
 
 class RlRolloutManagerTest(unittest.TestCase):
@@ -258,10 +261,45 @@ class RlRolloutManagerTest(unittest.TestCase):
         self.assertFalse(plan["safetyGuards"]["deploysCode"])
         self.assertEqual(plan["constructionGate"]["status"], "pass")
         self.assertEqual(plan["cpuGate"]["status"], "pass")
+        self.assertEqual(plan["cpuGate"]["sourceArtifact"], "runtime-artifacts/rl-control-loop/cpu-baseline.json")
         self.assertEqual(plan["officialDeploy"]["ownedSpawns"], 1)
         self.assertEqual(plan["controlLoop"]["conclusions"][0]["conclusionId"], "RL-CONC-20260612-004")
         self.assertEqual(plan["canaryContract"]["validation"]["status"], "pass")
         self.assertEqual(plan["incumbentBaseline"]["kpiWindow"]["observation"]["status"], "pass")
+
+    def test_canary_readiness_plan_holds_for_passed_cpu_baseline_without_ref(self) -> None:
+        for cpu_status, cpu_ref in (("pass", None), ("accepted", "")):
+            with self.subTest(cpu_status=cpu_status, cpu_ref=cpu_ref):
+                plan = manager.build_canary_readiness_plan(
+                    **ready_canary_plan_kwargs(cpu_baseline_status=cpu_status, cpu_baseline_ref=cpu_ref)
+                )
+
+                reasons = plan["readiness"]["blockingReasons"]
+                self.assertEqual(plan["readiness"]["status"], "hold")
+                self.assertEqual(plan["cpuGate"]["status"], cpu_status)
+                self.assertEqual(plan["cpuGate"]["sourceArtifact"], cpu_ref)
+                self.assertTrue(any(reason.get("reason") == "missing_cpu_baseline_ref" for reason in reasons))
+                self.assertFalse(any(reason.get("reason") == "cpu_baseline_must_pass" for reason in reasons))
+
+    def test_canary_readiness_plan_allows_accepted_cpu_baseline_with_ref(self) -> None:
+        plan = manager.build_canary_readiness_plan(
+            **ready_canary_plan_kwargs(cpu_baseline_status="accepted", cpu_baseline_ref="cpu-baseline-ref")
+        )
+
+        self.assertEqual(plan["readiness"]["status"], "ready")
+        self.assertEqual(plan["readiness"]["blockingReasons"], [])
+        self.assertEqual(plan["cpuGate"]["status"], "accepted")
+        self.assertEqual(plan["cpuGate"]["sourceArtifact"], "cpu-baseline-ref")
+
+    def test_canary_readiness_plan_keeps_failed_cpu_baseline_reason_without_ref(self) -> None:
+        plan = manager.build_canary_readiness_plan(
+            **ready_canary_plan_kwargs(cpu_baseline_status="fail", cpu_baseline_ref=None)
+        )
+
+        reasons = plan["readiness"]["blockingReasons"]
+        self.assertEqual(plan["readiness"]["status"], "hold")
+        self.assertTrue(any(reason.get("reason") == "cpu_baseline_must_pass" for reason in reasons))
+        self.assertFalse(any(reason.get("reason") == "missing_cpu_baseline_ref" for reason in reasons))
 
     def test_canary_readiness_plan_holds_for_rejected_scorecard_outcomes(self) -> None:
         for status in ("HOLD", "MIXED", "ROLLBACK_REQUIRED"):

@@ -33,7 +33,7 @@ LIVE_INFLUENCE_STATES = ("none", "shadow", "canary", "active", "rolled_back")
 DEFAULT_LIVE_INFLUENCE_STATE = "none"
 DEFAULT_LIVE_INFLUENCE_SURFACE = "none"
 LIVE_INFLUENCE_STATES_REQUIRING_REFS = ("canary", "active", "rolled_back")
-CANARY_PLAN_PASS_STATUSES = ("pass", "passed", "ok", "stable", "ready")
+CANARY_PLAN_PASS_STATUSES = ("pass", "passed", "ok", "stable", "ready", "accepted")
 CANARY_PLAN_ACTIVE_WORLD_STATUS = "matched_main"
 CANARY_PLAN_SCORECARD_PASS_STATUS = "PASS"
 CANARY_PLAN_SCORECARD_STATUS_VALUES = (
@@ -1309,6 +1309,15 @@ def build_canary_readiness_plan(
                 "actual": cpu_baseline_status,
                 "field": "cpuGate.status",
                 "reason": "cpu_baseline_must_pass",
+                "scope": "cpuGate",
+            }
+        )
+    elif not text_present(cpu_baseline_ref):
+        blocking_reasons.append(
+            {
+                "actual": cpu_baseline_ref,
+                "field": "cpuGate.sourceArtifact",
+                "reason": "missing_cpu_baseline_ref",
                 "scope": "cpuGate",
             }
         )
