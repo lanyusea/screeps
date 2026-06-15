@@ -5786,6 +5786,81 @@ describe('runWorker', () => {
     expect(build).not.toHaveBeenCalled();
   });
 
+  it('preempts retained upgrade for recurrent issue 1879 rampart repair before construction', () => {
+    const site = { id: 'site1', my: true, structureType: 'constructedWall' } as ConstructionSite;
+    const rampart = {
+      id: 'rampart-issue-1879-recurrent',
+      structureType: 'rampart',
+      my: true,
+      hits: 56_501,
+      hitsMax: 30_000_000
+    } as StructureRampart;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const build = jest.fn();
+    const repair = jest.fn().mockReturnValue(0);
+    const upgradeController = jest.fn();
+    const room = {
+      name: 'E29N55',
+      energyAvailable: 800,
+      energyCapacityAvailable: 2_300,
+      controller,
+      find: jest.fn((type: number) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [site];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [rampart];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const creep = {
+      name: 'UpgradingWorker',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(100),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      build,
+      repair,
+      upgradeController,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { UpgradingWorker: creep },
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'rampart-issue-1879-recurrent') {
+          return rampart;
+        }
+
+        if (id === 'controller1') {
+          return controller;
+        }
+
+        return id === 'site1' ? site : null;
+      }) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'repair', targetId: 'rampart-issue-1879-recurrent' });
+    expect(repair).toHaveBeenCalledWith(rampart);
+    expect(build).not.toHaveBeenCalled();
+    expect(upgradeController).not.toHaveBeenCalled();
+  });
+
   it('preempts retained transfer for issue 1879 low-hit owned rampart repair', () => {
     const rampart = {
       id: 'rampart-issue-1879',
