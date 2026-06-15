@@ -6712,6 +6712,47 @@ describe('planSpawn', () => {
     });
   });
 
+  it('plans local E29N56 worker recovery when counted workers are all off-room and construction remains', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'E29N56',
+      constructionSiteCount: 2,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      controller: makeSafeOwnedController(4)
+    });
+    const remoteRoom = { name: 'E29N57' } as Room;
+    const offRoomWorkers = Object.fromEntries(
+      Array.from({ length: 5 }, (_, index) => [
+        `RemoteWorker${index}`,
+        {
+          name: `worker-E29N56-${index}`,
+          ticksToLive: 1_000,
+          memory: {
+            role: 'worker',
+            colony: 'E29N56',
+            controllerSustain: {
+              homeRoom: 'E29N56',
+              targetRoom: 'E29N57',
+              role: 'upgrader'
+            }
+          },
+          room: remoteRoom
+        } as Creep
+      ])
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: offRoomWorkers,
+      spawns: { SpawnE29N56: spawn }
+    };
+
+    expect(planSpawn(colony, { worker: 5, sourceHarvester: 0 }, 2_197_087)).toEqual({
+      spawn,
+      body: SCALED_WORKER_800,
+      name: 'worker-E29N56-2197087',
+      memory: { role: 'worker', colony: 'E29N56' }
+    });
+  });
+
   it('plans an affordable worker body below the minimum functional worker target', () => {
     const { colony, spawn } = makeColony({ energyAvailable: 400, energyCapacityAvailable: 600 });
 
