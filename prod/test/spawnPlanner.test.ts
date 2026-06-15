@@ -6712,6 +6712,30 @@ describe('planSpawn', () => {
     });
   });
 
+  it('keeps zero-worker recovery on the emergency body when construction and repair pressure coexist', () => {
+    const damagedContainer = {
+      id: 'container-repair',
+      structureType: 'container',
+      hits: 500,
+      hitsMax: 2_500
+    } as StructureContainer;
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N12',
+      constructionSiteCount: 1,
+      energyAvailable: 400,
+      energyCapacityAvailable: 600,
+      controller: makeSafeOwnedController(),
+      structures: [damagedContainer as AnyStructure]
+    });
+
+    expect(planSpawn(colony, { worker: 0 }, 136)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-W1N12-136',
+      memory: { role: 'worker', colony: 'W1N12' }
+    });
+  });
+
   it('plans local E29N56 worker recovery when counted workers are all off-room and construction remains', () => {
     const { colony, spawn } = makeColony({
       roomName: 'E29N56',

@@ -35521,7 +35521,14 @@ function isWorkerAssignmentGapRecoveryTask(creep, task, allowUpgradeRecovery, op
   return task === void 0 || task === null || isEnergyAcquisitionTask2(task) || task.type === "transfer" || options.allowRepair === true && isWorkerAssignmentGapRecoveryRepairTask(creep, task) || allowUpgradeRecovery && task.type === "upgrade";
 }
 function isWorkerAssignmentGapRecoveryRepairTask(creep, task) {
-  return (task == null ? void 0 : task.type) === "repair" && !isProtectedRepairTargetForConstructionBacklog(creep, getTaskTarget(task));
+  return (task == null ? void 0 : task.type) === "repair" && isRepairTargetPreemptibleForConstructionBacklog(creep, getTaskTarget(task));
+}
+function isRepairTargetPreemptibleForConstructionBacklog(creep, target) {
+  return !isProtectedRepairTargetForConstructionBacklog(creep, target) || hasCoveredProtectedRampartRepairForAssignmentGap(creep, target);
+}
+function hasCoveredProtectedRampartRepairForAssignmentGap(creep, target) {
+  var _a2;
+  return isRepairPreemptionStructure(target) && isBuildPreemptionOwnedRampart(target) && isCriticalOwnedRampartRepairTarget(target) && !isWorkerRepairTargetComplete(target) && ((_a2 = creep.room.controller) == null ? void 0 : _a2.my) === true && !isRoomThreatened(creep) && hasOtherSameRoomRepairAssignmentForTarget(creep, target);
 }
 function selectWorkerAssignmentGapRecoveryConstructionSite(creep) {
   var _a2, _b;
@@ -35789,7 +35796,7 @@ function shouldPreemptRepairTaskForConstructionBacklog(creep, task, selectedTask
   if (task.type !== "repair" || (selectedTask == null ? void 0 : selectedTask.type) !== "build" || isSameTask2(task, selectedTask)) {
     return false;
   }
-  return !isProtectedRepairTargetForConstructionBacklog(creep, getTaskTarget(task));
+  return isRepairTargetPreemptibleForConstructionBacklog(creep, getTaskTarget(task));
 }
 function isProtectedRepairTargetForConstructionBacklog(creep, target) {
   if (!isRepairPreemptionStructure(target) || isWorkerRepairTargetComplete(target)) {

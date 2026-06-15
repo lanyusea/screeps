@@ -743,7 +743,26 @@ function isWorkerAssignmentGapRecoveryRepairTask(
   creep: Creep,
   task: CreepTaskMemory | null | undefined
 ): task is Extract<CreepTaskMemory, { type: 'repair' }> {
-  return task?.type === 'repair' && !isProtectedRepairTargetForConstructionBacklog(creep, getTaskTarget(task));
+  return task?.type === 'repair' && isRepairTargetPreemptibleForConstructionBacklog(creep, getTaskTarget(task));
+}
+
+function isRepairTargetPreemptibleForConstructionBacklog(creep: Creep, target: unknown): boolean {
+  return (
+    !isProtectedRepairTargetForConstructionBacklog(creep, target) ||
+    hasCoveredProtectedRampartRepairForAssignmentGap(creep, target)
+  );
+}
+
+function hasCoveredProtectedRampartRepairForAssignmentGap(creep: Creep, target: unknown): target is StructureRampart {
+  return (
+    isRepairPreemptionStructure(target) &&
+    isBuildPreemptionOwnedRampart(target) &&
+    isCriticalOwnedRampartRepairTarget(target) &&
+    !isWorkerRepairTargetComplete(target) &&
+    creep.room.controller?.my === true &&
+    !isRoomThreatened(creep) &&
+    hasOtherSameRoomRepairAssignmentForTarget(creep, target)
+  );
 }
 
 function selectWorkerAssignmentGapRecoveryConstructionSite(creep: Creep): ConstructionSite | null {
@@ -1161,7 +1180,7 @@ function shouldPreemptRepairTaskForConstructionBacklog(
     return false;
   }
 
-  return !isProtectedRepairTargetForConstructionBacklog(creep, getTaskTarget(task));
+  return isRepairTargetPreemptibleForConstructionBacklog(creep, getTaskTarget(task));
 }
 
 function isProtectedRepairTargetForConstructionBacklog(creep: Creep, target: unknown): boolean {
