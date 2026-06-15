@@ -469,10 +469,12 @@ function selectWorkerTaskContext(
     currentTask,
     spawnReservationRefillTask ?? effectiveEnergyCriticalTask ?? baseSelectedTask
   );
+  const constructionRecoveryTask =
+    effectiveEnergyCriticalTask === null ? constructionBacklogEnergyAcquisitionTask : null;
   const selectedTaskAfterBuildEnergyAcquisition = selectAssignedBuildEnergyAcquisitionTask(
     creep,
     currentTask,
-    constructionBacklogEnergyAcquisitionTask ??
+    constructionRecoveryTask ??
       spawnReservationRefillTask ??
       effectiveEnergyCriticalTask ??
       baseSelectedTask

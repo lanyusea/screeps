@@ -35338,10 +35338,11 @@ function selectWorkerTaskContext(creep, currentTask) {
     currentTask,
     (_a2 = spawnReservationRefillTask != null ? spawnReservationRefillTask : effectiveEnergyCriticalTask) != null ? _a2 : baseSelectedTask
   );
+  const constructionRecoveryTask = effectiveEnergyCriticalTask === null ? constructionBacklogEnergyAcquisitionTask : null;
   const selectedTaskAfterBuildEnergyAcquisition = selectAssignedBuildEnergyAcquisitionTask(
     creep,
     currentTask,
-    (_c = (_b = constructionBacklogEnergyAcquisitionTask != null ? constructionBacklogEnergyAcquisitionTask : spawnReservationRefillTask) != null ? _b : effectiveEnergyCriticalTask) != null ? _c : baseSelectedTask
+    (_c = (_b = constructionRecoveryTask != null ? constructionRecoveryTask : spawnReservationRefillTask) != null ? _b : effectiveEnergyCriticalTask) != null ? _c : baseSelectedTask
   );
   const selectedTask = (_d = selectConstructionWithdrawCompletionBuildTask(
     creep,
