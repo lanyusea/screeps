@@ -5433,6 +5433,298 @@ describe('runWorker', () => {
     expect(creep.build).not.toHaveBeenCalled();
   });
 
+  it('keeps the last E29N55 urgent rampart repair worker ahead of visible construction', () => {
+    const extensionSite = {
+      id: 'extension-site1',
+      my: true,
+      structureType: 'extension',
+      progress: 0,
+      progressTotal: 638
+    } as ConstructionSite;
+    const urgentRampart = {
+      id: 'rampart-critical',
+      my: true,
+      structureType: 'rampart',
+      hits: CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING - 1,
+      hitsMax: 300_000_000
+    } as StructureRampart;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = {
+      name: 'E29N55',
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      controller,
+      find: jest.fn((type: number) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [extensionSite];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [urgentRampart];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const creep = {
+      name: 'worker-E29N55-rampart',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'repair', targetId: 'rampart-critical' as Id<Structure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0),
+        getCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      build: jest.fn().mockReturnValue(0),
+      repair: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 1_548_723,
+      creeps: { [creep.name]: creep },
+      getObjectById: jest.fn((id: string) =>
+        id === 'extension-site1' ? extensionSite : id === 'rampart-critical' ? urgentRampart : null
+      )
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'repair', targetId: 'rampart-critical' });
+    expect(creep.repair).toHaveBeenCalledWith(urgentRampart);
+    expect(creep.build).not.toHaveBeenCalled();
+  });
+
+  it('keeps bounded E29N55 construction alive when urgent rampart repair already has coverage', () => {
+    const extensionSite = {
+      id: 'extension-site1',
+      my: true,
+      structureType: 'extension',
+      progress: 0,
+      progressTotal: 638,
+      pos: { x: 18, y: 24, roomName: 'E29N55' } as RoomPosition
+    } as ConstructionSite;
+    const urgentRampart = {
+      id: 'rampart-critical',
+      my: true,
+      structureType: 'rampart',
+      hits: CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING - 1,
+      hitsMax: 300_000_000,
+      pos: { x: 17, y: 24, roomName: 'E29N55' } as RoomPosition
+    } as StructureRampart;
+    const spawn = {
+      id: 'spawn1',
+      name: 'Spawn1',
+      my: true,
+      structureType: 'spawn',
+      spawning: null,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(300),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      }
+    } as unknown as StructureSpawn;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const workers: Creep[] = [];
+    const room = {
+      name: 'E29N55',
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [extensionSite];
+        }
+
+        if (type === FIND_MY_CREEPS) {
+          return workers;
+        }
+
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn] as AnyOwnedStructure[];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [spawn, urgentRampart] as unknown as AnyStructure[];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const makeWorker = (index: number): Creep =>
+      ({
+        name: `worker-E29N55-rampart-${index}`,
+        memory: {
+          role: 'worker',
+          colony: 'E29N55',
+          task: { type: 'repair', targetId: 'rampart-critical' as Id<Structure> }
+        },
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(50),
+          getFreeCapacity: jest.fn().mockReturnValue(0),
+          getCapacity: jest.fn().mockReturnValue(50)
+        },
+        pos: { getRangeTo: jest.fn().mockReturnValue(2) },
+        room,
+        build: jest.fn().mockReturnValue(0),
+        repair: jest.fn().mockReturnValue(0),
+        moveTo: jest.fn()
+      }) as unknown as Creep;
+    workers.push(makeWorker(1), makeWorker(2), makeWorker(3));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 1_548_724,
+      creeps: Object.fromEntries(workers.map((worker) => [worker.name, worker])),
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'extension-site1') {
+          return extensionSite;
+        }
+
+        if (id === 'rampart-critical') {
+          return urgentRampart;
+        }
+
+        return id === 'spawn1' ? spawn : null;
+      })
+    };
+
+    workers.forEach(runWorker);
+
+    const assignedTasks = workers.map((worker) => worker.memory.task?.type);
+    expect(assignedTasks.filter((task) => task === 'build')).toHaveLength(2);
+    expect(assignedTasks.filter((task) => task === 'repair')).toHaveLength(1);
+    expect(workers.filter((worker) => (worker.build as jest.Mock).mock.calls.length > 0)).toHaveLength(2);
+    expect(workers.filter((worker) => (worker.repair as jest.Mock).mock.calls.length > 0)).toHaveLength(1);
+  });
+
+  it('keeps critical E29N55 spawn refill ahead of covered rampart construction recovery', () => {
+    const extensionSite = {
+      id: 'extension-site1',
+      my: true,
+      structureType: 'extension',
+      progress: 0,
+      progressTotal: 638
+    } as ConstructionSite;
+    const urgentRampart = {
+      id: 'rampart-critical',
+      my: true,
+      structureType: 'rampart',
+      hits: CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING - 1,
+      hitsMax: 300_000_000
+    } as StructureRampart;
+    const spawn = {
+      id: 'spawn1',
+      name: 'Spawn1',
+      my: true,
+      structureType: 'spawn',
+      spawning: null,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1),
+        getFreeCapacity: jest.fn().mockReturnValue(101)
+      }
+    } as unknown as StructureSpawn;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const workers: Creep[] = [];
+    const room = {
+      name: 'E29N55',
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      energyCapacityAvailable: 800,
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [extensionSite];
+        }
+
+        if (type === FIND_MY_CREEPS) {
+          return workers;
+        }
+
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn] as AnyOwnedStructure[];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [spawn, urgentRampart] as unknown as AnyStructure[];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const coveringWorker = {
+      name: 'worker-E29N55-rampart-cover',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'repair', targetId: 'rampart-critical' as Id<Structure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0),
+        getCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'worker-E29N55-refill',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'repair', targetId: 'rampart-critical' as Id<Structure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0),
+        getCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      build: jest.fn(),
+      repair: jest.fn(),
+      transfer: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    workers.push(creep, coveringWorker);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 1_548_725,
+      creeps: Object.fromEntries(workers.map((worker) => [worker.name, worker])),
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'extension-site1') {
+          return extensionSite;
+        }
+
+        if (id === 'rampart-critical') {
+          return urgentRampart;
+        }
+
+        return id === 'spawn1' ? spawn : null;
+      })
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(creep.transfer).toHaveBeenCalledWith(spawn, RESOURCE_ENERGY);
+    expect(creep.build).not.toHaveBeenCalled();
+    expect(creep.repair).not.toHaveBeenCalled();
+  });
+
   it('keeps the RCL2 downgrade guard above upgrade preemption', () => {
     const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
     const controller = {
