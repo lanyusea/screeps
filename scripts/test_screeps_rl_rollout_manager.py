@@ -107,6 +107,9 @@ def reducer_report(
 
 def scorecard_artifact(
     *,
+    candidate_commit: str | None = "candidate-ref",
+    candidate_deploy_ref: str | None = None,
+    candidate_id: str | None = "candidate-top-construction",
     status: str = "PASS",
     runtime_injection: bool = True,
     runtime_consumption: bool = True,
@@ -115,7 +118,7 @@ def scorecard_artifact(
 ) -> JsonObject:
     safety_regressions = list(safety_regressions or [])
     non_safety_regressions = list(non_safety_regressions or [])
-    return {
+    artifact: JsonObject = {
         "type": manager.SCORECARD_TYPE,
         "overallGate": {
             "status": status,
@@ -133,6 +136,16 @@ def scorecard_artifact(
             "safetyRegressions": safety_regressions,
         },
     }
+    candidate: JsonObject = {}
+    if candidate_id is not None:
+        candidate["id"] = candidate_id
+    if candidate_commit is not None:
+        candidate["commit"] = candidate_commit
+    if candidate_deploy_ref is not None:
+        candidate["deployRef"] = candidate_deploy_ref
+    if candidate:
+        artifact["candidate"] = candidate
+    return artifact
 
 
 def ready_canary_plan_kwargs(
@@ -275,6 +288,34 @@ class RlRolloutManagerTest(unittest.TestCase):
         self.assertTrue(
             any(reason.get("reason") == "candidate_scorecard_runtime_injection_not_proven" for reason in reasons)
         )
+
+    def test_canary_readiness_plan_holds_for_scorecard_candidate_mismatch(self) -> None:
+        plan = manager.build_canary_readiness_plan(
+            **ready_canary_plan_kwargs(scorecard_raw=scorecard_artifact(candidate_id="other-candidate"))
+        )
+
+        reasons = plan["readiness"]["blockingReasons"]
+        self.assertEqual(plan["readiness"]["status"], "hold")
+        self.assertTrue(
+            any(reason.get("reason") == "candidate_scorecard_candidate_id_mismatch" for reason in reasons)
+        )
+
+    def test_canary_readiness_plan_holds_for_scorecard_deploy_ref_mismatch(self) -> None:
+        for artifact_kwargs, expected_reason in (
+            ({"candidate_commit": "other-ref"}, "candidate_scorecard_candidate_commit_mismatch"),
+            (
+                {"candidate_commit": None, "candidate_deploy_ref": "other-ref"},
+                "candidate_scorecard_candidate_deploy_ref_mismatch",
+            ),
+        ):
+            with self.subTest(expected_reason=expected_reason):
+                plan = manager.build_canary_readiness_plan(
+                    **ready_canary_plan_kwargs(scorecard_raw=scorecard_artifact(**artifact_kwargs))
+                )
+
+                reasons = plan["readiness"]["blockingReasons"]
+                self.assertEqual(plan["readiness"]["status"], "hold")
+                self.assertTrue(any(reason.get("reason") == expected_reason for reason in reasons))
 
     def test_canary_readiness_plan_holds_without_required_gates_or_safety(self) -> None:
         plan = manager.build_canary_readiness_plan(
@@ -515,7 +556,7 @@ class RlRolloutManagerTest(unittest.TestCase):
             scorecard_path = root / "scorecard.json"
             output_path = root / "canary-plan.json"
             write_json(baseline_path, kpi_window())
-            write_json(scorecard_path, scorecard_artifact())
+            write_json(scorecard_path, scorecard_artifact(candidate_id="candidate-cli"))
 
             exit_code = manager.main(
                 [

@@ -898,7 +898,13 @@ def canary_plan_text_blocking_reasons(fields: tuple[tuple[str, Any, str], ...]) 
     ]
 
 
-def build_candidate_scorecard_gate(scorecard_raw: JsonObject | None, scorecard_ref: str | None) -> JsonObject:
+def build_candidate_scorecard_gate(
+    scorecard_raw: JsonObject | None,
+    scorecard_ref: str | None,
+    *,
+    candidate_id: str | None = None,
+    deploy_ref: str | None = None,
+) -> JsonObject:
     reasons: list[JsonObject] = []
     overall_status: str | None = None
     safety_regressions: list[Any] = []
@@ -930,6 +936,60 @@ def build_candidate_scorecard_gate(scorecard_raw: JsonObject | None, scorecard_r
                     "field": "candidate.scorecard.type",
                     "reason": "invalid_candidate_scorecard_type",
                     "required": SCORECARD_TYPE,
+                    "scope": "scorecardGate",
+                }
+            )
+
+        scorecard_candidate = scorecard_raw.get("candidate")
+        scorecard_candidate = scorecard_candidate if isinstance(scorecard_candidate, dict) else {}
+        scorecard_candidate_id = scorecard_candidate.get("id")
+        if not text_present(scorecard_candidate_id):
+            reasons.append(
+                {
+                    "field": "candidate.scorecard.candidate.id",
+                    "reason": "missing_candidate_scorecard_candidate_id",
+                    "scope": "scorecardGate",
+                }
+            )
+        elif text_present(candidate_id) and scorecard_candidate_id != candidate_id:
+            reasons.append(
+                {
+                    "actual": scorecard_candidate_id,
+                    "field": "candidate.scorecard.candidate.id",
+                    "reason": "candidate_scorecard_candidate_id_mismatch",
+                    "required": candidate_id,
+                    "scope": "scorecardGate",
+                }
+            )
+
+        scorecard_candidate_commit = scorecard_candidate.get("commit")
+        if (
+            text_present(scorecard_candidate_commit)
+            and text_present(deploy_ref)
+            and scorecard_candidate_commit != deploy_ref
+        ):
+            reasons.append(
+                {
+                    "actual": scorecard_candidate_commit,
+                    "field": "candidate.scorecard.candidate.commit",
+                    "reason": "candidate_scorecard_candidate_commit_mismatch",
+                    "required": deploy_ref,
+                    "scope": "scorecardGate",
+                }
+            )
+
+        scorecard_candidate_deploy_ref = scorecard_candidate.get("deployRef")
+        if (
+            text_present(scorecard_candidate_deploy_ref)
+            and text_present(deploy_ref)
+            and scorecard_candidate_deploy_ref != deploy_ref
+        ):
+            reasons.append(
+                {
+                    "actual": scorecard_candidate_deploy_ref,
+                    "field": "candidate.scorecard.candidate.deployRef",
+                    "reason": "candidate_scorecard_candidate_deploy_ref_mismatch",
+                    "required": deploy_ref,
                     "scope": "scorecardGate",
                 }
             )
@@ -1098,7 +1158,12 @@ def build_canary_readiness_plan(
     normalized_cpu = normalize_status_text(cpu_baseline_status)
     spawn_count = number_or_none(owned_spawns)
     creep_count = number_or_none(owned_creeps)
-    scorecard_gate = build_candidate_scorecard_gate(scorecard_raw, scorecard_ref)
+    scorecard_gate = build_candidate_scorecard_gate(
+        scorecard_raw,
+        scorecard_ref,
+        candidate_id=candidate_id,
+        deploy_ref=deploy_ref,
+    )
 
     blocking_reasons: list[JsonObject] = []
     blocking_reasons.extend(baseline["blockingReasons"])
