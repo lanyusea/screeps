@@ -6375,7 +6375,7 @@ def object_has_build_task(value: Any) -> bool:
     if isinstance(value, dict):
         for key, item in value.items():
             lowered_key = str(key).lower()
-            if lowered_key in {"role", "task", "taskname", "action", "job", "intent"} and object_has_build_task(item):
+            if lowered_key in {"role", "task", "taskname", "type", "action", "job", "intent"} and object_has_build_task(item):
                 return True
             if isinstance(item, dict) and object_has_build_task(item):
                 return True

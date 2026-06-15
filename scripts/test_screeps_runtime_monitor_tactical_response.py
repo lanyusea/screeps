@@ -5025,6 +5025,86 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
             payload["rooms"][0]["constructionActivity"],
         )
 
+    def test_runtime_summary_payload_counts_build_task_type_carried_energy(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E29N56"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(
+                {
+                    "site-1": {
+                        "_id": "site-1",
+                        "type": "constructionSite",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "structureType": "road",
+                        "progress": 415,
+                        "progressTotal": 500,
+                    },
+                    "worker-1": {
+                        "_id": "worker-1",
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "name": "worker-E29N56-1",
+                        "body": [
+                            {"type": "work", "hits": 100},
+                            {"type": "carry", "hits": 100},
+                        ],
+                        "store": {"energy": 26, "capacity": 50},
+                        "memory": {
+                            "role": "worker",
+                            "task": {"type": "build", "targetId": "site-1"},
+                        },
+                    },
+                    "worker-2": {
+                        "_id": "worker-2",
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "name": "worker-E29N56-2",
+                        "body": [
+                            {"type": "work", "hits": 100},
+                            {"type": "carry", "hits": 100},
+                        ],
+                        "store": {"energy": 50, "capacity": 50},
+                        "memory": {
+                            "role": "worker",
+                            "task": {"type": "repair", "targetId": "road-1"},
+                        },
+                    },
+                }
+            ),
+            tick=2228600,
+            owner="lanyusea",
+            info={"energyAvailable": 800},
+        )
+
+        payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+        room = payload["rooms"][0]
+        productive_energy = room["resources"]["productiveEnergy"]
+
+        self.assertEqual(room["taskCounts"]["build"], 1)
+        self.assertEqual(room["pendingBuildProgress"], 85)
+        self.assertEqual(room["buildCarriedEnergy"], 26)
+        self.assertEqual(productive_energy["buildCarriedEnergy"], 26)
+        self.assertNotIn("buildBlockedReason", room)
+        self.assertNotIn("buildBlockedReason", productive_energy)
+        self.assertEqual(
+            room["constructionActivity"],
+            {
+                "source": "runtime-summary",
+                "constructionSiteCount": 1,
+                "pendingBuildProgress": 85,
+                "buildCarriedEnergy": 26,
+                "buildProgress": 0,
+                "workerAssignmentEvidenceAvailable": True,
+                "state": "active",
+                "accepted": True,
+                "reason": "build_energy_carried",
+            },
+        )
+        self.assertEqual(productive_energy["constructionActivity"], room["constructionActivity"])
+
     def test_runtime_summary_payload_preserves_candidate_suppression_without_site_backlog(self) -> None:
         cases = {
             "spawn reservation": (
