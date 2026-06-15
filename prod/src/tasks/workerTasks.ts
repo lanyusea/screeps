@@ -366,7 +366,7 @@ function hasActiveTerritoryControlAssignment(creep: Creep): boolean {
 function selectCriticalCpuWorkerTask(creep: Creep, cpuBudget: RuntimeCpuBudget): CreepTaskMemory | null {
   const carriedEnergy = getUsedEnergy(creep);
   if (carriedEnergy <= 0) {
-    return selectCriticalCpuEnergyAcquisitionTask(creep);
+    return selectCriticalCpuEnergyAcquisitionTask(creep, cpuBudget);
   }
 
   const controller = creep.room.controller;
@@ -477,7 +477,7 @@ function selectCriticalCpuWorkerTask(creep: Creep, cpuBudget: RuntimeCpuBudget):
     return applyMinimumUsefulLoadPolicy(creep, controllerSustainConstructionBacklogTask);
   }
 
-  const constructionRecoveryTask = canUseCriticalCpuConstructionRecovery(creep)
+  const constructionRecoveryTask = canUseCriticalCpuConstructionRecovery(creep, cpuBudget)
     ? selectConstructionRecoveryCpuWorkerTask(creep)
     : null;
   if (constructionRecoveryTask) {
@@ -716,7 +716,8 @@ function isStoredProtectedConstructionBacklogSite(
 }
 
 function selectCriticalCpuEnergyAcquisitionTask(
-  creep: Creep
+  creep: Creep,
+  cpuBudget: RuntimeCpuBudget
 ): Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' }> | null {
   if (getFreeEnergyCapacity(creep) <= 0) {
     return null;
@@ -763,15 +764,16 @@ function selectCriticalCpuEnergyAcquisitionTask(
     return storedProtectedConstructionEnergyTask;
   }
 
-  return canUseCriticalCpuConstructionRecovery(creep)
+  return canUseCriticalCpuConstructionRecovery(creep, cpuBudget)
     ? selectConstructionBacklogEnergyAcquisitionTask(creep) ??
         selectConstructionBacklogFallbackEnergyAcquisitionTask(creep)
     : null;
 }
 
-function canUseCriticalCpuConstructionRecovery(creep: Creep): boolean {
+function canUseCriticalCpuConstructionRecovery(creep: Creep, cpuBudget: RuntimeCpuBudget): boolean {
   const memory = creep.memory;
   return (
+    !cpuBudget.critical &&
     memory?.role === 'worker' &&
     memory.controllerSustain === undefined &&
     memory.interRoomEnergyHaul === undefined &&
