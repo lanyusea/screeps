@@ -532,18 +532,20 @@ function shouldSelectConstructionBacklogEnergyAcquisitionRecoveryTask(
   }
 
   return (
-    isConstructionBacklogEnergyAcquisitionRecoveryTask(currentTask) &&
-    isConstructionBacklogEnergyAcquisitionRecoveryTask(selectedTask)
+    isConstructionBacklogEnergyAcquisitionRecoveryTask(creep, currentTask) &&
+    isConstructionBacklogEnergyAcquisitionRecoveryTask(creep, selectedTask)
   );
 }
 
 function isConstructionBacklogEnergyAcquisitionRecoveryTask(
+  creep: Creep,
   task: CreepTaskMemory | null | undefined
 ): boolean {
   return (
     task === undefined ||
     task === null ||
     (isEnergyAcquisitionTask(task) && !isConstructionWithdrawReservationTask(task)) ||
+    (task.type === 'build' && hasLowWorkerEnergyLoad(creep)) ||
     task.type === 'transfer' ||
     task.type === 'upgrade'
   );
