@@ -50,6 +50,44 @@ Every contract, dry-run, rollback-check, and compare artifact now carries a `saf
 
 For `canary`, `active`, or `rolled_back` state, missing incumbent baseline, candidate ID, candidate deploy, or rollback refs fail validation. A forbidden live influence surface also fails validation. Training and evaluation remain artifact-only: learned/tuned candidates must not issue raw intents, Memory/RawMemory writes, market orders, or official MMO writes.
 
+## Pre-Canary Readiness Plan
+
+Before the controller launches any bounded official-MMO canary dry-run, create a planning-only readiness record:
+
+```bash
+python3 scripts/screeps_rl_rollout_manager.py canary-plan \
+  --baseline runtime-artifacts/rl-control-loop/baselines/<incumbent-kpi-window>.json \
+  --candidate-id <candidate-id> \
+  --deploy-ref <candidate-policy-or-bundle-ref> \
+  --scorecard-ref runtime-artifacts/rl-control-loop/scorecards/<candidate-id>.json \
+  --incumbent-baseline-ref <incumbent-ref> \
+  --rollback-ref <rollback-ref> \
+  --active-world-ref main \
+  --active-world-status matched_main \
+  --official-deploy-head 14df4ae442fb68e1273aa69c182daa0328e2d868 \
+  --official-deploy-run-id 27530460405 \
+  --deploy-artifact runtime-artifacts/official-screeps-deploy/official-screeps-deploy-27530460405.json \
+  --postdeploy-summary-artifact runtime-artifacts/official-screeps-deploy/postdeploy-summary-27530460405.json \
+  --postdeploy-health-gate-artifact runtime-artifacts/official-screeps-deploy/postdeploy-health-gate-27530460405.json \
+  --postdeploy-alert-artifact runtime-artifacts/official-screeps-deploy/postdeploy-alert-27530460405.json \
+  --health-gate-ok true \
+  --postdeploy-alert false \
+  --construction-acceptance-status pass \
+  --owned-spawns 1 \
+  --owned-creeps 5 \
+  --cpu-baseline-status <pass|hold|fail> \
+  --cpu-baseline-ref runtime-artifacts/rl-control-loop/<cpu-baseline-evidence>.json \
+  --conclusion-registry-ref runtime-artifacts/rl-control-loop/conclusion-registry.json \
+  --conclusion-summary ACTIONED=1,VALIDATING=1,CLOSED=2 \
+  --conclusion RL-CONC-20260612-004=VALIDATING \
+  --conclusion RL-CONC-20260610-002=ACTIONED \
+  --output runtime-artifacts/rl-control-loop/canary-plans/<candidate-id>.json
+```
+
+The output type is `screeps-rl-bounded-live-canary-plan`. It binds the candidate, scorecard, incumbent KPI window, rollback ref, postdeploy health/construction evidence, CPU gate, and current Loop A/Loop B conclusion state before a canary action exists. `readiness.status` is `ready` only when all referenced gates pass; otherwise it is `hold` with machine-readable `blockingReasons`.
+
+This command is deliberately inert. It does not train, launch Tencent paid compute, scale ASGs, deploy code, write official MMO state, or start the live canary. Passing `--paid-compute-allowed` or `--official-mmo-write-allowed` records an unsafe requested state and blocks readiness.
+
 ## Gate Contract
 
 The contract is available as machine-readable JSON:
@@ -221,4 +259,5 @@ Local checks:
 python3 -m py_compile scripts/screeps_rl_rollout_manager.py
 python3 -m py_compile scripts/test_screeps_rl_rollout_manager.py
 python3 scripts/test_screeps_rl_rollout_manager.py
+git diff --check
 ```

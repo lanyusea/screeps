@@ -148,6 +148,78 @@ class RlRolloutManagerTest(unittest.TestCase):
         self.assertIn("constructionPriority.extensionWeight", canary["strategyKnobLimits"])
         self.assertTrue(canary["validators"]["deterministicVetoRequired"])
 
+    def test_canary_readiness_plan_records_ready_controller_handoff(self) -> None:
+        plan = manager.build_canary_readiness_plan(
+            active_world_ref="14df4ae442fb68e1273aa69c182daa0328e2d868",
+            active_world_status="matched_main",
+            baseline_raw=kpi_window(),
+            baseline_source="runtime-artifacts/rl-control-loop/baselines/incumbent.json",
+            candidate_id="candidate-top-construction",
+            conclusion_records=[
+                ("RL-CONC-20260612-004", "VALIDATING"),
+                ("RL-CONC-20260610-002", "ACTIONED"),
+            ],
+            conclusion_registry_ref="runtime-artifacts/rl-control-loop/conclusion-registry.json",
+            conclusion_summary="ACTIONED=1,VALIDATING=1,CLOSED=2",
+            construction_acceptance_status="pass",
+            cpu_baseline_ref="runtime-artifacts/rl-control-loop/cpu-baseline.json",
+            cpu_baseline_status="pass",
+            created_at="2026-06-15T00:00:00Z",
+            deploy_artifact="runtime-artifacts/official-screeps-deploy/official-screeps-deploy-27530460405.json",
+            deploy_ref="candidate-ref",
+            health_gate_ok=True,
+            incumbent_baseline_ref="incumbent-ref",
+            official_deploy_head="14df4ae442fb68e1273aa69c182daa0328e2d868",
+            official_deploy_run_id="27530460405",
+            owned_creeps=5,
+            owned_spawns=1,
+            postdeploy_alert=False,
+            postdeploy_alert_artifact="runtime-artifacts/official-screeps-deploy/postdeploy-alert-27530460405.json",
+            postdeploy_health_gate_artifact="runtime-artifacts/official-screeps-deploy/postdeploy-health-gate-27530460405.json",
+            postdeploy_summary_artifact="runtime-artifacts/official-screeps-deploy/postdeploy-summary-27530460405.json",
+            rollback_ref="rollback-ref",
+            scorecard_ref="runtime-artifacts/rl-control-loop/scorecards/candidate-top-construction.json",
+        )
+
+        self.assertEqual(plan["type"], manager.CANARY_PLAN_TYPE)
+        self.assertEqual(plan["issue"], "#1583")
+        self.assertEqual(plan["readiness"]["status"], "ready")
+        self.assertEqual(plan["readiness"]["blockingReasons"], [])
+        self.assertFalse(plan["safetyGuards"]["paidComputeAllowed"])
+        self.assertFalse(plan["safetyGuards"]["officialMmoWritesAllowedDuringPlanning"])
+        self.assertFalse(plan["safetyGuards"]["deploysCode"])
+        self.assertEqual(plan["constructionGate"]["status"], "pass")
+        self.assertEqual(plan["cpuGate"]["status"], "pass")
+        self.assertEqual(plan["officialDeploy"]["ownedSpawns"], 1)
+        self.assertEqual(plan["controlLoop"]["conclusions"][0]["conclusionId"], "RL-CONC-20260612-004")
+        self.assertEqual(plan["canaryContract"]["validation"]["status"], "pass")
+        self.assertEqual(plan["incumbentBaseline"]["kpiWindow"]["observation"]["status"], "pass")
+
+    def test_canary_readiness_plan_holds_without_required_gates_or_safety(self) -> None:
+        plan = manager.build_canary_readiness_plan(
+            active_world_status="stale",
+            baseline_raw=kpi_window(hours=1, samples=1),
+            candidate_id="candidate-held",
+            deploy_ref="candidate-ref",
+            health_gate_ok=False,
+            incumbent_baseline_ref="incumbent-ref",
+            paid_compute_allowed=True,
+            postdeploy_alert=True,
+            rollback_ref="rollback-ref",
+        )
+
+        reasons = plan["readiness"]["blockingReasons"]
+        self.assertEqual(plan["readiness"]["status"], "hold")
+        self.assertTrue(any(reason.get("reason") == "duration_below_observation_window" for reason in reasons))
+        self.assertTrue(any(reason.get("reason") == "samples_below_minimum" for reason in reasons))
+        self.assertTrue(any(reason.get("reason") == "missing_candidate_scorecard_ref" for reason in reasons))
+        self.assertTrue(any(reason.get("reason") == "missing_conclusion_registry_ref" for reason in reasons))
+        self.assertTrue(any(reason.get("reason") == "paid_compute_must_remain_held" for reason in reasons))
+        self.assertTrue(any(reason.get("reason") == "postdeploy_health_gate_must_be_ok" for reason in reasons))
+        self.assertTrue(any(reason.get("reason") == "postdeploy_alert_must_be_false" for reason in reasons))
+        self.assertTrue(any(reason.get("reason") == "cpu_baseline_must_pass" for reason in reasons))
+        self.assertTrue(any(reason.get("reason") == "construction_acceptance_must_pass" for reason in reasons))
+
     def test_canary_contract_rejects_forbidden_surface_and_missing_rollback_ref(self) -> None:
         forbidden = manager.build_dry_run_decision(
             kpi_window(),
@@ -354,6 +426,82 @@ class RlRolloutManagerTest(unittest.TestCase):
         self.assertEqual(decision["candidate"]["id"], "fixture-candidate")
         self.assertEqual(decision["comparison"]["metrics"]["resources"]["delta"], 300)
         self.assertEqual(decision["comparison"]["pre"]["metrics"]["reliability"], 1)
+
+    def test_canary_plan_cli_writes_planning_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            baseline_path = root / "baseline.json"
+            output_path = root / "canary-plan.json"
+            write_json(baseline_path, kpi_window())
+
+            exit_code = manager.main(
+                [
+                    "canary-plan",
+                    "--baseline",
+                    str(baseline_path),
+                    "--candidate-id",
+                    "candidate-cli",
+                    "--deploy-ref",
+                    "candidate-ref",
+                    "--scorecard-ref",
+                    "runtime-artifacts/rl-control-loop/scorecards/candidate-cli.json",
+                    "--incumbent-baseline-ref",
+                    "incumbent-ref",
+                    "--rollback-ref",
+                    "rollback-ref",
+                    "--active-world-ref",
+                    "14df4ae442fb68e1273aa69c182daa0328e2d868",
+                    "--active-world-status",
+                    "matched_main",
+                    "--official-deploy-head",
+                    "14df4ae442fb68e1273aa69c182daa0328e2d868",
+                    "--official-deploy-run-id",
+                    "27530460405",
+                    "--deploy-artifact",
+                    "runtime-artifacts/official-screeps-deploy/official-screeps-deploy-27530460405.json",
+                    "--postdeploy-summary-artifact",
+                    "runtime-artifacts/official-screeps-deploy/postdeploy-summary-27530460405.json",
+                    "--postdeploy-health-gate-artifact",
+                    "runtime-artifacts/official-screeps-deploy/postdeploy-health-gate-27530460405.json",
+                    "--postdeploy-alert-artifact",
+                    "runtime-artifacts/official-screeps-deploy/postdeploy-alert-27530460405.json",
+                    "--health-gate-ok",
+                    "true",
+                    "--postdeploy-alert",
+                    "false",
+                    "--construction-acceptance-status",
+                    "pass",
+                    "--owned-spawns",
+                    "1",
+                    "--owned-creeps",
+                    "5",
+                    "--cpu-baseline-status",
+                    "pass",
+                    "--cpu-baseline-ref",
+                    "runtime-artifacts/rl-control-loop/cpu-baseline.json",
+                    "--conclusion-registry-ref",
+                    "runtime-artifacts/rl-control-loop/conclusion-registry.json",
+                    "--conclusion-summary",
+                    "ACTIONED=1,VALIDATING=1,CLOSED=2",
+                    "--conclusion",
+                    "RL-CONC-20260612-004=VALIDATING",
+                    "--conclusion",
+                    "RL-CONC-20260610-002=ACTIONED",
+                    "--created-at",
+                    "2026-06-15T00:00:00Z",
+                    "--output",
+                    str(output_path),
+                ],
+                stdout=StringIO(),
+            )
+
+            self.assertEqual(exit_code, 0)
+            plan = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(plan["readiness"]["status"], "ready")
+        self.assertEqual(plan["mode"], "planning_only")
+        self.assertEqual(plan["officialDeploy"]["runId"], "27530460405")
+        self.assertEqual(plan["controlLoop"]["summary"], "ACTIONED=1,VALIDATING=1,CLOSED=2")
 
 
 if __name__ == "__main__":
