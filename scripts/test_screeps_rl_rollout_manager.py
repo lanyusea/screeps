@@ -105,6 +105,77 @@ def reducer_report(
     }
 
 
+def scorecard_artifact(
+    *,
+    status: str = "PASS",
+    runtime_injection: bool = True,
+    runtime_consumption: bool = True,
+    safety_regressions: list[str] | None = None,
+    non_safety_regressions: list[str] | None = None,
+) -> JsonObject:
+    safety_regressions = list(safety_regressions or [])
+    non_safety_regressions = list(non_safety_regressions or [])
+    return {
+        "type": manager.SCORECARD_TYPE,
+        "overallGate": {
+            "status": status,
+            "runtimeCandidateGate": {
+                "runtimeParameterConsumption": runtime_consumption,
+                "runtimeParameterInjection": runtime_injection,
+                "status": "injected" if runtime_injection and runtime_consumption else "missing",
+            },
+            "monotonic": {
+                "noDimensionRegression": not safety_regressions and not non_safety_regressions,
+                "noSafetyRegression": not safety_regressions,
+                "runtimeParameterInjectionProven": runtime_injection and runtime_consumption,
+            },
+            "nonSafetyRegressions": non_safety_regressions,
+            "safetyRegressions": safety_regressions,
+        },
+    }
+
+
+def ready_canary_plan_kwargs(
+    *,
+    scorecard_raw: JsonObject | None = None,
+    scorecard_ref: str = "runtime-artifacts/rl-control-loop/scorecards/candidate-top-construction.json",
+) -> JsonObject:
+    return {
+        "active_world_ref": "14df4ae442fb68e1273aa69c182daa0328e2d868",
+        "active_world_status": "matched_main",
+        "baseline_raw": kpi_window(),
+        "baseline_source": "runtime-artifacts/rl-control-loop/baselines/incumbent.json",
+        "candidate_id": "candidate-top-construction",
+        "conclusion_records": [
+            ("RL-CONC-20260612-004", "VALIDATING"),
+            ("RL-CONC-20260610-002", "ACTIONED"),
+        ],
+        "conclusion_registry_ref": "runtime-artifacts/rl-control-loop/conclusion-registry.json",
+        "conclusion_summary": "ACTIONED=1,VALIDATING=1,CLOSED=2",
+        "construction_acceptance_status": "pass",
+        "cpu_baseline_ref": "runtime-artifacts/rl-control-loop/cpu-baseline.json",
+        "cpu_baseline_status": "pass",
+        "created_at": "2026-06-15T00:00:00Z",
+        "deploy_artifact": "runtime-artifacts/official-screeps-deploy/official-screeps-deploy-27530460405.json",
+        "deploy_ref": "candidate-ref",
+        "health_gate_ok": True,
+        "incumbent_baseline_ref": "incumbent-ref",
+        "official_deploy_head": "14df4ae442fb68e1273aa69c182daa0328e2d868",
+        "official_deploy_run_id": "27530460405",
+        "owned_creeps": 5,
+        "owned_spawns": 1,
+        "postdeploy_alert": False,
+        "postdeploy_alert_artifact": "runtime-artifacts/official-screeps-deploy/postdeploy-alert-27530460405.json",
+        "postdeploy_health_gate_artifact": (
+            "runtime-artifacts/official-screeps-deploy/postdeploy-health-gate-27530460405.json"
+        ),
+        "postdeploy_summary_artifact": "runtime-artifacts/official-screeps-deploy/postdeploy-summary-27530460405.json",
+        "rollback_ref": "rollback-ref",
+        "scorecard_raw": scorecard_raw if scorecard_raw is not None else scorecard_artifact(),
+        "scorecard_ref": scorecard_ref,
+    }
+
+
 class RlRolloutManagerTest(unittest.TestCase):
     def test_dry_run_passes_when_all_kpis_stay_within_contract(self) -> None:
         decision = manager.build_dry_run_decision(
@@ -149,42 +220,14 @@ class RlRolloutManagerTest(unittest.TestCase):
         self.assertTrue(canary["validators"]["deterministicVetoRequired"])
 
     def test_canary_readiness_plan_records_ready_controller_handoff(self) -> None:
-        plan = manager.build_canary_readiness_plan(
-            active_world_ref="14df4ae442fb68e1273aa69c182daa0328e2d868",
-            active_world_status="matched_main",
-            baseline_raw=kpi_window(),
-            baseline_source="runtime-artifacts/rl-control-loop/baselines/incumbent.json",
-            candidate_id="candidate-top-construction",
-            conclusion_records=[
-                ("RL-CONC-20260612-004", "VALIDATING"),
-                ("RL-CONC-20260610-002", "ACTIONED"),
-            ],
-            conclusion_registry_ref="runtime-artifacts/rl-control-loop/conclusion-registry.json",
-            conclusion_summary="ACTIONED=1,VALIDATING=1,CLOSED=2",
-            construction_acceptance_status="pass",
-            cpu_baseline_ref="runtime-artifacts/rl-control-loop/cpu-baseline.json",
-            cpu_baseline_status="pass",
-            created_at="2026-06-15T00:00:00Z",
-            deploy_artifact="runtime-artifacts/official-screeps-deploy/official-screeps-deploy-27530460405.json",
-            deploy_ref="candidate-ref",
-            health_gate_ok=True,
-            incumbent_baseline_ref="incumbent-ref",
-            official_deploy_head="14df4ae442fb68e1273aa69c182daa0328e2d868",
-            official_deploy_run_id="27530460405",
-            owned_creeps=5,
-            owned_spawns=1,
-            postdeploy_alert=False,
-            postdeploy_alert_artifact="runtime-artifacts/official-screeps-deploy/postdeploy-alert-27530460405.json",
-            postdeploy_health_gate_artifact="runtime-artifacts/official-screeps-deploy/postdeploy-health-gate-27530460405.json",
-            postdeploy_summary_artifact="runtime-artifacts/official-screeps-deploy/postdeploy-summary-27530460405.json",
-            rollback_ref="rollback-ref",
-            scorecard_ref="runtime-artifacts/rl-control-loop/scorecards/candidate-top-construction.json",
-        )
+        plan = manager.build_canary_readiness_plan(**ready_canary_plan_kwargs())
 
         self.assertEqual(plan["type"], manager.CANARY_PLAN_TYPE)
         self.assertEqual(plan["issue"], "#1583")
         self.assertEqual(plan["readiness"]["status"], "ready")
         self.assertEqual(plan["readiness"]["blockingReasons"], [])
+        self.assertEqual(plan["scorecardGate"]["status"], "pass")
+        self.assertEqual(plan["scorecardGate"]["overallStatus"], "PASS")
         self.assertFalse(plan["safetyGuards"]["paidComputeAllowed"])
         self.assertFalse(plan["safetyGuards"]["officialMmoWritesAllowedDuringPlanning"])
         self.assertFalse(plan["safetyGuards"]["deploysCode"])
@@ -194,6 +237,44 @@ class RlRolloutManagerTest(unittest.TestCase):
         self.assertEqual(plan["controlLoop"]["conclusions"][0]["conclusionId"], "RL-CONC-20260612-004")
         self.assertEqual(plan["canaryContract"]["validation"]["status"], "pass")
         self.assertEqual(plan["incumbentBaseline"]["kpiWindow"]["observation"]["status"], "pass")
+
+    def test_canary_readiness_plan_holds_for_rejected_scorecard_outcomes(self) -> None:
+        for status in ("HOLD", "MIXED", "ROLLBACK_REQUIRED"):
+            with self.subTest(status=status):
+                plan = manager.build_canary_readiness_plan(
+                    **ready_canary_plan_kwargs(scorecard_raw=scorecard_artifact(status=status))
+                )
+
+                reasons = plan["readiness"]["blockingReasons"]
+                self.assertEqual(plan["readiness"]["status"], "hold")
+                self.assertEqual(plan["scorecardGate"]["overallStatus"], status)
+                self.assertTrue(
+                    any(reason.get("reason") == "candidate_scorecard_status_must_pass" for reason in reasons)
+                )
+
+    def test_canary_readiness_plan_holds_for_scorecard_safety_regression(self) -> None:
+        plan = manager.build_canary_readiness_plan(
+            **ready_canary_plan_kwargs(
+                scorecard_raw=scorecard_artifact(safety_regressions=["safety_reliability_floor"])
+            )
+        )
+
+        reasons = plan["readiness"]["blockingReasons"]
+        self.assertEqual(plan["readiness"]["status"], "hold")
+        self.assertTrue(any(reason.get("reason") == "candidate_scorecard_safety_regressions" for reason in reasons))
+
+    def test_canary_readiness_plan_holds_without_scorecard_runtime_injection(self) -> None:
+        plan = manager.build_canary_readiness_plan(
+            **ready_canary_plan_kwargs(
+                scorecard_raw=scorecard_artifact(runtime_injection=False, runtime_consumption=False)
+            )
+        )
+
+        reasons = plan["readiness"]["blockingReasons"]
+        self.assertEqual(plan["readiness"]["status"], "hold")
+        self.assertTrue(
+            any(reason.get("reason") == "candidate_scorecard_runtime_injection_not_proven" for reason in reasons)
+        )
 
     def test_canary_readiness_plan_holds_without_required_gates_or_safety(self) -> None:
         plan = manager.build_canary_readiness_plan(
@@ -431,8 +512,10 @@ class RlRolloutManagerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             baseline_path = root / "baseline.json"
+            scorecard_path = root / "scorecard.json"
             output_path = root / "canary-plan.json"
             write_json(baseline_path, kpi_window())
+            write_json(scorecard_path, scorecard_artifact())
 
             exit_code = manager.main(
                 [
@@ -444,7 +527,7 @@ class RlRolloutManagerTest(unittest.TestCase):
                     "--deploy-ref",
                     "candidate-ref",
                     "--scorecard-ref",
-                    "runtime-artifacts/rl-control-loop/scorecards/candidate-cli.json",
+                    str(scorecard_path),
                     "--incumbent-baseline-ref",
                     "incumbent-ref",
                     "--rollback-ref",
@@ -501,6 +584,7 @@ class RlRolloutManagerTest(unittest.TestCase):
         self.assertEqual(plan["readiness"]["status"], "ready")
         self.assertEqual(plan["mode"], "planning_only")
         self.assertEqual(plan["officialDeploy"]["runId"], "27530460405")
+        self.assertEqual(plan["scorecardGate"]["overallStatus"], "PASS")
         self.assertEqual(plan["controlLoop"]["summary"], "ACTIONED=1,VALIDATING=1,CLOSED=2")
 
 

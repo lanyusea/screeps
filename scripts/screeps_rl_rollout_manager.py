@@ -21,6 +21,7 @@ CONTRACT_VERSION = 1
 CONTRACT_TYPE = "screeps-rl-rollout-gate-contract"
 CANARY_CONTRACT_TYPE = "screeps-rl-safe-canary-contract"
 CANARY_PLAN_TYPE = "screeps-rl-bounded-live-canary-plan"
+SCORECARD_TYPE = "screeps-rl-evaluation-scorecard"
 COMPARISON_TYPE = "screeps-rl-post-rollout-kpi-comparison"
 DECISION_TYPE = "screeps-rl-rollout-decision"
 ROLLBACK_TYPE = "screeps-rl-rollback-check"
@@ -34,6 +35,14 @@ DEFAULT_LIVE_INFLUENCE_SURFACE = "none"
 LIVE_INFLUENCE_STATES_REQUIRING_REFS = ("canary", "active", "rolled_back")
 CANARY_PLAN_PASS_STATUSES = ("pass", "passed", "ok", "stable", "ready")
 CANARY_PLAN_ACTIVE_WORLD_STATUS = "matched_main"
+CANARY_PLAN_SCORECARD_PASS_STATUS = "PASS"
+CANARY_PLAN_SCORECARD_STATUS_VALUES = (
+    CANARY_PLAN_SCORECARD_PASS_STATUS,
+    "HOLD",
+    "MIXED",
+    "ROLLBACK_REQUIRED",
+    "INCONCLUSIVE",
+)
 ALLOWED_LIVE_INFLUENCE_SURFACES: dict[str, JsonObject] = {
     "none": {
         "description": "no learned/tuned candidate influence reaches official MMO behavior",
@@ -164,6 +173,13 @@ def normalize_status_text(value: str | None) -> str | None:
 def status_is_pass(value: str | None) -> bool:
     normalized = normalize_status_text(value)
     return normalized in CANARY_PLAN_PASS_STATUSES if normalized is not None else False
+
+
+def normalize_scorecard_status(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().upper().replace("-", "_").replace(" ", "_")
+    return normalized or None
 
 
 def text_present(value: Any) -> bool:
@@ -882,6 +898,151 @@ def canary_plan_text_blocking_reasons(fields: tuple[tuple[str, Any, str], ...]) 
     ]
 
 
+def build_candidate_scorecard_gate(scorecard_raw: JsonObject | None, scorecard_ref: str | None) -> JsonObject:
+    reasons: list[JsonObject] = []
+    overall_status: str | None = None
+    safety_regressions: list[Any] = []
+    non_safety_regressions: list[Any] = []
+    runtime_gate: JsonObject = {}
+    monotonic: JsonObject = {}
+
+    if not text_present(scorecard_ref):
+        reasons.append(
+            {
+                "field": "candidate.scorecardRef",
+                "reason": "missing_candidate_scorecard_ref",
+                "scope": "scorecardGate",
+            }
+        )
+    elif scorecard_raw is None:
+        reasons.append(
+            {
+                "field": "candidate.scorecardRef",
+                "reason": "missing_candidate_scorecard_artifact",
+                "scope": "scorecardGate",
+            }
+        )
+    else:
+        if scorecard_raw.get("type") != SCORECARD_TYPE:
+            reasons.append(
+                {
+                    "actual": scorecard_raw.get("type"),
+                    "field": "candidate.scorecard.type",
+                    "reason": "invalid_candidate_scorecard_type",
+                    "required": SCORECARD_TYPE,
+                    "scope": "scorecardGate",
+                }
+            )
+
+        overall_gate = scorecard_raw.get("overallGate")
+        if not isinstance(overall_gate, dict):
+            reasons.append(
+                {
+                    "field": "candidate.scorecard.overallGate",
+                    "reason": "missing_candidate_scorecard_overall_gate",
+                    "scope": "scorecardGate",
+                }
+            )
+            overall_gate = {}
+
+        overall_status = normalize_scorecard_status(overall_gate.get("status"))
+        if overall_status != CANARY_PLAN_SCORECARD_PASS_STATUS:
+            reasons.append(
+                {
+                    "actual": overall_status,
+                    "allowedStatusValues": list(CANARY_PLAN_SCORECARD_STATUS_VALUES),
+                    "field": "candidate.scorecard.overallGate.status",
+                    "reason": "candidate_scorecard_status_must_pass",
+                    "required": CANARY_PLAN_SCORECARD_PASS_STATUS,
+                    "scope": "scorecardGate",
+                }
+            )
+
+        raw_safety_regressions = overall_gate.get("safetyRegressions")
+        safety_regressions = list(raw_safety_regressions) if isinstance(raw_safety_regressions, list) else []
+        if safety_regressions:
+            reasons.append(
+                {
+                    "actual": safety_regressions,
+                    "field": "candidate.scorecard.overallGate.safetyRegressions",
+                    "reason": "candidate_scorecard_safety_regressions",
+                    "required": [],
+                    "scope": "scorecardGate",
+                }
+            )
+
+        raw_non_safety_regressions = overall_gate.get("nonSafetyRegressions")
+        non_safety_regressions = (
+            list(raw_non_safety_regressions) if isinstance(raw_non_safety_regressions, list) else []
+        )
+        if non_safety_regressions:
+            reasons.append(
+                {
+                    "actual": non_safety_regressions,
+                    "field": "candidate.scorecard.overallGate.nonSafetyRegressions",
+                    "reason": "candidate_scorecard_dimension_regressions",
+                    "required": [],
+                    "scope": "scorecardGate",
+                }
+            )
+
+        raw_runtime_gate = overall_gate.get("runtimeCandidateGate")
+        runtime_gate = dict(raw_runtime_gate) if isinstance(raw_runtime_gate, dict) else {}
+        raw_monotonic = overall_gate.get("monotonic")
+        monotonic = dict(raw_monotonic) if isinstance(raw_monotonic, dict) else {}
+
+        if not safety_regressions and monotonic.get("noSafetyRegression") is not True:
+            reasons.append(
+                {
+                    "actual": monotonic.get("noSafetyRegression"),
+                    "field": "candidate.scorecard.overallGate.monotonic.noSafetyRegression",
+                    "reason": "candidate_scorecard_no_safety_regression_not_proven",
+                    "required": True,
+                    "scope": "scorecardGate",
+                }
+            )
+        if not non_safety_regressions and monotonic.get("noDimensionRegression") is not True:
+            reasons.append(
+                {
+                    "actual": monotonic.get("noDimensionRegression"),
+                    "field": "candidate.scorecard.overallGate.monotonic.noDimensionRegression",
+                    "reason": "candidate_scorecard_no_dimension_regression_not_proven",
+                    "required": True,
+                    "scope": "scorecardGate",
+                }
+            )
+
+        runtime_injection_proven = (
+            runtime_gate.get("runtimeParameterInjection") is True
+            and runtime_gate.get("runtimeParameterConsumption") is True
+            and monotonic.get("runtimeParameterInjectionProven") is True
+        )
+        if not runtime_injection_proven:
+            reasons.append(
+                {
+                    "actual": {
+                        "runtimeParameterConsumption": runtime_gate.get("runtimeParameterConsumption"),
+                        "runtimeParameterInjection": runtime_gate.get("runtimeParameterInjection"),
+                        "runtimeParameterInjectionProven": monotonic.get("runtimeParameterInjectionProven"),
+                    },
+                    "field": "candidate.scorecard.overallGate.runtimeCandidateGate",
+                    "reason": "candidate_scorecard_runtime_injection_not_proven",
+                    "required": True,
+                    "scope": "scorecardGate",
+                }
+            )
+
+    return {
+        "blockingReasons": reasons,
+        "nonSafetyRegressions": non_safety_regressions,
+        "overallStatus": overall_status,
+        "runtimeCandidateGate": runtime_gate,
+        "safetyRegressions": safety_regressions,
+        "sourceArtifact": scorecard_ref,
+        "status": "hold" if reasons else "pass",
+    }
+
+
 def build_canary_readiness_plan(
     *,
     active_world_ref: str | None = None,
@@ -913,6 +1074,7 @@ def build_canary_readiness_plan(
     postdeploy_health_gate_artifact: str | None = None,
     postdeploy_summary_artifact: str | None = None,
     rollback_ref: str | None = None,
+    scorecard_raw: JsonObject | None = None,
     scorecard_ref: str | None = None,
 ) -> JsonObject:
     created = created_at or utc_now_iso()
@@ -936,15 +1098,16 @@ def build_canary_readiness_plan(
     normalized_cpu = normalize_status_text(cpu_baseline_status)
     spawn_count = number_or_none(owned_spawns)
     creep_count = number_or_none(owned_creeps)
+    scorecard_gate = build_candidate_scorecard_gate(scorecard_raw, scorecard_ref)
 
     blocking_reasons: list[JsonObject] = []
     blocking_reasons.extend(baseline["blockingReasons"])
     blocking_reasons.extend(canary_blocking_reasons(canary_contract))
+    blocking_reasons.extend(scorecard_gate["blockingReasons"])
     blocking_reasons.extend(canary_plan_safety_blocking_reasons(safety))
     blocking_reasons.extend(
         canary_plan_text_blocking_reasons(
             (
-                ("candidate.scorecardRef", scorecard_ref, "missing_candidate_scorecard_ref"),
                 ("controlLoop.conclusionRegistryRef", conclusion_registry_ref, "missing_conclusion_registry_ref"),
                 ("officialDeploy.head", official_deploy_head, "missing_official_deploy_head"),
                 ("officialDeploy.runId", official_deploy_run_id, "missing_official_deploy_run_id"),
@@ -1065,6 +1228,7 @@ def build_canary_readiness_plan(
             "sourceArtifact": cpu_baseline_ref,
             "status": normalized_cpu,
         },
+        "scorecardGate": scorecard_gate,
         "constructionGate": {
             "postdeployHealthGateArtifact": postdeploy_health_gate_artifact,
             "status": normalized_construction,
@@ -1522,6 +1686,7 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: Tex
 
         if args.command == "canary-plan":
             baseline = load_json(args.baseline) if args.baseline is not None else None
+            scorecard = load_json(Path(args.scorecard_ref)) if text_present(args.scorecard_ref) else None
             write_output(
                 build_canary_readiness_plan(
                     active_world_ref=args.active_world_ref,
@@ -1553,6 +1718,7 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: Tex
                     postdeploy_health_gate_artifact=args.postdeploy_health_gate_artifact,
                     postdeploy_summary_artifact=args.postdeploy_summary_artifact,
                     rollback_ref=args.rollback_ref,
+                    scorecard_raw=scorecard,
                     scorecard_ref=args.scorecard_ref,
                 ),
                 args.output,
