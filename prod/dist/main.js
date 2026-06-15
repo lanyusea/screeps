@@ -35699,8 +35699,8 @@ function hasVisibleHostileCreeps2(room) {
     return false;
   }
   try {
-    const findRoomObjects36 = room.find;
-    return findRoomObjects36(findHostileCreeps4).length > 0;
+    const findRoomObjects37 = room.find;
+    return findRoomObjects37(findHostileCreeps4).length > 0;
   } catch {
     return false;
   }
@@ -41030,7 +41030,7 @@ function isEmergencyLocalRefillSurvivalEntry(entry, context) {
 }
 function hasLocalSourceHarvesterShortfall(context) {
   var _a2, _b, _c;
-  return context.options.workersOnly !== true && context.survival.hostilePresence !== true && context.survival.controllerDowngradeGuard !== true && ((_a2 = context.colony.room.controller) == null ? void 0 : _a2.my) === true && ((_b = context.colony.room.controller.level) != null ? _b : 0) >= 2 && context.roleCounts.worker >= LOCAL_SUPPORT_WORKER_FLOOR && normalizeNonNegativeInteger16((_c = context.roleCounts.sourceHarvester) != null ? _c : 0) < getSourceCount(context.colony.room);
+  return context.options.workersOnly !== true && context.survival.hostilePresence !== true && context.survival.controllerDowngradeGuard !== true && ((_a2 = context.colony.room.controller) == null ? void 0 : _a2.my) === true && ((_b = context.colony.room.controller.level) != null ? _b : 0) >= 2 && !hasSpawnPresentLocalWorkerRecoveryShortfall(context) && context.roleCounts.worker >= LOCAL_SUPPORT_WORKER_FLOOR && normalizeNonNegativeInteger16((_c = context.roleCounts.sourceHarvester) != null ? _c : 0) < getSourceCount(context.colony.room);
 }
 function hasOwnedRoomHostilePresence() {
   var _a2;
@@ -41094,7 +41094,7 @@ function planLocalSurvivalSpawn(context) {
   return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
 }
 function hasLocalSupportWorkerShortfall(context) {
-  return context.roleCounts.worker < getLocalSupportWorkerFloor(context) && hasLocalSupportWorkerDemand(context);
+  return hasSpawnPresentLocalWorkerRecoveryShortfall(context) || context.roleCounts.worker < getLocalSupportWorkerFloor(context) && hasLocalSupportWorkerDemand(context);
 }
 function getLocalSupportWorkerFloor(context) {
   if (context.workerTarget <= 0) {
@@ -41104,7 +41104,60 @@ function getLocalSupportWorkerFloor(context) {
 }
 function hasLocalSupportWorkerDemand(context) {
   var _a2;
-  return ((_a2 = context.colony.room.controller) == null ? void 0 : _a2.my) === true && !context.survival.hostilePresence && !context.survival.controllerDowngradeGuard && (context.survival.mode === "BOOTSTRAP" || getVisibleConstructionSiteCount(context.colony.room) > 0 || hasSpawnExtensionRefillDemand(context.colony));
+  return ((_a2 = context.colony.room.controller) == null ? void 0 : _a2.my) === true && !context.survival.hostilePresence && !context.survival.controllerDowngradeGuard && (context.survival.mode === "BOOTSTRAP" || getVisibleConstructionSiteCount(context.colony.room) > 0 || hasSpawnExtensionRefillDemand(context.colony) || hasSpawnPresentLocalWorkerRecoveryShortfall(context));
+}
+function hasSpawnPresentLocalWorkerRecoveryShortfall(context) {
+  var _a2;
+  const roomName = context.colony.room.name;
+  if (((_a2 = context.colony.room.controller) == null ? void 0 : _a2.my) !== true || context.survival.hostilePresence || !hasOwnedSpawnInRoom2(roomName)) {
+    return false;
+  }
+  const creeps = getGameCreeps4();
+  if (!creeps || countRoomPresentWorkerCreeps(creeps, roomName) > 0) {
+    return false;
+  }
+  return getVisibleConstructionSiteCount(context.colony.room) > 0 || countRoomPresentCreeps(creeps, roomName) === 0 && countAssignedColonyWorkerCreeps(creeps, roomName) > 0;
+}
+function hasOwnedSpawnInRoom2(roomName) {
+  var _a2;
+  const gameSpawns = (_a2 = globalThis.Game) == null ? void 0 : _a2.spawns;
+  if (gameSpawns) {
+    return Object.values(gameSpawns).some((spawn) => {
+      var _a3;
+      return ((_a3 = spawn.room) == null ? void 0 : _a3.name) === roomName && !spawn.spawning;
+    });
+  }
+  return false;
+}
+function getGameCreeps4() {
+  var _a2;
+  const gameCreeps = (_a2 = globalThis.Game) == null ? void 0 : _a2.creeps;
+  return gameCreeps ? Object.values(gameCreeps) : null;
+}
+function countRoomPresentWorkerCreeps(creeps, roomName) {
+  return creeps.filter(
+    (creep) => {
+      var _a2, _b;
+      return ((_a2 = creep.memory) == null ? void 0 : _a2.role) === "worker" && ((_b = creep.room) == null ? void 0 : _b.name) === roomName && canSatisfyWorkerRecoveryCapacity(creep);
+    }
+  ).length;
+}
+function countRoomPresentCreeps(creeps, roomName) {
+  return creeps.filter((creep) => {
+    var _a2;
+    return ((_a2 = creep.room) == null ? void 0 : _a2.name) === roomName;
+  }).length;
+}
+function countAssignedColonyWorkerCreeps(creeps, roomName) {
+  return creeps.filter(
+    (creep) => {
+      var _a2;
+      return ((_a2 = creep.memory) == null ? void 0 : _a2.role) === "worker" && creep.memory.colony === roomName && canSatisfyWorkerRecoveryCapacity(creep);
+    }
+  ).length;
+}
+function canSatisfyWorkerRecoveryCapacity(creep) {
+  return creep.ticksToLive === void 0 || creep.ticksToLive > WORKER_REPLACEMENT_TICKS_TO_LIVE;
 }
 function hasSpawnExtensionRefillDemand(colony) {
   return normalizeNonNegativeInteger16(colony.energyCapacityAvailable) > 0 && normalizeNonNegativeInteger16(colony.energyAvailable) < normalizeNonNegativeInteger16(colony.energyCapacityAvailable);
@@ -41148,7 +41201,7 @@ function planLocalEnergyHaulingSpawn(context) {
 }
 function planLocalSourceMiningSpawn(context) {
   var _a2, _b;
-  if (context.options.workersOnly || context.survival.hostilePresence || context.survival.controllerDowngradeGuard || ((_a2 = context.colony.room.controller) == null ? void 0 : _a2.my) !== true || ((_b = context.colony.room.controller.level) != null ? _b : 0) < 2 || context.roleCounts.worker < LOCAL_SUPPORT_WORKER_FLOOR) {
+  if (context.options.workersOnly || context.survival.hostilePresence || context.survival.controllerDowngradeGuard || ((_a2 = context.colony.room.controller) == null ? void 0 : _a2.my) !== true || ((_b = context.colony.room.controller.level) != null ? _b : 0) < 2 || hasSpawnPresentLocalWorkerRecoveryShortfall(context) || context.roleCounts.worker < LOCAL_SUPPORT_WORKER_FLOOR) {
     return null;
   }
   const target = selectLocalSourceHarvesterSpawnTarget(context);
@@ -42310,7 +42363,7 @@ var ROOM_EDGE_MAX10 = 48;
 var DEFAULT_TERRAIN_WALL_MASK15 = 1;
 var ERR_INVALID_TARGET_CODE5 = -7;
 var REMOTE_HARVESTER_ROLE2 = "remoteHarvester";
-function ensureRemoteSourceContainersForAssignedHarvesters(creeps = getGameCreeps4()) {
+function ensureRemoteSourceContainersForAssignedHarvesters(creeps = getGameCreeps5()) {
   const roomResults = getRemoteSourceContainerScans(creeps).map(planSourceContainersForRoom);
   return buildSourceContainerPlannerResult(roomResults);
 }
@@ -42573,7 +42626,7 @@ function getVisibleSpawns() {
   const spawns = (_a2 = globalThis.Game) == null ? void 0 : _a2.spawns;
   return spawns ? Object.values(spawns).filter((spawn) => spawn !== void 0) : [];
 }
-function getGameCreeps4() {
+function getGameCreeps5() {
   var _a2;
   const creeps = (_a2 = globalThis.Game) == null ? void 0 : _a2.creeps;
   return creeps ? Object.values(creeps).filter((creep) => creep !== void 0) : [];
@@ -45551,7 +45604,7 @@ function recordSourceWorkloads(room, creeps, tick) {
     )
   };
 }
-function buildSourceWorkloadRecords(room, sources = findSources4(room), creeps = getGameCreeps5()) {
+function buildSourceWorkloadRecords(room, sources = findSources4(room), creeps = getGameCreeps6()) {
   const roomName = getRoomName8(room);
   const assignmentLoads = getSourceAssignmentLoads(roomName, sources, creeps);
   return sources.filter((source) => hasSourcePositionInRoom(source, room)).sort((left, right) => String(left.id).localeCompare(String(right.id))).map((source) => {
@@ -45690,7 +45743,7 @@ function getBodyPartConstant6(globalName, fallback) {
   const constants = globalThis;
   return (_a2 = constants[globalName]) != null ? _a2 : fallback;
 }
-function getGameCreeps5() {
+function getGameCreeps6() {
   var _a2;
   const creeps = (_a2 = globalThis.Game) == null ? void 0 : _a2.creeps;
   return creeps ? Object.values(creeps) : [];
@@ -49892,9 +49945,9 @@ function isOwnedRoomMissingSpawn(room) {
   if (((_a2 = room.controller) == null ? void 0 : _a2.my) !== true || ((_b = room.controller.level) != null ? _b : 0) < 1) {
     return false;
   }
-  return !hasOwnedSpawnInRoom2(room);
+  return !hasOwnedSpawnInRoom3(room);
 }
-function hasOwnedSpawnInRoom2(room) {
+function hasOwnedSpawnInRoom3(room) {
   var _a2;
   const spawns = (_a2 = globalThis.Game) == null ? void 0 : _a2.spawns;
   if (spawns && Object.values(spawns).some((spawn) => {
@@ -53531,6 +53584,9 @@ function getWorkerShedCpuProbeRoomName(creep) {
   return typeof roomName === "string" && roomName.length > 0 ? roomName : null;
 }
 function shouldRunShedCpuColonyPlanning(colony, roleCounts, survivalAssessment) {
+  if (hasSpawnPresentLocalWorkerRecoveryShortfall2(colony, survivalAssessment)) {
+    return true;
+  }
   if (roleCounts.worker <= 0 || getWorkerCapacity(roleCounts) <= 0) {
     return true;
   }
@@ -53541,6 +53597,65 @@ function shouldRunShedCpuColonyPlanning(colony, roleCounts, survivalAssessment) 
     return true;
   }
   return isColonyRoomThreatened(colony.room.name, Game.time);
+}
+function hasSpawnPresentLocalWorkerRecoveryShortfall2(colony, survivalAssessment) {
+  var _a2, _b;
+  const roomName = colony.room.name;
+  if (((_a2 = colony.room.controller) == null ? void 0 : _a2.my) !== true || survivalAssessment.hostilePresence || !hasOwnedIdleSpawnInRoom(roomName)) {
+    return false;
+  }
+  const creeps = Object.values((_b = Game.creeps) != null ? _b : {});
+  if (countRoomPresentWorkerCreeps2(creeps, roomName) > 0) {
+    return false;
+  }
+  return hasVisibleConstructionBacklog(colony.room) || countRoomPresentCreeps2(creeps, roomName) === 0 && countAssignedColonyWorkerCreeps2(creeps, roomName) > 0;
+}
+function hasOwnedIdleSpawnInRoom(roomName) {
+  var _a2;
+  return Object.values((_a2 = Game.spawns) != null ? _a2 : {}).some((spawn) => {
+    var _a3;
+    return ((_a3 = spawn.room) == null ? void 0 : _a3.name) === roomName && !spawn.spawning;
+  });
+}
+function countRoomPresentWorkerCreeps2(creeps, roomName) {
+  return creeps.filter(
+    (creep) => {
+      var _a2, _b;
+      return ((_a2 = creep.memory) == null ? void 0 : _a2.role) === "worker" && ((_b = creep.room) == null ? void 0 : _b.name) === roomName && canSatisfyWorkerRecoveryCapacity2(creep);
+    }
+  ).length;
+}
+function countRoomPresentCreeps2(creeps, roomName) {
+  return creeps.filter((creep) => {
+    var _a2;
+    return ((_a2 = creep.room) == null ? void 0 : _a2.name) === roomName;
+  }).length;
+}
+function countAssignedColonyWorkerCreeps2(creeps, roomName) {
+  return creeps.filter(
+    (creep) => {
+      var _a2;
+      return ((_a2 = creep.memory) == null ? void 0 : _a2.role) === "worker" && creep.memory.colony === roomName && canSatisfyWorkerRecoveryCapacity2(creep);
+    }
+  ).length;
+}
+function canSatisfyWorkerRecoveryCapacity2(creep) {
+  return creep.ticksToLive === void 0 || creep.ticksToLive > WORKER_REPLACEMENT_TICKS_TO_LIVE;
+}
+function hasVisibleConstructionBacklog(room) {
+  return findRoomObjects36(room, "FIND_MY_CONSTRUCTION_SITES").length > 0 || findRoomObjects36(room, "FIND_CONSTRUCTION_SITES").some((site) => site.my !== false);
+}
+function findRoomObjects36(room, globalName) {
+  const findConstant = globalThis[globalName];
+  if (typeof findConstant !== "number" || typeof room.find !== "function") {
+    return [];
+  }
+  try {
+    const result = room.find(findConstant);
+    return Array.isArray(result) ? result : [];
+  } catch {
+    return [];
+  }
 }
 function runClaimedRoomConstructionForCpuBudget(colony, creeps, options, telemetryEvents, postClaimBootstrapFocusRoomName, deferred, mode = "normal") {
   refreshPostClaimDefenseConstruction(colony, { focusRoomName: postClaimBootstrapFocusRoomName });
@@ -54178,7 +54293,23 @@ function planSpawnWithEnergyBudget(colony, sourceColony, energyBudget, usedSpawn
   };
 }
 function shouldBypassSpawnEnergyBuffer(spawnRequest, roleCounts, availableEnergy, bodyCost, survivalAssessment) {
-  return roleCounts.worker === 0 || isBootstrapWorkerRecoverySpawnRequest(spawnRequest, roleCounts, availableEnergy, survivalAssessment) || isLocalWorkerRecoverySpawnRequest(spawnRequest, availableEnergy, bodyCost, survivalAssessment) || isLocalSourceMinerRecoverySpawnRequest(spawnRequest, roleCounts, availableEnergy, bodyCost, survivalAssessment) || isTerritoryControllerSpawnRequest(spawnRequest);
+  return roleCounts.worker === 0 || isSpawnPresentLocalWorkerRecoverySpawnRequest(spawnRequest, availableEnergy, bodyCost, survivalAssessment) || isBootstrapWorkerRecoverySpawnRequest(spawnRequest, roleCounts, availableEnergy, survivalAssessment) || isLocalWorkerRecoverySpawnRequest(spawnRequest, availableEnergy, bodyCost, survivalAssessment) || isLocalSourceMinerRecoverySpawnRequest(spawnRequest, roleCounts, availableEnergy, bodyCost, survivalAssessment) || isTerritoryControllerSpawnRequest(spawnRequest);
+}
+function isSpawnPresentLocalWorkerRecoverySpawnRequest(spawnRequest, availableEnergy, bodyCost, survivalAssessment) {
+  var _a2;
+  const roomName = spawnRequest.memory.colony;
+  if (spawnRequest.memory.role !== "worker" || spawnRequest.memory.controllerUpgrade !== void 0 || spawnRequest.memory.controllerSustain !== void 0 || ((_a2 = spawnRequest.spawn.room) == null ? void 0 : _a2.name) !== roomName || survivalAssessment.hostilePresence || availableEnergy < bodyCost) {
+    return false;
+  }
+  return hasSpawnPresentLocalWorkerRecoveryShortfall2(
+    {
+      room: spawnRequest.spawn.room,
+      spawns: [spawnRequest.spawn],
+      energyAvailable: availableEnergy,
+      energyCapacityAvailable: spawnRequest.spawn.room.energyCapacityAvailable
+    },
+    survivalAssessment
+  );
 }
 function isBootstrapWorkerRecoverySpawnRequest(spawnRequest, roleCounts, availableEnergy, survivalAssessment) {
   return spawnRequest.memory.role === "worker" && survivalAssessment.mode === "BOOTSTRAP" && (roleCounts.worker < survivalAssessment.survivalWorkerFloor || availableEnergy >= BOOTSTRAP_WORKER_BUFFER_BYPASS_MIN_ENERGY);

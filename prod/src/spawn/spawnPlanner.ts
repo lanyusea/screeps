@@ -9,7 +9,12 @@ import {
   hasEmergencyBootstrapCreepShortfall,
   type ColonySurvivalAssessment
 } from '../colony/colonyStage';
-import { countCreepsByRole, getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
+import {
+  countCreepsByRole,
+  getWorkerCapacity,
+  WORKER_REPLACEMENT_TICKS_TO_LIVE,
+  type RoleCounts
+} from '../creeps/roleCounts';
 import {
   REMOTE_HARVESTER_ROLE,
   selectRemoteHarvesterAssignment
@@ -559,6 +564,7 @@ function hasLocalSourceHarvesterShortfall(context: SpawnPlanningContext): boolea
     context.survival.controllerDowngradeGuard !== true &&
     context.colony.room.controller?.my === true &&
     (context.colony.room.controller.level ?? 0) >= 2 &&
+    !hasSpawnPresentLocalWorkerRecoveryShortfall(context) &&
     context.roleCounts.worker >= LOCAL_SUPPORT_WORKER_FLOOR &&
     normalizeNonNegativeInteger(context.roleCounts.sourceHarvester ?? 0) < getSourceCount(context.colony.room)
   );
@@ -641,8 +647,11 @@ function planLocalSurvivalSpawn(context: SpawnPlanningContext): SpawnRequest | n
 
 function hasLocalSupportWorkerShortfall(context: SpawnPlanningContext): boolean {
   return (
-    context.roleCounts.worker < getLocalSupportWorkerFloor(context) &&
-    hasLocalSupportWorkerDemand(context)
+    hasSpawnPresentLocalWorkerRecoveryShortfall(context) ||
+    (
+      context.roleCounts.worker < getLocalSupportWorkerFloor(context) &&
+      hasLocalSupportWorkerDemand(context)
+    )
   );
 }
 
@@ -661,8 +670,73 @@ function hasLocalSupportWorkerDemand(context: SpawnPlanningContext): boolean {
     !context.survival.controllerDowngradeGuard &&
     (context.survival.mode === 'BOOTSTRAP' ||
       getVisibleConstructionSiteCount(context.colony.room) > 0 ||
-      hasSpawnExtensionRefillDemand(context.colony))
+      hasSpawnExtensionRefillDemand(context.colony) ||
+      hasSpawnPresentLocalWorkerRecoveryShortfall(context))
   );
+}
+
+function hasSpawnPresentLocalWorkerRecoveryShortfall(context: SpawnPlanningContext): boolean {
+  const roomName = context.colony.room.name;
+  if (
+    context.colony.room.controller?.my !== true ||
+    context.survival.hostilePresence ||
+    !hasOwnedSpawnInRoom(roomName)
+  ) {
+    return false;
+  }
+
+  const creeps = getGameCreeps();
+  if (!creeps || countRoomPresentWorkerCreeps(creeps, roomName) > 0) {
+    return false;
+  }
+
+  return (
+    getVisibleConstructionSiteCount(context.colony.room) > 0 ||
+    (
+      countRoomPresentCreeps(creeps, roomName) === 0 &&
+      countAssignedColonyWorkerCreeps(creeps, roomName) > 0
+    )
+  );
+}
+
+function hasOwnedSpawnInRoom(roomName: string): boolean {
+  const gameSpawns = (globalThis as unknown as { Game?: Partial<Pick<Game, 'spawns'>> }).Game?.spawns;
+  if (gameSpawns) {
+    return Object.values(gameSpawns).some((spawn) => spawn.room?.name === roomName && !spawn.spawning);
+  }
+
+  return false;
+}
+
+function getGameCreeps(): Creep[] | null {
+  const gameCreeps = (globalThis as unknown as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
+  return gameCreeps ? Object.values(gameCreeps) : null;
+}
+
+function countRoomPresentWorkerCreeps(creeps: Creep[], roomName: string): number {
+  return creeps.filter(
+    (creep) =>
+      creep.memory?.role === 'worker' &&
+      creep.room?.name === roomName &&
+      canSatisfyWorkerRecoveryCapacity(creep)
+  ).length;
+}
+
+function countRoomPresentCreeps(creeps: Creep[], roomName: string): number {
+  return creeps.filter((creep) => creep.room?.name === roomName).length;
+}
+
+function countAssignedColonyWorkerCreeps(creeps: Creep[], roomName: string): number {
+  return creeps.filter(
+    (creep) =>
+      creep.memory?.role === 'worker' &&
+      creep.memory.colony === roomName &&
+      canSatisfyWorkerRecoveryCapacity(creep)
+  ).length;
+}
+
+function canSatisfyWorkerRecoveryCapacity(creep: Creep): boolean {
+  return creep.ticksToLive === undefined || creep.ticksToLive > WORKER_REPLACEMENT_TICKS_TO_LIVE;
 }
 
 function hasSpawnExtensionRefillDemand(colony: ColonySnapshot): boolean {
@@ -726,6 +800,7 @@ function planLocalSourceMiningSpawn(context: SpawnPlanningContext): SpawnRequest
     context.survival.controllerDowngradeGuard ||
     context.colony.room.controller?.my !== true ||
     (context.colony.room.controller.level ?? 0) < 2 ||
+    hasSpawnPresentLocalWorkerRecoveryShortfall(context) ||
     context.roleCounts.worker < LOCAL_SUPPORT_WORKER_FLOOR
   ) {
     return null;

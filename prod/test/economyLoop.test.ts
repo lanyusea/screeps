@@ -668,6 +668,153 @@ describe('runEconomy', () => {
     });
   });
 
+  it('keeps low-bucket E29N56 local worker recovery while stable E29N57 stays idle', () => {
+    installSpawnCoordinationGlobals();
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    const recoveryRoom = makeSpawnCoordinationRoom({
+      roomName: 'E29N56',
+      energyAvailable: 300,
+      energyCapacityAvailable: 800,
+      controllerLevel: 4
+    });
+    const stableRoom = makeSpawnCoordinationRoom({
+      roomName: 'E29N57',
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      controllerLevel: 5
+    });
+    const recoverySpawn = {
+      name: 'SpawnE29N56',
+      room: recoveryRoom,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const stableSpawn = {
+      name: 'SpawnE29N57',
+      room: stableRoom,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const offRoomRecoveryWorkers = Object.fromEntries(
+      Array.from({ length: 5 }, (_, index) => [
+        `E29N56RemoteWorker${index}`,
+        {
+          name: `worker-E29N56-${index}`,
+          ticksToLive: 1_000,
+          memory: {
+            role: 'worker',
+            colony: 'E29N56',
+            territory: { targetRoom: 'E29N57', action: 'claim' }
+          },
+          room: stableRoom
+        } as Creep
+      ])
+    );
+    const stableWorkers = {
+      E29N57Worker1: makeEconomyWorker(stableRoom),
+      E29N57Worker2: makeEconomyWorker(stableRoom),
+      E29N57Worker3: makeEconomyWorker(stableRoom)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 2_197_087,
+      rooms: { E29N56: recoveryRoom, E29N57: stableRoom },
+      spawns: { SpawnE29N56: recoverySpawn, SpawnE29N57: stableSpawn },
+      creeps: { ...offRoomRecoveryWorkers, ...stableWorkers },
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(26),
+        limit: 70,
+        bucket: 817,
+        tickLimit: 500
+      } as unknown as CPU
+    };
+
+    runEconomy();
+
+    expect(recoverySpawn.spawnCreep).toHaveBeenCalledWith(
+      ['work', 'work', 'carry', 'move'],
+      'worker-E29N56-2197087',
+      {
+        memory: { role: 'worker', colony: 'E29N56' }
+      }
+    );
+    expect(stableSpawn.spawnCreep).not.toHaveBeenCalled();
+  });
+
+  it('spawns E29N56 local recovery worker under downgrade guard with no local creeps and build backlog', () => {
+    installSpawnCoordinationGlobals();
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    const recoveryRoom = makeSpawnCoordinationRoom({
+      roomName: 'E29N56',
+      energyAvailable: 300,
+      energyCapacityAvailable: 1300,
+      controllerLevel: 4,
+      controllerTicksToDowngrade: 1_600,
+      constructionSiteCount: 2
+    });
+    const stableRoom = makeSpawnCoordinationRoom({
+      roomName: 'E29N57',
+      energyAvailable: 1800,
+      energyCapacityAvailable: 1800,
+      controllerLevel: 5
+    });
+    const recoverySpawn = {
+      name: 'SpawnE29N56',
+      room: recoveryRoom,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const stableSpawn = {
+      name: 'SpawnE29N57',
+      room: stableRoom,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const offRoomRecoveryWorkers = Object.fromEntries(
+      Array.from({ length: 5 }, (_, index) => [
+        `E29N56RemoteWorker${index}`,
+        {
+          name: `worker-E29N56-${index}`,
+          ticksToLive: 1_000,
+          memory: {
+            role: 'worker',
+            colony: 'E29N56'
+          },
+          room: stableRoom
+        } as Creep
+      ])
+    );
+    const stableWorkers = {
+      E29N57Worker1: makeEconomyWorker(stableRoom),
+      E29N57Worker2: makeEconomyWorker(stableRoom),
+      E29N57Worker3: makeEconomyWorker(stableRoom)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 2_198_910,
+      rooms: { E29N56: recoveryRoom, E29N57: stableRoom },
+      spawns: { SpawnE29N56: recoverySpawn, SpawnE29N57: stableSpawn },
+      creeps: { ...offRoomRecoveryWorkers, ...stableWorkers },
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(26),
+        limit: 70,
+        bucket: 673,
+        tickLimit: 500
+      } as unknown as CPU
+    };
+
+    runEconomy();
+
+    expect(recoverySpawn.spawnCreep).toHaveBeenCalledWith(
+      ['work', 'work', 'carry', 'move'],
+      'worker-E29N56-2198910',
+      {
+        memory: { role: 'worker', colony: 'E29N56' }
+      }
+    );
+    expect(stableSpawn.spawnCreep).not.toHaveBeenCalled();
+  });
+
   it('spawns an emergency bootstrap worker without requiring the energy buffer', () => {
     const room = {
       name: 'W1N1',
@@ -5197,13 +5344,22 @@ function makeSpawnCoordinationRoom({
   roomName,
   energyAvailable,
   energyCapacityAvailable,
-  controllerLevel = 3
+  controllerLevel = 3,
+  controllerTicksToDowngrade = 10_000,
+  constructionSiteCount = 0
 }: {
   roomName: string;
   energyAvailable: number;
   energyCapacityAvailable: number;
   controllerLevel?: number;
+  controllerTicksToDowngrade?: number;
+  constructionSiteCount?: number;
 }): Room {
+  const constructionSites = Array.from(
+    { length: constructionSiteCount },
+    (_, index) => ({ id: `${roomName}-site-${index}` }) as ConstructionSite
+  );
+
   return {
     name: roomName,
     energyAvailable,
@@ -5213,10 +5369,20 @@ function makeSpawnCoordinationRoom({
       my: true,
       owner: { username: 'me' },
       level: controllerLevel,
-      ticksToDowngrade: 10_000
+      ticksToDowngrade: controllerTicksToDowngrade
     } as StructureController,
     memory: {},
-    find: jest.fn((type: number) => (type === FIND_SOURCES ? [{ id: `${roomName}-source` } as Source] : []))
+    find: jest.fn((type: number) => {
+      if (type === FIND_SOURCES) {
+        return [{ id: `${roomName}-source` } as Source];
+      }
+
+      if (type === FIND_MY_CONSTRUCTION_SITES || type === FIND_CONSTRUCTION_SITES) {
+        return constructionSites;
+      }
+
+      return [];
+    })
   } as unknown as Room;
 }
 

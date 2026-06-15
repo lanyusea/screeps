@@ -15,7 +15,12 @@ import type {
   ConstructionPlannerBlockedPlacement,
   ConstructionPlannerPlacement
 } from '../construction/planner';
-import { countCreepsByRole, getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
+import {
+  countCreepsByRole,
+  getWorkerCapacity,
+  WORKER_REPLACEMENT_TICKS_TO_LIVE,
+  type RoleCounts
+} from '../creeps/roleCounts';
 import { runWorker } from '../creeps/workerRunner';
 import {
   CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS,
@@ -556,6 +561,10 @@ function shouldRunShedCpuColonyPlanning(
   roleCounts: RoleCounts,
   survivalAssessment: ReturnType<typeof assessColonySnapshotSurvival>
 ): boolean {
+  if (hasSpawnPresentLocalWorkerRecoveryShortfall(colony, survivalAssessment)) {
+    return true;
+  }
+
   if (roleCounts.worker <= 0 || getWorkerCapacity(roleCounts) <= 0) {
     return true;
   }
@@ -572,6 +581,84 @@ function shouldRunShedCpuColonyPlanning(
   }
 
   return isColonyRoomThreatened(colony.room.name, Game.time);
+}
+
+function hasSpawnPresentLocalWorkerRecoveryShortfall(
+  colony: ColonySnapshot,
+  survivalAssessment: ReturnType<typeof assessColonySnapshotSurvival>
+): boolean {
+  const roomName = colony.room.name;
+  if (
+    colony.room.controller?.my !== true ||
+    survivalAssessment.hostilePresence ||
+    !hasOwnedIdleSpawnInRoom(roomName)
+  ) {
+    return false;
+  }
+
+  const creeps = Object.values(Game.creeps ?? {});
+  if (countRoomPresentWorkerCreeps(creeps, roomName) > 0) {
+    return false;
+  }
+
+  return (
+    hasVisibleConstructionBacklog(colony.room) ||
+    (
+      countRoomPresentCreeps(creeps, roomName) === 0 &&
+      countAssignedColonyWorkerCreeps(creeps, roomName) > 0
+    )
+  );
+}
+
+function hasOwnedIdleSpawnInRoom(roomName: string): boolean {
+  return Object.values(Game.spawns ?? {}).some((spawn) => spawn.room?.name === roomName && !spawn.spawning);
+}
+
+function countRoomPresentWorkerCreeps(creeps: Creep[], roomName: string): number {
+  return creeps.filter(
+    (creep) =>
+      creep.memory?.role === 'worker' &&
+      creep.room?.name === roomName &&
+      canSatisfyWorkerRecoveryCapacity(creep)
+  ).length;
+}
+
+function countRoomPresentCreeps(creeps: Creep[], roomName: string): number {
+  return creeps.filter((creep) => creep.room?.name === roomName).length;
+}
+
+function countAssignedColonyWorkerCreeps(creeps: Creep[], roomName: string): number {
+  return creeps.filter(
+    (creep) =>
+      creep.memory?.role === 'worker' &&
+      creep.memory.colony === roomName &&
+      canSatisfyWorkerRecoveryCapacity(creep)
+  ).length;
+}
+
+function canSatisfyWorkerRecoveryCapacity(creep: Creep): boolean {
+  return creep.ticksToLive === undefined || creep.ticksToLive > WORKER_REPLACEMENT_TICKS_TO_LIVE;
+}
+
+function hasVisibleConstructionBacklog(room: Room): boolean {
+  return (
+    findRoomObjects<ConstructionSite>(room, 'FIND_MY_CONSTRUCTION_SITES').length > 0 ||
+    findRoomObjects<ConstructionSite>(room, 'FIND_CONSTRUCTION_SITES').some((site) => site.my !== false)
+  );
+}
+
+function findRoomObjects<T>(room: Room, globalName: string): T[] {
+  const findConstant = (globalThis as Record<string, unknown>)[globalName];
+  if (typeof findConstant !== 'number' || typeof room.find !== 'function') {
+    return [];
+  }
+
+  try {
+    const result = (room.find as unknown as (type: number) => unknown[])(findConstant);
+    return Array.isArray(result) ? (result as T[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 function runClaimedRoomConstructionForCpuBudget(
@@ -1508,10 +1595,40 @@ function shouldBypassSpawnEnergyBuffer(
 ): boolean {
   return (
     roleCounts.worker === 0 ||
+    isSpawnPresentLocalWorkerRecoverySpawnRequest(spawnRequest, availableEnergy, bodyCost, survivalAssessment) ||
     isBootstrapWorkerRecoverySpawnRequest(spawnRequest, roleCounts, availableEnergy, survivalAssessment) ||
     isLocalWorkerRecoverySpawnRequest(spawnRequest, availableEnergy, bodyCost, survivalAssessment) ||
     isLocalSourceMinerRecoverySpawnRequest(spawnRequest, roleCounts, availableEnergy, bodyCost, survivalAssessment) ||
     isTerritoryControllerSpawnRequest(spawnRequest)
+  );
+}
+
+function isSpawnPresentLocalWorkerRecoverySpawnRequest(
+  spawnRequest: SpawnRequest,
+  availableEnergy: number,
+  bodyCost: number,
+  survivalAssessment: ReturnType<typeof assessColonySnapshotSurvival>
+): boolean {
+  const roomName = spawnRequest.memory.colony;
+  if (
+    spawnRequest.memory.role !== 'worker' ||
+    spawnRequest.memory.controllerUpgrade !== undefined ||
+    spawnRequest.memory.controllerSustain !== undefined ||
+    spawnRequest.spawn.room?.name !== roomName ||
+    survivalAssessment.hostilePresence ||
+    availableEnergy < bodyCost
+  ) {
+    return false;
+  }
+
+  return hasSpawnPresentLocalWorkerRecoveryShortfall(
+    {
+      room: spawnRequest.spawn.room,
+      spawns: [spawnRequest.spawn],
+      energyAvailable: availableEnergy,
+      energyCapacityAvailable: spawnRequest.spawn.room.energyCapacityAvailable
+    },
+    survivalAssessment
   );
 }
 
