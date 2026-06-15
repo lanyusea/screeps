@@ -467,6 +467,16 @@ function selectCriticalCpuWorkerTask(creep: Creep, cpuBudget: RuntimeCpuBudget):
 
   const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
   if (criticalRepairTarget) {
+    const coveredRepairConstructionBacklogTask = selectConstructionBacklogTaskBeforeCoveredCriticalRepair(
+      creep,
+      criticalRepairTarget,
+      constructionSites,
+      constructionReservationContext
+    );
+    if (coveredRepairConstructionBacklogTask) {
+      return coveredRepairConstructionBacklogTask;
+    }
+
     return applyMinimumUsefulLoadPolicy(creep, {
       type: 'repair',
       targetId: criticalRepairTarget.id as Id<Structure>
@@ -1356,6 +1366,16 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
 
   const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
   if (criticalRepairTarget) {
+    const coveredRepairConstructionBacklogTask = selectConstructionBacklogTaskBeforeCoveredCriticalRepair(
+      creep,
+      criticalRepairTarget,
+      constructionSites,
+      constructionReservationContext
+    );
+    if (coveredRepairConstructionBacklogTask) {
+      return coveredRepairConstructionBacklogTask;
+    }
+
     return applyMinimumUsefulLoadPolicy(creep, {
       type: 'repair',
       targetId: criticalRepairTarget.id as Id<Structure>
@@ -5669,6 +5689,34 @@ function selectLowLoadConstructionCoverageTask(
     hasOtherSameRoomBuildCoverageWorker(creep) ||
     !hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep) ||
     !getShouldYieldSpawnReservationToConstructionBacklog()
+  ) {
+    return null;
+  }
+
+  const priorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const constructionSite = selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    (site) => site.my !== false && canSpendCreepEnergyOnConstructionSite(creep, site, priorityContext),
+    { priorityContext }
+  );
+  return constructionSite ? { type: 'build', targetId: constructionSite.id } : null;
+}
+
+function selectConstructionBacklogTaskBeforeCoveredCriticalRepair(
+  creep: Creep,
+  criticalRepairTarget: CriticalInfrastructureRepairTarget,
+  constructionSites: ConstructionSite[],
+  constructionReservationContext: ConstructionReservationContext
+): Extract<CreepTaskMemory, { type: 'build' }> | null {
+  if (
+    isCriticalOwnedSpawnRepairTarget(criticalRepairTarget) ||
+    constructionSites.length === 0 ||
+    hasVisibleHostilePresence(creep.room) ||
+    hasOtherSameRoomBuildCoverageWorker(creep) ||
+    !hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep) ||
+    !hasOtherLoadedWorkerAssignedToRepairTarget(creep, criticalRepairTarget)
   ) {
     return null;
   }

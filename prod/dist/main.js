@@ -27945,6 +27945,15 @@ function selectCriticalCpuWorkerTask(creep, cpuBudget) {
   }
   const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
   if (criticalRepairTarget) {
+    const coveredRepairConstructionBacklogTask = selectConstructionBacklogTaskBeforeCoveredCriticalRepair(
+      creep,
+      criticalRepairTarget,
+      constructionSites,
+      constructionReservationContext
+    );
+    if (coveredRepairConstructionBacklogTask) {
+      return coveredRepairConstructionBacklogTask;
+    }
     return applyMinimumUsefulLoadPolicy(creep, {
       type: "repair",
       targetId: criticalRepairTarget.id
@@ -28604,6 +28613,15 @@ function selectHeuristicWorkerTask(creep) {
   }
   const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
   if (criticalRepairTarget) {
+    const coveredRepairConstructionBacklogTask = selectConstructionBacklogTaskBeforeCoveredCriticalRepair(
+      creep,
+      criticalRepairTarget,
+      constructionSites,
+      constructionReservationContext
+    );
+    if (coveredRepairConstructionBacklogTask) {
+      return coveredRepairConstructionBacklogTask;
+    }
     return applyMinimumUsefulLoadPolicy(creep, {
       type: "repair",
       targetId: criticalRepairTarget.id
@@ -31309,6 +31327,20 @@ function shouldYieldSpawnReservationToConstructionBacklog(creep, constructionSit
 }
 function selectLowLoadConstructionCoverageTask(creep, constructionSites, constructionReservationContext, getShouldYieldSpawnReservationToConstructionBacklog) {
   if (getLowLoadWorkerEnergyContext(creep) === null || constructionSites.length === 0 || hasVisibleHostilePresence3(creep.room) || shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) || hasOtherSameRoomBuildCoverageWorker(creep) || !hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep) || !getShouldYieldSpawnReservationToConstructionBacklog()) {
+    return null;
+  }
+  const priorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const constructionSite = selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    (site) => site.my !== false && canSpendCreepEnergyOnConstructionSite(creep, site, priorityContext),
+    { priorityContext }
+  );
+  return constructionSite ? { type: "build", targetId: constructionSite.id } : null;
+}
+function selectConstructionBacklogTaskBeforeCoveredCriticalRepair(creep, criticalRepairTarget, constructionSites, constructionReservationContext) {
+  if (isCriticalOwnedSpawnRepairTarget(criticalRepairTarget) || constructionSites.length === 0 || hasVisibleHostilePresence3(creep.room) || hasOtherSameRoomBuildCoverageWorker(creep) || !hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep) || !hasOtherLoadedWorkerAssignedToRepairTarget(creep, criticalRepairTarget)) {
     return null;
   }
   const priorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
