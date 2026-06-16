@@ -639,7 +639,8 @@ function shouldKeepConstructionWithdrawTaskForMoreEnergy(
   return (
     getFreeTransferEnergyCapacity(creep) > 0 &&
     selectedTask !== null &&
-    isSameTask(currentTask, selectedTask)
+    isSameTask(currentTask, selectedTask) &&
+    hasOtherSameRoomBuildAssignment(creep)
   );
 }
 
