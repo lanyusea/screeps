@@ -5753,7 +5753,6 @@ function hasRepairCoverageForConstructionYield(
 
   return (
     (options.allowRepairPoolCoverage ?? true) &&
-    isWorkerAssignedToAnyRepairTarget(creep) &&
     countOtherLoadedRepairWorkers(creep) >= REPAIR_HEAVY_CONSTRUCTION_YIELD_MIN_OTHER_LOADED_REPAIRERS
   );
 }

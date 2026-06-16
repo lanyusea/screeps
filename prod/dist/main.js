@@ -31362,7 +31362,7 @@ function hasRepairCoverageForConstructionYield(creep, criticalRepairTarget, opti
   if (hasOtherLoadedWorkerAssignedToRepairTarget(creep, criticalRepairTarget)) {
     return true;
   }
-  return ((_a2 = options.allowRepairPoolCoverage) != null ? _a2 : true) && isWorkerAssignedToAnyRepairTarget(creep) && countOtherLoadedRepairWorkers(creep) >= REPAIR_HEAVY_CONSTRUCTION_YIELD_MIN_OTHER_LOADED_REPAIRERS;
+  return ((_a2 = options.allowRepairPoolCoverage) != null ? _a2 : true) && countOtherLoadedRepairWorkers(creep) >= REPAIR_HEAVY_CONSTRUCTION_YIELD_MIN_OTHER_LOADED_REPAIRERS;
 }
 function countOtherLoadedRepairWorkers(creep) {
   return getRoomOwnedCreeps2(creep.room).filter(

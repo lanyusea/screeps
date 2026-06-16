@@ -14201,6 +14201,10 @@ describe('selectWorkerTask', () => {
     setCpuSample({ bucket: 1_857, limit: 70, tickLimit: 500, used: 70.1 });
 
     expect(selectWorkerTask(worker)).toEqual({ type: 'build', targetId: 'wall-site1' });
+
+    worker.memory.task = { type: 'build', targetId: 'wall-site1' as Id<ConstructionSite> };
+
+    expect(selectWorkerTask(worker)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
   it('keeps healthy-buffer construction behind critical container repair without live same-target coverage', () => {
