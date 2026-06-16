@@ -327,6 +327,31 @@ Active expected cron jobs:
         self.assertTrue(any(item["field"] == "provider" for item in result["policy_violations"]), result)
         self.assertTrue(any(item["field"] == "model" for item in result["policy_violations"]), result)
 
+    def test_flags_monitor_expected_job_missing_from_registry(self) -> None:
+        expected: dict[str, dict[str, str | None]] = {}
+        live = {
+            "75cedbb77150": {
+                "name": "Screeps P0 agent operations monitor",
+                "prompt": (
+                    "Active expected cron jobs:\n"
+                    "- `deadbeefcafe` Retired stale cron — `*/5 * * * *`, deliver `discord:#task-queue`, "
+                    "model `gpt-5.5` / provider `openai-codex`.\n"
+                ),
+            },
+        }
+
+        violations = cron.validate_monitor_registry_split_brain(expected, live)
+
+        self.assertTrue(
+            any(
+                item["id"] == "deadbeefcafe"
+                and item["field"] == "presence"
+                and item["pattern"] == "monitor_registry_expectation_conflict"
+                for item in violations
+            ),
+            violations,
+        )
+
 
 class IssueCommentSinkPolicyTests(unittest.TestCase):
     def test_flags_fixed_closed_loop_issue_comment_fanout(self) -> None:

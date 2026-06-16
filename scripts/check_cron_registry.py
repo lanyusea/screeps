@@ -219,6 +219,16 @@ def validate_monitor_registry_split_brain(
     for jid, monitor_spec in sorted(monitor_expected.items()):
         registry_spec = expected.get(jid)
         if not registry_spec:
+            violations.append({
+                "id": jid,
+                "job": monitor_spec.get("job"),
+                "surface": f"monitor job {monitor_job_id} prompt vs repo registry",
+                "field": "presence",
+                "pattern": "monitor_registry_expectation_conflict",
+                "line": None,
+                "expected": "registry=absent",
+                "live": "monitor=present",
+            })
             continue
         for field in ["schedule", "deliver", "provider", "model"]:
             registry_value = empty_to_none(registry_spec.get(field))
