@@ -470,7 +470,14 @@ function selectWorkerTaskContext(
     spawnReservationRefillTask ?? effectiveEnergyCriticalTask ?? baseSelectedTask
   );
   const constructionRecoveryTask =
-    effectiveEnergyCriticalTask === null ? constructionBacklogEnergyAcquisitionTask : null;
+    effectiveEnergyCriticalTask === null ||
+    shouldYieldEnergyCriticalAcquisitionToConstructionBacklogRecovery(
+      creep,
+      effectiveEnergyCriticalTask,
+      constructionBacklogEnergyAcquisitionTask
+    )
+      ? constructionBacklogEnergyAcquisitionTask
+      : null;
   const selectedTaskAfterBuildEnergyAcquisition = selectAssignedBuildEnergyAcquisitionTask(
     creep,
     currentTask,
@@ -491,6 +498,21 @@ function selectWorkerTaskContext(
     selectedTask,
     spawnReservationRefillTask
   };
+}
+
+function shouldYieldEnergyCriticalAcquisitionToConstructionBacklogRecovery(
+  creep: Creep,
+  energyCriticalTask: CreepTaskMemory | null,
+  constructionRecoveryTask: CreepTaskMemory | null
+): boolean {
+  return (
+    constructionRecoveryTask !== null &&
+    energyCriticalTask !== null &&
+    isEnergyAcquisitionTask(energyCriticalTask) &&
+    isConstructionWithdrawReservationTask(constructionRecoveryTask) &&
+    isRoomBelowMinimumWorkerSpawnEnergyFloor(creep.room) &&
+    isMinimumWorkerSpawnEnergyFloorCoveredForAssignmentGapRecovery(creep)
+  );
 }
 
 function selectConstructionBacklogEnergyAcquisitionRecoveryTask(
@@ -519,7 +541,7 @@ function shouldSelectConstructionBacklogEnergyAcquisitionRecoveryTask(
     return false;
   }
 
-  if (!hasStoredEnergyForAssignmentGapRecoveryConstruction(creep.room)) {
+  if (!hasRecoverableStoredEnergyForAssignmentGapRecoveryConstruction(creep)) {
     return false;
   }
 
@@ -662,7 +684,7 @@ function selectWorkerAssignmentGapRecoveryTask(
     return null;
   }
 
-  const hasStoredConstructionRecoveryEnergy = hasStoredEnergyForAssignmentGapRecoveryConstruction(creep.room);
+  const hasStoredConstructionRecoveryEnergy = hasRecoverableStoredEnergyForAssignmentGapRecoveryConstruction(creep);
   const hasMinimumWorkerCoverage =
     hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) ||
     (hasStoredConstructionRecoveryEnergy &&
@@ -978,6 +1000,17 @@ function hasStoredEnergyForAssignmentGapRecoveryConstruction(room: Room): boolea
   );
 }
 
+function hasRecoverableStoredEnergyForAssignmentGapRecoveryConstruction(creep: Creep): boolean {
+  if (hasStoredEnergyForAssignmentGapRecoveryConstruction(creep.room)) {
+    return true;
+  }
+
+  return (
+    getRoomStoredEnergyAvailableForConstruction(creep.room) >= CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY &&
+    isMinimumWorkerSpawnEnergyFloorCoveredForAssignmentGapRecovery(creep)
+  );
+}
+
 function hasCoveredStoredEnergyForAssignmentGapRecoveryConstruction(
   creep: Creep,
   site: unknown
@@ -1002,6 +1035,11 @@ function isMinimumWorkerSpawnEnergyFloorCoveredForAssignmentGapRecovery(creep: C
 
   const energyGap = Math.max(0, MINIMUM_WORKER_SPAWN_ENERGY - energyAvailable);
   return energyGap === 0 || getOtherSameRoomImmediateSpawnRefillEnergy(creep) >= energyGap;
+}
+
+function isRoomBelowMinimumWorkerSpawnEnergyFloor(room: Room): boolean {
+  const energyAvailable = getRoomEnergyAvailable(room);
+  return energyAvailable !== null && energyAvailable < MINIMUM_WORKER_SPAWN_ENERGY;
 }
 
 function getOtherSameRoomImmediateSpawnRefillEnergy(creep: Creep): number {
