@@ -35472,7 +35472,7 @@ function canConstructionWithdrawCompletionOverrideSelectedTask(creep, selectedTa
   return selectedTask === null || isEnergyAcquisitionTask2(selectedTask) || selectedTask.type === "build" || selectedTask.type === "transfer" && !isCriticalSpawnRefillTask(selectedTask) || selectedTask.type === "upgrade" && !isDowngradeGuardUpgradeTask(creep, selectedTask);
 }
 function shouldKeepConstructionWithdrawTaskForMoreEnergy(creep, currentTask, selectedTask) {
-  return getFreeTransferEnergyCapacity(creep) > 0 && selectedTask !== null && isSameTask2(currentTask, selectedTask);
+  return getFreeTransferEnergyCapacity(creep) > 0 && selectedTask !== null && isSameTask2(currentTask, selectedTask) && getOtherSameRoomBuildAssignmentProgress(creep) > 0;
 }
 function applyWorkerAssignmentGapRecoveryTask(creep, currentTask, selectionContext) {
   const recoveryTask = selectWorkerAssignmentGapRecoveryTask(creep, currentTask, selectionContext);
