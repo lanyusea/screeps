@@ -5609,6 +5609,159 @@ describe('runWorker', () => {
     expect(workers.filter((worker) => (worker.repair as jest.Mock).mock.calls.length > 0)).toHaveLength(1);
   });
 
+  it('recovers E29N55 construction when only a low-load repair worker can cover the assignment gap', () => {
+    const roadSite = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 0,
+      progressTotal: 540,
+      pos: { x: 22, y: 21, roomName: 'E29N55' } as RoomPosition
+    } as ConstructionSite;
+    const nearFloorRampart = {
+      id: 'rampart-near-floor',
+      my: true,
+      structureType: 'rampart',
+      hits: CRITICAL_OWNED_RAMPART_REPAIR_HITS_CEILING - 299,
+      hitsMax: 30_000_000,
+      pos: { x: 3, y: 38, roomName: 'E29N55' } as RoomPosition
+    } as StructureRampart;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const roomCreeps: Creep[] = [];
+    const room = {
+      name: 'E29N55',
+      energyAvailable: 2_300,
+      energyCapacityAvailable: 2_300,
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (object: AnyStructure | Creep) => boolean }) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [roadSite];
+        }
+
+        if (type === FIND_MY_CREEPS) {
+          return options?.filter ? roomCreeps.filter(options.filter) : roomCreeps;
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [nearFloorRampart] as unknown as AnyStructure[];
+        }
+
+        if (type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+          return [];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const repairTask = { type: 'repair', targetId: 'rampart-near-floor' as Id<Structure> } as const;
+    const makeRepairWorker = (name: string, carriedEnergy: number, freeCapacity: number): Creep =>
+      ({
+        name,
+        memory: {
+          role: 'worker',
+          colony: 'E29N55',
+          task: repairTask
+        },
+        getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === 'work' ? 1 : 0)),
+        store: {
+          getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? carriedEnergy : 0)),
+          getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? freeCapacity : 0)),
+          getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+        },
+        room,
+        build: jest.fn().mockReturnValue(0),
+        repair: jest.fn().mockReturnValue(0),
+        moveTo: jest.fn()
+      }) as unknown as Creep;
+    const emptyConstructionWithdrawWorker = {
+      name: 'worker-E29N55-empty-builder',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: {
+          type: 'withdraw',
+          targetId: 'storage1' as Id<AnyStoreStructure>,
+          constructionSiteId: 'road-site1' as Id<ConstructionSite>
+        }
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === 'work' ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      room
+    } as unknown as Creep;
+    const fullRepairWorker = makeRepairWorker('worker-E29N55-full-repair', 100, 0);
+    const loadedRepairWorker = makeRepairWorker('worker-E29N55-loaded-repair', 85, 15);
+    const lowLoadRepairWorker = makeRepairWorker('worker-E29N55-low-repair', 19, 81);
+    roomCreeps.push(emptyConstructionWithdrawWorker, fullRepairWorker, loadedRepairWorker, lowLoadRepairWorker);
+    const selectWorkerTask = jest.spyOn(workerTasks, 'selectWorkerTask').mockReturnValue(repairTask);
+    const selectWorkerEnergyCriticalTask = jest
+      .spyOn(workerTaskPolicy, 'selectWorkerEnergyCriticalTask')
+      .mockReturnValue(null);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 2_241_639,
+      creeps: Object.fromEntries(roomCreeps.map((worker) => [worker.name, worker])),
+      rooms: { E29N55: room },
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'road-site1') {
+          return roadSite;
+        }
+
+        return id === 'rampart-near-floor' ? nearFloorRampart : null;
+      })
+    };
+
+    try {
+      runWorker(lowLoadRepairWorker);
+
+      expect(lowLoadRepairWorker.memory.task).toEqual({ type: 'build', targetId: 'road-site1' });
+      expect(lowLoadRepairWorker.memory.workerDispatchDiagnostic).toMatchObject({
+        tick: 2_241_639,
+        currentTask: 'repair',
+        currentTargetId: 'rampart-near-floor',
+        baseSelectedTask: 'repair',
+        baseSelectedTargetId: 'rampart-near-floor',
+        selectedTask: 'build',
+        selectedTargetId: 'road-site1',
+        assignedTask: 'build',
+        assignedTargetId: 'road-site1'
+      });
+      expect(lowLoadRepairWorker.build).toHaveBeenCalledWith(roadSite);
+      expect(lowLoadRepairWorker.repair).not.toHaveBeenCalled();
+
+      lowLoadRepairWorker.memory.task = { type: 'build', targetId: 'road-site1' as Id<ConstructionSite> };
+      (lowLoadRepairWorker.build as jest.Mock).mockClear();
+      (lowLoadRepairWorker.repair as jest.Mock).mockClear();
+      (globalThis as unknown as { Game: Partial<Game> }).Game.time = 2_241_640;
+
+      runWorker(lowLoadRepairWorker);
+
+      expect(lowLoadRepairWorker.memory.task).toEqual({ type: 'build', targetId: 'road-site1' });
+      expect(lowLoadRepairWorker.memory.workerDispatchDiagnostic).toMatchObject({
+        tick: 2_241_640,
+        currentTask: 'build',
+        currentTargetId: 'road-site1',
+        baseSelectedTask: 'repair',
+        baseSelectedTargetId: 'rampart-near-floor',
+        selectedTask: 'build',
+        selectedTargetId: 'road-site1',
+        assignedTask: 'build',
+        assignedTargetId: 'road-site1'
+      });
+      expect(lowLoadRepairWorker.build).toHaveBeenCalledWith(roadSite);
+      expect(lowLoadRepairWorker.repair).not.toHaveBeenCalled();
+    } finally {
+      selectWorkerTask.mockRestore();
+      selectWorkerEnergyCriticalTask.mockRestore();
+    }
+  });
+
   it('keeps critical E29N55 spawn refill ahead of covered rampart construction recovery', () => {
     const extensionSite = {
       id: 'extension-site1',

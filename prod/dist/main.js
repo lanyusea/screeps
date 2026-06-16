@@ -35485,7 +35485,7 @@ function selectWorkerAssignmentGapRecoveryTask(creep, currentTask, selectionCont
   }
   const hasStoredConstructionRecoveryEnergy = hasStoredEnergyForAssignmentGapRecoveryConstruction(creep.room);
   const hasMinimumWorkerCoverage = hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) || hasStoredConstructionRecoveryEnergy && ((currentTask == null ? void 0 : currentTask.type) === "upgrade" || ((_a2 = selectionContext.selectedTask) == null ? void 0 : _a2.type) === "upgrade" || hasUncoveredStoredEnergyAssignmentGapRecovery(creep));
-  if (getUsedTransferEnergy(creep) <= 0 || hasLowWorkerEnergyLoad(creep) || getActiveWorkParts3(creep) <= 0 || !hasMinimumWorkerCoverage || hasVisibleHostileCreeps2(creep.room) || currentTask && isDedicatedSourceContainerHarvestTask(creep, currentTask)) {
+  if (getUsedTransferEnergy(creep) <= 0 || hasLowWorkerEnergyLoad(creep) && !shouldAllowLowLoadAssignmentGapRepairRecovery(creep, currentTask, selectionContext.selectedTask) || getActiveWorkParts3(creep) <= 0 || !hasMinimumWorkerCoverage || hasVisibleHostileCreeps2(creep.room) || currentTask && isDedicatedSourceContainerHarvestTask(creep, currentTask)) {
     return null;
   }
   const constructionSite = selectWorkerAssignmentGapRecoveryConstructionSite(creep);
@@ -35501,6 +35501,9 @@ function selectWorkerAssignmentGapRecoveryTask(creep, currentTask, selectionCont
   }
   return recoveryTask;
 }
+function shouldAllowLowLoadAssignmentGapRepairRecovery(creep, currentTask, selectedTask) {
+  return !hasOtherSameRoomBuildAssignment(creep) && ((currentTask == null ? void 0 : currentTask.type) === "build" || isWorkerAssignmentGapRecoveryRepairTask(creep, currentTask)) && isWorkerAssignmentGapRecoveryRepairTask(creep, selectedTask);
+}
 function hasUncoveredStoredEnergyAssignmentGapRecovery(creep) {
   return selectSpawnEnergyReservationRefillTarget(creep) === null && !hasOtherSameRoomBuildAssignment(creep);
 }
@@ -35513,6 +35516,9 @@ function isWorkerAssignmentGapRecoverySelection(creep, currentTask, selectedTask
   }
   const allowUpgradeRecovery = !isControllerDowngradeGuardActive2(creep.room);
   const allowSelectedRepairRecovery = (currentTask == null ? void 0 : currentTask.type) === "repair" && (selectedTask == null ? void 0 : selectedTask.type) === "repair";
+  if ((currentTask == null ? void 0 : currentTask.type) === "build" && isWorkerAssignmentGapRecoveryRepairTask(creep, selectedTask)) {
+    return true;
+  }
   return isWorkerAssignmentGapRecoveryTask(creep, currentTask, allowUpgradeRecovery, { allowRepair: true }) && isWorkerAssignmentGapRecoveryTask(
     creep,
     selectedTask,
