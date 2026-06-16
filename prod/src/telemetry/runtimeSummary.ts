@@ -110,6 +110,7 @@ export const RUNTIME_CPU_SUMMARY_PREFIX = '#cpu-summary ';
 export const RUNTIME_SUMMARY_INTERVAL = 20;
 const DEGRADED_RUNTIME_SUMMARY_INTERVAL = RUNTIME_SUMMARY_INTERVAL * 5;
 const RUNTIME_CPU_SUMMARY_REPEAT_INTERVAL = 5;
+const LOW_BUCKET_LIVE_EVIDENCE_RUNTIME_SUMMARY_INTERVAL = RUNTIME_CPU_SUMMARY_REPEAT_INTERVAL;
 const MAX_REPORTED_EVENTS = 10;
 const MAX_WORKER_EFFICIENCY_SAMPLES = 5;
 const MAX_WORKER_BEHAVIOR_SAMPLES = 10;
@@ -1142,7 +1143,10 @@ export function shouldEmitRuntimeSummary(
       return false;
     }
 
-    return tick > 0 && tick % DEGRADED_RUNTIME_SUMMARY_INTERVAL === 0;
+    const interval = shouldUseLiveEvidenceRuntimeSummaryCadence(cpuBudget)
+      ? LOW_BUCKET_LIVE_EVIDENCE_RUNTIME_SUMMARY_INTERVAL
+      : DEGRADED_RUNTIME_SUMMARY_INTERVAL;
+    return tick > 0 && tick % interval === 0;
   }
 
   if (hasImmediateRuntimeSummaryEvent(events)) {
@@ -1153,6 +1157,10 @@ export function shouldEmitRuntimeSummary(
     ? DEGRADED_RUNTIME_SUMMARY_INTERVAL
     : RUNTIME_SUMMARY_INTERVAL;
   return tick > 0 && tick % interval === 0;
+}
+
+function shouldUseLiveEvidenceRuntimeSummaryCadence(cpuBudget: RuntimeCpuBudget): boolean {
+  return cpuBudget.reasons.includes('lowBucket') || cpuBudget.reasons.includes('lowBucketRecovery');
 }
 
 function hasImmediateRuntimeSummaryEvent(events: RuntimeTelemetryEvent[]): boolean {
