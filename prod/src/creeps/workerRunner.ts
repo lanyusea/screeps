@@ -671,7 +671,8 @@ function selectWorkerAssignmentGapRecoveryTask(
         hasUncoveredStoredEnergyAssignmentGapRecovery(creep)));
   if (
     getUsedTransferEnergy(creep) <= 0 ||
-    hasLowWorkerEnergyLoad(creep) ||
+    (hasLowWorkerEnergyLoad(creep) &&
+      !shouldAllowLowLoadAssignmentGapRepairRecovery(creep, currentTask, selectionContext.selectedTask)) ||
     getActiveWorkParts(creep) <= 0 ||
     !hasMinimumWorkerCoverage ||
     hasVisibleHostileCreeps(creep.room) ||
@@ -700,6 +701,18 @@ function selectWorkerAssignmentGapRecoveryTask(
   }
 
   return recoveryTask;
+}
+
+function shouldAllowLowLoadAssignmentGapRepairRecovery(
+  creep: Creep,
+  currentTask: CreepTaskMemory | null | undefined,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  return (
+    !hasOtherSameRoomBuildAssignment(creep) &&
+    isWorkerAssignmentGapRecoveryRepairTask(creep, currentTask) &&
+    isWorkerAssignmentGapRecoveryRepairTask(creep, selectedTask)
+  );
 }
 
 function hasUncoveredStoredEnergyAssignmentGapRecovery(creep: Creep): boolean {
