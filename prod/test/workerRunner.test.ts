@@ -8608,6 +8608,122 @@ describe('runWorker', () => {
     }
   });
 
+  it('recovers E29N57 build assignment from stale noncritical refill when no worker covers construction', () => {
+    const site = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 275,
+      progressTotal: 300,
+      pos: { x: 22, y: 21, roomName: 'E29N57' } as RoomPosition
+    } as ConstructionSite;
+    const extension = {
+      id: 'extension1',
+      my: true,
+      structureType: 'extension',
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+      }
+    } as unknown as StructureExtension;
+    const storage = {
+      id: 'storage1',
+      my: true,
+      structureType: 'storage',
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 335_357 : 0)),
+        getFreeCapacity: jest.fn().mockReturnValue(200_000)
+      }
+    } as unknown as StructureStorage;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const roomCreeps: Creep[] = [];
+    const room = {
+      name: 'E29N57',
+      energyAvailable: 1_800,
+      energyCapacityAvailable: 1_800,
+      controller,
+      storage,
+      find: jest.fn(
+        (type: number, options?: { filter?: (object: AnyOwnedStructure | Creep) => boolean }) => {
+          if (type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES) {
+            const structures = [extension, storage] as unknown as AnyOwnedStructure[];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          if (type === FIND_MY_CREEPS) {
+            return options?.filter ? roomCreeps.filter(options.filter) : roomCreeps;
+          }
+
+          if (type === FIND_CONSTRUCTION_SITES) {
+            return [site];
+          }
+
+          if (type === FIND_HOSTILE_CREEPS) {
+            return [];
+          }
+
+          return [];
+        }
+      )
+    } as unknown as Room;
+    const build = jest.fn().mockReturnValue(0);
+    const transfer = jest.fn();
+    const creep = {
+      name: 'LoadedRefiller',
+      memory: {
+        role: 'worker',
+        colony: 'E29N57',
+        task: { type: 'transfer', targetId: 'extension1' as Id<AnyStoreStructure> }
+      },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'road-site1' ? 3 : 6))
+      },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+      },
+      room,
+      build,
+      transfer,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    roomCreeps.push(creep);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { LoadedRefiller: creep },
+      rooms: { E29N57: room },
+      time: 2_231_575,
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'road-site1') {
+          return site;
+        }
+
+        if (id === 'extension1') {
+          return extension;
+        }
+
+        return id === 'storage1' ? storage : null;
+      })
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'road-site1' });
+    expect(creep.memory.workerDispatchDiagnostic).toMatchObject({
+      currentTask: 'transfer',
+      baseSelectedTask: 'build',
+      selectedTask: 'build',
+      assignedTask: 'build'
+    });
+    expect(build).toHaveBeenCalledWith(site);
+    expect(transfer).not.toHaveBeenCalled();
+  });
+
   it('refills a retained low-load secondary-room builder when current builders do not cover construction', () => {
     const site = withRangeTo(
       {

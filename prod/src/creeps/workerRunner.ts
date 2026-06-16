@@ -665,7 +665,9 @@ function selectWorkerAssignmentGapRecoveryTask(
   const hasMinimumWorkerCoverage =
     hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) ||
     (hasStoredConstructionRecoveryEnergy &&
-      (currentTask?.type === 'upgrade' || selectionContext.selectedTask?.type === 'upgrade'));
+      (currentTask?.type === 'upgrade' ||
+        selectionContext.selectedTask?.type === 'upgrade' ||
+        hasUncoveredStoredEnergyAssignmentGapRecovery(creep)));
   if (
     getUsedTransferEnergy(creep) <= 0 ||
     hasLowWorkerEnergyLoad(creep) ||
@@ -697,6 +699,10 @@ function selectWorkerAssignmentGapRecoveryTask(
   }
 
   return recoveryTask;
+}
+
+function hasUncoveredStoredEnergyAssignmentGapRecovery(creep: Creep): boolean {
+  return selectSpawnEnergyReservationRefillTarget(creep) === null && !hasOtherSameRoomBuildAssignment(creep);
 }
 
 function isWorkerAssignmentGapRecoverySelection(
@@ -2876,7 +2882,11 @@ function shouldPreemptTransferTaskForConstructionBacklog(
     return false;
   }
 
-  if (getUsedTransferEnergy(creep) <= 0 || !hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep)) {
+  if (
+    getUsedTransferEnergy(creep) <= 0 ||
+    (!hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) &&
+      !hasUncoveredStoredEnergyAssignmentGapRecovery(creep))
+  ) {
     return false;
   }
 
