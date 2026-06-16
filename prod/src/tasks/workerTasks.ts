@@ -384,7 +384,9 @@ function selectCriticalCpuWorkerTask(creep: Creep, cpuBudget: RuntimeCpuBudget):
   );
   if (
     controller &&
-    shouldGuardControllerDowngradeForWorkerLoad(creep, controller, { allowConstructionBacklogYield: false }) &&
+    shouldGuardControllerDowngradeForWorkerLoad(creep, controller, {
+      allowConstructionBacklogYield: shouldRunConstructionCpuWork(cpuBudget)
+    }) &&
     canUpgradeController(controller) &&
     !controllerSustainConstructionBacklogTask
   ) {

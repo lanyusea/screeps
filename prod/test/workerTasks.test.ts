@@ -1765,6 +1765,67 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
   });
 
+  it('keeps one loaded builder on visible construction during critical CPU controller guard', () => {
+    const roadSite = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 258,
+      progressTotal: 500
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N55',
+      constructionSites: [roadSite],
+      controller,
+      energyAvailable: 2_000,
+      energyCapacityAvailable: 2_300
+    });
+    const emptyWorker = {
+      name: 'EmptyConstructionWithdrawer',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: {
+          type: 'withdraw',
+          targetId: 'container1' as Id<AnyStoreStructure>,
+          constructionSiteId: 'road-site1' as Id<ConstructionSite>
+        }
+      },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      room
+    } as unknown as Creep;
+    const loadedWorker = {
+      name: 'LoadedWorker',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+      },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      room
+    } as unknown as Creep;
+    setGameCreeps({ EmptyConstructionWithdrawer: emptyWorker, LoadedWorker: loadedWorker });
+    setCpuSample({ bucket: 1_856, limit: 70, used: 95 });
+
+    expect(selectWorkerTask(loadedWorker)).toEqual({ type: 'build', targetId: 'road-site1' });
+  });
+
   it('lets spare loaded workers finish construction below the general spend floor', () => {
     const constructionSite = {
       id: 'extension-site',

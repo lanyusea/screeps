@@ -27877,7 +27877,9 @@ function selectCriticalCpuWorkerTask(creep, cpuBudget) {
     constructionSites,
     constructionReservationContext
   );
-  if (controller && shouldGuardControllerDowngradeForWorkerLoad(creep, controller, { allowConstructionBacklogYield: false }) && canUpgradeController(controller) && !controllerSustainConstructionBacklogTask) {
+  if (controller && shouldGuardControllerDowngradeForWorkerLoad(creep, controller, {
+    allowConstructionBacklogYield: shouldRunConstructionCpuWork(cpuBudget)
+  }) && canUpgradeController(controller) && !controllerSustainConstructionBacklogTask) {
     return { type: "upgrade", targetId: controller.id };
   }
   const criticalSpawnRepairTarget = selectCriticalOwnedSpawnRepairTarget(creep);
