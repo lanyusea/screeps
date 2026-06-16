@@ -10075,9 +10075,6 @@ describe('runWorker', () => {
     } as unknown as Creep;
     roomCreeps.push(creep, spawnFloorCoverage);
     const selectWorkerTask = jest.spyOn(workerTasks, 'selectWorkerTask').mockReturnValue(null);
-    const selectWorkerEnergyCriticalTask = jest
-      .spyOn(workerTaskPolicy, 'selectWorkerEnergyCriticalTask')
-      .mockReturnValue(null);
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       creeps: { IdleBuilder: creep, SpawnFloorCoverage: spawnFloorCoverage },
       rooms: { E29N55: room },
@@ -10110,10 +10107,13 @@ describe('runWorker', () => {
         assignedTask: 'withdraw',
         assignedTargetId: 'storage1'
       });
+      expect(creep.memory.workerDispatchDiagnostic).toMatchObject({
+        energyCriticalTask: 'withdraw',
+        energyCriticalTargetId: 'storage1'
+      });
       expect(withdraw).toHaveBeenCalledWith(storage, RESOURCE_ENERGY, 100);
     } finally {
       selectWorkerTask.mockRestore();
-      selectWorkerEnergyCriticalTask.mockRestore();
     }
   });
 

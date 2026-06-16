@@ -35397,7 +35397,11 @@ function selectWorkerTaskContext(creep, currentTask) {
     currentTask,
     (_a2 = spawnReservationRefillTask != null ? spawnReservationRefillTask : effectiveEnergyCriticalTask) != null ? _a2 : baseSelectedTask
   );
-  const constructionRecoveryTask = effectiveEnergyCriticalTask === null ? constructionBacklogEnergyAcquisitionTask : null;
+  const constructionRecoveryTask = effectiveEnergyCriticalTask === null || shouldYieldEnergyCriticalAcquisitionToConstructionBacklogRecovery(
+    creep,
+    effectiveEnergyCriticalTask,
+    constructionBacklogEnergyAcquisitionTask
+  ) ? constructionBacklogEnergyAcquisitionTask : null;
   const selectedTaskAfterBuildEnergyAcquisition = selectAssignedBuildEnergyAcquisitionTask(
     creep,
     currentTask,
@@ -35414,6 +35418,9 @@ function selectWorkerTaskContext(creep, currentTask) {
     selectedTask,
     spawnReservationRefillTask
   };
+}
+function shouldYieldEnergyCriticalAcquisitionToConstructionBacklogRecovery(creep, energyCriticalTask, constructionRecoveryTask) {
+  return constructionRecoveryTask !== null && energyCriticalTask !== null && isEnergyAcquisitionTask2(energyCriticalTask) && isConstructionWithdrawReservationTask(constructionRecoveryTask) && isRoomBelowMinimumWorkerSpawnEnergyFloor(creep.room) && isMinimumWorkerSpawnEnergyFloorCoveredForAssignmentGapRecovery(creep);
 }
 function selectConstructionBacklogEnergyAcquisitionRecoveryTask(creep, currentTask, selectedTask) {
   if (!shouldSelectConstructionBacklogEnergyAcquisitionRecoveryTask(creep, currentTask, selectedTask)) {
@@ -35666,6 +35673,10 @@ function isMinimumWorkerSpawnEnergyFloorCoveredForAssignmentGapRecovery(creep) {
   }
   const energyGap = Math.max(0, MINIMUM_WORKER_SPAWN_ENERGY - energyAvailable);
   return energyGap === 0 || getOtherSameRoomImmediateSpawnRefillEnergy(creep) >= energyGap;
+}
+function isRoomBelowMinimumWorkerSpawnEnergyFloor(room) {
+  const energyAvailable = getRoomEnergyAvailable13(room);
+  return energyAvailable !== null && energyAvailable < MINIMUM_WORKER_SPAWN_ENERGY;
 }
 function getOtherSameRoomImmediateSpawnRefillEnergy(creep) {
   const remainingCapacityByTargetId = /* @__PURE__ */ new Map();
