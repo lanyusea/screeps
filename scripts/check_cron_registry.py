@@ -249,6 +249,19 @@ def validate_monitor_registry_split_brain(
                     "expected": f"registry={registry_value}",
                     "live": f"monitor={monitor_value}",
                 })
+    for jid, registry_spec in sorted(expected.items()):
+        if jid in monitor_expected:
+            continue
+        violations.append({
+            "id": jid,
+            "job": registry_spec.get("job"),
+            "surface": f"monitor job {monitor_job_id} prompt vs repo registry",
+            "field": "presence",
+            "pattern": "monitor_registry_expectation_conflict",
+            "line": None,
+            "expected": "registry=present",
+            "live": "monitor=absent",
+        })
     return violations
 
 

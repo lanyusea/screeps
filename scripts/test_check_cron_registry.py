@@ -352,6 +352,39 @@ Active expected cron jobs:
             violations,
         )
 
+    def test_flags_registry_expected_job_missing_from_monitor(self) -> None:
+        expected: dict[str, dict[str, str | None]] = {
+            "f66ed36d7be0": {
+                "job": "Screeps autonomous continuation worker",
+                "schedule": "8 * * * *",
+                "deliver": "discord:#task-queue",
+                "provider": "openai-codex",
+                "model": "gpt-5.5",
+                "workdir": "/root/screeps",
+                "repeat": "high-horizon",
+                "criticality": "P0",
+            }
+        }
+        live = {
+            "75cedbb77150": {
+                "name": "Screeps P0 agent operations monitor",
+                "prompt": "Active expected cron jobs:\n\n",
+            },
+        }
+
+        violations = cron.validate_monitor_registry_split_brain(expected, live)
+
+        self.assertTrue(
+            any(
+                item["id"] == "f66ed36d7be0"
+                and item["field"] == "presence"
+                and item["expected"] == "registry=present"
+                and item["live"] == "monitor=absent"
+                for item in violations
+            ),
+            violations,
+        )
+
 
 class IssueCommentSinkPolicyTests(unittest.TestCase):
     def test_flags_fixed_closed_loop_issue_comment_fanout(self) -> None:
