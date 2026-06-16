@@ -266,6 +266,126 @@ class ShadowEvalNoUmbrellaPolicyTests(unittest.TestCase):
         self.assertEqual(result["policy_violations"], [])
 
 
+class MonitorRegistrySplitBrainPolicyTests(unittest.TestCase):
+    def test_parses_monitor_expected_cron_rows(self) -> None:
+        prompt = """
+Active expected cron jobs:
+- `f66ed36d7be0` Screeps autonomous continuation worker — `8,28,48 * * * *`, deliver `discord:#task-queue`, model `gpt-5.5` / provider `openai-codex`.
+- `1df5ef0c3835` Screeps runtime room alert text check — `1,16,31,46 * * * *`, deliver `discord:1497588512436785284`, model `deepseek-v4-flash` / provider `deepseek`.
+"""
+
+        parsed = cron.parse_monitor_expected_jobs(prompt)
+
+        self.assertEqual(parsed["f66ed36d7be0"]["schedule"], "8,28,48 * * * *")
+        self.assertEqual(parsed["f66ed36d7be0"]["model"], "gpt-5.5")
+        self.assertEqual(parsed["f66ed36d7be0"]["provider"], "openai-codex")
+        self.assertEqual(parsed["1df5ef0c3835"]["provider"], "deepseek")
+
+    def test_flags_registry_monitor_provider_model_split_brain(self) -> None:
+        expected = {
+            "1df5ef0c3835": {
+                "job": "Screeps runtime room alert text check",
+                "schedule": "1,16,31,46 * * * *",
+                "deliver": "discord:1497588512436785284",
+                "provider": "openai-codex",
+                "model": "gpt-5.5",
+                "workdir": cron.NO_WORKDIR,
+                "repeat": "forever",
+                "criticality": "P0",
+            }
+        }
+        live = {
+            "75cedbb77150": {
+                "name": "Screeps P0 agent operations monitor",
+                "prompt": (
+                    "Active expected cron jobs:\n"
+                    "- `1df5ef0c3835` Screeps runtime room alert text check — "
+                    "`1,16,31,46 * * * *`, deliver `discord:1497588512436785284`, "
+                    "model `deepseek-v4-flash` / provider `deepseek`.\n"
+                ),
+            },
+            "1df5ef0c3835": {
+                "name": "Screeps runtime room alert text check",
+                "enabled": True,
+                "state": "scheduled",
+                "schedule": "1,16,31,46 * * * *",
+                "deliver": "discord:1497588512436785284",
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
+                "repeat": "forever",
+            },
+        }
+
+        violations = cron.validate_monitor_registry_split_brain(expected, live)
+        result = cron.compare(expected, live, policy_violations=violations)
+
+        self.assertEqual(result["status"], "FAIL", result)
+        self.assertTrue(
+            any(item["pattern"] == "monitor_registry_provider_model_conflict" for item in result["policy_violations"]),
+            result,
+        )
+        self.assertTrue(any(item["field"] == "provider" for item in result["policy_violations"]), result)
+        self.assertTrue(any(item["field"] == "model" for item in result["policy_violations"]), result)
+
+    def test_flags_monitor_expected_job_missing_from_registry(self) -> None:
+        expected: dict[str, dict[str, str | None]] = {}
+        live = {
+            "75cedbb77150": {
+                "name": "Screeps P0 agent operations monitor",
+                "prompt": (
+                    "Active expected cron jobs:\n"
+                    "- `deadbeefcafe` Retired stale cron — `*/5 * * * *`, deliver `discord:#task-queue`, "
+                    "model `gpt-5.5` / provider `openai-codex`.\n"
+                ),
+            },
+        }
+
+        violations = cron.validate_monitor_registry_split_brain(expected, live)
+
+        self.assertTrue(
+            any(
+                item["id"] == "deadbeefcafe"
+                and item["field"] == "presence"
+                and item["pattern"] == "monitor_registry_expectation_conflict"
+                for item in violations
+            ),
+            violations,
+        )
+
+    def test_flags_registry_expected_job_missing_from_monitor(self) -> None:
+        expected: dict[str, dict[str, str | None]] = {
+            "f66ed36d7be0": {
+                "job": "Screeps autonomous continuation worker",
+                "schedule": "8 * * * *",
+                "deliver": "discord:#task-queue",
+                "provider": "openai-codex",
+                "model": "gpt-5.5",
+                "workdir": "/root/screeps",
+                "repeat": "high-horizon",
+                "criticality": "P0",
+            }
+        }
+        live = {
+            "75cedbb77150": {
+                "name": "Screeps P0 agent operations monitor",
+                "prompt": "Active expected cron jobs:\n\n",
+            },
+        }
+
+        violations = cron.validate_monitor_registry_split_brain(expected, live)
+
+        self.assertTrue(
+            any(
+                item["id"] == "f66ed36d7be0"
+                and item["field"] == "presence"
+                and item["expected"] == "registry=present"
+                and item["live"] == "monitor=absent"
+                for item in violations
+            ),
+            violations,
+        )
+
+
 class IssueCommentSinkPolicyTests(unittest.TestCase):
     def test_flags_fixed_closed_loop_issue_comment_fanout(self) -> None:
         live = {
