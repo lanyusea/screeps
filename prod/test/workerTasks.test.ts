@@ -14110,6 +14110,99 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'container-critical' });
   });
 
+  it('routes one repair-heavy E29N55 worker to construction during CPU recovery when no build energy is carried', () => {
+    const site = {
+      id: 'wall-site1',
+      my: true,
+      structureType: 'constructedWall',
+      progress: 109,
+      progressTotal: 500,
+      pos: makeRoomPosition(22, 21, 'E29N55')
+    } as ConstructionSite;
+    const criticalContainer = makeStoredEnergyContainerWithCapacity('critical-container1', 778, 2_000, {
+      hits: 600,
+      hitsMax: 2_000,
+      pos: makeRoomPosition(18, 24, 'E29N55')
+    });
+    const fullSpawn = makeFullSpawnEnergyStructure('spawn-full', 'E29N55');
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N55',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 300,
+      energyCapacityAvailable: 2_300,
+      myStructures: [fullSpawn as AnyOwnedStructure],
+      structures: [fullSpawn as AnyStructure, criticalContainer as AnyStructure]
+    });
+    const worker = {
+      name: 'worker-E29N55-repair-yield',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'repair', targetId: 'rampart-repair1' as Id<Structure> }
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'wall-site1' ? 4 : 2)) },
+      room
+    } as unknown as Creep;
+    const repairCoverageA = {
+      name: 'worker-E29N55-repair-a',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'repair', targetId: 'road-repair1' as Id<Structure> }
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: { getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0)) },
+      room
+    } as unknown as Creep;
+    const repairCoverageB = {
+      name: 'worker-E29N55-repair-b',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'repair', targetId: 'wall-repair1' as Id<Structure> }
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: { getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0)) },
+      room
+    } as unknown as Creep;
+    const repairCoverageC = {
+      name: 'worker-E29N55-repair-c',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'repair', targetId: 'container-repair2' as Id<Structure> }
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: { getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0)) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({
+      Worker: worker,
+      RepairCoverageA: repairCoverageA,
+      RepairCoverageB: repairCoverageB,
+      RepairCoverageC: repairCoverageC
+    });
+
+    setCpuBucket(43);
+    expect(selectWorkerTask(worker)).toEqual({ type: 'repair', targetId: 'critical-container1' });
+
+    setCpuSample({ bucket: 1_857, limit: 70, tickLimit: 500, used: 70.1 });
+
+    expect(selectWorkerTask(worker)).toEqual({ type: 'build', targetId: 'wall-site1' });
+  });
+
   it('keeps healthy-buffer construction behind critical container repair without live same-target coverage', () => {
     const site = {
       id: 'storage-site1',
