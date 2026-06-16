@@ -35484,7 +35484,7 @@ function selectWorkerAssignmentGapRecoveryTask(creep, currentTask, selectionCont
     return null;
   }
   const hasStoredConstructionRecoveryEnergy = hasStoredEnergyForAssignmentGapRecoveryConstruction(creep.room);
-  const hasMinimumWorkerCoverage = hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) || hasStoredConstructionRecoveryEnergy && ((currentTask == null ? void 0 : currentTask.type) === "upgrade" || ((_a2 = selectionContext.selectedTask) == null ? void 0 : _a2.type) === "upgrade");
+  const hasMinimumWorkerCoverage = hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) || hasStoredConstructionRecoveryEnergy && ((currentTask == null ? void 0 : currentTask.type) === "upgrade" || ((_a2 = selectionContext.selectedTask) == null ? void 0 : _a2.type) === "upgrade" || hasUncoveredStoredEnergyAssignmentGapRecovery(creep));
   if (getUsedTransferEnergy(creep) <= 0 || hasLowWorkerEnergyLoad(creep) || getActiveWorkParts3(creep) <= 0 || !hasMinimumWorkerCoverage || hasVisibleHostileCreeps2(creep.room) || currentTask && isDedicatedSourceContainerHarvestTask(creep, currentTask)) {
     return null;
   }
@@ -35500,6 +35500,9 @@ function selectWorkerAssignmentGapRecoveryTask(creep, currentTask, selectionCont
     return null;
   }
   return recoveryTask;
+}
+function hasUncoveredStoredEnergyAssignmentGapRecovery(creep) {
+  return selectSpawnEnergyReservationRefillTarget(creep) === null && !hasOtherSameRoomBuildAssignment(creep);
 }
 function isWorkerAssignmentGapRecoverySelection(creep, currentTask, selectedTask) {
   if (!currentTask && !selectedTask) {
@@ -36825,7 +36828,7 @@ function shouldPreemptTransferTaskForConstructionBacklog(creep, task, selectedTa
   if (task.type !== "transfer" || (selectedTask == null ? void 0 : selectedTask.type) !== "build" || isSameTask2(task, selectedTask)) {
     return false;
   }
-  if (getUsedTransferEnergy(creep) <= 0 || !hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep)) {
+  if (getUsedTransferEnergy(creep) <= 0 || !hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) && !hasUncoveredStoredEnergyAssignmentGapRecovery(creep)) {
     return false;
   }
   const currentTarget = getTaskTarget(task);
