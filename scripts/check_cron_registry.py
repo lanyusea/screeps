@@ -21,6 +21,13 @@ EXPECTED_SECTION = "## Expected recurring cron jobs"
 NO_WORKDIR = "__NO_DURABLE_CRON_WORKDIR__"
 SHADOW_EVAL_JOB_ID = "d6cff532edd4"
 SHADOW_EVAL_JOB_NAME = "Screeps RL shadow-eval bounded gate"
+P0_MONITOR_JOB_ID = "75cedbb77150"
+MONITOR_EXPECTED_SECTION = "Active expected cron jobs:"
+MONITOR_EXPECTED_ROW = re.compile(
+    r"^-\s+`(?P<id>[0-9a-f]{12})`\s+(?P<job>.+?)\s+[—-]\s+"
+    r"`(?P<schedule>[^`]+)`,\s+deliver\s+`(?P<deliver>[^`]+)`,\s+"
+    r"model\s+`(?P<model>[^`]+)`\s*/\s*provider\s+`(?P<provider>[^`]+)`\.?\s*$"
+)
 SHADOW_EVAL_NO_UMBRELLA_EXPECTED = (
     "shadow-eval routine output/comment routing must not target historical issue #879"
 )
@@ -155,6 +162,84 @@ def parse_registry(path: Path) -> Dict[str, Dict[str, Optional[str]]]:
     if not rows:
         raise ValueError(f"No expected cron rows parsed from {path}")
     return rows
+
+
+def parse_monitor_expected_jobs(prompt: str) -> Dict[str, Dict[str, Optional[str]]]:
+    """Parse the P0 monitor's embedded expected-cron list.
+
+    The monitor prompt is a second expectation surface used by runtime agents.
+    Keeping it in sync with the repo registry prevents a stale registry/checker
+    from "repairing" live jobs back to a retired provider/model.
+    """
+    rows: Dict[str, Dict[str, Optional[str]]] = {}
+    in_section = False
+    for raw in prompt.splitlines():
+        line = raw.strip()
+        if line == MONITOR_EXPECTED_SECTION:
+            in_section = True
+            continue
+        if not in_section:
+            continue
+        if not line:
+            if rows:
+                break
+            continue
+        if not line.startswith("-"):
+            if rows:
+                break
+            continue
+        match = MONITOR_EXPECTED_ROW.match(line)
+        if not match:
+            continue
+        data = match.groupdict()
+        jid = data.pop("id")
+        rows[jid] = {key: empty_to_none(value) for key, value in data.items()}
+    return rows
+
+
+def validate_monitor_registry_split_brain(
+    expected: Dict[str, Dict[str, Optional[str]]],
+    live: Dict[str, Dict[str, Any]],
+    *,
+    monitor_job_id: str = P0_MONITOR_JOB_ID,
+) -> List[Dict[str, Any]]:
+    """Flag conflicts between repo registry and P0 monitor expectations.
+
+    This is intentionally a policy violation rather than an automatic repair.
+    If the registry and monitor prompt disagree, agents must report
+    REGISTRY_SPLIT_BRAIN and reconcile the expectation sources before changing
+    live cron metadata.
+    """
+    monitor = live.get(monitor_job_id) or {}
+    prompt = monitor.get("prompt")
+    if not isinstance(prompt, str) or not prompt:
+        return []
+    monitor_expected = parse_monitor_expected_jobs(prompt)
+    violations: List[Dict[str, Any]] = []
+    for jid, monitor_spec in sorted(monitor_expected.items()):
+        registry_spec = expected.get(jid)
+        if not registry_spec:
+            continue
+        for field in ["schedule", "deliver", "provider", "model"]:
+            registry_value = empty_to_none(registry_spec.get(field))
+            monitor_value = empty_to_none(monitor_spec.get(field))
+            if registry_value and monitor_value and registry_value != monitor_value:
+                pattern = (
+                    "monitor_registry_provider_model_conflict"
+                    if field in {"provider", "model"}
+                    else "monitor_registry_expectation_conflict"
+                )
+                violations.append({
+                    "id": jid,
+                    "job": registry_spec.get("job") or monitor_spec.get("job"),
+                    "surface": f"monitor job {monitor_job_id} prompt vs repo registry",
+                    "field": field,
+                    "pattern": pattern,
+                    "line": None,
+                    "expected": f"registry={registry_value}",
+                    "live": f"monitor={monitor_value}",
+                })
+    return violations
 
 
 def load_live_jobs(path: Path) -> Dict[str, Dict[str, Any]]:
@@ -575,6 +660,7 @@ def main() -> int:
         source_path=args.shadow_eval_source,
         output_paths=args.shadow_eval_output,
     )
+    policy_violations.extend(validate_monitor_registry_split_brain(expected, live))
     policy_violations.extend(validate_issue_comment_sink_policy(live))
     result = compare(expected, live, policy_violations=policy_violations)
 

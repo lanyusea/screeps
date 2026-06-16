@@ -14,6 +14,7 @@ This registry is the expected-state contract for Screeps/Hermes cron jobs and Di
 - Codex-dispatching cron runners must evaluate the weekly quota budget guard before launching Codex work. The guard reads the full recurring-job registry so suppression is cross-cron aware instead of per-job-local.
 - Old cron outputs and reporter state files are caches/history, not authority.
 - Before changing any live cron definition, create a rollback snapshot of `~/.hermes/cron/jobs.json` and relevant docs; after changing, run `cronjob list` and `python3 scripts/check_cron_registry.py --strict`. Expected recurring jobs are healthy when `enabled=true` and state is either `scheduled` or transiently `running`; paused/disabled/error states are drift unless explicitly documented as an active maintenance window.
+- `scripts/check_cron_registry.py --strict` also compares this registry with the P0 operations monitor's embedded `Active expected cron jobs` list. If registry and monitor prompt disagree on schedule, delivery, provider, or model, classify the result as `REGISTRY_SPLIT_BRAIN`; reconcile the expectation sources first and do not auto-rewrite live scheduler metadata from either stale source alone.
 
 Verification command:
 
@@ -108,7 +109,7 @@ python3 scripts/check_codex_quota_budget.py \
 
 | Job | ID | Schedule | Delivery | Provider | Model | Workdir | Repeat | Criticality | Purpose |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Screeps autonomous continuation worker | `f66ed36d7be0` | `8,28,48 * * * *` | `discord:#task-queue` | `openai-codex` | `gpt-5.5` | `/root/screeps` | `high-horizon` | P0 | Dispatcher/reconciler for safe work lanes. |
+| Screeps autonomous continuation worker | `f66ed36d7be0` | `8 * * * *` | `discord:#task-queue` | `openai-codex` | `gpt-5.5` | `/root/screeps` | `high-horizon` | P0 | Heavy Codex controller/reconciler that consumes existing DeepSeek watcher evidence instead of running full scans every 20 minutes. |
 | Screeps P0 agent operations monitor | `75cedbb77150` | `7,37 * * * *` | `discord:1497820688843800776` | `deepseek` | `deepseek-v4-flash` | `-` | `forever` | P0 | Autonomous-system health monitor, registry-drift detector, and consolidated Tencent Cloud cost guard. |
 | Screeps runtime room alert text check | `1df5ef0c3835` | `1,16,31,46 * * * *` | `discord:1497588512436785284` | `deepseek` | `deepseek-v4-flash` | `-` | `forever` | P0 | Runtime alert/tactical response for all owned rooms; no-alert runs return exactly `[SILENT]`; intentionally off Codex quota. |
 | Screeps owner-decision escalation fanout | `bbc7f783075e` | `3,13,23,33,43,53 * * * *` | `discord:1497586175580311654` | `deepseek` | `deepseek-v4-flash` | `-` | `high-horizon` | P0 | Mirrors fresh unresolved owner-action decisions to the canonical decisions route. |
