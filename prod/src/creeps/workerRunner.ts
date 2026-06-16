@@ -710,7 +710,7 @@ function shouldAllowLowLoadAssignmentGapRepairRecovery(
 ): boolean {
   return (
     !hasOtherSameRoomBuildAssignment(creep) &&
-    isWorkerAssignmentGapRecoveryRepairTask(creep, currentTask) &&
+    (currentTask?.type === 'build' || isWorkerAssignmentGapRecoveryRepairTask(creep, currentTask)) &&
     isWorkerAssignmentGapRecoveryRepairTask(creep, selectedTask)
   );
 }
@@ -734,6 +734,10 @@ function isWorkerAssignmentGapRecoverySelection(
 
   const allowUpgradeRecovery = !isControllerDowngradeGuardActive(creep.room);
   const allowSelectedRepairRecovery = currentTask?.type === 'repair' && selectedTask?.type === 'repair';
+  if (currentTask?.type === 'build' && isWorkerAssignmentGapRecoveryRepairTask(creep, selectedTask)) {
+    return true;
+  }
+
   return (
     isWorkerAssignmentGapRecoveryTask(creep, currentTask, allowUpgradeRecovery, { allowRepair: true }) &&
     isWorkerAssignmentGapRecoveryTask(

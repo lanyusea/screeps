@@ -35502,7 +35502,7 @@ function selectWorkerAssignmentGapRecoveryTask(creep, currentTask, selectionCont
   return recoveryTask;
 }
 function shouldAllowLowLoadAssignmentGapRepairRecovery(creep, currentTask, selectedTask) {
-  return !hasOtherSameRoomBuildAssignment(creep) && isWorkerAssignmentGapRecoveryRepairTask(creep, currentTask) && isWorkerAssignmentGapRecoveryRepairTask(creep, selectedTask);
+  return !hasOtherSameRoomBuildAssignment(creep) && ((currentTask == null ? void 0 : currentTask.type) === "build" || isWorkerAssignmentGapRecoveryRepairTask(creep, currentTask)) && isWorkerAssignmentGapRecoveryRepairTask(creep, selectedTask);
 }
 function hasUncoveredStoredEnergyAssignmentGapRecovery(creep) {
   return selectSpawnEnergyReservationRefillTarget(creep) === null && !hasOtherSameRoomBuildAssignment(creep);
@@ -35516,6 +35516,9 @@ function isWorkerAssignmentGapRecoverySelection(creep, currentTask, selectedTask
   }
   const allowUpgradeRecovery = !isControllerDowngradeGuardActive2(creep.room);
   const allowSelectedRepairRecovery = (currentTask == null ? void 0 : currentTask.type) === "repair" && (selectedTask == null ? void 0 : selectedTask.type) === "repair";
+  if ((currentTask == null ? void 0 : currentTask.type) === "build" && isWorkerAssignmentGapRecoveryRepairTask(creep, selectedTask)) {
+    return true;
+  }
   return isWorkerAssignmentGapRecoveryTask(creep, currentTask, allowUpgradeRecovery, { allowRepair: true }) && isWorkerAssignmentGapRecoveryTask(
     creep,
     selectedTask,

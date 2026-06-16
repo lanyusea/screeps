@@ -5734,6 +5734,28 @@ describe('runWorker', () => {
       });
       expect(lowLoadRepairWorker.build).toHaveBeenCalledWith(roadSite);
       expect(lowLoadRepairWorker.repair).not.toHaveBeenCalled();
+
+      lowLoadRepairWorker.memory.task = { type: 'build', targetId: 'road-site1' as Id<ConstructionSite> };
+      (lowLoadRepairWorker.build as jest.Mock).mockClear();
+      (lowLoadRepairWorker.repair as jest.Mock).mockClear();
+      (globalThis as unknown as { Game: Partial<Game> }).Game.time = 2_241_640;
+
+      runWorker(lowLoadRepairWorker);
+
+      expect(lowLoadRepairWorker.memory.task).toEqual({ type: 'build', targetId: 'road-site1' });
+      expect(lowLoadRepairWorker.memory.workerDispatchDiagnostic).toMatchObject({
+        tick: 2_241_640,
+        currentTask: 'build',
+        currentTargetId: 'road-site1',
+        baseSelectedTask: 'repair',
+        baseSelectedTargetId: 'rampart-near-floor',
+        selectedTask: 'build',
+        selectedTargetId: 'road-site1',
+        assignedTask: 'build',
+        assignedTargetId: 'road-site1'
+      });
+      expect(lowLoadRepairWorker.build).toHaveBeenCalledWith(roadSite);
+      expect(lowLoadRepairWorker.repair).not.toHaveBeenCalled();
     } finally {
       selectWorkerTask.mockRestore();
       selectWorkerEnergyCriticalTask.mockRestore();
