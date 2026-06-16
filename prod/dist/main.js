@@ -27792,6 +27792,7 @@ var HARVEST_ENERGY_PER_WORK_PART2 = 2;
 var SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_EMPTY_CAPACITY_RATIO = 0.2;
 var SPAWN_EXTENSION_REFILL_STORAGE_WITHDRAWAL_OPTIONS = { allowBelowReserve: true };
 var DEFAULT_BUILD_POWER = 5;
+var REPAIR_HEAVY_CONSTRUCTION_YIELD_MIN_OTHER_LOADED_REPAIRERS = 2;
 var NEARLY_COMPLETE_CONSTRUCTION_SITE_REMAINING_RATIO = 0.2;
 var NEARLY_COMPLETE_CONSTRUCTION_SITE_FINISH_PRIORITY_MULTIPLIER = 2;
 var FINISHABLE_CONSTRUCTION_SITE_PRIORITY_MULTIPLIER = 2;
@@ -27951,7 +27952,8 @@ function selectCriticalCpuWorkerTask(creep, cpuBudget) {
       creep,
       criticalRepairTarget,
       constructionSites,
-      constructionReservationContext
+      constructionReservationContext,
+      { allowRepairPoolCoverage: shouldRunConstructionCpuWork(cpuBudget) }
     );
     if (coveredRepairConstructionBacklogTask) {
       return coveredRepairConstructionBacklogTask;
@@ -31341,8 +31343,8 @@ function selectLowLoadConstructionCoverageTask(creep, constructionSites, constru
   );
   return constructionSite ? { type: "build", targetId: constructionSite.id } : null;
 }
-function selectConstructionBacklogTaskBeforeCoveredCriticalRepair(creep, criticalRepairTarget, constructionSites, constructionReservationContext) {
-  if (isCriticalOwnedSpawnRepairTarget(criticalRepairTarget) || constructionSites.length === 0 || hasVisibleHostilePresence3(creep.room) || hasOtherSameRoomBuildCoverageWorker(creep) || !hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep) || !hasOtherLoadedWorkerAssignedToRepairTarget(creep, criticalRepairTarget)) {
+function selectConstructionBacklogTaskBeforeCoveredCriticalRepair(creep, criticalRepairTarget, constructionSites, constructionReservationContext, options = {}) {
+  if (isCriticalOwnedSpawnRepairTarget(criticalRepairTarget) || constructionSites.length === 0 || hasVisibleHostilePresence3(creep.room) || hasOtherSameRoomBuildCoverageWorker(creep) || !hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep) || !hasRepairCoverageForConstructionYield(creep, criticalRepairTarget, options)) {
     return null;
   }
   const priorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
@@ -31354,6 +31356,25 @@ function selectConstructionBacklogTaskBeforeCoveredCriticalRepair(creep, critica
     { priorityContext }
   );
   return constructionSite ? { type: "build", targetId: constructionSite.id } : null;
+}
+function hasRepairCoverageForConstructionYield(creep, criticalRepairTarget, options) {
+  var _a2;
+  if (hasOtherLoadedWorkerAssignedToRepairTarget(creep, criticalRepairTarget)) {
+    return true;
+  }
+  return ((_a2 = options.allowRepairPoolCoverage) != null ? _a2 : true) && countOtherLoadedRepairWorkers(creep) >= REPAIR_HEAVY_CONSTRUCTION_YIELD_MIN_OTHER_LOADED_REPAIRERS;
+}
+function countOtherLoadedRepairWorkers(creep) {
+  return getRoomOwnedCreeps2(creep.room).filter(
+    (worker) => {
+      var _a2;
+      return !isSameCreep3(worker, creep) && ((_a2 = worker.memory) == null ? void 0 : _a2.role) === "worker" && getUsedEnergy2(worker) > 0 && getActiveWorkParts2(worker) > 0 && isWorkerAssignedToAnyRepairTarget(worker);
+    }
+  ).length;
+}
+function isWorkerAssignedToAnyRepairTarget(worker) {
+  var _a2, _b;
+  return ((_b = (_a2 = worker.memory) == null ? void 0 : _a2.task) == null ? void 0 : _b.type) === "repair";
 }
 function hasOtherSameRoomBuildCoverageWorker(creep) {
   return getSameRoomLoadedWorkers(creep).some(
