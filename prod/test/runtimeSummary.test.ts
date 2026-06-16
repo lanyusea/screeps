@@ -451,6 +451,62 @@ describe('runtime telemetry summaries', () => {
     });
   });
 
+  it('emits low-bucket runtime evidence when compact CPU evidence is emitted on the short CPU cadence', () => {
+    const worker = makeWorker(
+      { role: 'worker', colony: 'W1N1', task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> } },
+      40,
+      'Builder1'
+    );
+    const colony = makeColony({
+      time: 5,
+      constructionSites: [{ id: 'site1', structureType: TEST_GLOBALS.STRUCTURE_EXTENSION }],
+      creeps: [worker]
+    });
+    (Game as Partial<Game>).cpu = {
+      getUsed: jest.fn().mockReturnValue(18),
+      limit: 70,
+      bucket: 998,
+      tickLimit: 500
+    } as unknown as CPU;
+
+    emitRuntimeSummary([colony], [worker]);
+
+    const messages = logSpy.mock.calls.map(([message]) => message).filter((message): message is string =>
+      typeof message === 'string'
+    );
+    expect(messages).toHaveLength(2);
+    expect(messages[0].startsWith(RUNTIME_CPU_SUMMARY_PREFIX)).toBe(true);
+    expect(messages[1].startsWith(RUNTIME_SUMMARY_PREFIX)).toBe(true);
+    const payload = JSON.parse(messages[1].slice(RUNTIME_SUMMARY_PREFIX.length)) as Record<string, unknown>;
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    const resources = room.resources as Record<string, unknown>;
+    const productiveEnergy = resources.productiveEnergy as Record<string, unknown>;
+
+    expect(payload.cpu).toMatchObject({
+      used: 18,
+      limit: 70,
+      tickLimit: 500,
+      bucket: 998,
+      pressure: 'degraded',
+      reasons: ['lowBucket']
+    });
+    expect(room.taskCounts).toMatchObject({ build: 1 });
+    expect(room.constructionActivity).toMatchObject({
+      source: 'runtime-summary',
+      constructionSiteCount: 1
+    });
+    expect(typeof resources.storedEnergy).toBe('number');
+    expect(resources).toMatchObject({
+      workerCarriedEnergy: 40,
+      harvestedThisTick: 10
+    });
+    expect(productiveEnergy).toMatchObject({
+      buildCarriedEnergy: 40,
+      constructionSiteCount: 1,
+      constructionActivity: expect.objectContaining({ source: 'runtime-summary' })
+    });
+  });
+
   it('emits compact CPU alerts without a full room summary under degraded cadence', () => {
     const colony = makeColony({ time: 1 });
     (Game as Partial<Game>).cpu = {
@@ -4652,7 +4708,7 @@ describe('runtime telemetry summaries', () => {
     ).toBe(true);
   });
 
-  it('uses degraded cadence for low bucket pressure and suppresses noncritical summaries at critical bucket', () => {
+  it('uses live evidence cadence for low bucket pressure and suppresses noncritical summaries at critical bucket', () => {
     const lowBucketBudget = buildRuntimeCpuBudget({
       tick: RUNTIME_SUMMARY_INTERVAL,
       used: 21,
@@ -4736,17 +4792,19 @@ describe('runtime telemetry summaries', () => {
       y: 13
     };
 
-    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [], lowBucketBudget)).toBe(false);
+    expect(shouldEmitRuntimeSummary(1, [], lowBucketBudget)).toBe(false);
+    expect(shouldEmitRuntimeSummary(5, [], lowBucketBudget)).toBe(true);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [], lowBucketBudget)).toBe(true);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL * 5, [], lowBucketBudget)).toBe(true);
-    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [spawnEvent], lowBucketBudget)).toBe(false);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [spawnEvent], lowBucketBudget)).toBe(true);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL * 5, [spawnEvent], lowBucketBudget)).toBe(true);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [safeModeEvent], lowBucketBudget)).toBe(true);
     expect(postDeployRecoveryBudget.reasons).toEqual(['lowBucketRecovery']);
-    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [spawnEvent], postDeployRecoveryBudget)).toBe(false);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [spawnEvent], postDeployRecoveryBudget)).toBe(true);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL * 5, [spawnEvent], postDeployRecoveryBudget)).toBe(true);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [safeModeEvent], postDeployRecoveryBudget)).toBe(true);
     expect(freshPostDeployRecoveryBudget.reasons).toEqual(['lowBucketRecovery', 'usedOverLimit']);
-    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [spawnEvent], freshPostDeployRecoveryBudget)).toBe(false);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [spawnEvent], freshPostDeployRecoveryBudget)).toBe(true);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL * 5, [spawnEvent], freshPostDeployRecoveryBudget)).toBe(true);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [safeModeEvent], freshPostDeployRecoveryBudget)).toBe(true);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL * 5, [], criticalBucketBudget)).toBe(false);

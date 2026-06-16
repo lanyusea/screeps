@@ -42758,6 +42758,7 @@ var RUNTIME_CPU_SUMMARY_PREFIX = "#cpu-summary ";
 var RUNTIME_SUMMARY_INTERVAL = 20;
 var DEGRADED_RUNTIME_SUMMARY_INTERVAL = RUNTIME_SUMMARY_INTERVAL * 5;
 var RUNTIME_CPU_SUMMARY_REPEAT_INTERVAL = 5;
+var LOW_BUCKET_LIVE_EVIDENCE_RUNTIME_SUMMARY_INTERVAL = RUNTIME_CPU_SUMMARY_REPEAT_INTERVAL;
 var MAX_REPORTED_EVENTS = 10;
 var MAX_WORKER_EFFICIENCY_SAMPLES = 5;
 var MAX_WORKER_BEHAVIOR_SAMPLES = 10;
@@ -42861,13 +42862,17 @@ function shouldEmitRuntimeSummary(tick, events, cpuBudget = getRuntimeCpuBudget(
     if (cpuBudget.critical) {
       return false;
     }
-    return tick > 0 && tick % DEGRADED_RUNTIME_SUMMARY_INTERVAL === 0;
+    const interval2 = shouldUseLiveEvidenceRuntimeSummaryCadence(cpuBudget) ? LOW_BUCKET_LIVE_EVIDENCE_RUNTIME_SUMMARY_INTERVAL : DEGRADED_RUNTIME_SUMMARY_INTERVAL;
+    return tick > 0 && tick % interval2 === 0;
   }
   if (hasImmediateRuntimeSummaryEvent(events)) {
     return true;
   }
   const interval = shouldThrottleRuntimeSummaryCadence(cpuBudget) ? DEGRADED_RUNTIME_SUMMARY_INTERVAL : RUNTIME_SUMMARY_INTERVAL;
   return tick > 0 && tick % interval === 0;
+}
+function shouldUseLiveEvidenceRuntimeSummaryCadence(cpuBudget) {
+  return cpuBudget.reasons.includes("lowBucket") || cpuBudget.reasons.includes("lowBucketRecovery");
 }
 function hasImmediateRuntimeSummaryEvent(events) {
   return events.some((event) => {
