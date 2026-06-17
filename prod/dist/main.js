@@ -27924,6 +27924,15 @@ function selectCriticalCpuWorkerTask(creep, cpuBudget) {
   if (storedProtectedConstructionBacklogTask) {
     return applyMinimumUsefulLoadPolicy(creep, storedProtectedConstructionBacklogTask);
   }
+  const spawnExtensionConstructionBacklogTask = spawnOrExtensionEnergySink && shouldRunConstructionCpuWork(cpuBudget) ? selectBoundedConstructionBacklogTaskBeforeNonCriticalRefill(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    spawnOrExtensionEnergySink
+  ) : null;
+  if (spawnExtensionConstructionBacklogTask) {
+    return applyMinimumUsefulLoadPolicy(creep, spawnExtensionConstructionBacklogTask);
+  }
   if (spawnOrExtensionEnergySink) {
     return {
       type: "transfer",
@@ -31306,7 +31315,13 @@ function selectBoundedConstructionBacklogTaskBeforeNonCriticalRefill(creep, cons
   return constructionSite ? { type: "build", targetId: constructionSite.id } : null;
 }
 function isNonCriticalRefillSinkForConstructionBacklog(creep, sink) {
-  return isTowerEnergySink(sink) && !hasVisibleHostilePresence3(creep.room);
+  if (hasVisibleHostilePresence3(creep.room)) {
+    return false;
+  }
+  if (isTowerEnergySink(sink)) {
+    return true;
+  }
+  return isSpawnOrExtensionEnergySink(sink) && !shouldKeepCurrentWorkerForEmergencySpawnExtensionRefill(creep, sink);
 }
 function shouldDeferIdleSpawnExtensionRefillForHealthyBuffer(creep, spawnOrExtensionEnergySink) {
   return spawnOrExtensionEnergySink !== null && !hasActiveSpawningSpawn(creep.room) && hasHealthyRoomEnergyBuffer(creep.room);

@@ -442,6 +442,19 @@ function selectCriticalCpuWorkerTask(creep: Creep, cpuBudget: RuntimeCpuBudget):
     return applyMinimumUsefulLoadPolicy(creep, storedProtectedConstructionBacklogTask);
   }
 
+  const spawnExtensionConstructionBacklogTask =
+    spawnOrExtensionEnergySink && shouldRunConstructionCpuWork(cpuBudget)
+      ? selectBoundedConstructionBacklogTaskBeforeNonCriticalRefill(
+          creep,
+          constructionSites,
+          constructionReservationContext,
+          spawnOrExtensionEnergySink
+        )
+      : null;
+  if (spawnExtensionConstructionBacklogTask) {
+    return applyMinimumUsefulLoadPolicy(creep, spawnExtensionConstructionBacklogTask);
+  }
+
   if (spawnOrExtensionEnergySink) {
     return {
       type: 'transfer',
@@ -5625,7 +5638,15 @@ function selectBoundedConstructionBacklogTaskBeforeNonCriticalRefill(
 }
 
 function isNonCriticalRefillSinkForConstructionBacklog(creep: Creep, sink: FillableEnergySink): boolean {
-  return isTowerEnergySink(sink) && !hasVisibleHostilePresence(creep.room);
+  if (hasVisibleHostilePresence(creep.room)) {
+    return false;
+  }
+
+  if (isTowerEnergySink(sink)) {
+    return true;
+  }
+
+  return isSpawnOrExtensionEnergySink(sink) && !shouldKeepCurrentWorkerForEmergencySpawnExtensionRefill(creep, sink);
 }
 
 function shouldDeferIdleSpawnExtensionRefillForHealthyBuffer(
