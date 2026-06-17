@@ -36905,7 +36905,8 @@ function shouldPreemptTransferTaskForConstructionBacklog(creep, task, selectedTa
   if (!isNonCriticalSpawnExtensionTransferTarget(currentTarget) && !isNonCriticalTowerRefillTransferTarget(creep, currentTarget)) {
     return false;
   }
-  if (!shouldDeferSpawnReservationRefillForProductiveWork(
+  const canFollowSelectorNonCriticalSpawnExtensionYield = isNonCriticalSpawnExtensionTransferTarget(currentTarget) && shouldRunConstructionCpuWork(getRuntimeCpuBudget()) && !hasVisibleHostileCreeps2(creep.room);
+  if (!canFollowSelectorNonCriticalSpawnExtensionYield && !shouldDeferSpawnReservationRefillForProductiveWork(
     creep,
     selectedTask,
     selectSpawnEnergyReservationRefillTarget(creep)

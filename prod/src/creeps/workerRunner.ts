@@ -57,7 +57,12 @@ import {
   type RuntimeEnergyAcquisitionMethod
 } from '../telemetry/behaviorTelemetry';
 import { recordWorkerBuildActionResult } from '../telemetry/buildActionTelemetry';
-import { getRuntimeCpuBudget, isRuntimeCpuBucketLow, shouldShedNonessentialCpuWork } from '../runtime/cpuBudget';
+import {
+  getRuntimeCpuBudget,
+  isRuntimeCpuBucketLow,
+  shouldRunConstructionCpuWork,
+  shouldShedNonessentialCpuWork
+} from '../runtime/cpuBudget';
 import { isColonyRoomThreatened } from '../defense/colonyThreats';
 
 type TransferSinkStructureConstantGlobal =
@@ -2954,11 +2959,18 @@ function shouldPreemptTransferTaskForConstructionBacklog(
     return false;
   }
 
-  if (!shouldDeferSpawnReservationRefillForProductiveWork(
-    creep,
-    selectedTask,
-    selectSpawnEnergyReservationRefillTarget(creep)
-  )) {
+  const canFollowSelectorNonCriticalSpawnExtensionYield =
+    isNonCriticalSpawnExtensionTransferTarget(currentTarget) &&
+    shouldRunConstructionCpuWork(getRuntimeCpuBudget()) &&
+    !hasVisibleHostileCreeps(creep.room);
+  if (
+    !canFollowSelectorNonCriticalSpawnExtensionYield &&
+    !shouldDeferSpawnReservationRefillForProductiveWork(
+      creep,
+      selectedTask,
+      selectSpawnEnergyReservationRefillTarget(creep)
+    )
+  ) {
     return false;
   }
 
