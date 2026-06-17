@@ -8200,6 +8200,60 @@ def enrich_room_summaries_from_runtime_artifact(room_summaries: list[Any], artif
                 room["constructionActivity"] = dict(construction_activity)
 
 
+def load_runtime_summary_capture_history_artifact(artifact_path: Path) -> dict[str, list[dict[str, Any]]]:
+    try:
+        lines = artifact_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {}
+
+    history: dict[str, list[dict[str, Any]]] = {}
+    for line_index, line in enumerate(lines):
+        payload = parse_runtime_summary_line(line)
+        if payload is None:
+            continue
+        for room in payload_runtime_rooms(payload):
+            if not runtime_summary_room_has_monitor_alert_fields(room, payload):
+                continue
+            runtime_room = runtime_summary_room_with_metadata(payload, artifact_path, room, line_index)
+            entry = runtime_summary_capture_history_entry(runtime_room)
+            for key in runtime_summary_lookup_keys(runtime_room):
+                history.setdefault(key, []).append(entry)
+
+    return {
+        key: sorted(entries, key=runtime_summary_capture_history_key, reverse=True)[
+            :RUNTIME_SUMMARY_CAPTURE_HISTORY_LIMIT
+        ]
+        for key, entries in history.items()
+        if entries
+    }
+
+
+def enrich_room_summaries_from_console_capture_status(
+    room_summaries: list[Any],
+    console_capture_status: dict[str, Any] | None,
+) -> None:
+    artifact_path = postdeploy_console_capture_artifact_path(console_capture_status)
+    if artifact_path is None:
+        return
+
+    history_by_room = load_runtime_summary_capture_history_artifact(artifact_path)
+    if not history_by_room:
+        return
+
+    for room in room_summaries:
+        if not isinstance(room, dict):
+            continue
+        history = next((history_by_room[key] for key in runtime_summary_lookup_keys(room) if key in history_by_room), None)
+        if not history:
+            continue
+        existing_history = runtime_summary_capture_history(room)
+        room[RUNTIME_SUMMARY_CAPTURE_HISTORY_METADATA_KEY] = sorted(
+            [*existing_history, *history],
+            key=runtime_summary_capture_history_key,
+            reverse=True,
+        )[:RUNTIME_SUMMARY_CAPTURE_HISTORY_LIMIT]
+
+
 def postdeploy_construction_room_name(room: dict[str, Any]) -> str:
     for key in ("room", "roomName", "name"):
         value = room.get(key)
@@ -8219,6 +8273,40 @@ def postdeploy_construction_build_task_count(room: dict[str, Any]) -> int | floa
     if build_count is not None:
         return build_count
     return number_value(room.get("build"))
+
+
+def postdeploy_construction_current_tick(room: dict[str, Any]) -> int | None:
+    metadata_tick = runtime_summary_evidence_tick(room)
+    if metadata_tick is not None:
+        return metadata_tick
+    return tick_number(room.get("tick"))
+
+
+def postdeploy_recent_construction_execution_capture(
+    room: dict[str, Any],
+    current_tick_value: Any,
+) -> dict[str, Any] | None:
+    for capture in sorted(
+        runtime_summary_capture_history(room),
+        key=runtime_summary_capture_history_key,
+        reverse=True,
+    ):
+        if runtime_construction_execution_evidence(capture) and runtime_summary_evidence_is_recent(
+            capture,
+            current_tick_value,
+        ):
+            return capture
+    return None
+
+
+def postdeploy_construction_execution_reason(evidence: dict[str, Any]) -> str:
+    build_action_counts = runtime_build_action_result_counts(evidence)
+    if build_action_counts.get("succeeded", 0) > 0 or runtime_build_action_result(evidence) == "succeeded":
+        return "build_action_succeeded"
+    build_carried_energy = runtime_build_carried_energy(evidence)
+    if build_carried_energy is not None and build_carried_energy > 0:
+        return "build_energy_carried"
+    return "build_progress_observed"
 
 
 def postdeploy_construction_acceptance_room(room: dict[str, Any]) -> dict[str, Any]:
@@ -8306,6 +8394,22 @@ def postdeploy_construction_acceptance_room(room: dict[str, Any]) -> dict[str, A
             "status": "pass",
             "reason": "build_progress_observed",
             "message": f"{room_name}: construction acceptance passed with build progress",
+        }
+
+    current_tick = postdeploy_construction_current_tick(room)
+    recent_evidence = (
+        postdeploy_recent_construction_execution_capture(room, current_tick)
+        if current_tick is not None
+        else None
+    )
+    if recent_evidence is not None:
+        return {
+            **result,
+            "ok": True,
+            "status": "pass",
+            "reason": postdeploy_construction_execution_reason(recent_evidence),
+            "recentConstructionEvidence": recent_evidence,
+            "message": f"{room_name}: construction acceptance passed with recent runtime-summary execution evidence",
         }
 
     if build_carried_energy is None and build_progress is None:
@@ -8505,6 +8609,37 @@ def postdeploy_console_capture_unavailable(status: dict[str, Any] | None) -> boo
     return any(term in error for term in POSTDEPLOY_OPTIONAL_CAPTURE_ERROR_TERMS)
 
 
+def postdeploy_console_capture_artifact_path(status: dict[str, Any] | None) -> Path | None:
+    if not isinstance(status, dict):
+        return None
+    if status.get("captureOk") is not True:
+        return None
+    if status.get("processStatus") != "completed":
+        return None
+    if number_value(status.get("exitCode")) != 0:
+        return None
+
+    output_path = status.get("outputPath")
+    if not isinstance(output_path, str):
+        return None
+    output_path = output_path.strip()
+    if not output_path or output_path.startswith("~"):
+        return None
+    if any(ord(char) < 32 for char in output_path):
+        return None
+    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://", output_path):
+        return None
+
+    path = Path(output_path)
+    if path.suffix != ".log":
+        return None
+    if any(part == ".." for part in path.parts):
+        return None
+    if "runtime-summary-console" not in path.parts:
+        return None
+    return path
+
+
 def postdeploy_missing_cpu_reason_is_optional_capture_failure(
     reason: dict[str, Any],
     console_capture_status: dict[str, Any] | None,
@@ -8562,6 +8697,8 @@ def evaluate_postdeploy_health_gate(
     artifact_path = summary_payload.get("runtime_summary_artifact")
     if isinstance(room_summaries, list) and isinstance(artifact_path, str):
         enrich_room_summaries_from_runtime_artifact(room_summaries, artifact_path)
+    if isinstance(room_summaries, list):
+        enrich_room_summaries_from_console_capture_status(room_summaries, console_capture_status)
     if not isinstance(room_summaries, list) or not room_summaries:
         reasons.append({"kind": "postdeploy_no_room_summary", "message": "post-deploy summary has no room_summaries"})
     else:

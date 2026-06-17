@@ -1078,7 +1078,11 @@ class AlertCommandFailurePayloadTest(unittest.TestCase):
 
 
 class PostdeployConstructionAcceptanceTest(unittest.TestCase):
-    def health_gate_for_room(self, room: dict[str, object]) -> dict[str, object]:
+    def health_gate_for_room(
+        self,
+        room: dict[str, object],
+        console_capture_status: dict[str, object] | None = None,
+    ) -> dict[str, object]:
         return monitor.evaluate_postdeploy_health_gate(
             {
                 "ok": True,
@@ -1096,6 +1100,7 @@ class PostdeployConstructionAcceptanceTest(unittest.TestCase):
                 ],
             },
             {"ok": True, "mode": "alert", "alert": False, "reasons": []},
+            console_capture_status,
         )
 
     def test_health_gate_fails_closed_on_owned_room_discovery_fallback(self) -> None:
@@ -1406,6 +1411,154 @@ class PostdeployConstructionAcceptanceTest(unittest.TestCase):
         self.assertTrue(acceptance["ok"])
         self.assertEqual(acceptance["status"], "pass")
         self.assertEqual(acceptance["rooms"][0]["reason"], "no_construction_backlog")
+
+    def test_construction_acceptance_uses_recent_console_capture_execution_evidence(self) -> None:
+        payload = {
+            "type": "runtime-summary",
+            "tick": 1195,
+            "rooms": [
+                {
+                    "roomName": "E26S49",
+                    "shard": "shardX",
+                    "taskCounts": {"build": 0},
+                    "constructionSiteCount": 1,
+                    "pendingBuildProgress": 315,
+                    "buildCarriedEnergy": 0,
+                    "constructionActivity": {"buildProgress": 15},
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact = (
+                Path(temp_dir)
+                / "runtime-artifacts"
+                / "runtime-summary-console"
+                / "postdeploy-runtime-summary-console.log"
+            )
+            artifact.parent.mkdir(parents=True)
+            artifact.write_text(monitor.RUNTIME_SUMMARY_PREFIX + json.dumps(payload) + "\n", encoding="utf-8")
+
+            health = self.health_gate_for_room(
+                {
+                    "tick": 1200,
+                    "constructionSiteCount": 1,
+                    "pendingBuildProgress": 300,
+                    "buildCarriedEnergy": 0,
+                    "constructionActivity": {"buildProgress": 0},
+                    "taskCounts": {"build": 0},
+                    "buildBlockedReason": "worker_assignment_gap",
+                },
+                {
+                    "captureOk": True,
+                    "captureStatus": "clean_runtime_summary",
+                    "processStatus": "completed",
+                    "exitCode": 0,
+                    "source": "live-official-console",
+                    "outputPath": str(artifact),
+                },
+            )
+
+        acceptance = health["construction_acceptance"]
+        room = acceptance["rooms"][0]
+        self.assertTrue(health["ok"])
+        self.assertEqual(acceptance["status"], "pass")
+        self.assertEqual(room["reason"], "build_progress_observed")
+        self.assertEqual(room["recentConstructionEvidence"]["runtimeSummaryTick"], 1195)
+        self.assertEqual(room["recentConstructionEvidence"]["buildProgress"], 15)
+
+    def test_construction_acceptance_ignores_stale_console_capture_execution_evidence(self) -> None:
+        payload = {
+            "type": "runtime-summary",
+            "tick": 1000,
+            "rooms": [
+                {
+                    "roomName": "E26S49",
+                    "shard": "shardX",
+                    "taskCounts": {"build": 0},
+                    "constructionSiteCount": 1,
+                    "pendingBuildProgress": 315,
+                    "buildCarriedEnergy": 25,
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact = (
+                Path(temp_dir)
+                / "runtime-artifacts"
+                / "runtime-summary-console"
+                / "postdeploy-runtime-summary-console.log"
+            )
+            artifact.parent.mkdir(parents=True)
+            artifact.write_text(monitor.RUNTIME_SUMMARY_PREFIX + json.dumps(payload) + "\n", encoding="utf-8")
+
+            health = self.health_gate_for_room(
+                {
+                    "tick": 1200,
+                    "constructionSiteCount": 1,
+                    "pendingBuildProgress": 300,
+                    "buildCarriedEnergy": 0,
+                    "constructionActivity": {"buildProgress": 0},
+                    "taskCounts": {"build": 0},
+                    "buildBlockedReason": "worker_assignment_gap",
+                },
+                {
+                    "captureOk": True,
+                    "captureStatus": "clean_runtime_summary",
+                    "processStatus": "completed",
+                    "exitCode": 0,
+                    "source": "live-official-console",
+                    "outputPath": str(artifact),
+                },
+            )
+
+        room = health["construction_acceptance"]["rooms"][0]
+        self.assertFalse(health["ok"])
+        self.assertEqual(room["status"], "blocked")
+        self.assertEqual(room["reason"], "worker_assignment_gap")
+        self.assertNotIn("recentConstructionEvidence", room)
+
+    def test_construction_acceptance_ignores_missing_or_malformed_console_capture(self) -> None:
+        cases = ("missing", "malformed")
+
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temp_dir:
+                artifact = (
+                    Path(temp_dir)
+                    / "runtime-artifacts"
+                    / "runtime-summary-console"
+                    / "postdeploy-runtime-summary-console.log"
+                )
+                if case == "malformed":
+                    artifact.parent.mkdir(parents=True)
+                    artifact.write_text(monitor.RUNTIME_SUMMARY_PREFIX + "{not json}\n", encoding="utf-8")
+
+                health = self.health_gate_for_room(
+                    {
+                        "tick": 1200,
+                        "constructionSiteCount": 1,
+                        "pendingBuildProgress": 300,
+                        "buildCarriedEnergy": 0,
+                        "constructionActivity": {"buildProgress": 0},
+                        "taskCounts": {"build": 0},
+                        "buildBlockedReason": "worker_assignment_gap",
+                    },
+                    {
+                        "captureOk": True,
+                        "captureStatus": "clean_runtime_summary",
+                        "processStatus": "completed",
+                        "exitCode": 0,
+                        "source": "live-official-console",
+                        "outputPath": str(artifact),
+                    },
+                )
+
+                room = health["construction_acceptance"]["rooms"][0]
+                self.assertFalse(health["ok"])
+                self.assertEqual(room["status"], "blocked")
+                self.assertEqual(room["reason"], "worker_assignment_gap")
+                self.assertNotIn("recentConstructionEvidence", room)
 
     def test_construction_acceptance_uses_build_action_result_telemetry(self) -> None:
         room = {
