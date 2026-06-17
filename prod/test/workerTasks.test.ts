@@ -14278,6 +14278,82 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
+  it('keeps uncovered critical repair before CPU-shed non-emergency refill construction yield', () => {
+    const site = {
+      id: 'wall-site1',
+      my: true,
+      structureType: 'constructedWall',
+      progress: 0,
+      progressTotal: 547,
+      pos: makeRoomPosition(22, 21, 'E29N55')
+    } as ConstructionSite;
+    const criticalContainer = makeStructure('critical-container1', 'container' as StructureConstant, 600, 2_000, {
+      pos: makeRoomPosition(18, 24, 'E29N55')
+    });
+    const fullSpawn = makeFullSpawnEnergyStructure('spawn-full', 'E29N55');
+    const refillExtension = makeEnergySinkWithEnergy('extension-open', 'extension' as StructureConstant, 0, 50, {
+      my: true,
+      pos: makeRoomPosition(18, 24, 'E29N55')
+    }) as StructureExtension;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 6,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N55',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 300,
+      energyCapacityAvailable: 2_300,
+      myStructures: [fullSpawn as AnyOwnedStructure, refillExtension as AnyOwnedStructure],
+      structures: [fullSpawn as AnyStructure, criticalContainer]
+    });
+    const builder = {
+      name: 'worker-E29N55-cpu-shed-builder',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'transfer', targetId: 'extension-open' as Id<AnyStoreStructure> }
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'critical-container1': 1,
+            'extension-open': 2,
+            'wall-site1': 4
+          };
+          return ranges[String(target.id)] ?? 20;
+        })
+      },
+      room
+    } as unknown as Creep;
+    const productiveCoverage = {
+      name: 'worker-E29N55-productive-coverage',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Builder: builder, ProductiveCoverage: productiveCoverage });
+    setCpuSample({ bucket: 1_857, limit: 70, tickLimit: 500, used: 70.1 });
+
+    expect(selectWorkerTask(builder)).toEqual({ type: 'repair', targetId: 'critical-container1' });
+  });
+
   it('keeps healthy-buffer construction behind critical container repair without live same-target coverage', () => {
     const site = {
       id: 'storage-site1',

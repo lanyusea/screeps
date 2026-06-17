@@ -452,6 +452,19 @@ function selectCriticalCpuWorkerTask(creep: Creep, cpuBudget: RuntimeCpuBudget):
         )
       : null;
   if (spawnExtensionConstructionBacklogTask) {
+    const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
+    if (
+      criticalRepairTarget &&
+      !hasRepairCoverageForConstructionYield(creep, criticalRepairTarget, {
+        allowRepairPoolCoverage: shouldRunConstructionCpuWork(cpuBudget)
+      })
+    ) {
+      return applyMinimumUsefulLoadPolicy(creep, {
+        type: 'repair',
+        targetId: criticalRepairTarget.id as Id<Structure>
+      });
+    }
+
     return applyMinimumUsefulLoadPolicy(creep, spawnExtensionConstructionBacklogTask);
   }
 

@@ -27931,6 +27931,15 @@ function selectCriticalCpuWorkerTask(creep, cpuBudget) {
     spawnOrExtensionEnergySink
   ) : null;
   if (spawnExtensionConstructionBacklogTask) {
+    const criticalRepairTarget2 = selectCriticalInfrastructureRepairTarget(creep);
+    if (criticalRepairTarget2 && !hasRepairCoverageForConstructionYield(creep, criticalRepairTarget2, {
+      allowRepairPoolCoverage: shouldRunConstructionCpuWork(cpuBudget)
+    })) {
+      return applyMinimumUsefulLoadPolicy(creep, {
+        type: "repair",
+        targetId: criticalRepairTarget2.id
+      });
+    }
     return applyMinimumUsefulLoadPolicy(creep, spawnExtensionConstructionBacklogTask);
   }
   if (spawnOrExtensionEnergySink) {
