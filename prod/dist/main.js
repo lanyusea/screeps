@@ -27924,6 +27924,24 @@ function selectCriticalCpuWorkerTask(creep, cpuBudget) {
   if (storedProtectedConstructionBacklogTask) {
     return applyMinimumUsefulLoadPolicy(creep, storedProtectedConstructionBacklogTask);
   }
+  const spawnExtensionConstructionBacklogTask = spawnOrExtensionEnergySink && shouldRunConstructionCpuWork(cpuBudget) ? selectBoundedConstructionBacklogTaskBeforeNonCriticalRefill(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    spawnOrExtensionEnergySink
+  ) : null;
+  if (spawnExtensionConstructionBacklogTask) {
+    const criticalRepairTarget2 = selectCriticalInfrastructureRepairTarget(creep);
+    if (criticalRepairTarget2 && !hasRepairCoverageForConstructionYield(creep, criticalRepairTarget2, {
+      allowRepairPoolCoverage: shouldRunConstructionCpuWork(cpuBudget)
+    })) {
+      return applyMinimumUsefulLoadPolicy(creep, {
+        type: "repair",
+        targetId: criticalRepairTarget2.id
+      });
+    }
+    return applyMinimumUsefulLoadPolicy(creep, spawnExtensionConstructionBacklogTask);
+  }
   if (spawnOrExtensionEnergySink) {
     return {
       type: "transfer",
@@ -31306,7 +31324,13 @@ function selectBoundedConstructionBacklogTaskBeforeNonCriticalRefill(creep, cons
   return constructionSite ? { type: "build", targetId: constructionSite.id } : null;
 }
 function isNonCriticalRefillSinkForConstructionBacklog(creep, sink) {
-  return isTowerEnergySink(sink) && !hasVisibleHostilePresence3(creep.room);
+  if (hasVisibleHostilePresence3(creep.room)) {
+    return false;
+  }
+  if (isTowerEnergySink(sink)) {
+    return true;
+  }
+  return isSpawnOrExtensionEnergySink(sink) && !shouldKeepCurrentWorkerForEmergencySpawnExtensionRefill(creep, sink);
 }
 function shouldDeferIdleSpawnExtensionRefillForHealthyBuffer(creep, spawnOrExtensionEnergySink) {
   return spawnOrExtensionEnergySink !== null && !hasActiveSpawningSpawn(creep.room) && hasHealthyRoomEnergyBuffer(creep.room);
@@ -36881,7 +36905,8 @@ function shouldPreemptTransferTaskForConstructionBacklog(creep, task, selectedTa
   if (!isNonCriticalSpawnExtensionTransferTarget(currentTarget) && !isNonCriticalTowerRefillTransferTarget(creep, currentTarget)) {
     return false;
   }
-  if (!shouldDeferSpawnReservationRefillForProductiveWork(
+  const canFollowSelectorNonCriticalSpawnExtensionYield = isNonCriticalSpawnExtensionTransferTarget(currentTarget) && shouldRunConstructionCpuWork(getRuntimeCpuBudget()) && !hasVisibleHostileCreeps2(creep.room);
+  if (!canFollowSelectorNonCriticalSpawnExtensionYield && !shouldDeferSpawnReservationRefillForProductiveWork(
     creep,
     selectedTask,
     selectSpawnEnergyReservationRefillTarget(creep)
