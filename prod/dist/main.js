@@ -24787,6 +24787,7 @@ function normalizeStringList2(value) {
 var STORAGE_BALANCE_EXPORT_RATIO = 0.8;
 var STORAGE_BALANCE_IMPORT_RATIO = 0.3;
 var STORAGE_BALANCE_REFRESH_INTERVAL = 25;
+var STORAGE_BALANCE_INTER_ROOM_SUPPORT_RESERVE = 1e5;
 var POST_CLAIM_SPAWN_CONSTRUCTION_IMPORT_TARGET = 600;
 function balanceStorage() {
   const memory = getEconomyMemory2();
@@ -25050,7 +25051,13 @@ function getRoomEnergyTransferExportLimit(exporter, importer) {
   if (hasSpawnEnergyImportPressure(importer)) {
     return Math.max(exporter.exportableEnergy, getSpawnSupportExportableEnergy(exporter));
   }
+  if (hasStorageImportPressure(importer)) {
+    return exporter.exportableEnergy > 0 ? exporter.exportableEnergy : getStorageSupportExportableEnergy(exporter);
+  }
   return exporter.exportableEnergy;
+}
+function hasStorageImportPressure(state) {
+  return state.importDemand > 0;
 }
 function hasSpawnEnergyImportPressure(state) {
   return state.spawnEnergyBufferDeficit > 0 || state.criticalSpawnEnergyDeficit > 0 || state.unmetSpawnEnergyReservation > 0 || hasPostClaimSpawnConstructionImportPressure(state.roomName);
@@ -25073,6 +25080,18 @@ function getSpawnSupportExportableEnergy(state) {
     state.unmetSpawnEnergyReservation
   );
   return Math.max(0, state.energy - storageImportFloor - localSpawnReserve);
+}
+function getStorageSupportExportableEnergy(state) {
+  if (state.capacity <= 0 || state.importDemand > 0) {
+    return 0;
+  }
+  return Math.max(0, state.energy - getStorageSupportReserve(state));
+}
+function getStorageSupportReserve(state) {
+  return Math.min(
+    STORAGE_BALANCE_INTER_ROOM_SUPPORT_RESERVE,
+    Math.ceil(state.capacity * STORAGE_BALANCE_EXPORT_RATIO)
+  );
 }
 function getStorageTransferLocalEnergyAudit(importer) {
   const targetRoom = getVisibleRoom7(importer.roomName);
