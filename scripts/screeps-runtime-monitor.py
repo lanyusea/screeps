@@ -230,10 +230,12 @@ ENERGY_BUFFER_UNHEALTHY_ROUTES = [
     {"issue": "#907", "topic": "reward_decisions"},
 ]
 CPU_BUCKET_LOW_KIND = "cpu_bucket_low"
+CPU_BUCKET_EMERGENCY_FLOOR_KIND = "cpu_bucket_emergency_floor"
 CPU_BUCKET_CRITICAL_KIND = "cpu_bucket_critical"
 CPU_USED_OVER_LIMIT_KIND = "cpu_used_over_limit"
 CPU_TELEMETRY_MISSING_KIND = "cpu_telemetry_missing"
 CPU_BUCKET_LOW_THRESHOLD = 1_000
+CPU_BUCKET_EMERGENCY_FLOOR = 500
 CPU_BUCKET_CRITICAL_THRESHOLD = 100
 CPU_BUCKET_RECOVERY_ALERT_FLOOR = 900
 CPU_BUCKET_RECOVERY_ALERT_GRACE_TICKS = 20
@@ -531,6 +533,21 @@ TACTICAL_CATEGORY_RULES: dict[str, dict[str, Any]] = {
             "routes_to": CPU_BUCKET_ROUTES,
         },
     },
+    CPU_BUCKET_EMERGENCY_FLOOR_KIND: {
+        "severity": "high",
+        "decision": "codex_hotfix",
+        "actions": ["capture_runtime_context", "inspect_recent_deploy", "start_hotfix_gate"],
+        "metadata": {
+            "metric": "cpu.bucket",
+            "related_issues": ["#1955", "#1909", "#1490", "#906", "#924"],
+            "thresholds": {
+                "P1_emergency_floor": CPU_BUCKET_EMERGENCY_FLOOR,
+                "P1_low": CPU_BUCKET_LOW_THRESHOLD,
+                "P0": CPU_BUCKET_CRITICAL_THRESHOLD,
+            },
+            "routes_to": [{"issue": "#1955", "topic": "emergency_floor_alert"}, *CPU_BUCKET_ROUTES],
+        },
+    },
     CPU_BUCKET_LOW_KIND: {
         "severity": "high",
         "decision": "codex_hotfix",
@@ -646,6 +663,7 @@ TACTICAL_REASON_CATEGORY_MAP = {
     "runtime_deadlock": ["runtime_deadlock"],
     "resource_crisis": ["resource_crisis"],
     CPU_BUCKET_CRITICAL_KIND: [CPU_BUCKET_CRITICAL_KIND],
+    CPU_BUCKET_EMERGENCY_FLOOR_KIND: [CPU_BUCKET_EMERGENCY_FLOOR_KIND],
     CPU_BUCKET_LOW_KIND: [CPU_BUCKET_LOW_KIND],
     CPU_USED_OVER_LIMIT_KIND: [CPU_USED_OVER_LIMIT_KIND],
     CPU_TELEMETRY_MISSING_KIND: [CPU_TELEMETRY_MISSING_KIND],
@@ -1641,6 +1659,20 @@ def cpu_bucket_metadata() -> dict[str, Any]:
     }
 
 
+def cpu_bucket_emergency_floor_metadata() -> dict[str, Any]:
+    routes = [{"issue": "#1955", "topic": "emergency_floor_alert"}, *CPU_BUCKET_ROUTES]
+    return {
+        "metric": "cpu.bucket",
+        "related_issues": ["#1955", "#1909", *[str(route["issue"]) for route in CPU_BUCKET_ROUTES]],
+        "thresholds": {
+            "P1_emergency_floor": CPU_BUCKET_EMERGENCY_FLOOR,
+            "P1_low": CPU_BUCKET_LOW_THRESHOLD,
+            "P0": CPU_BUCKET_CRITICAL_THRESHOLD,
+        },
+        "routes_to": [dict(route) for route in routes],
+    }
+
+
 def cpu_used_over_limit_metadata() -> dict[str, Any]:
     return {
         "metric": "cpu.used",
@@ -1699,6 +1731,43 @@ def runtime_cpu_bucket(room: dict[str, Any]) -> int | float | None:
     )
 
 
+def runtime_cpu_emergency_floor_bucket(room: dict[str, Any]) -> int | float | None:
+    values = [
+        value
+        for value in (
+            runtime_cpu_bucket(room),
+            first_number_value(
+                room,
+                ("minCpuBucket",),
+                ("cpuBucketMin",),
+                ("bucketMin",),
+                ("minBucket",),
+                ("rollingCpuBucket",),
+                ("rolling_cpu_bucket",),
+                ("rollingBucket",),
+                ("rolling_bucket",),
+                ("cpu", "minCpuBucket"),
+                ("cpu", "cpuBucketMin"),
+                ("cpu", "bucketMin"),
+                ("cpu", "minBucket"),
+                ("cpu", "rollingCpuBucket"),
+                ("cpu", "rollingBucket"),
+                (RUNTIME_SUMMARY_CPU_METADATA_KEY, "minCpuBucket"),
+                (RUNTIME_SUMMARY_CPU_METADATA_KEY, "cpuBucketMin"),
+                (RUNTIME_SUMMARY_CPU_METADATA_KEY, "bucketMin"),
+                (RUNTIME_SUMMARY_CPU_METADATA_KEY, "minBucket"),
+                (RUNTIME_SUMMARY_CPU_METADATA_KEY, "rollingCpuBucket"),
+                (RUNTIME_SUMMARY_CPU_METADATA_KEY, "rollingBucket"),
+                ("rolling", "cpuBucket"),
+                ("rolling", "bucket"),
+                ("rolling", "cpu", "bucket"),
+            ),
+        )
+        if value is not None
+    ]
+    return min(values) if values else None
+
+
 def runtime_cpu_used(room: dict[str, Any]) -> int | float | None:
     return first_number_value(
         room,
@@ -1729,6 +1798,7 @@ def runtime_low_bucket_ticks(room: dict[str, Any]) -> int | float | None:
 def runtime_cpu_has_current_evidence(room: dict[str, Any]) -> bool:
     return (
         runtime_cpu_bucket(room) is not None
+        or runtime_cpu_emergency_floor_bucket(room) is not None
         or runtime_cpu_used(room) is not None
         or runtime_low_bucket_ticks(room) is not None
         or runtime_cpu_pressure(room) is not None
@@ -1791,6 +1861,10 @@ def detect_cpu_bucket_kind(runtime_room: dict[str, Any] | None) -> str | None:
     if critical_bucket:
         return CPU_BUCKET_CRITICAL_KIND
 
+    emergency_floor_bucket = runtime_cpu_emergency_floor_bucket(runtime_room)
+    if emergency_floor_bucket is not None and emergency_floor_bucket < CPU_BUCKET_EMERGENCY_FLOOR:
+        return CPU_BUCKET_EMERGENCY_FLOOR_KIND
+
     low_bucket = (
         "lowBucket" in alerts
         or "lowBucketRecovery" in alerts
@@ -1807,6 +1881,8 @@ def detect_cpu_bucket_kind(runtime_room: dict[str, Any] | None) -> str | None:
 
 def build_cpu_bucket_reason(ref: RoomRef, runtime_room: dict[str, Any], kind: str) -> dict[str, Any]:
     bucket = runtime_cpu_bucket(runtime_room)
+    emergency_floor_bucket = runtime_cpu_emergency_floor_bucket(runtime_room)
+    alert_bucket = emergency_floor_bucket if kind == CPU_BUCKET_EMERGENCY_FLOOR_KIND else bucket
     used = runtime_cpu_used(runtime_room)
     limit = runtime_cpu_limit(runtime_room)
     pressure = runtime_cpu_pressure(runtime_room)
@@ -1814,7 +1890,14 @@ def build_cpu_bucket_reason(ref: RoomRef, runtime_room: dict[str, Any], kind: st
     reasons = runtime_cpu_signal_values(runtime_room, "reasons")
     low_bucket_ticks = runtime_low_bucket_ticks(runtime_room)
     critical = kind == CPU_BUCKET_CRITICAL_KIND
-    threshold = CPU_BUCKET_CRITICAL_THRESHOLD if critical else CPU_BUCKET_LOW_THRESHOLD
+    emergency_floor = kind == CPU_BUCKET_EMERGENCY_FLOOR_KIND
+    threshold = (
+        CPU_BUCKET_CRITICAL_THRESHOLD
+        if critical
+        else CPU_BUCKET_EMERGENCY_FLOOR
+        if emergency_floor
+        else CPU_BUCKET_LOW_THRESHOLD
+    )
     severity = "critical" if critical else "high"
     priority = "P0" if critical else "P1"
     return {
@@ -1823,9 +1906,11 @@ def build_cpu_bucket_reason(ref: RoomRef, runtime_room: dict[str, Any], kind: st
         "room_name": ref.room,
         "severity": severity,
         "priority": priority,
-        "cpuBucket": bucket,
-        "cpu_bucket": bucket,
-        "bucket": bucket,
+        "cpuBucket": alert_bucket,
+        "cpu_bucket": alert_bucket,
+        "bucket": alert_bucket,
+        "currentCpuBucket": bucket,
+        "emergencyFloorBucket": emergency_floor_bucket,
         "cpuUsed": used,
         "cpuLimit": limit,
         "pressure": pressure,
@@ -1834,10 +1919,12 @@ def build_cpu_bucket_reason(ref: RoomRef, runtime_room: dict[str, Any], kind: st
         "lowBucketTicks": low_bucket_ticks,
         "threshold": threshold,
         "low_bucket_threshold": CPU_BUCKET_LOW_THRESHOLD,
+        "emergency_floor_threshold": CPU_BUCKET_EMERGENCY_FLOOR,
         "critical_bucket_threshold": CPU_BUCKET_CRITICAL_THRESHOLD,
-        "metadata": cpu_bucket_metadata(),
+        "metadata": cpu_bucket_emergency_floor_metadata() if emergency_floor else cpu_bucket_metadata(),
+        "owner_ping": False,
         "message": (
-            f"{kind} in {ref.key}: cpu bucket {format_energy_value(bucket)} below "
+            f"{kind} in {ref.key}: cpu bucket {format_energy_value(alert_bucket)} below "
             f"{threshold} threshold; pressure={pressure or 'unknown'}, alerts={alerts or []}, "
             f"reasons={reasons or []}."
         ),
@@ -5766,6 +5853,7 @@ def runtime_summary_room_has_worker_idle_fields(room: dict[str, Any]) -> bool:
 def runtime_summary_payload_has_cpu_fields(payload: dict[str, Any]) -> bool:
     return (
         runtime_cpu_bucket(payload) is not None
+        or runtime_cpu_emergency_floor_bucket(payload) is not None
         or runtime_cpu_used(payload) is not None
         or runtime_cpu_limit(payload) is not None
         or runtime_low_bucket_ticks(payload) is not None
@@ -5778,6 +5866,7 @@ def runtime_summary_payload_has_cpu_fields(payload: dict[str, Any]) -> bool:
 def runtime_summary_room_has_cpu_fields(room: dict[str, Any]) -> bool:
     return (
         runtime_cpu_bucket(room) is not None
+        or runtime_cpu_emergency_floor_bucket(room) is not None
         or runtime_cpu_used(room) is not None
         or runtime_cpu_limit(room) is not None
         or runtime_low_bucket_ticks(room) is not None
@@ -5942,6 +6031,17 @@ def runtime_cpu_summary_fields(cpu: dict[str, Any]) -> dict[str, Any]:
     bucket = number_value(cpu.get("bucket"))
     if bucket is not None:
         result["cpuBucket"] = bucket
+    min_bucket = first_number_value(
+        cpu,
+        ("minCpuBucket",),
+        ("cpuBucketMin",),
+        ("bucketMin",),
+        ("minBucket",),
+        ("rollingCpuBucket",),
+        ("rollingBucket",),
+    )
+    if min_bucket is not None:
+        result["minCpuBucket"] = min_bucket
     low_bucket_ticks = number_value(cpu.get("lowBucketTicks"))
     if low_bucket_ticks is not None:
         result["lowBucketTicks"] = low_bucket_ticks
@@ -5972,6 +6072,12 @@ def runtime_summary_room_with_cpu_fields(base: dict[str, Any], cpu_room: dict[st
         "cpuBucket",
         "cpuUsed",
         "cpuLimit",
+        "minCpuBucket",
+        "cpuBucketMin",
+        "bucketMin",
+        "minBucket",
+        "rollingCpuBucket",
+        "rollingBucket",
         "lowBucketTicks",
         "bucketEmptyTicks",
         "bucket",

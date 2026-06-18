@@ -3021,7 +3021,7 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         runtime_room = {
             "roomName": "E26S49",
             monitor.RUNTIME_SUMMARY_CPU_METADATA_KEY: {
-                "bucket": 499,
+                "bucket": 750,
                 "pressure": "degraded",
                 "alerts": ["lowBucket"],
                 "reasons": ["lowBucket"],
@@ -3039,6 +3039,7 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(suppressed, [])
         self.assertEqual([reason["kind"] for reason in emitted], [monitor.CPU_BUCKET_LOW_KIND])
         self.assertEqual(emitted[0]["priority"], "P1")
+        self.assertNotEqual(emitted[0]["kind"], monitor.CPU_BUCKET_EMERGENCY_FLOOR_KIND)
         report = monitor.build_tactical_response_report(
             {"ok": True, "mode": "alert", "alert": True, "reasons": emitted, "rooms": ["shardX/E26S49"]}
         )
@@ -3046,6 +3047,182 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(report["severity"], "high")
         self.assertEqual(report["priority"], "P1")
         self.assertEqual(report["categories"], [monitor.CPU_BUCKET_LOW_KIND])
+
+    def test_cpu_bucket_emergency_floor_current_bucket_alerts_health_gate_without_owner_ping(self) -> None:
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "worker-1": {
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "name": "worker-1",
+                    "x": 23,
+                    "y": 25,
+                },
+            }
+        )
+        runtime_room = {
+            "room": "shardX/E26S49",
+            "roomName": "E26S49",
+            "cpuUsed": 20.6,
+            "cpuLimit": 70,
+            "cpuBucket": 455,
+            monitor.RUNTIME_SUMMARY_CPU_METADATA_KEY: {
+                "used": 20.6,
+                "limit": 70,
+                "bucket": 455,
+                "pressure": "degraded",
+                "alerts": ["lowBucket"],
+                "reasons": ["lowBucket"],
+            },
+            "constructionSiteCount": 0,
+            "pendingBuildProgress": 0,
+        }
+
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            snapshot,
+            {"baseline_established": True, "owner": "owner"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertEqual([reason["kind"] for reason in emitted], [monitor.CPU_BUCKET_EMERGENCY_FLOOR_KIND])
+        reason = emitted[0]
+        self.assertEqual(reason["priority"], "P1")
+        self.assertEqual(reason["severity"], "high")
+        self.assertEqual(reason["cpuBucket"], 455)
+        self.assertEqual(reason["currentCpuBucket"], 455)
+        self.assertEqual(reason["emergencyFloorBucket"], 455)
+        self.assertEqual(reason["threshold"], 500)
+        self.assertFalse(reason["owner_ping"])
+
+        alert_payload = {
+            "ok": True,
+            "mode": "alert",
+            "alert": True,
+            "reasons": emitted,
+            "rooms": ["shardX/E26S49"],
+        }
+        health = monitor.evaluate_postdeploy_health_gate(
+            {
+                "ok": True,
+                "mode": "summary",
+                "room_summaries": [
+                    {
+                        **runtime_room,
+                        "owned_creeps": 1,
+                        "owned_spawns": 1,
+                        "creeps": 1,
+                        "spawns": 1,
+                        "owner": "owner",
+                    }
+                ],
+            },
+            alert_payload,
+        )
+
+        self.assertFalse(health["ok"])
+        self.assertIn("postdeploy_active_alert", [health_reason["kind"] for health_reason in health["reasons"]])
+        self.assertIn(
+            monitor.CPU_BUCKET_EMERGENCY_FLOOR_KIND,
+            [
+                health_reason.get("source", health_reason).get("kind")
+                for health_reason in health["reasons"]
+                if isinstance(health_reason.get("source", health_reason), dict)
+            ],
+        )
+        self.assertNotIn(
+            monitor.CPU_BUCKET_EMERGENCY_FLOOR_KIND,
+            [health_reason["kind"] for health_reason in health.get("non_blocking_reasons", [])],
+        )
+
+        report = monitor.build_tactical_response_report(alert_payload)
+        self.assertTrue(report["emergency"])
+        self.assertFalse(report["silent"])
+        self.assertEqual(report["severity"], "high")
+        self.assertEqual(report["priority"], "P1")
+        self.assertEqual(report["categories"], [monitor.CPU_BUCKET_EMERGENCY_FLOOR_KIND])
+        self.assertFalse(report["scheduler"]["direct_discord_send"])
+        self.assertNotIn("decide_owner_action", {action["id"] for action in report["next_actions"]})
+        trigger = report["triggers"][0]
+        self.assertEqual(trigger["metadata"]["thresholds"]["P1_emergency_floor"], 500)
+
+    def test_cpu_bucket_emergency_floor_uses_rolling_min_bucket_evidence(self) -> None:
+        compact_cpu_payload = {
+            "used": 20.6,
+            "limit": 70,
+            "bucket": 579,
+            "minCpuBucket": 455,
+            "pressure": "degraded",
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            (runtime_dir / "runtime-summary-console-20260617T170300Z.log").write_text(
+                "#cpu-summary " + json.dumps(compact_cpu_payload) + "\n",
+                encoding="utf-8",
+            )
+            warnings: list[str] = []
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room="E26S49")],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        runtime_room = runtime_rooms["shardX/E26S49"]
+        self.assertEqual(runtime_room["cpuBucket"], 579)
+        self.assertEqual(runtime_room["minCpuBucket"], 455)
+
+        reason = monitor.detect_cpu_bucket_reason(
+            monitor.RoomRef(shard="shardX", room="E26S49"),
+            runtime_room,
+        )
+
+        self.assertIsNotNone(reason)
+        assert reason is not None
+        self.assertEqual(reason["kind"], monitor.CPU_BUCKET_EMERGENCY_FLOOR_KIND)
+        self.assertEqual(reason["cpuBucket"], 455)
+        self.assertEqual(reason["currentCpuBucket"], 579)
+        self.assertEqual(reason["emergencyFloorBucket"], 455)
+        self.assertFalse(reason["owner_ping"])
+
+    def test_cpu_bucket_at_or_above_emergency_floor_does_not_emit_floor_alert(self) -> None:
+        for bucket in (500, 750, 1000):
+            with self.subTest(bucket=bucket):
+                runtime_room = {
+                    "roomName": "E26S49",
+                    monitor.RUNTIME_SUMMARY_CPU_METADATA_KEY: {
+                        "used": 20.6,
+                        "limit": 70,
+                        "bucket": bucket,
+                        "pressure": "degraded" if bucket < 1000 else "normal",
+                    },
+                }
+
+                reason = monitor.detect_cpu_bucket_reason(
+                    monitor.RoomRef(shard="shardX", room="E26S49"),
+                    runtime_room,
+                )
+
+                if bucket < monitor.CPU_BUCKET_LOW_THRESHOLD:
+                    self.assertIsNotNone(reason)
+                    assert reason is not None
+                    self.assertEqual(reason["kind"], monitor.CPU_BUCKET_LOW_KIND)
+                else:
+                    self.assertIsNone(reason)
+                if reason is not None:
+                    self.assertNotEqual(reason["kind"], monitor.CPU_BUCKET_EMERGENCY_FLOOR_KIND)
 
     def test_near_threshold_under_limit_low_bucket_gets_short_recovery_grace(self) -> None:
         snapshot = make_snapshot(
