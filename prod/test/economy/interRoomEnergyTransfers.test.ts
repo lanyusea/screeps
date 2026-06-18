@@ -75,6 +75,92 @@ describe('economy inter-room energy transfers', () => {
     });
   });
 
+  it('routes energy into a storage-starved room from neighboring high-energy rooms below the ratio export threshold', () => {
+    const importerRoom = makeOwnedRoom({
+      roomName: 'E29N55',
+      storageEnergy: 5_221,
+      storageCapacity: 1_000_000
+    });
+    const sourceRoomA = makeOwnedRoom({
+      roomName: 'E29N56',
+      storageEnergy: 301_484,
+      storageCapacity: 1_000_000
+    });
+    const sourceRoomB = makeOwnedRoom({
+      roomName: 'E29N57',
+      storageEnergy: 367_179,
+      storageCapacity: 1_000_000
+    });
+    const sourceSpawnA = makeSpawn('SpawnE29N56', sourceRoomA);
+    const sourceSpawnB = makeSpawn('SpawnE29N57', sourceRoomB);
+    installGame(
+      [importerRoom, sourceRoomA, sourceRoomB],
+      [sourceSpawnA, sourceSpawnB]
+    );
+
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.rooms.E29N55).toMatchObject({
+      mode: 'import',
+      importDemand: 294_779
+    });
+    expect(Memory.economy?.storageBalance?.rooms.E29N56).toMatchObject({
+      mode: 'balanced',
+      exportableEnergy: 0
+    });
+    expect(Memory.economy?.storageBalance?.rooms.E29N57).toMatchObject({
+      mode: 'balanced',
+      exportableEnergy: 0
+    });
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'E29N57', targetRoom: 'E29N55', amount: 267_179, updatedAt: 100 },
+      { sourceRoom: 'E29N56', targetRoom: 'E29N55', amount: 27_600, updatedAt: 100 }
+    ]);
+    expect(Memory.economy?.multiRoomEnergy?.rooms.E29N55).toMatchObject({
+      plannedImportEnergy: 294_779,
+      blockedImportEnergy: 0
+    });
+    expect(Memory.economy?.multiRoomEnergy?.rooms.E29N55?.bottleneck).toBeUndefined();
+    expect(planCrossRoomHauler()?.memory.crossRoomHauler).toMatchObject({
+      homeRoom: 'E29N57',
+      targetRoom: 'E29N55'
+    });
+  });
+
+  it('uses the larger storage support budget when normal exportable energy is only slightly positive', () => {
+    const sourceRoom = makeOwnedRoom({
+      roomName: 'W1N1',
+      storageEnergy: 801_000,
+      storageCapacity: 1_000_000
+    });
+    const targetRoom = makeOwnedRoom({
+      roomName: 'W2N1',
+      storageEnergy: 5_000,
+      storageCapacity: 1_000_000
+    });
+    const sourceSpawn = makeSpawn('Spawn1', sourceRoom);
+    installGame([sourceRoom, targetRoom], [sourceSpawn]);
+
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.rooms.W1N1).toMatchObject({
+      mode: 'export',
+      exportableEnergy: 1_000
+    });
+    expect(Memory.economy?.storageBalance?.rooms.W2N1).toMatchObject({
+      mode: 'import',
+      importDemand: 295_000
+    });
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'W1N1', targetRoom: 'W2N1', amount: 295_000, updatedAt: 100 }
+    ]);
+    expect(Memory.economy?.multiRoomEnergy?.rooms.W2N1).toMatchObject({
+      plannedImportEnergy: 295_000,
+      blockedImportEnergy: 0
+    });
+    expect(Memory.economy?.multiRoomEnergy?.rooms.W2N1?.bottleneck).toBeUndefined();
+  });
+
   it('allows Seasonal inter-room energy imports into owned rooms below RCL3', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', controllerLevel: 3, storageEnergy: 900 });
     const targetRoom = makeOwnedRoom({ roomName: 'W2N1', controllerLevel: 2, storageEnergy: 200 });

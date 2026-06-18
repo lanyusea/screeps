@@ -21,6 +21,7 @@ import { isInterRoomSupportAllowed } from '../runtime/seasonalPolicy';
 export const STORAGE_BALANCE_EXPORT_RATIO = 0.8;
 export const STORAGE_BALANCE_IMPORT_RATIO = 0.3;
 export const STORAGE_BALANCE_REFRESH_INTERVAL = 25;
+export const STORAGE_BALANCE_INTER_ROOM_SUPPORT_RESERVE = 100_000;
 export const POST_CLAIM_SPAWN_CONSTRUCTION_IMPORT_TARGET = 600;
 
 export interface RoomStoredEnergyState {
@@ -397,7 +398,15 @@ export function getRoomEnergyTransferExportLimit(
     return Math.max(exporter.exportableEnergy, getSpawnSupportExportableEnergy(exporter));
   }
 
+  if (hasStorageImportPressure(importer)) {
+    return Math.max(exporter.exportableEnergy, getStorageSupportExportableEnergy(exporter));
+  }
+
   return exporter.exportableEnergy;
+}
+
+function hasStorageImportPressure(state: RoomStoredEnergyState): boolean {
+  return state.importDemand > 0;
 }
 
 function hasSpawnEnergyImportPressure(state: RoomStoredEnergyState): boolean {
@@ -429,6 +438,21 @@ function getSpawnSupportExportableEnergy(state: RoomStoredEnergyState): number {
     state.unmetSpawnEnergyReservation
   );
   return Math.max(0, state.energy - storageImportFloor - localSpawnReserve);
+}
+
+function getStorageSupportExportableEnergy(state: RoomStoredEnergyState): number {
+  if (state.capacity <= 0 || state.importDemand > 0) {
+    return 0;
+  }
+
+  return Math.max(0, state.energy - getStorageSupportReserve(state));
+}
+
+function getStorageSupportReserve(state: RoomStoredEnergyState): number {
+  return Math.min(
+    STORAGE_BALANCE_INTER_ROOM_SUPPORT_RESERVE,
+    Math.ceil(state.capacity * STORAGE_BALANCE_EXPORT_RATIO)
+  );
 }
 
 function getStorageTransferLocalEnergyAudit(
