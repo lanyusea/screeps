@@ -567,6 +567,136 @@ describe('runEconomy', () => {
     });
   });
 
+  it('refreshes multi-room energy routing during noncritical low-bucket recovery', () => {
+    Object.assign(globalThis, {
+      ERR_NO_PATH: -2,
+      FIND_HOSTILE_CREEPS: 101,
+      FIND_HOSTILE_STRUCTURES: 102,
+      FIND_SOURCES: 103,
+      RESOURCE_ENERGY: 'energy'
+    });
+    const gameTime = 2_322_135;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      economy: {
+        multiRoomEnergy: {
+          updatedAt: gameTime - 25,
+          corridor: ['E29N55', 'E29N56', 'E29N57'],
+          rooms: {
+            E29N55: {
+              roomName: 'E29N55',
+              mode: 'import',
+              storedEnergy: 2_174,
+              storageCapacity: 1_000_000,
+              storageRatio: 0.002174,
+              importDemand: 300_000,
+              exportableEnergy: 0,
+              plannedImportEnergy: 0,
+              plannedExportEnergy: 0,
+              localProductionEnergyPerTick: 20,
+              localHarvestCapacityEnergyPerTick: 20,
+              localHarvestCoverageRatio: 1,
+              localConsumptionEnergyPerTick: 15,
+              netLocalEnergyPerTick: 5,
+              spawnEnergyAvailable: 2_174,
+              spawnEnergyCapacity: 2_300,
+              spawnEnergyDeficit: 126,
+              spawnEnergyBufferThreshold: 800,
+              spawnEnergyBufferDeficit: 0,
+              criticalSpawnEnergyDeficit: 0,
+              storageDeficit: 300_000,
+              deficitEnergy: 300_000,
+              surplusEnergy: 0,
+              suppressedImportEnergy: 0,
+              blockedImportEnergy: 300_000,
+              bottleneck: 'no-exporter',
+              updatedAt: gameTime - 25
+            }
+          },
+          transfers: [
+            {
+              targetRoom: 'E29N55',
+              amount: 300_000,
+              status: 'blocked',
+              reason: 'no-exporter',
+              updatedAt: gameTime - 25
+            }
+          ]
+        }
+      }
+    };
+    const homeRoom = makeStorageEconomyRoom({
+      roomName: 'E29N55',
+      storageEnergy: 0,
+      storageCapacity: 1_000_000,
+      energyAvailable: 2_174,
+      energyCapacityAvailable: 2_300
+    });
+    const sourceRoomA = makeStorageEconomyRoom({
+      roomName: 'E29N56',
+      storageEnergy: 303_627,
+      storageCapacity: 1_000_000,
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300
+    });
+    const sourceRoomB = makeStorageEconomyRoom({
+      roomName: 'E29N57',
+      storageEnergy: 334_695,
+      storageCapacity: 1_000_000,
+      energyAvailable: 1_651,
+      energyCapacityAvailable: 1_800
+    });
+    const makeSpawn = (name: string, room: Room): StructureSpawn => ({
+      name,
+      room,
+      my: true,
+      spawning: null,
+      store: makeEnergyStore(300, 300),
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    }) as unknown as StructureSpawn;
+    const homeSpawn = makeSpawn('Spawn1', homeRoom);
+    const sourceSpawnA = makeSpawn('Spawn2', sourceRoomA);
+    const sourceSpawnB = makeSpawn('Spawn3', sourceRoomB);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: gameTime,
+      rooms: {
+        E29N55: homeRoom,
+        E29N56: sourceRoomA,
+        E29N57: sourceRoomB
+      },
+      spawns: {
+        Spawn1: homeSpawn,
+        Spawn2: sourceSpawnA,
+        Spawn3: sourceSpawnB
+      },
+      creeps: {
+        Worker1: { name: 'Worker1', memory: { role: 'worker', colony: 'E29N55' }, room: homeRoom } as Creep,
+        Worker2: { name: 'Worker2', memory: { role: 'worker', colony: 'E29N55' }, room: homeRoom } as Creep,
+        Worker3: { name: 'Worker3', memory: { role: 'worker', colony: 'E29N55' }, room: homeRoom } as Creep
+      },
+      map: {
+        findRoute: jest.fn((_fromRoom: string, targetRoom: string) => [{ exit: 1, room: targetRoom }])
+      } as unknown as GameMap,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(13.5),
+        limit: 70,
+        bucket: 997,
+        tickLimit: 500
+      } as unknown as CPU
+    };
+
+    runEconomy();
+
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'E29N57', targetRoom: 'E29N55', amount: 234_695, updatedAt: gameTime },
+      { sourceRoom: 'E29N56', targetRoom: 'E29N55', amount: 65_305, updatedAt: gameTime }
+    ]);
+    expect(Memory.economy?.multiRoomEnergy?.rooms.E29N55).toMatchObject({
+      plannedImportEnergy: 300_000,
+      blockedImportEnergy: 0
+    });
+    expect(Memory.economy?.multiRoomEnergy?.rooms.E29N55?.bottleneck).toBeUndefined();
+  });
+
   it('keeps local worker floor recovery planning under critical CPU when one counted worker remains', () => {
     const findSources = (globalThis as Record<string, unknown>).FIND_SOURCES;
     const room = {
