@@ -399,9 +399,7 @@ export function getRoomEnergyTransferExportLimit(
   }
 
   if (hasStorageImportPressure(importer)) {
-    return exporter.exportableEnergy > 0
-      ? exporter.exportableEnergy
-      : getStorageSupportExportableEnergy(exporter);
+    return Math.max(exporter.exportableEnergy, getStorageSupportExportableEnergy(exporter));
   }
 
   return exporter.exportableEnergy;

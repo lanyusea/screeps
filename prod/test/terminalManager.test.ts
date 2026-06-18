@@ -83,7 +83,7 @@ describe('terminalManager', () => {
       }
     ]);
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'W1N1', targetRoom: 'W2N1', amount: 10_000, updatedAt: 100 }
+      { sourceRoom: 'W1N1', targetRoom: 'W2N1', amount: 20_000, updatedAt: 100 }
     ]);
   });
 
