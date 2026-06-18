@@ -35266,7 +35266,7 @@ function runWorker(creep) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
-  } else if (shouldPreemptTaskForUrgentRepair(currentTask, selectedTask)) {
+  } else if (shouldPreemptTaskForUrgentRepair(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForSeasonScore(currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
@@ -35888,7 +35888,15 @@ function shouldPreemptRepairTaskForConstructionBacklog(creep, task, selectedTask
   if (task.type !== "repair" || (selectedTask == null ? void 0 : selectedTask.type) !== "build" || isSameTask2(task, selectedTask)) {
     return false;
   }
-  return isRepairTargetPreemptibleForConstructionBacklog(creep, getTaskTarget(task));
+  const repairTarget = getTaskTarget(task);
+  return isRepairTargetPreemptibleForConstructionBacklog(creep, repairTarget) || shouldPreemptProtectedInfrastructureRepairForAssignmentGapConstruction(
+    creep,
+    selectedTask,
+    repairTarget
+  );
+}
+function shouldPreemptProtectedInfrastructureRepairForAssignmentGapConstruction(creep, selectedTask, repairTarget) {
+  return isRepairPreemptionStructure(repairTarget) && isBuildPreemptionCriticalRoadOrContainerRepairTarget(repairTarget) && !hasOtherSameRoomRepairAssignmentForTargetIgnoringCoverage(creep, repairTarget) && getUsedTransferEnergy(creep) > 0 && getActiveWorkParts3(creep) > 0 && !hasOtherSameRoomBuildAssignment(creep) && hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) && !hasVisibleHostileCreeps2(creep.room) && !isControllerDowngradeGuardActive2(creep.room) && hasSafeAssignmentGapRecoveryConstructionEnergy(creep, selectedTask);
 }
 function isProtectedRepairTargetForConstructionBacklog(creep, target) {
   if (!isRepairPreemptionStructure(target) || isWorkerRepairTargetComplete(target)) {
@@ -35936,6 +35944,20 @@ function hasOtherSameRoomRepairAssignmentForTarget(creep, target) {
     }
     const task = (_a2 = worker.memory) == null ? void 0 : _a2.task;
     return (task == null ? void 0 : task.type) === "repair" && String(task.targetId) === targetId && getUsedTransferEnergy(worker) > 0 && getActiveWorkParts3(worker) > 0;
+  });
+}
+function hasOtherSameRoomRepairAssignmentForTargetIgnoringCoverage(creep, target) {
+  const targetId = getObjectId10(target);
+  if (targetId.length === 0) {
+    return false;
+  }
+  return getRoomOwnedCreeps3(creep.room).some((worker) => {
+    var _a2;
+    if (isSameCreep4(worker, creep) || !isProductiveSameRoomWorker2(worker, creep.room)) {
+      return false;
+    }
+    const task = (_a2 = worker.memory) == null ? void 0 : _a2.task;
+    return (task == null ? void 0 : task.type) === "repair" && String(task.targetId) === targetId;
   });
 }
 function getActiveWorkParts3(creep) {
@@ -36178,7 +36200,7 @@ function hasOtherSameRoomBuildAssignment(creep) {
 }
 function isBuildCoverageWorker2(worker) {
   var _a2, _b;
-  return ((_b = (_a2 = worker.memory) == null ? void 0 : _a2.task) == null ? void 0 : _b.type) === "build" && getActiveWorkParts3(worker) > 0;
+  return ((_b = (_a2 = worker.memory) == null ? void 0 : _a2.task) == null ? void 0 : _b.type) === "build" && getActiveWorkParts3(worker) > 0 && getUsedTransferEnergy(worker) > 0;
 }
 function hasRecentFailedBuildCoverage2(worker, siteId) {
   if (!siteId) {
@@ -36804,14 +36826,25 @@ function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, task, 
   }
   return isUrgentEnergySpendingTask(selectedTask) || isDowngradeGuardUpgradeTask(creep, selectedTask);
 }
-function shouldPreemptTaskForUrgentRepair(task, selectedTask) {
+function shouldPreemptTaskForUrgentRepair(creep, task, selectedTask) {
   if (task.type !== "build" && task.type !== "repair" && task.type !== "transfer") {
     return false;
   }
   if (!selectedTask || isSameTask2(task, selectedTask) || !isUrgentRepairTask(selectedTask)) {
     return false;
   }
+  if (shouldKeepAssignmentGapConstructionAheadOfCriticalRoadOrContainerRepair(creep, task, selectedTask)) {
+    return false;
+  }
   return true;
+}
+function shouldKeepAssignmentGapConstructionAheadOfCriticalRoadOrContainerRepair(creep, task, selectedTask) {
+  if (task.type !== "build" || selectedTask.type !== "repair") {
+    return false;
+  }
+  const constructionSite = getTaskTarget(task);
+  const repairTarget = getTaskTarget(selectedTask);
+  return isConstructionSite(constructionSite) && canSpendWorkerEnergyOnAssignmentGapRecoveryConstructionSite(creep, constructionSite) && isRepairPreemptionStructure(repairTarget) && isBuildPreemptionCriticalRoadOrContainerRepairTarget(repairTarget) && !hasOtherSameRoomRepairAssignmentForTargetIgnoringCoverage(creep, repairTarget) && getUsedTransferEnergy(creep) > 0 && getActiveWorkParts3(creep) > 0 && !hasOtherSameRoomBuildAssignment(creep) && hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) && !hasVisibleHostileCreeps2(creep.room) && !isControllerDowngradeGuardActive2(creep.room) && hasSafeAssignmentGapRecoveryConstructionEnergy(creep, task);
 }
 function shouldPreemptEnergyAcquisitionTaskForSeasonScore(task, selectedTask) {
   return isEnergyAcquisitionTask2(task) && (selectedTask == null ? void 0 : selectedTask.type) === "collectScore" && !isSameTask2(task, selectedTask);
