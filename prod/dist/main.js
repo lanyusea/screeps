@@ -53379,7 +53379,7 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
   const shouldRunOptionalGlobalWork = () => shouldRunOptionalCpuWork(getRuntimeCpuBudget(), "economy-global-optional");
   const runOptionalGlobalWork = shouldRunOptionalCpuWork(cpuBudget, "economy-global-optional");
   const creeps = Object.values(Game.creeps);
-  if (runOptionalGlobalWork) {
+  if (!cpuBudget.critical) {
     balanceStorage();
   }
   if (runOptionalGlobalWork && featureGates.terminalEnergyTransfers) {
