@@ -35888,7 +35888,15 @@ function shouldPreemptRepairTaskForConstructionBacklog(creep, task, selectedTask
   if (task.type !== "repair" || (selectedTask == null ? void 0 : selectedTask.type) !== "build" || isSameTask2(task, selectedTask)) {
     return false;
   }
-  return isRepairTargetPreemptibleForConstructionBacklog(creep, getTaskTarget(task));
+  const repairTarget = getTaskTarget(task);
+  return isRepairTargetPreemptibleForConstructionBacklog(creep, repairTarget) || shouldPreemptProtectedInfrastructureRepairForAssignmentGapConstruction(
+    creep,
+    selectedTask,
+    repairTarget
+  );
+}
+function shouldPreemptProtectedInfrastructureRepairForAssignmentGapConstruction(creep, selectedTask, repairTarget) {
+  return isRepairPreemptionStructure(repairTarget) && isBuildPreemptionCriticalRoadOrContainerRepairTarget(repairTarget) && !hasOtherSameRoomRepairAssignmentForTargetIgnoringCoverage(creep, repairTarget) && getUsedTransferEnergy(creep) > 0 && getActiveWorkParts3(creep) > 0 && !hasOtherSameRoomBuildAssignment(creep) && hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) && !hasVisibleHostileCreeps2(creep.room) && !isControllerDowngradeGuardActive2(creep.room) && hasSafeAssignmentGapRecoveryConstructionEnergy(creep, selectedTask);
 }
 function isProtectedRepairTargetForConstructionBacklog(creep, target) {
   if (!isRepairPreemptionStructure(target) || isWorkerRepairTargetComplete(target)) {
@@ -35936,6 +35944,20 @@ function hasOtherSameRoomRepairAssignmentForTarget(creep, target) {
     }
     const task = (_a2 = worker.memory) == null ? void 0 : _a2.task;
     return (task == null ? void 0 : task.type) === "repair" && String(task.targetId) === targetId && getUsedTransferEnergy(worker) > 0 && getActiveWorkParts3(worker) > 0;
+  });
+}
+function hasOtherSameRoomRepairAssignmentForTargetIgnoringCoverage(creep, target) {
+  const targetId = getObjectId10(target);
+  if (targetId.length === 0) {
+    return false;
+  }
+  return getRoomOwnedCreeps3(creep.room).some((worker) => {
+    var _a2;
+    if (isSameCreep4(worker, creep) || !isProductiveSameRoomWorker2(worker, creep.room)) {
+      return false;
+    }
+    const task = (_a2 = worker.memory) == null ? void 0 : _a2.task;
+    return (task == null ? void 0 : task.type) === "repair" && String(task.targetId) === targetId;
   });
 }
 function getActiveWorkParts3(creep) {
@@ -36178,7 +36200,7 @@ function hasOtherSameRoomBuildAssignment(creep) {
 }
 function isBuildCoverageWorker2(worker) {
   var _a2, _b;
-  return ((_b = (_a2 = worker.memory) == null ? void 0 : _a2.task) == null ? void 0 : _b.type) === "build" && getActiveWorkParts3(worker) > 0;
+  return ((_b = (_a2 = worker.memory) == null ? void 0 : _a2.task) == null ? void 0 : _b.type) === "build" && getActiveWorkParts3(worker) > 0 && getUsedTransferEnergy(worker) > 0;
 }
 function hasRecentFailedBuildCoverage2(worker, siteId) {
   if (!siteId) {
