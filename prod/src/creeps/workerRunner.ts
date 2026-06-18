@@ -211,7 +211,7 @@ export function runWorker(creep: Creep): void {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
-  } else if (shouldPreemptTaskForUrgentRepair(currentTask, selectedTask)) {
+  } else if (shouldPreemptTaskForUrgentRepair(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForSeasonScore(currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
@@ -2775,6 +2775,7 @@ function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(
 }
 
 function shouldPreemptTaskForUrgentRepair(
+  creep: Creep,
   task: CreepTaskMemory,
   selectedTask: CreepTaskMemory | null
 ): boolean {
@@ -2786,7 +2787,38 @@ function shouldPreemptTaskForUrgentRepair(
     return false;
   }
 
+  if (shouldKeepAssignmentGapConstructionAheadOfCriticalRoadOrContainerRepair(creep, task, selectedTask)) {
+    return false;
+  }
+
   return true;
+}
+
+function shouldKeepAssignmentGapConstructionAheadOfCriticalRoadOrContainerRepair(
+  creep: Creep,
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory
+): boolean {
+  if (task.type !== 'build' || selectedTask.type !== 'repair') {
+    return false;
+  }
+
+  const constructionSite = getTaskTarget(task);
+  const repairTarget = getTaskTarget(selectedTask);
+  return (
+    isConstructionSite(constructionSite) &&
+    canSpendWorkerEnergyOnAssignmentGapRecoveryConstructionSite(creep, constructionSite) &&
+    isRepairPreemptionStructure(repairTarget) &&
+    isBuildPreemptionCriticalRoadOrContainerRepairTarget(repairTarget) &&
+    !hasOtherSameRoomRepairAssignmentForTargetIgnoringCoverage(creep, repairTarget) &&
+    getUsedTransferEnergy(creep) > 0 &&
+    getActiveWorkParts(creep) > 0 &&
+    !hasOtherSameRoomBuildAssignment(creep) &&
+    hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) &&
+    !hasVisibleHostileCreeps(creep.room) &&
+    !isControllerDowngradeGuardActive(creep.room) &&
+    hasSafeAssignmentGapRecoveryConstructionEnergy(creep, task)
+  );
 }
 
 function shouldPreemptEnergyAcquisitionTaskForSeasonScore(

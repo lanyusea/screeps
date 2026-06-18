@@ -14311,7 +14311,7 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
-  it('preempts retained road repair when construction is selected and no worker carries build energy', () => {
+  it('keeps assignment-gap road construction from ping-ponging back to urgent repair', () => {
     const site = {
       id: 'road-site1',
       my: true,
@@ -14372,7 +14372,7 @@ describe('runWorker', () => {
       })
     } as unknown as Room;
     const build = jest.fn().mockReturnValue(0);
-    const repair = jest.fn();
+    const repair = jest.fn().mockReturnValue(0);
     const creep = {
       name: 'RepairWorker',
       memory: {
@@ -14407,6 +14407,7 @@ describe('runWorker', () => {
     } as unknown as Creep;
     roomCreeps.push(creep, energyWorker);
     const selectedBuildTask = { type: 'build', targetId: 'road-site1' as Id<ConstructionSite> } as const;
+    const selectedRepairTask = { type: 'repair', targetId: 'road-repair1' as Id<Structure> } as const;
     const selectWorkerTask = jest.spyOn(workerTasks, 'selectWorkerTask').mockReturnValue(selectedBuildTask);
     const selectWorkerEnergyCriticalTask = jest
       .spyOn(workerTaskPolicy, 'selectWorkerEnergyCriticalTask')
@@ -14444,6 +14445,67 @@ describe('runWorker', () => {
       });
       expect(build).toHaveBeenCalledWith(site);
       expect(repair).not.toHaveBeenCalled();
+
+      selectWorkerTask.mockReturnValue(selectedRepairTask);
+      build.mockClear();
+      repair.mockClear();
+      (globalThis as unknown as { Game: Partial<Game> }).Game.time = 2_338_590;
+
+      runWorker(creep);
+
+      expect(creep.memory.task).toEqual({ type: 'build', targetId: 'road-site1' });
+      expect(creep.memory.workerDispatchDiagnostic).toMatchObject({
+        currentTask: 'build',
+        currentTargetId: 'road-site1',
+        baseSelectedTask: 'repair',
+        baseSelectedTargetId: 'road-repair1',
+        selectedTask: 'repair',
+        selectedTargetId: 'road-repair1',
+        assignedTask: 'build',
+        assignedTargetId: 'road-site1'
+      });
+      expect(build).toHaveBeenCalledWith(site);
+      expect(repair).not.toHaveBeenCalled();
+
+      const otherBuilder = {
+        name: 'OtherBuilder',
+        memory: {
+          role: 'worker',
+          colony: 'E29N56',
+          task: selectedBuildTask
+        },
+        getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === 'work' ? 1 : 0)),
+        store: {
+          getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0)),
+          getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+        },
+        room
+      } as unknown as Creep;
+      roomCreeps.push(otherBuilder);
+      (globalThis as unknown as { Game: Partial<Game> }).Game.creeps = {
+        RepairWorker: creep,
+        EnergyWorker: energyWorker,
+        OtherBuilder: otherBuilder
+      };
+      (globalThis as unknown as { Game: Partial<Game> }).Game.time = 2_338_591;
+      build.mockClear();
+      repair.mockClear();
+
+      runWorker(creep);
+
+      expect(creep.memory.task).toEqual({ type: 'repair', targetId: 'road-repair1' });
+      expect(creep.memory.workerDispatchDiagnostic).toMatchObject({
+        currentTask: 'build',
+        currentTargetId: 'road-site1',
+        baseSelectedTask: 'repair',
+        baseSelectedTargetId: 'road-repair1',
+        selectedTask: 'repair',
+        selectedTargetId: 'road-repair1',
+        assignedTask: 'repair',
+        assignedTargetId: 'road-repair1'
+      });
+      expect(repair).toHaveBeenCalledWith(damagedRoad);
+      expect(build).not.toHaveBeenCalled();
     } finally {
       selectWorkerTask.mockRestore();
       selectWorkerEnergyCriticalTask.mockRestore();
