@@ -719,8 +719,12 @@ function selectWorkerAssignmentGapRecoveryTask(
   };
   if (
     !canExecuteTask(creep, recoveryTask) ||
-    isCriticalSpawnRefillTask(currentTask) ||
-    isCriticalSpawnRefillTask(selectionContext.selectedTask) ||
+    shouldBlockAssignmentGapRecoveryForCriticalSpawnRefill(
+      creep,
+      currentTask,
+      selectionContext.selectedTask,
+      recoveryTask
+    ) ||
     !shouldAllowAssignmentGapRecoveryBuildWorker(creep, currentTask, selectionContext.selectedTask, constructionSite) ||
     !hasSafeAssignmentGapRecoveryConstructionEnergy(creep, recoveryTask)
   ) {
@@ -728,6 +732,23 @@ function selectWorkerAssignmentGapRecoveryTask(
   }
 
   return recoveryTask;
+}
+
+function shouldBlockAssignmentGapRecoveryForCriticalSpawnRefill(
+  creep: Creep,
+  currentTask: CreepTaskMemory | null | undefined,
+  selectedTask: CreepTaskMemory | null,
+  recoveryTask: Extract<CreepTaskMemory, { type: 'build' }>
+): boolean {
+  if (!isCriticalSpawnRefillTask(currentTask) && !isCriticalSpawnRefillTask(selectedTask)) {
+    return false;
+  }
+
+  return !shouldDeferSpawnReservationRefillForProductiveWork(
+    creep,
+    recoveryTask,
+    selectSpawnEnergyReservationRefillTarget(creep)
+  );
 }
 
 function shouldAllowLowLoadAssignmentGapRepairRecovery(
@@ -3031,9 +3052,17 @@ function shouldPreemptTransferTaskForConstructionBacklog(
   }
 
   const currentTarget = getTaskTarget(task);
+  const canDeferCriticalSpawnRefill =
+    isCriticalSpawnRefillTask(task) &&
+    shouldDeferSpawnReservationRefillForProductiveWork(
+      creep,
+      selectedTask,
+      selectSpawnEnergyReservationRefillTarget(creep)
+    );
   if (
     !isNonCriticalSpawnExtensionTransferTarget(currentTarget) &&
-    !isNonCriticalTowerRefillTransferTarget(creep, currentTarget)
+    !isNonCriticalTowerRefillTransferTarget(creep, currentTarget) &&
+    !canDeferCriticalSpawnRefill
   ) {
     return false;
   }
@@ -3044,6 +3073,7 @@ function shouldPreemptTransferTaskForConstructionBacklog(
     !hasVisibleHostileCreeps(creep.room);
   if (
     !canFollowSelectorNonCriticalSpawnExtensionYield &&
+    !canDeferCriticalSpawnRefill &&
     !shouldDeferSpawnReservationRefillForProductiveWork(
       creep,
       selectedTask,
