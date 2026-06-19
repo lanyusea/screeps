@@ -507,6 +507,53 @@ describe('runtime telemetry summaries', () => {
     });
   });
 
+  it('emits low-bucket recovery deltas in compact CPU evidence', () => {
+    const firstColony = makeColony({ time: 4 });
+    (Game as Partial<Game>).cpu = {
+      getUsed: jest.fn().mockReturnValue(13.3),
+      limit: 70,
+      bucket: 1_007,
+      tickLimit: 500
+    } as unknown as CPU;
+    emitRuntimeSummary([firstColony], []);
+    logSpy.mockClear();
+
+    const secondColony = makeColony({ time: 5 });
+    (Game as Partial<Game>).cpu = {
+      getUsed: jest.fn().mockReturnValue(17.558327400009148),
+      limit: 70,
+      bucket: 1_004,
+      tickLimit: 500
+    } as unknown as CPU;
+
+    emitRuntimeSummary([secondColony], []);
+
+    const cpuSummaryMessages = logSpy.mock.calls
+      .map(([message]) => message)
+      .filter(
+        (message): message is string =>
+          typeof message === 'string' && message.startsWith(RUNTIME_CPU_SUMMARY_PREFIX)
+      );
+    expect(cpuSummaryMessages).toHaveLength(1);
+    const payload = JSON.parse(cpuSummaryMessages[0].slice(RUNTIME_CPU_SUMMARY_PREFIX.length)) as Record<
+      string,
+      unknown
+    >;
+    expect(payload).toMatchObject({
+      tick: 5,
+      used: 17.558327400009148,
+      limit: 70,
+      tickLimit: 500,
+      bucket: 1_004,
+      pressure: 'degraded',
+      reasons: ['lowBucketRecovery'],
+      bucketDelta: -3,
+      bucketDeltaTicks: 1,
+      bucketDeltaPerTick: -3,
+      projectedBucket: 1_056.442
+    });
+  });
+
   it('emits compact CPU alerts without a full room summary under degraded cadence', () => {
     const colony = makeColony({ time: 1 });
     (Game as Partial<Game>).cpu = {

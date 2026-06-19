@@ -456,6 +456,58 @@ describe('runtime CPU budget policy', () => {
     expect(getUsed).not.toHaveBeenCalled();
   });
 
+  it('reports degraded bucket recovery delta and projected post-tick bucket', () => {
+    buildRuntimeCpuTelemetrySummary({
+      tick: 2387454,
+      used: 13.3,
+      limit: 70,
+      bucket: 1_007,
+      tickLimit: 500
+    });
+
+    const summary = buildRuntimeCpuTelemetrySummary({
+      tick: 2387455,
+      used: 17.558327400009148,
+      limit: 70,
+      bucket: 1_004,
+      tickLimit: 500
+    });
+
+    expect(summary).toMatchObject({
+      pressure: 'degraded',
+      reasons: ['lowBucketRecovery'],
+      bucketDelta: -3,
+      bucketDeltaTicks: 1,
+      bucketDeltaPerTick: -3,
+      projectedBucket: 1_056.442
+    });
+  });
+
+  it('keeps healthy CPU telemetry compact without recovery-only fields', () => {
+    buildRuntimeCpuTelemetrySummary({
+      tick: 40,
+      used: 12,
+      limit: 70,
+      bucket: 9_000,
+      tickLimit: 500
+    });
+
+    const summary = buildRuntimeCpuTelemetrySummary({
+      tick: 41,
+      used: 12,
+      limit: 70,
+      bucket: 9_050,
+      tickLimit: 500
+    });
+
+    expect(summary).toMatchObject({
+      pressure: 'normal',
+      bucket: 9_050
+    });
+    expect(summary).not.toHaveProperty('bucketDelta');
+    expect(summary).not.toHaveProperty('projectedBucket');
+  });
+
   it('alerts on repeated empty bucket and sustained used-over-limit samples', () => {
     buildRuntimeCpuTelemetrySummary({
       tick: 30,
@@ -506,5 +558,6 @@ describe('runtime CPU budget policy', () => {
       overLimitTicks: 1,
       alerts: ['lowBucket']
     });
+    expect(summary).not.toHaveProperty('bucketDelta');
   });
 });

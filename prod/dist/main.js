@@ -964,6 +964,7 @@ var LOW_CPU_BUCKET_THRESHOLD = 1e3;
 var CRITICAL_CPU_BUCKET_THRESHOLD = 100;
 var DEGRADED_OPTIONAL_WORK_INTERVAL = 5;
 var DEGRADED_ROOM_OPTIONAL_WORK_INTERVAL = 3;
+var CPU_BUCKET_MAX = 1e4;
 var CPU_BUCKET_RECOVERY_HEADROOM_MULTIPLIER = 12;
 var REPEATED_BUCKET_EMPTY_TICKS = 2;
 var SUSTAINED_OVER_LIMIT_TICKS = 2;
@@ -1030,6 +1031,7 @@ function buildRuntimeCpuTelemetrySummary(sample = readRuntimeCpuSample()) {
   const budget = buildRuntimeCpuBudget(sample);
   const state = updateRuntimeCpuTelemetryState(sample);
   const alerts = buildRuntimeCpuAlerts(sample, state);
+  const projectedBucket = budget.degraded ? getProjectedBucketAfterCurrentTick(sample) : void 0;
   return {
     tick: sample.tick,
     ...sample.used !== void 0 ? { used: sample.used } : {},
@@ -1041,7 +1043,11 @@ function buildRuntimeCpuTelemetrySummary(sample = readRuntimeCpuSample()) {
     ...alerts.length > 0 ? { alerts } : {},
     ...state.lowBucketTicks > 0 ? { lowBucketTicks: state.lowBucketTicks } : {},
     ...state.bucketEmptyTicks > 0 ? { bucketEmptyTicks: state.bucketEmptyTicks } : {},
-    ...state.overLimitTicks > 0 ? { overLimitTicks: state.overLimitTicks } : {}
+    ...state.overLimitTicks > 0 ? { overLimitTicks: state.overLimitTicks } : {},
+    ...budget.degraded && state.bucketDelta !== void 0 ? { bucketDelta: state.bucketDelta } : {},
+    ...budget.degraded && state.bucketDeltaTicks !== void 0 ? { bucketDeltaTicks: state.bucketDeltaTicks } : {},
+    ...budget.degraded && state.bucketDeltaPerTick !== void 0 ? { bucketDeltaPerTick: state.bucketDeltaPerTick } : {},
+    ...projectedBucket !== void 0 ? { projectedBucket } : {}
   };
 }
 function shouldRunOptionalCpuWork(budget, key, interval = DEGRADED_OPTIONAL_WORK_INTERVAL) {
@@ -1109,6 +1115,14 @@ function getProjectedPostTickBucket(sample) {
   }
   return sample.bucket - Math.max(0, sample.used - sample.limit);
 }
+function getProjectedBucketAfterCurrentTick(sample) {
+  if (sample.bucket === void 0 || sample.used === void 0 || sample.limit === void 0 || sample.limit <= 0) {
+    return void 0;
+  }
+  return roundCpuTelemetryNumber(
+    Math.min(CPU_BUCKET_MAX, Math.max(0, sample.bucket + sample.limit - sample.used))
+  );
+}
 function hasLowBucketRecoveryPressure(sample) {
   if (sample.bucket === void 0 || sample.bucket < LOW_CPU_BUCKET_THRESHOLD) {
     return false;
@@ -1135,6 +1149,7 @@ function getConstructionRecoveryEntryHeadroom(limit) {
 }
 function updateRuntimeCpuTelemetryState(sample) {
   resetRuntimeCpuTelemetryStateForTick(sample.tick);
+  updateRuntimeCpuBucketDelta(sample);
   const lowBucket = sample.bucket !== void 0 && sample.bucket < LOW_CPU_BUCKET_THRESHOLD;
   const bucketEmpty = sample.bucket !== void 0 && sample.bucket <= 0;
   const overLimit = sample.used !== void 0 && sample.limit !== void 0 && sample.limit > 0 && sample.used > sample.limit;
@@ -1142,6 +1157,25 @@ function updateRuntimeCpuTelemetryState(sample) {
   cpuTelemetryState.bucketEmptyTicks = bucketEmpty ? cpuTelemetryState.bucketEmptyTicks + 1 : 0;
   cpuTelemetryState.overLimitTicks = overLimit ? cpuTelemetryState.overLimitTicks + 1 : 0;
   return cpuTelemetryState;
+}
+function updateRuntimeCpuBucketDelta(sample) {
+  const previousBucket = cpuTelemetryState.lastBucket;
+  const previousBucketTick = cpuTelemetryState.lastBucketTick;
+  clearRuntimeCpuBucketDelta();
+  if (sample.bucket === void 0) {
+    delete cpuTelemetryState.lastBucket;
+    delete cpuTelemetryState.lastBucketTick;
+    return;
+  }
+  if (previousBucket !== void 0 && previousBucketTick !== void 0 && sample.tick > previousBucketTick) {
+    const deltaTicks = sample.tick - previousBucketTick;
+    const delta = sample.bucket - previousBucket;
+    cpuTelemetryState.bucketDelta = roundCpuTelemetryNumber(delta);
+    cpuTelemetryState.bucketDeltaTicks = deltaTicks;
+    cpuTelemetryState.bucketDeltaPerTick = roundCpuTelemetryNumber(delta / deltaTicks);
+  }
+  cpuTelemetryState.lastBucket = sample.bucket;
+  cpuTelemetryState.lastBucketTick = sample.tick;
 }
 function resetRuntimeCpuTelemetryStateForTick(tick) {
   const lastTick = cpuTelemetryState.lastTick;
@@ -1157,6 +1191,14 @@ function clearRuntimeCpuTelemetryCounters() {
   cpuTelemetryState.lowBucketTicks = 0;
   cpuTelemetryState.bucketEmptyTicks = 0;
   cpuTelemetryState.overLimitTicks = 0;
+  clearRuntimeCpuBucketDelta();
+  delete cpuTelemetryState.lastBucket;
+  delete cpuTelemetryState.lastBucketTick;
+}
+function clearRuntimeCpuBucketDelta() {
+  delete cpuTelemetryState.bucketDelta;
+  delete cpuTelemetryState.bucketDeltaTicks;
+  delete cpuTelemetryState.bucketDeltaPerTick;
 }
 function buildRuntimeCpuAlerts(sample, state) {
   const alerts = [];
@@ -1196,6 +1238,9 @@ function readCpuUsed(cpu) {
   } catch {
     return void 0;
   }
+}
+function roundCpuTelemetryNumber(value) {
+  return Math.round(value * 1e3) / 1e3;
 }
 function optionalFiniteNumber(key, value) {
   return typeof value === "number" && Number.isFinite(value) ? { [key]: value } : {};
@@ -45665,6 +45710,7 @@ function buildCpuSummary() {
 }
 function toRuntimeCpuSummary(summary) {
   return {
+    ...summary.pressure !== "normal" ? { tick: summary.tick } : {},
     ...summary.used !== void 0 ? { used: summary.used } : {},
     ...summary.limit !== void 0 ? { limit: summary.limit } : {},
     ...summary.tickLimit !== void 0 ? { tickLimit: summary.tickLimit } : {},
@@ -45674,7 +45720,11 @@ function toRuntimeCpuSummary(summary) {
     ...summary.reasons ? { reasons: summary.reasons } : {},
     ...summary.lowBucketTicks !== void 0 ? { lowBucketTicks: summary.lowBucketTicks } : {},
     ...summary.bucketEmptyTicks !== void 0 ? { bucketEmptyTicks: summary.bucketEmptyTicks } : {},
-    ...summary.overLimitTicks !== void 0 ? { overLimitTicks: summary.overLimitTicks } : {}
+    ...summary.overLimitTicks !== void 0 ? { overLimitTicks: summary.overLimitTicks } : {},
+    ...summary.bucketDelta !== void 0 ? { bucketDelta: summary.bucketDelta } : {},
+    ...summary.bucketDeltaTicks !== void 0 ? { bucketDeltaTicks: summary.bucketDeltaTicks } : {},
+    ...summary.bucketDeltaPerTick !== void 0 ? { bucketDeltaPerTick: summary.bucketDeltaPerTick } : {},
+    ...summary.projectedBucket !== void 0 ? { projectedBucket: summary.projectedBucket } : {}
   };
 }
 function emitRuntimeCpuSummary(cpu, tick) {
