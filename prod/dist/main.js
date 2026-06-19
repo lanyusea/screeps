@@ -35569,10 +35569,21 @@ function selectWorkerAssignmentGapRecoveryTask(creep, currentTask, selectionCont
     type: "build",
     targetId: constructionSite.id
   };
-  if (!canExecuteTask(creep, recoveryTask) || isCriticalSpawnRefillTask(currentTask) || isCriticalSpawnRefillTask(selectionContext.selectedTask) || !shouldAllowAssignmentGapRecoveryBuildWorker(creep, currentTask, selectionContext.selectedTask, constructionSite) || !hasSafeAssignmentGapRecoveryConstructionEnergy(creep, recoveryTask)) {
+  if (!canExecuteTask(creep, recoveryTask) || shouldBlockAssignmentGapRecoveryForCriticalSpawnRefill(
+    creep,
+    currentTask,
+    selectionContext.selectedTask,
+    recoveryTask
+  ) || !shouldAllowAssignmentGapRecoveryBuildWorker(creep, currentTask, selectionContext.selectedTask, constructionSite) || !hasSafeAssignmentGapRecoveryConstructionEnergy(creep, recoveryTask)) {
     return null;
   }
   return recoveryTask;
+}
+function shouldBlockAssignmentGapRecoveryForCriticalSpawnRefill(creep, currentTask, selectedTask, recoveryTask) {
+  if (!isCriticalSpawnRefillTask(currentTask) && !isCriticalSpawnRefillTask(selectedTask)) {
+    return false;
+  }
+  return !shouldDeferSpawnReservationRefillForProductiveWork(creep, recoveryTask);
 }
 function shouldAllowLowLoadAssignmentGapRepairRecovery(creep, currentTask, selectedTask) {
   return !hasOtherSameRoomBuildAssignment(creep) && ((currentTask == null ? void 0 : currentTask.type) === "build" || isWorkerAssignmentGapRecoveryRepairTask(creep, currentTask)) && isWorkerAssignmentGapRecoveryRepairTask(creep, selectedTask);
@@ -36954,11 +36965,16 @@ function shouldPreemptTransferTaskForConstructionBacklog(creep, task, selectedTa
     return false;
   }
   const currentTarget = getTaskTarget(task);
-  if (!isNonCriticalSpawnExtensionTransferTarget(currentTarget) && !isNonCriticalTowerRefillTransferTarget(creep, currentTarget)) {
+  const canDeferCriticalSpawnRefill = isCriticalSpawnRefillTask(task) && shouldDeferSpawnReservationRefillForProductiveWork(
+    creep,
+    selectedTask,
+    selectSpawnEnergyReservationRefillTarget(creep)
+  );
+  if (!isNonCriticalSpawnExtensionTransferTarget(currentTarget) && !isNonCriticalTowerRefillTransferTarget(creep, currentTarget) && !canDeferCriticalSpawnRefill) {
     return false;
   }
   const canFollowSelectorNonCriticalSpawnExtensionYield = isNonCriticalSpawnExtensionTransferTarget(currentTarget) && shouldRunConstructionCpuWork(getRuntimeCpuBudget()) && !hasVisibleHostileCreeps2(creep.room);
-  if (!canFollowSelectorNonCriticalSpawnExtensionYield && !shouldDeferSpawnReservationRefillForProductiveWork(
+  if (!canFollowSelectorNonCriticalSpawnExtensionYield && !canDeferCriticalSpawnRefill && !shouldDeferSpawnReservationRefillForProductiveWork(
     creep,
     selectedTask,
     selectSpawnEnergyReservationRefillTarget(creep)
