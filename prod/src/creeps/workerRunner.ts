@@ -744,7 +744,11 @@ function shouldBlockAssignmentGapRecoveryForCriticalSpawnRefill(
     return false;
   }
 
-  return !shouldDeferSpawnReservationRefillForProductiveWork(creep, recoveryTask);
+  return !shouldDeferSpawnReservationRefillForProductiveWork(
+    creep,
+    recoveryTask,
+    selectSpawnEnergyReservationRefillTarget(creep)
+  );
 }
 
 function shouldAllowLowLoadAssignmentGapRepairRecovery(

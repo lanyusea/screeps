@@ -35583,7 +35583,11 @@ function shouldBlockAssignmentGapRecoveryForCriticalSpawnRefill(creep, currentTa
   if (!isCriticalSpawnRefillTask(currentTask) && !isCriticalSpawnRefillTask(selectedTask)) {
     return false;
   }
-  return !shouldDeferSpawnReservationRefillForProductiveWork(creep, recoveryTask);
+  return !shouldDeferSpawnReservationRefillForProductiveWork(
+    creep,
+    recoveryTask,
+    selectSpawnEnergyReservationRefillTarget(creep)
+  );
 }
 function shouldAllowLowLoadAssignmentGapRepairRecovery(creep, currentTask, selectedTask) {
   return !hasOtherSameRoomBuildAssignment(creep) && ((currentTask == null ? void 0 : currentTask.type) === "build" || isWorkerAssignmentGapRecoveryRepairTask(creep, currentTask)) && isWorkerAssignmentGapRecoveryRepairTask(creep, selectedTask);
