@@ -1010,6 +1010,7 @@ interface RuntimeRefillTransferEvent {
 }
 
 interface RuntimeCpuSummary {
+  tick?: number;
   used?: number;
   limit?: number;
   tickLimit?: number;
@@ -1020,6 +1021,10 @@ interface RuntimeCpuSummary {
   lowBucketTicks?: number;
   bucketEmptyTicks?: number;
   overLimitTicks?: number;
+  bucketDelta?: number;
+  bucketDeltaTicks?: number;
+  bucketDeltaPerTick?: number;
+  projectedBucket?: number;
 }
 
 interface RuntimeCpuSummaryEmissionState {
@@ -5005,6 +5010,7 @@ function buildCpuSummary(): { cpu?: RuntimeCpuSummary } {
 
 function toRuntimeCpuSummary(summary: RuntimeCpuTelemetrySummary): RuntimeCpuSummary {
   return {
+    ...(summary.pressure !== 'normal' ? { tick: summary.tick } : {}),
     ...(summary.used !== undefined ? { used: summary.used } : {}),
     ...(summary.limit !== undefined ? { limit: summary.limit } : {}),
     ...(summary.tickLimit !== undefined ? { tickLimit: summary.tickLimit } : {}),
@@ -5014,7 +5020,11 @@ function toRuntimeCpuSummary(summary: RuntimeCpuTelemetrySummary): RuntimeCpuSum
     ...(summary.reasons ? { reasons: summary.reasons } : {}),
     ...(summary.lowBucketTicks !== undefined ? { lowBucketTicks: summary.lowBucketTicks } : {}),
     ...(summary.bucketEmptyTicks !== undefined ? { bucketEmptyTicks: summary.bucketEmptyTicks } : {}),
-    ...(summary.overLimitTicks !== undefined ? { overLimitTicks: summary.overLimitTicks } : {})
+    ...(summary.overLimitTicks !== undefined ? { overLimitTicks: summary.overLimitTicks } : {}),
+    ...(summary.bucketDelta !== undefined ? { bucketDelta: summary.bucketDelta } : {}),
+    ...(summary.bucketDeltaTicks !== undefined ? { bucketDeltaTicks: summary.bucketDeltaTicks } : {}),
+    ...(summary.bucketDeltaPerTick !== undefined ? { bucketDeltaPerTick: summary.bucketDeltaPerTick } : {}),
+    ...(summary.projectedBucket !== undefined ? { projectedBucket: summary.projectedBucket } : {})
   };
 }
 

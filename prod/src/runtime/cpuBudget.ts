@@ -35,6 +35,10 @@ export interface RuntimeCpuTelemetrySummary extends RuntimeCpuSample {
   lowBucketTicks?: number;
   bucketEmptyTicks?: number;
   overLimitTicks?: number;
+  bucketDelta?: number;
+  bucketDeltaTicks?: number;
+  bucketDeltaPerTick?: number;
+  projectedBucket?: number;
 }
 
 interface RuntimeGameLike {
@@ -49,9 +53,14 @@ interface RuntimeGameLike {
 
 interface RuntimeCpuTelemetryState {
   lastTick?: number;
+  lastBucket?: number;
+  lastBucketTick?: number;
   lowBucketTicks: number;
   bucketEmptyTicks: number;
   overLimitTicks: number;
+  bucketDelta?: number;
+  bucketDeltaTicks?: number;
+  bucketDeltaPerTick?: number;
 }
 
 export const LOW_CPU_ACCOUNT_LIMIT = 20;
@@ -59,6 +68,7 @@ export const LOW_CPU_BUCKET_THRESHOLD = 1_000;
 export const CRITICAL_CPU_BUCKET_THRESHOLD = 100;
 export const DEGRADED_OPTIONAL_WORK_INTERVAL = 5;
 export const DEGRADED_ROOM_OPTIONAL_WORK_INTERVAL = 3;
+const CPU_BUCKET_MAX = 10_000;
 const CPU_BUCKET_RECOVERY_HEADROOM_MULTIPLIER = 12;
 const REPEATED_BUCKET_EMPTY_TICKS = 2;
 const SUSTAINED_OVER_LIMIT_TICKS = 2;
@@ -153,6 +163,7 @@ export function buildRuntimeCpuTelemetrySummary(
   const budget = buildRuntimeCpuBudget(sample);
   const state = updateRuntimeCpuTelemetryState(sample);
   const alerts = buildRuntimeCpuAlerts(sample, state);
+  const projectedBucket = budget.degraded ? getProjectedBucketAfterCurrentTick(sample) : undefined;
 
   return {
     tick: sample.tick,
@@ -165,7 +176,13 @@ export function buildRuntimeCpuTelemetrySummary(
     ...(alerts.length > 0 ? { alerts } : {}),
     ...(state.lowBucketTicks > 0 ? { lowBucketTicks: state.lowBucketTicks } : {}),
     ...(state.bucketEmptyTicks > 0 ? { bucketEmptyTicks: state.bucketEmptyTicks } : {}),
-    ...(state.overLimitTicks > 0 ? { overLimitTicks: state.overLimitTicks } : {})
+    ...(state.overLimitTicks > 0 ? { overLimitTicks: state.overLimitTicks } : {}),
+    ...(budget.degraded && state.bucketDelta !== undefined ? { bucketDelta: state.bucketDelta } : {}),
+    ...(budget.degraded && state.bucketDeltaTicks !== undefined ? { bucketDeltaTicks: state.bucketDeltaTicks } : {}),
+    ...(budget.degraded && state.bucketDeltaPerTick !== undefined
+      ? { bucketDeltaPerTick: state.bucketDeltaPerTick }
+      : {}),
+    ...(projectedBucket !== undefined ? { projectedBucket } : {})
   };
 }
 
@@ -285,6 +302,21 @@ function getProjectedPostTickBucket(sample: RuntimeCpuSample): number | undefine
   return sample.bucket - Math.max(0, sample.used - sample.limit);
 }
 
+function getProjectedBucketAfterCurrentTick(sample: RuntimeCpuSample): number | undefined {
+  if (
+    sample.bucket === undefined ||
+    sample.used === undefined ||
+    sample.limit === undefined ||
+    sample.limit <= 0
+  ) {
+    return undefined;
+  }
+
+  return roundCpuTelemetryNumber(
+    Math.min(CPU_BUCKET_MAX, Math.max(0, sample.bucket + sample.limit - sample.used))
+  );
+}
+
 function hasLowBucketRecoveryPressure(sample: RuntimeCpuSample): boolean {
   if (sample.bucket === undefined || sample.bucket < LOW_CPU_BUCKET_THRESHOLD) {
     return false;
@@ -323,6 +355,7 @@ function getConstructionRecoveryEntryHeadroom(limit: number | undefined): number
 
 function updateRuntimeCpuTelemetryState(sample: RuntimeCpuSample): RuntimeCpuTelemetryState {
   resetRuntimeCpuTelemetryStateForTick(sample.tick);
+  updateRuntimeCpuBucketDelta(sample);
 
   const lowBucket = sample.bucket !== undefined && sample.bucket < LOW_CPU_BUCKET_THRESHOLD;
   const bucketEmpty = sample.bucket !== undefined && sample.bucket <= 0;
@@ -336,6 +369,33 @@ function updateRuntimeCpuTelemetryState(sample: RuntimeCpuSample): RuntimeCpuTel
   cpuTelemetryState.bucketEmptyTicks = bucketEmpty ? cpuTelemetryState.bucketEmptyTicks + 1 : 0;
   cpuTelemetryState.overLimitTicks = overLimit ? cpuTelemetryState.overLimitTicks + 1 : 0;
   return cpuTelemetryState;
+}
+
+function updateRuntimeCpuBucketDelta(sample: RuntimeCpuSample): void {
+  const previousBucket = cpuTelemetryState.lastBucket;
+  const previousBucketTick = cpuTelemetryState.lastBucketTick;
+  clearRuntimeCpuBucketDelta();
+
+  if (sample.bucket === undefined) {
+    delete cpuTelemetryState.lastBucket;
+    delete cpuTelemetryState.lastBucketTick;
+    return;
+  }
+
+  if (
+    previousBucket !== undefined &&
+    previousBucketTick !== undefined &&
+    sample.tick > previousBucketTick
+  ) {
+    const deltaTicks = sample.tick - previousBucketTick;
+    const delta = sample.bucket - previousBucket;
+    cpuTelemetryState.bucketDelta = roundCpuTelemetryNumber(delta);
+    cpuTelemetryState.bucketDeltaTicks = deltaTicks;
+    cpuTelemetryState.bucketDeltaPerTick = roundCpuTelemetryNumber(delta / deltaTicks);
+  }
+
+  cpuTelemetryState.lastBucket = sample.bucket;
+  cpuTelemetryState.lastBucketTick = sample.tick;
 }
 
 function resetRuntimeCpuTelemetryStateForTick(tick: number): void {
@@ -355,6 +415,15 @@ function clearRuntimeCpuTelemetryCounters(): void {
   cpuTelemetryState.lowBucketTicks = 0;
   cpuTelemetryState.bucketEmptyTicks = 0;
   cpuTelemetryState.overLimitTicks = 0;
+  clearRuntimeCpuBucketDelta();
+  delete cpuTelemetryState.lastBucket;
+  delete cpuTelemetryState.lastBucketTick;
+}
+
+function clearRuntimeCpuBucketDelta(): void {
+  delete cpuTelemetryState.bucketDelta;
+  delete cpuTelemetryState.bucketDeltaTicks;
+  delete cpuTelemetryState.bucketDeltaPerTick;
 }
 
 function buildRuntimeCpuAlerts(
@@ -406,6 +475,10 @@ function readCpuUsed(cpu: RuntimeGameLike['cpu']): number | undefined {
   } catch {
     return undefined;
   }
+}
+
+function roundCpuTelemetryNumber(value: number): number {
+  return Math.round(value * 1_000) / 1_000;
 }
 
 function optionalFiniteNumber<K extends keyof RuntimeCpuSample>(
