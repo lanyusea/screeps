@@ -35603,11 +35603,19 @@ function selectWorkerAssignmentGapRecoveryTask(creep, currentTask, selectionCont
   }
   const hasStoredConstructionRecoveryEnergy = hasRecoverableStoredEnergyForAssignmentGapRecoveryConstruction(creep);
   const hasMinimumWorkerCoverage = hasMinimumProductiveWorkerCoverageForSpawnReservationYield(creep) || hasStoredConstructionRecoveryEnergy && ((currentTask == null ? void 0 : currentTask.type) === "upgrade" || ((_a2 = selectionContext.selectedTask) == null ? void 0 : _a2.type) === "upgrade" || hasUncoveredStoredEnergyAssignmentGapRecovery(creep));
-  if (getUsedTransferEnergy(creep) <= 0 || hasLowWorkerEnergyLoad(creep) && !shouldAllowLowLoadAssignmentGapRepairRecovery(creep, currentTask, selectionContext.selectedTask) || getActiveWorkParts3(creep) <= 0 || !hasMinimumWorkerCoverage || hasVisibleHostileCreeps2(creep.room) || currentTask && isDedicatedSourceContainerHarvestTask(creep, currentTask)) {
+  if (getUsedTransferEnergy(creep) <= 0 || getActiveWorkParts3(creep) <= 0 || !hasMinimumWorkerCoverage || hasVisibleHostileCreeps2(creep.room) || currentTask && isDedicatedSourceContainerHarvestTask(creep, currentTask)) {
     return null;
   }
   const constructionSite = selectWorkerAssignmentGapRecoveryConstructionSite(creep);
   if (!constructionSite) {
+    return null;
+  }
+  if (hasLowWorkerEnergyLoad(creep) && !shouldAllowLowLoadAssignmentGapRecovery(
+    creep,
+    currentTask,
+    selectionContext.selectedTask,
+    constructionSite
+  )) {
     return null;
   }
   const recoveryTask = {
@@ -35634,8 +35642,14 @@ function shouldBlockAssignmentGapRecoveryForCriticalSpawnRefill(creep, currentTa
     selectSpawnEnergyReservationRefillTarget(creep)
   );
 }
+function shouldAllowLowLoadAssignmentGapRecovery(creep, currentTask, selectedTask, constructionSite) {
+  return shouldAllowLowLoadAssignmentGapRepairRecovery(creep, currentTask, selectedTask) || shouldAllowLowLoadAssignmentGapUpgradeRecovery(creep, currentTask, selectedTask, constructionSite);
+}
 function shouldAllowLowLoadAssignmentGapRepairRecovery(creep, currentTask, selectedTask) {
   return !hasOtherSameRoomBuildAssignment(creep) && ((currentTask == null ? void 0 : currentTask.type) === "build" || isWorkerAssignmentGapRecoveryRepairTask(creep, currentTask)) && isWorkerAssignmentGapRecoveryRepairTask(creep, selectedTask);
+}
+function shouldAllowLowLoadAssignmentGapUpgradeRecovery(creep, currentTask, selectedTask, constructionSite) {
+  return !getRuntimeCpuBudget().critical && !hasOtherSameRoomBuildAssignment(creep) && ((currentTask == null ? void 0 : currentTask.type) === "build" || (currentTask == null ? void 0 : currentTask.type) === "upgrade") && (selectedTask == null ? void 0 : selectedTask.type) === "upgrade" && hasUncoveredAssignmentGapConstructionProgress(creep, constructionSite);
 }
 function hasUncoveredStoredEnergyAssignmentGapRecovery(creep) {
   return selectSpawnEnergyReservationRefillTarget(creep) === null && !hasOtherSameRoomBuildAssignment(creep);

@@ -208,6 +208,145 @@ function makeE29N56ControllerProgressConstructionScenario(options: {
   return { build, creep, selectWorkerTask, site, upgradeController };
 }
 
+function makeE29N57LowLoadControllerProgressConstructionScenario(options: {
+  constructionSites?: ConstructionSite[];
+  cpuBucket?: number;
+} = {}): {
+  build: jest.Mock;
+  creep: Creep;
+  selectWorkerTask: jest.SpyInstance;
+  site: ConstructionSite;
+  upgradeController: jest.Mock;
+} {
+  const site =
+    options.constructionSites?.[0] ??
+    ({
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 0,
+      progressTotal: 1_100,
+      pos: { x: 22, y: 21, roomName: 'E29N57' } as RoomPosition
+    } as ConstructionSite);
+  const constructionSites = options.constructionSites ?? [site];
+  const spawn = {
+    id: 'spawn1',
+    my: true,
+    structureType: 'spawn',
+    spawning: null,
+    store: {
+      getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 300 : 0)),
+      getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0))
+    }
+  } as unknown as StructureSpawn;
+  const controller = {
+    id: 'controller1',
+    my: true,
+    level: 5,
+    ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+  } as StructureController;
+  const roomCreeps: Creep[] = [];
+  const room = {
+    name: 'E29N57',
+    energyAvailable: 1_800,
+    energyCapacityAvailable: 1_800,
+    controller,
+    find: jest.fn((type: number, findOptions?: { filter?: (object: AnyOwnedStructure | Creep) => boolean }) => {
+      if (type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES) {
+        const structures = [spawn] as unknown as AnyOwnedStructure[];
+        return findOptions?.filter ? structures.filter(findOptions.filter) : structures;
+      }
+
+      if (type === FIND_MY_CREEPS) {
+        return findOptions?.filter ? roomCreeps.filter(findOptions.filter) : roomCreeps;
+      }
+
+      if (type === FIND_CONSTRUCTION_SITES) {
+        return constructionSites;
+      }
+
+      if (
+        type === FIND_HOSTILE_CREEPS ||
+        type === FIND_HOSTILE_STRUCTURES ||
+        type === FIND_SOURCES ||
+        type === FIND_DROPPED_RESOURCES
+      ) {
+        return [];
+      }
+
+      return [];
+    })
+  } as unknown as Room;
+  const selectedUpgradeTask = { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } as const;
+  const build = jest.fn().mockReturnValue(0);
+  const upgradeController = jest.fn().mockReturnValue(0);
+  const creep = {
+    name: 'worker-E29N57-upgrader-1',
+    memory: {
+      role: 'worker',
+      colony: 'E29N57',
+      task: selectedUpgradeTask
+    },
+    getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === 'work' ? 1 : 0)),
+    pos: {
+      getRangeTo: jest.fn((target: RoomObject) => (String((target as { id?: string }).id) === 'road-site1' ? 1 : 7))
+    },
+    store: {
+      getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 25 : 0)),
+      getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 75 : 0)),
+      getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+    },
+    room,
+    build,
+    upgradeController,
+    moveTo: jest.fn()
+  } as unknown as Creep;
+  const otherUpgrader = {
+    name: 'worker-E29N57-upgrader-2',
+    memory: {
+      role: 'worker',
+      colony: 'E29N57',
+      task: selectedUpgradeTask
+    },
+    getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === 'work' ? 1 : 0)),
+    store: {
+      getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 25 : 0)),
+      getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 75 : 0)),
+      getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 100 : 0))
+    },
+    room
+  } as unknown as Creep;
+  roomCreeps.push(creep, otherUpgrader);
+  const selectWorkerTask = jest.spyOn(workerTasks, 'selectWorkerTask').mockReturnValue(selectedUpgradeTask);
+  const game: Partial<Game> = {
+    creeps: Object.fromEntries(roomCreeps.map((worker) => [worker.name, worker])),
+    rooms: { E29N57: room },
+    time: 2_241_982,
+    getObjectById: jest.fn((id: string) => {
+      if (id === 'road-site1') {
+        return site;
+      }
+
+      if (id === 'spawn1') {
+        return spawn;
+      }
+
+      return id === 'controller1' ? controller : null;
+    }) as unknown as Game['getObjectById']
+  };
+  if (options.cpuBucket !== undefined) {
+    game.cpu = {
+      getUsed: jest.fn().mockReturnValue(18.09),
+      limit: 70,
+      bucket: options.cpuBucket,
+      tickLimit: 500
+    } as unknown as CPU;
+  }
+  (globalThis as unknown as { Game: Partial<Game> }).Game = game;
+
+  return { build, creep, selectWorkerTask, site, upgradeController };
+}
+
 describe('runWorker', () => {
   beforeEach(() => {
     (globalThis as unknown as { ERR_NOT_IN_RANGE: number; ERR_FULL: number; ERR_NOT_ENOUGH_RESOURCES: number; ERR_INVALID_TARGET: number; RESOURCE_ENERGY: ResourceConstant; FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; FIND_STRUCTURES: number; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant; STRUCTURE_LINK: StructureConstant; STRUCTURE_ROAD: StructureConstant; STRUCTURE_CONTAINER: StructureConstant; STRUCTURE_STORAGE: StructureConstant; STRUCTURE_TERMINAL: StructureConstant; STRUCTURE_RAMPART: StructureConstant }).ERR_NOT_IN_RANGE = -9;
@@ -10045,6 +10184,65 @@ describe('runWorker', () => {
   it('keeps E29N56 controller progress under critical CPU when construction only has carried-energy coverage', () => {
     const { build, creep, selectWorkerTask, upgradeController } =
       makeE29N56ControllerProgressConstructionScenario({
+        cpuBucket: 50
+      });
+
+    try {
+      runWorker(creep);
+
+      expect(creep.memory.task).toEqual({ type: 'upgrade', targetId: 'controller1' });
+      expect(upgradeController).toHaveBeenCalled();
+      expect(build).not.toHaveBeenCalled();
+    } finally {
+      selectWorkerTask.mockRestore();
+    }
+  });
+
+  it('preempts low-load E29N57 controller-progress workers for visible construction backlog', () => {
+    const { build, creep, selectWorkerTask, site, upgradeController } =
+      makeE29N57LowLoadControllerProgressConstructionScenario();
+
+    try {
+      runWorker(creep);
+
+      expect(creep.memory.task).toEqual({ type: 'build', targetId: 'road-site1' });
+      expect(creep.memory.workerDispatchDiagnostic).toMatchObject({
+        currentTask: 'upgrade',
+        currentTargetId: 'controller1',
+        baseSelectedTask: 'upgrade',
+        baseSelectedTargetId: 'controller1',
+        selectedTask: 'build',
+        selectedTargetId: 'road-site1',
+        assignedTask: 'build',
+        assignedTargetId: 'road-site1'
+      });
+      expect(build).toHaveBeenCalledWith(site);
+      expect(upgradeController).not.toHaveBeenCalled();
+    } finally {
+      selectWorkerTask.mockRestore();
+    }
+  });
+
+  it('keeps low-load E29N57 controller progress when no construction backlog is visible', () => {
+    const { build, creep, selectWorkerTask, upgradeController } =
+      makeE29N57LowLoadControllerProgressConstructionScenario({
+        constructionSites: []
+      });
+
+    try {
+      runWorker(creep);
+
+      expect(creep.memory.task).toEqual({ type: 'upgrade', targetId: 'controller1' });
+      expect(upgradeController).toHaveBeenCalled();
+      expect(build).not.toHaveBeenCalled();
+    } finally {
+      selectWorkerTask.mockRestore();
+    }
+  });
+
+  it('keeps low-load E29N57 controller progress under critical CPU when only carried energy can build', () => {
+    const { build, creep, selectWorkerTask, upgradeController } =
+      makeE29N57LowLoadControllerProgressConstructionScenario({
         cpuBucket: 50
       });
 

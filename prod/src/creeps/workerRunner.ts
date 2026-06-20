@@ -698,8 +698,6 @@ function selectWorkerAssignmentGapRecoveryTask(
         hasUncoveredStoredEnergyAssignmentGapRecovery(creep)));
   if (
     getUsedTransferEnergy(creep) <= 0 ||
-    (hasLowWorkerEnergyLoad(creep) &&
-      !shouldAllowLowLoadAssignmentGapRepairRecovery(creep, currentTask, selectionContext.selectedTask)) ||
     getActiveWorkParts(creep) <= 0 ||
     !hasMinimumWorkerCoverage ||
     hasVisibleHostileCreeps(creep.room) ||
@@ -710,6 +708,18 @@ function selectWorkerAssignmentGapRecoveryTask(
 
   const constructionSite = selectWorkerAssignmentGapRecoveryConstructionSite(creep);
   if (!constructionSite) {
+    return null;
+  }
+
+  if (
+    hasLowWorkerEnergyLoad(creep) &&
+    !shouldAllowLowLoadAssignmentGapRecovery(
+      creep,
+      currentTask,
+      selectionContext.selectedTask,
+      constructionSite
+    )
+  ) {
     return null;
   }
 
@@ -751,6 +761,18 @@ function shouldBlockAssignmentGapRecoveryForCriticalSpawnRefill(
   );
 }
 
+function shouldAllowLowLoadAssignmentGapRecovery(
+  creep: Creep,
+  currentTask: CreepTaskMemory | null | undefined,
+  selectedTask: CreepTaskMemory | null,
+  constructionSite: ConstructionSite
+): boolean {
+  return (
+    shouldAllowLowLoadAssignmentGapRepairRecovery(creep, currentTask, selectedTask) ||
+    shouldAllowLowLoadAssignmentGapUpgradeRecovery(creep, currentTask, selectedTask, constructionSite)
+  );
+}
+
 function shouldAllowLowLoadAssignmentGapRepairRecovery(
   creep: Creep,
   currentTask: CreepTaskMemory | null | undefined,
@@ -760,6 +782,21 @@ function shouldAllowLowLoadAssignmentGapRepairRecovery(
     !hasOtherSameRoomBuildAssignment(creep) &&
     (currentTask?.type === 'build' || isWorkerAssignmentGapRecoveryRepairTask(creep, currentTask)) &&
     isWorkerAssignmentGapRecoveryRepairTask(creep, selectedTask)
+  );
+}
+
+function shouldAllowLowLoadAssignmentGapUpgradeRecovery(
+  creep: Creep,
+  currentTask: CreepTaskMemory | null | undefined,
+  selectedTask: CreepTaskMemory | null,
+  constructionSite: ConstructionSite
+): boolean {
+  return (
+    !getRuntimeCpuBudget().critical &&
+    !hasOtherSameRoomBuildAssignment(creep) &&
+    (currentTask?.type === 'build' || currentTask?.type === 'upgrade') &&
+    selectedTask?.type === 'upgrade' &&
+    hasUncoveredAssignmentGapConstructionProgress(creep, constructionSite)
   );
 }
 
