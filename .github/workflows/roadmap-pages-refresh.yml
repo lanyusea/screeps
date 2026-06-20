@@ -24,6 +24,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.SCREEPS_ROADMAP_TOKEN }}
       GITHUB_TOKEN: ${{ secrets.SCREEPS_ROADMAP_TOKEN }}
+      SCREEPS_ROADMAP_ALLOW_BROAD_PROJECT_SCAN: "1"
       SCREEPS_AUTH_TOKEN: ${{ secrets.SCREEPS_AUTH_TOKEN }}
       SCREEPS_MONITOR_CACHE_DIR: runtime-artifacts/screeps-monitor/terrain-cache
       SCREEPS_MONITOR_STATE_FILE: runtime-artifacts/screeps-monitor/state.json
