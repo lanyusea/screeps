@@ -35772,11 +35772,18 @@ function hasSafeAssignmentGapRecoveryConstructionEnergy(creep, recoveryTask) {
     return shouldDeferSpawnReservationRefillForProductiveWork(creep, recoveryTask, spawnReservationTarget) || hasStoredEnergyForAssignmentGapRecoveryConstruction(creep.room);
   }
   const hasStoredConstructionEnergy = hasStoredEnergyForAssignmentGapRecoveryConstruction(creep.room);
-  const hasSafeConstructionEnergy = hasHealthyRoomEnergyBuffer2(creep.room) || hasStoredConstructionEnergy || hasCoveredStoredEnergyForAssignmentGapRecoveryConstruction(creep, getTaskTarget(recoveryTask));
+  const hasSafeConstructionEnergy = hasHealthyRoomEnergyBuffer2(creep.room) || hasStoredConstructionEnergy || hasCoveredStoredEnergyForAssignmentGapRecoveryConstruction(creep, getTaskTarget(recoveryTask)) || hasSafeCarriedEnergyForUncoveredAssignmentGapConstruction(creep, recoveryTask);
   if (!hasSafeConstructionEnergy) {
     return false;
   }
   return !hasActiveSpawningSpawn2(creep.room) || hasStoredConstructionEnergy;
+}
+function hasSafeCarriedEnergyForUncoveredAssignmentGapConstruction(creep, recoveryTask) {
+  if (getRuntimeCpuBudget().critical || hasOtherSameRoomBuildAssignment(creep)) {
+    return false;
+  }
+  const constructionSite = getTaskTarget(recoveryTask);
+  return isConstructionSite(constructionSite) && hasUncoveredAssignmentGapConstructionProgress(creep, constructionSite) && canSpendWorkerEnergyOnConstructionSite(creep, constructionSite);
 }
 function hasStoredEnergyForAssignmentGapRecoveryConstruction(room) {
   const energyAvailable = getRoomEnergyAvailable13(room);
