@@ -1733,6 +1733,36 @@ class GenerateRoadmapPageTest(unittest.TestCase):
             roadmap.DEFAULT_PROJECT_ITEM_FETCH_TIMEOUT_SECONDS,
         )
 
+    def test_project_item_fetch_limit_clamps_broad_requests_without_explicit_opt_in(self) -> None:
+        self.assertEqual(roadmap.project_item_fetch_limit({}), roadmap.DEFAULT_PROJECT_ITEM_FETCH_LIMIT)
+        self.assertEqual(
+            roadmap.project_item_fetch_limit({roadmap.PROJECT_ITEM_FETCH_LIMIT_ENV: "2"}),
+            2,
+        )
+        self.assertEqual(
+            roadmap.project_item_fetch_limit({roadmap.PROJECT_ITEM_FETCH_LIMIT_ENV: "2000"}),
+            roadmap.DEFAULT_PROJECT_ITEM_FETCH_LIMIT,
+        )
+        self.assertEqual(
+            roadmap.project_item_fetch_limit({roadmap.PROJECT_ITEM_FETCH_LIMIT_ENV: "invalid"}),
+            roadmap.DEFAULT_PROJECT_ITEM_FETCH_LIMIT,
+        )
+
+    def test_project_item_fetch_limit_allows_broad_requests_with_explicit_opt_in(self) -> None:
+        self.assertEqual(
+            roadmap.project_item_fetch_limit({roadmap.PROJECT_ITEM_FETCH_ALLOW_BROAD_ENV: "1"}),
+            roadmap.BROAD_PROJECT_ITEM_FETCH_LIMIT,
+        )
+        self.assertEqual(
+            roadmap.project_item_fetch_limit(
+                {
+                    roadmap.PROJECT_ITEM_FETCH_ALLOW_BROAD_ENV: "true",
+                    roadmap.PROJECT_ITEM_FETCH_LIMIT_ENV: "2500",
+                }
+            ),
+            2500,
+        )
+
     def test_fetch_project_items_payload_uses_configured_timeout(self) -> None:
         captured: dict[str, Any] = {}
 
@@ -1763,7 +1793,83 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(captured["command"][:4], ["gh", "project", "item-list", "3"])
         self.assertEqual(captured["command"][captured["command"].index("--owner") + 1], "lanyusea")
         self.assertEqual(captured["command"][captured["command"].index("--limit") + 1], "2")
-        self.assertEqual(completeness, {"complete": True, "returnedCount": 2, "totalCount": 2, "limit": 2})
+        self.assertEqual(
+            completeness,
+            {
+                "complete": True,
+                "returnedCount": 2,
+                "totalCount": 2,
+                "limit": 2,
+                "limitMode": "rate-limit-safe",
+                "broadScanAllowed": False,
+                "safeLimit": roadmap.DEFAULT_PROJECT_ITEM_FETCH_LIMIT,
+                "broadLimit": roadmap.BROAD_PROJECT_ITEM_FETCH_LIMIT,
+            },
+        )
+
+    def test_fetch_project_items_payload_requires_opt_in_for_broad_live_hydration(self) -> None:
+        captured: dict[str, Any] = {}
+
+        def fake_run_json(command: list[str], cwd: Path, timeout: int = 30) -> tuple[Any | None, dict[str, Any] | None]:
+            del cwd, timeout
+            captured["command"] = command
+            items = [{"title": str(index)} for index in range(roadmap.DEFAULT_PROJECT_ITEM_FETCH_LIMIT)]
+            return {"totalCount": roadmap.BROAD_PROJECT_ITEM_FETCH_LIMIT, "items": items}, None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            with (
+                patch.dict(
+                    "os.environ",
+                    {
+                        roadmap.PROJECT_ITEM_FETCH_LIMIT_ENV: str(roadmap.BROAD_PROJECT_ITEM_FETCH_LIMIT),
+                    },
+                ),
+                patch.object(roadmap, "run_json", side_effect=fake_run_json),
+            ):
+                payload, error, completeness = roadmap.fetch_project_items_payload(repo_root, "lanyusea", 3)
+
+        self.assertIsNotNone(payload)
+        self.assertEqual(
+            captured["command"][captured["command"].index("--limit") + 1],
+            str(roadmap.DEFAULT_PROJECT_ITEM_FETCH_LIMIT),
+        )
+        self.assertIsNotNone(error)
+        self.assertEqual(error["reason"], "limited")
+        self.assertIn("GraphQL rate-limit safety", error["message"])
+        self.assertIn(roadmap.PROJECT_ITEM_FETCH_ALLOW_BROAD_ENV, error["message"])
+        self.assertEqual(completeness["limit"], roadmap.DEFAULT_PROJECT_ITEM_FETCH_LIMIT)
+        self.assertEqual(completeness["limitMode"], "rate-limit-safe")
+        self.assertFalse(completeness["broadScanAllowed"])
+
+    def test_fetch_project_items_payload_uses_broad_limit_with_explicit_opt_in(self) -> None:
+        captured: dict[str, Any] = {}
+
+        def fake_run_json(command: list[str], cwd: Path, timeout: int = 30) -> tuple[Any | None, dict[str, Any] | None]:
+            del cwd, timeout
+            captured["command"] = command
+            return {"totalCount": 2, "items": [{"title": "one"}, {"title": "two"}]}, None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            with (
+                patch.dict(
+                    "os.environ",
+                    {
+                        roadmap.PROJECT_ITEM_FETCH_ALLOW_BROAD_ENV: "1",
+                        roadmap.PROJECT_ITEM_FETCH_LIMIT_ENV: str(roadmap.BROAD_PROJECT_ITEM_FETCH_LIMIT),
+                    },
+                ),
+                patch.object(roadmap, "run_json", side_effect=fake_run_json),
+            ):
+                payload, error, completeness = roadmap.fetch_project_items_payload(repo_root, "lanyusea", 3)
+
+        self.assertIsNone(error)
+        self.assertEqual(payload, {"totalCount": 2, "items": [{"title": "one"}, {"title": "two"}]})
+        self.assertEqual(captured["command"][captured["command"].index("--limit") + 1], "2000")
+        self.assertEqual(completeness["limit"], roadmap.BROAD_PROJECT_ITEM_FETCH_LIMIT)
+        self.assertEqual(completeness["limitMode"], "broad")
+        self.assertTrue(completeness["broadScanAllowed"])
 
     def test_fetch_github_snapshot_rejects_incomplete_project_payload(self) -> None:
         project_payload = {
@@ -1794,7 +1900,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                 return [], None
             if command[:3] == ["gh", "project", "item-list"]:
                 self.assertIn("--limit", command)
-                self.assertEqual(command[command.index("--limit") + 1], "2000")
+                self.assertEqual(command[command.index("--limit") + 1], str(roadmap.DEFAULT_PROJECT_ITEM_FETCH_LIMIT))
                 return project_payload, None
             raise AssertionError(f"unexpected command: {command}")
 
@@ -1814,11 +1920,21 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(snapshot["projectItems"], [])
         self.assertEqual(
             snapshot["projectItemsCompleteness"],
-            {"complete": False, "returnedCount": 2, "totalCount": 3, "limit": 2000},
+            {
+                "complete": False,
+                "returnedCount": 2,
+                "totalCount": 3,
+                "limit": roadmap.DEFAULT_PROJECT_ITEM_FETCH_LIMIT,
+                "limitMode": "rate-limit-safe",
+                "broadScanAllowed": False,
+                "safeLimit": roadmap.DEFAULT_PROJECT_ITEM_FETCH_LIMIT,
+                "broadLimit": roadmap.BROAD_PROJECT_ITEM_FETCH_LIMIT,
+            },
         )
         project_errors = [error for error in snapshot["fetchErrors"] if error.get("source") == "project"]
         self.assertEqual(len(project_errors), 1)
-        self.assertEqual(project_errors[0]["reason"], "incomplete")
+        self.assertEqual(project_errors[0]["reason"], "limited")
+        self.assertIn("GraphQL rate-limit safety", project_errors[0]["message"])
         self.assertEqual(project_errors[0]["returnedCount"], 2)
         self.assertEqual(project_errors[0]["totalCount"], 3)
 
