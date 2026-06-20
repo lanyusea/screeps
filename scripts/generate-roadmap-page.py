@@ -36,10 +36,13 @@ SOURCE_EVIDENCE_METRIC_KEYS = frozenset({"runtime_summary_samples", "kpi_artifac
 DEFAULT_OWNER = "lanyusea"
 DEFAULT_REPO = "screeps"
 DEFAULT_PROJECT_NUMBER = 3
-DEFAULT_PROJECT_ITEM_FETCH_LIMIT = 2000
+DEFAULT_PROJECT_ITEM_FETCH_LIMIT = 100
+BROAD_PROJECT_ITEM_FETCH_LIMIT = 2000
 DEFAULT_PROJECT_ITEM_FETCH_TIMEOUT_SECONDS = 180
 PROJECT_ITEM_FETCH_LIMIT_ENV = "SCREEPS_ROADMAP_PROJECT_ITEM_LIMIT"
+PROJECT_ITEM_FETCH_ALLOW_BROAD_ENV = "SCREEPS_ROADMAP_ALLOW_BROAD_PROJECT_SCAN"
 PROJECT_ITEM_FETCH_TIMEOUT_ENV = "SCREEPS_ROADMAP_PROJECT_ITEM_TIMEOUT_SECONDS"
+TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
 PAGE_TITLE = "Hermes Screeps Project Roadmap Report"
 PAGES_URL = "https://lanyusea.github.io/screeps/"
 GITHUB_PROJECT_URL = "https://github.com/users/lanyusea/projects/3"
@@ -1044,16 +1047,40 @@ def run_json(command: Sequence[str], cwd: Path, timeout: int = 30) -> tuple[Any 
         return None, {"command": command_list[:4], "exitCode": completed.returncode, "message": "invalid json output"}
 
 
-def project_item_fetch_limit(environ: Mapping[str, str] | None = None) -> int:
+def env_flag_enabled(name: str, environ: Mapping[str, str] | None = None) -> bool:
+    source = os.environ if environ is None else environ
+    return str(source.get(name) or "").strip().lower() in TRUTHY_ENV_VALUES
+
+
+def parse_project_item_fetch_limit(environ: Mapping[str, str] | None = None) -> int | None:
     source = os.environ if environ is None else environ
     raw_limit = str(source.get(PROJECT_ITEM_FETCH_LIMIT_ENV) or "").strip()
     if not raw_limit:
-        return DEFAULT_PROJECT_ITEM_FETCH_LIMIT
+        return None
     try:
         parsed = int(raw_limit)
     except ValueError:
-        return DEFAULT_PROJECT_ITEM_FETCH_LIMIT
+        return None
     return max(1, parsed)
+
+
+def project_item_fetch_limit(environ: Mapping[str, str] | None = None) -> int:
+    requested_limit = parse_project_item_fetch_limit(environ)
+    if env_flag_enabled(PROJECT_ITEM_FETCH_ALLOW_BROAD_ENV, environ):
+        return requested_limit if requested_limit is not None else BROAD_PROJECT_ITEM_FETCH_LIMIT
+    if requested_limit is None:
+        return DEFAULT_PROJECT_ITEM_FETCH_LIMIT
+    return min(requested_limit, DEFAULT_PROJECT_ITEM_FETCH_LIMIT)
+
+
+def project_item_fetch_safety_summary(fetch_limit: int, environ: Mapping[str, str] | None = None) -> JsonObject:
+    broad_allowed = env_flag_enabled(PROJECT_ITEM_FETCH_ALLOW_BROAD_ENV, environ)
+    return {
+        "limitMode": "broad" if broad_allowed and fetch_limit > DEFAULT_PROJECT_ITEM_FETCH_LIMIT else "rate-limit-safe",
+        "broadScanAllowed": broad_allowed,
+        "safeLimit": DEFAULT_PROJECT_ITEM_FETCH_LIMIT,
+        "broadLimit": BROAD_PROJECT_ITEM_FETCH_LIMIT,
+    }
 
 
 def project_item_fetch_timeout(environ: Mapping[str, str] | None = None) -> int:
@@ -1999,6 +2026,7 @@ def fetch_project_items_payload(
     ]
     payload, command_error = run_json(command, repo_root, timeout=project_item_fetch_timeout())
     completeness = summarize_project_item_completeness(payload, fetch_limit)
+    completeness.update(project_item_fetch_safety_summary(fetch_limit))
     if command_error:
         return payload, command_error, completeness
 
@@ -2075,6 +2103,20 @@ def project_item_completeness_error(completeness: JsonObject) -> JsonObject | No
             "limit": fetch_limit,
         }
     if returned_count < total_count:
+        if completeness.get("limitMode") == "rate-limit-safe":
+            return {
+                "command": ["gh", "project", "item-list"],
+                "exitCode": 0,
+                "message": (
+                    f"project item-list limited for GraphQL rate-limit safety: returned {returned_count} "
+                    f"of {total_count} items with limit {fetch_limit}; set "
+                    f"{PROJECT_ITEM_FETCH_ALLOW_BROAD_ENV}=1 to permit broad Project hydration"
+                ),
+                "reason": "limited",
+                "returnedCount": returned_count,
+                "totalCount": total_count,
+                "limit": fetch_limit,
+            }
         return {
             "command": ["gh", "project", "item-list"],
             "exitCode": 0,
