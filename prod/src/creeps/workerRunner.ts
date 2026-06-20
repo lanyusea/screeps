@@ -558,6 +558,10 @@ function shouldSelectConstructionBacklogEnergyAcquisitionRecoveryTask(
     return false;
   }
 
+  if (shouldSpendCurrentBuildEnergyForAssignmentGapCoverage(creep, currentTask, selectedTask)) {
+    return false;
+  }
+
   return (
     isConstructionBacklogEnergyAcquisitionRecoveryTask(creep, currentTask) &&
     isConstructionBacklogEnergyAcquisitionRecoveryTask(creep, selectedTask)
@@ -602,6 +606,10 @@ function selectAssignedBuildEnergyAcquisitionTask(
   }
 
   const carriedEnergy = getUsedTransferEnergy(creep);
+  if (shouldSpendCurrentBuildEnergyForAssignmentGapCoverage(creep, currentTask, selectedTask)) {
+    return selectedTask;
+  }
+
   if (currentTask?.type !== 'build' && carriedEnergy > 0) {
     return selectedTask;
   }
@@ -614,6 +622,40 @@ function selectAssignedBuildEnergyAcquisitionTask(
     selectConstructionBacklogEnergyAcquisitionTask(creep) ??
     selectWorkerEnergyCriticalAcquisitionTask(creep) ??
     selectedTask
+  );
+}
+
+function shouldSpendCurrentBuildEnergyForAssignmentGapCoverage(
+  creep: Creep,
+  currentTask: CreepTaskMemory | null | undefined,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  const buildTask =
+    selectedTask?.type === 'build'
+      ? selectedTask
+      : currentTask?.type === 'build'
+        ? currentTask
+        : null;
+  if (
+    currentTask?.type !== 'build' ||
+    buildTask === null ||
+    (selectedTask !== null && selectedTask.type !== 'build') ||
+    getUsedTransferEnergy(creep) <= 0 ||
+    getActiveWorkParts(creep) <= 0 ||
+    getRuntimeCpuBudget().critical ||
+    hasVisibleHostileCreeps(creep.room) ||
+    !hasRecoverableStoredEnergyForAssignmentGapRecoveryConstruction(creep) ||
+    hasOtherSameRoomBuildAssignment(creep)
+  ) {
+    return false;
+  }
+
+  const constructionSite = getTaskTarget(buildTask);
+  return (
+    isConstructionSite(constructionSite) &&
+    constructionSite.my !== false &&
+    !isBuildTargetSuppressedForWorker(creep, constructionSite) &&
+    canSpendWorkerEnergyOnAssignmentGapRecoveryConstructionSite(creep, constructionSite)
   );
 }
 

@@ -35553,6 +35553,9 @@ function shouldSelectConstructionBacklogEnergyAcquisitionRecoveryTask(creep, cur
   if (isCriticalSpawnRefillTask(currentTask) || isCriticalSpawnRefillTask(selectedTask)) {
     return false;
   }
+  if (shouldSpendCurrentBuildEnergyForAssignmentGapCoverage(creep, currentTask, selectedTask)) {
+    return false;
+  }
   return isConstructionBacklogEnergyAcquisitionRecoveryTask(creep, currentTask) && isConstructionBacklogEnergyAcquisitionRecoveryTask(creep, selectedTask);
 }
 function isConstructionBacklogEnergyAcquisitionRecoveryTask(creep, task) {
@@ -35568,6 +35571,9 @@ function selectAssignedBuildEnergyAcquisitionTask(creep, currentTask, selectedTa
     return selectedTask;
   }
   const carriedEnergy = getUsedTransferEnergy(creep);
+  if (shouldSpendCurrentBuildEnergyForAssignmentGapCoverage(creep, currentTask, selectedTask)) {
+    return selectedTask;
+  }
   if ((currentTask == null ? void 0 : currentTask.type) !== "build" && carriedEnergy > 0) {
     return selectedTask;
   }
@@ -35575,6 +35581,14 @@ function selectAssignedBuildEnergyAcquisitionTask(creep, currentTask, selectedTa
     return selectedTask;
   }
   return (_b = (_a2 = selectConstructionBacklogEnergyAcquisitionTask(creep)) != null ? _a2 : selectWorkerEnergyCriticalAcquisitionTask(creep)) != null ? _b : selectedTask;
+}
+function shouldSpendCurrentBuildEnergyForAssignmentGapCoverage(creep, currentTask, selectedTask) {
+  const buildTask = (selectedTask == null ? void 0 : selectedTask.type) === "build" ? selectedTask : (currentTask == null ? void 0 : currentTask.type) === "build" ? currentTask : null;
+  if ((currentTask == null ? void 0 : currentTask.type) !== "build" || buildTask === null || selectedTask !== null && selectedTask.type !== "build" || getUsedTransferEnergy(creep) <= 0 || getActiveWorkParts3(creep) <= 0 || getRuntimeCpuBudget().critical || hasVisibleHostileCreeps2(creep.room) || !hasRecoverableStoredEnergyForAssignmentGapRecoveryConstruction(creep) || hasOtherSameRoomBuildAssignment(creep)) {
+    return false;
+  }
+  const constructionSite = getTaskTarget(buildTask);
+  return isConstructionSite(constructionSite) && constructionSite.my !== false && !isBuildTargetSuppressedForWorker(creep, constructionSite) && canSpendWorkerEnergyOnAssignmentGapRecoveryConstructionSite(creep, constructionSite);
 }
 function selectConstructionWithdrawCompletionBuildTask(creep, currentTask, selectedTask) {
   if (!isConstructionWithdrawReservationTask(currentTask) || getUsedTransferEnergy(creep) <= 0 || getActiveWorkParts3(creep) <= 0 || hasVisibleHostileCreeps2(creep.room) || shouldKeepConstructionWithdrawTaskForMoreEnergy(creep, currentTask, selectedTask) || !canConstructionWithdrawCompletionOverrideSelectedTask(creep, selectedTask)) {
