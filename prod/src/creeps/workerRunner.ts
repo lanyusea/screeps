@@ -1008,13 +1008,30 @@ function hasSafeAssignmentGapRecoveryConstructionEnergy(
   const hasSafeConstructionEnergy =
     hasHealthyRoomEnergyBuffer(creep.room) ||
     hasStoredConstructionEnergy ||
-    hasCoveredStoredEnergyForAssignmentGapRecoveryConstruction(creep, getTaskTarget(recoveryTask));
+    hasCoveredStoredEnergyForAssignmentGapRecoveryConstruction(creep, getTaskTarget(recoveryTask)) ||
+    hasSafeCarriedEnergyForUncoveredAssignmentGapConstruction(creep, recoveryTask);
 
   if (!hasSafeConstructionEnergy) {
     return false;
   }
 
   return !hasActiveSpawningSpawn(creep.room) || hasStoredConstructionEnergy;
+}
+
+function hasSafeCarriedEnergyForUncoveredAssignmentGapConstruction(
+  creep: Creep,
+  recoveryTask: Extract<CreepTaskMemory, { type: 'build' }>
+): boolean {
+  if (getRuntimeCpuBudget().critical || hasOtherSameRoomBuildAssignment(creep)) {
+    return false;
+  }
+
+  const constructionSite = getTaskTarget(recoveryTask);
+  return (
+    isConstructionSite(constructionSite) &&
+    hasUncoveredAssignmentGapConstructionProgress(creep, constructionSite) &&
+    canSpendWorkerEnergyOnConstructionSite(creep, constructionSite)
+  );
 }
 
 function hasStoredEnergyForAssignmentGapRecoveryConstruction(room: Room): boolean {
