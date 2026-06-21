@@ -416,6 +416,60 @@ describe('worker energy-critical policy', () => {
   });
 });
 
+describe('worker surplus controller progress policy', () => {
+  beforeEach(() => {
+    installWorkerTaskGlobals();
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+  });
+
+  it('assigns surplus controller progress once build and repair demand have worker coverage', () => {
+    const controller = { ...makeController(), level: 4 } as StructureController;
+    const storage = makeStorage('storage1', () => 525_000);
+    const constructionSite = makeConstructionSite('road-site1', 'road');
+    const repairTarget = makeRepairTarget('road1', 'road');
+    const room = makeSurplusProgressRoom({
+      controller,
+      storage,
+      constructionSites: [constructionSite],
+      structures: [storage as unknown as AnyStructure, repairTarget]
+    });
+    const builder = makeLoadedWorker(room, 'Builder', 50, { type: 'build', targetId: constructionSite.id });
+    const repairer = makeLoadedWorker(room, 'Repairer', 50, {
+      type: 'repair',
+      targetId: repairTarget.id as Id<Structure>
+    });
+    const candidate = makeLoadedWorker(room, 'Candidate', 50, {
+      type: 'repair',
+      targetId: repairTarget.id as Id<Structure>
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 300,
+      creeps: { Builder: builder, Repairer: repairer, Candidate: candidate }
+    };
+
+    expect(selectWorkerTask(candidate)).toEqual({ type: 'upgrade', targetId: controller.id });
+  });
+
+  it('keeps construction covered before assigning surplus controller progress', () => {
+    const controller = { ...makeController(), level: 4 } as StructureController;
+    const storage = makeStorage('storage1', () => 525_000);
+    const constructionSite = makeConstructionSite('road-site1', 'road');
+    const room = makeSurplusProgressRoom({
+      controller,
+      storage,
+      constructionSites: [constructionSite],
+      structures: [storage as unknown as AnyStructure]
+    });
+    const candidate = makeLoadedWorker(room, 'Candidate', 50);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 301,
+      creeps: { Candidate: candidate }
+    };
+
+    expect(selectWorkerTask(candidate)).toEqual({ type: 'build', targetId: constructionSite.id });
+  });
+});
+
 describe('worker task BC policy', () => {
   afterEach(() => {
     resetWorkerTaskBcModelForTesting();
@@ -679,6 +733,7 @@ function makeStorage(id: string, getEnergy: () => number): StructureStorage {
   return {
     id,
     structureType: 'storage',
+    pos: makeRoomPosition(18, 18),
     store: {
       getUsedCapacity: jest.fn(() => getEnergy()),
       getFreeCapacity: jest.fn().mockReturnValue(10_000)
@@ -738,4 +793,86 @@ function makeEnergyCriticalWorker(
     pos: { getRangeTo: jest.fn().mockReturnValue(1) },
     room
   } as unknown as Creep;
+}
+
+function makeSurplusProgressRoom({
+  controller,
+  storage,
+  constructionSites,
+  structures
+}: {
+  controller: StructureController;
+  storage: StructureStorage;
+  constructionSites: ConstructionSite[];
+  structures: AnyStructure[];
+}): MutableRoom & { energyCapacityAvailable: number } {
+  return {
+    name: 'W1N1',
+    controller,
+    energyAvailable: 800,
+    energyCapacityAvailable: 800,
+    storage,
+    find: jest.fn((type: number) => {
+      if (type === FIND_CONSTRUCTION_SITES) {
+        return constructionSites;
+      }
+
+      if (type === FIND_STRUCTURES || type === FIND_MY_STRUCTURES) {
+        return structures;
+      }
+
+      return [];
+    })
+  } as unknown as MutableRoom & { energyCapacityAvailable: number };
+}
+
+function makeLoadedWorker(
+  room: Room,
+  name: string,
+  carriedEnergy: number,
+  task?: CreepTaskMemory
+): Creep {
+  return {
+    name,
+    memory: {
+      role: 'worker',
+      ...(task ? { task } : {})
+    },
+    store: {
+      getUsedCapacity: jest.fn().mockReturnValue(carriedEnergy),
+      getFreeCapacity: jest.fn().mockReturnValue(0)
+    },
+    pos: makeRoomPosition(18, 18),
+    room
+  } as unknown as Creep;
+}
+
+function makeConstructionSite(id: string, structureType: StructureConstant): ConstructionSite {
+  return {
+    id,
+    my: true,
+    structureType,
+    progress: 0,
+    progressTotal: 5_000,
+    pos: makeRoomPosition(20, 20)
+  } as unknown as ConstructionSite;
+}
+
+function makeRepairTarget(id: string, structureType: StructureConstant): AnyStructure {
+  return {
+    id,
+    structureType,
+    hits: 4_000,
+    hitsMax: 5_000,
+    pos: makeRoomPosition(21, 21)
+  } as unknown as AnyStructure;
+}
+
+function makeRoomPosition(x: number, y: number): RoomPosition {
+  return {
+    x,
+    y,
+    roomName: 'W1N1',
+    getRangeTo: jest.fn().mockReturnValue(1)
+  } as unknown as RoomPosition;
 }

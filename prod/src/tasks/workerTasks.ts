@@ -1289,6 +1289,14 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return minimumHarvesterTask;
   }
 
+  const coveredSurplusControllerProgressTask =
+    !bootstrapNonCriticalWorkSuppressed && controller
+      ? selectCoveredSurplusControllerProgressTask(creep, controller, constructionSites)
+      : null;
+  if (coveredSurplusControllerProgressTask) {
+    return applyMinimumUsefulLoadPolicy(creep, coveredSurplusControllerProgressTask);
+  }
+
   const constructionPreBufferBuildTask = selectConstructionPreBufferBuildTask(creep);
   if (constructionPreBufferBuildTask) {
     return applyMinimumUsefulLoadPolicy(creep, constructionPreBufferBuildTask);
@@ -9016,6 +9024,72 @@ function shouldUseSurplusForControllerProgress(creep: Creep, controller: Structu
   }
 
   return false;
+}
+
+function selectCoveredSurplusControllerProgressTask(
+  creep: Creep,
+  controller: StructureController,
+  constructionSites: ConstructionSite[]
+): Extract<CreepTaskMemory, { type: 'upgrade' }> | null {
+  if (
+    !canLevelUpController(controller) ||
+    !shouldUseSurplusForControllerProgress(creep, controller) ||
+    !hasReserveSafeControllerProgressEnergy(creep) ||
+    !hasCoveredNonControllerProductiveDemandForSurplusProgress(creep, constructionSites)
+  ) {
+    return null;
+  }
+
+  return { type: 'upgrade', targetId: controller.id };
+}
+
+function hasReserveSafeControllerProgressEnergy(creep: Creep): boolean {
+  if (hasFullRoomEnergyForControllerProgress(creep.room)) {
+    return true;
+  }
+
+  const storage = getVisibleRoomStorage(creep.room);
+  if (!storage) {
+    return false;
+  }
+
+  const availableEnergy = getStorageEnergyAvailableForWithdrawal(creep.room, storage, getStoredEnergy(storage));
+  return availableEnergy >= Math.max(1, getEnergyCapacity(creep));
+}
+
+function hasCoveredNonControllerProductiveDemandForSurplusProgress(
+  creep: Creep,
+  constructionSites: ConstructionSite[]
+): boolean {
+  if (
+    hasOwnedConstructionDemand(constructionSites) &&
+    !hasOtherSameRoomLoadedBuildWorker(creep)
+  ) {
+    return false;
+  }
+
+  if (!hasCoveredRoutineRepairDemandForSurplusProgress(creep)) {
+    return false;
+  }
+
+  return true;
+}
+
+function hasOwnedConstructionDemand(constructionSites: ConstructionSite[]): boolean {
+  return constructionSites.some((site) => site.my !== false);
+}
+
+function hasCoveredRoutineRepairDemandForSurplusProgress(creep: Creep): boolean {
+  const repairTarget = selectRepairTarget(creep) ?? selectRoutineBarrierMaintenanceRepairTarget(creep);
+  if (!repairTarget) {
+    return true;
+  }
+
+  if (isUrgentRepairTargetForControllerProgressBudget(repairTarget)) {
+    return false;
+  }
+
+  return hasSameRoomLoadedRepairCoverage(creep);
 }
 
 function shouldStandbySurplusWorkerInsteadOfAcquiring(
