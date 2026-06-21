@@ -28603,7 +28603,7 @@ function selectHeuristicWorkerTask(creep) {
   if (minimumHarvesterTask) {
     return minimumHarvesterTask;
   }
-  const coveredSurplusControllerProgressTask = !bootstrapNonCriticalWorkSuppressed && controller ? selectCoveredSurplusControllerProgressTask(creep, controller, constructionSites) : null;
+  const coveredSurplusControllerProgressTask = !bootstrapNonCriticalWorkSuppressed && !priorityTowerEnergySink && controller ? selectCoveredSurplusControllerProgressTask(creep, controller, constructionSites) : null;
   if (coveredSurplusControllerProgressTask) {
     return applyMinimumUsefulLoadPolicy(creep, coveredSurplusControllerProgressTask);
   }

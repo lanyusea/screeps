@@ -13,6 +13,7 @@ import {
 import {
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
+  TOWER_REFILL_ENERGY_FLOOR,
   WORKER_PRE_HARVEST_REGEN_THRESHOLD,
   selectWorkerTask
 } from '../src/tasks/workerTasks';
@@ -450,6 +451,35 @@ describe('worker surplus controller progress policy', () => {
     expect(selectWorkerTask(candidate)).toEqual({ type: 'upgrade', targetId: controller.id });
   });
 
+  it('refills a priority tower before assigning surplus controller progress', () => {
+    const controller = { ...makeController(), level: 4 } as StructureController;
+    const storage = makeStorage('storage1', () => 525_000);
+    const constructionSite = makeConstructionSite('road-site1', 'road');
+    const repairTarget = makeRepairTarget('road1', 'road');
+    const tower = makeLowEnergyTower('tower-low');
+    const room = makeSurplusProgressRoom({
+      controller,
+      storage,
+      constructionSites: [constructionSite],
+      structures: [storage as unknown as AnyStructure, repairTarget, tower as unknown as AnyStructure]
+    });
+    const builder = makeLoadedWorker(room, 'Builder', 50, { type: 'build', targetId: constructionSite.id });
+    const repairer = makeLoadedWorker(room, 'Repairer', 50, {
+      type: 'repair',
+      targetId: repairTarget.id as Id<Structure>
+    });
+    const candidate = makeLoadedWorker(room, 'Candidate', 50, {
+      type: 'repair',
+      targetId: repairTarget.id as Id<Structure>
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 302,
+      creeps: { Builder: builder, Repairer: repairer, Candidate: candidate }
+    };
+
+    expect(selectWorkerTask(candidate)).toEqual({ type: 'transfer', targetId: tower.id });
+  });
+
   it('keeps construction covered before assigning surplus controller progress', () => {
     const controller = { ...makeController(), level: 4 } as StructureController;
     const storage = makeStorage('storage1', () => 525_000);
@@ -866,6 +896,20 @@ function makeRepairTarget(id: string, structureType: StructureConstant): AnyStru
     hitsMax: 5_000,
     pos: makeRoomPosition(21, 21)
   } as unknown as AnyStructure;
+}
+
+function makeLowEnergyTower(id: string): StructureTower {
+  return {
+    id,
+    structureType: 'tower',
+    hits: 3_000,
+    hitsMax: 3_000,
+    pos: makeRoomPosition(19, 19),
+    store: {
+      getUsedCapacity: jest.fn().mockReturnValue(TOWER_REFILL_ENERGY_FLOOR - 1),
+      getFreeCapacity: jest.fn().mockReturnValue(1_000 - TOWER_REFILL_ENERGY_FLOOR + 1)
+    }
+  } as unknown as StructureTower;
 }
 
 function makeRoomPosition(x: number, y: number): RoomPosition {

@@ -1290,7 +1290,7 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   const coveredSurplusControllerProgressTask =
-    !bootstrapNonCriticalWorkSuppressed && controller
+    !bootstrapNonCriticalWorkSuppressed && !priorityTowerEnergySink && controller
       ? selectCoveredSurplusControllerProgressTask(creep, controller, constructionSites)
       : null;
   if (coveredSurplusControllerProgressTask) {
