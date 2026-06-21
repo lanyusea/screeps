@@ -495,6 +495,11 @@ describe('runtime telemetry summaries', () => {
       source: 'runtime-summary',
       constructionSiteCount: 1
     });
+    expect(room.constructionScoring).toMatchObject({
+      source: 'runtime-summary',
+      loopRan: true,
+      skipped: false
+    });
     expect(typeof resources.storedEnergy).toBe('number');
     expect(resources).toMatchObject({
       workerCarriedEnergy: 40,

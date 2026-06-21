@@ -53,6 +53,7 @@ import {
   TERRITORY_RESERVATION_RENEWAL_TICKS
 } from '../src/territory/territoryPlanner';
 import { MINIMUM_WORKER_SPAWN_ENERGY } from '../src/economy/energyBuffer';
+import { CONSTRUCTION_LOW_BUCKET_RECOVERY_THRESHOLD } from '../src/runtime/cpuBudget';
 import { ensureVisibleOwnedRcl6ColonyRoom } from './helpers/territoryControlGate';
 
 const TEST_CRITICAL_SPAWN_REPAIR_HITS_RATIO = 0.25 as const;
@@ -15405,7 +15406,7 @@ describe('selectWorkerTask', () => {
       room
     } as unknown as Creep;
     setGameCreeps({ LowBucketBuilder: builder, IdleWorker: idleWorker });
-    setCpuBucket(948);
+    setCpuBucket(CONSTRUCTION_LOW_BUCKET_RECOVERY_THRESHOLD - 1);
 
     expect(selectWorkerTask(builder)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });

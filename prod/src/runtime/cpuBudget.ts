@@ -66,6 +66,7 @@ interface RuntimeCpuTelemetryState {
 export const LOW_CPU_ACCOUNT_LIMIT = 20;
 export const LOW_CPU_BUCKET_THRESHOLD = 1_000;
 export const CRITICAL_CPU_BUCKET_THRESHOLD = 100;
+export const CONSTRUCTION_LOW_BUCKET_RECOVERY_THRESHOLD = 750;
 export const DEGRADED_OPTIONAL_WORK_INTERVAL = 5;
 export const DEGRADED_ROOM_OPTIONAL_WORK_INTERVAL = 3;
 const CPU_BUCKET_MAX = 10_000;
@@ -258,17 +259,20 @@ function hasHardConstructionCpuPressure(budget: RuntimeCpuBudget): boolean {
   if (
     budget.lowCpuLimit ||
     budget.critical ||
-    budget.reasons.includes('lowBucket') ||
     budget.reasons.includes('criticalBucket')
   ) {
     return true;
   }
 
-  if (!hasUsedOverLimitPressure(budget)) {
-    return false;
+  if (hasUsedOverLimitPressure(budget)) {
+    return !hasConstructionRecoveryBucketHeadroom(budget.sample);
   }
 
-  return !hasConstructionRecoveryBucketHeadroom(budget.sample);
+  if (budget.reasons.includes('lowBucket')) {
+    return !hasConstructionLowBucketHeadroom(budget.sample);
+  }
+
+  return false;
 }
 
 function hasConstructionRecoveryBucketHeadroom(sample: RuntimeCpuSample): boolean {
@@ -287,6 +291,14 @@ function hasConstructionRecoveryBucketHeadroom(sample: RuntimeCpuSample): boolea
   }
 
   return isNearConstructionRecoveryBucket(sample.bucket, sample.limit, recoveryCeiling);
+}
+
+function hasConstructionLowBucketHeadroom(sample: RuntimeCpuSample): boolean {
+  const projectedBucket = getProjectedPostTickBucket(sample);
+  return (
+    projectedBucket !== undefined &&
+    projectedBucket >= CONSTRUCTION_LOW_BUCKET_RECOVERY_THRESHOLD
+  );
 }
 
 function getProjectedPostTickBucket(sample: RuntimeCpuSample): number | undefined {
