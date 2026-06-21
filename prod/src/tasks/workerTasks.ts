@@ -527,8 +527,7 @@ function selectCriticalCpuWorkerTask(creep: Creep, cpuBudget: RuntimeCpuBudget):
 
   const loadedControllerProgressTask = selectNonCriticalCpuLoadedControllerProgressTask(
     creep,
-    cpuBudget,
-    constructionSites
+    cpuBudget
   );
   if (loadedControllerProgressTask) {
     return applyMinimumUsefulLoadPolicy(creep, loadedControllerProgressTask);
@@ -539,13 +538,12 @@ function selectCriticalCpuWorkerTask(creep: Creep, cpuBudget: RuntimeCpuBudget):
 
 function selectNonCriticalCpuLoadedControllerProgressTask(
   creep: Creep,
-  cpuBudget: RuntimeCpuBudget,
-  constructionSites: ConstructionSite[]
+  cpuBudget: RuntimeCpuBudget
 ): Extract<CreepTaskMemory, { type: 'upgrade' }> | null {
   if (
     cpuBudget.critical ||
+    !shouldRunConstructionCpuWork(cpuBudget) ||
     getUsedEnergy(creep) <= 0 ||
-    constructionSites.length > 0 ||
     hasVisibleHostilePresence(creep.room) ||
     !hasFullRoomEnergyForControllerProgress(creep.room)
   ) {
