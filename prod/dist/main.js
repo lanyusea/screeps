@@ -33473,6 +33473,10 @@ function hasOwnedConstructionDemand(constructionSites) {
 }
 function hasCoveredRoutineRepairDemandForSurplusProgress(creep) {
   var _a2;
+  const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
+  if (criticalRepairTarget) {
+    return hasSameRoomLoadedRepairCoverage(creep);
+  }
   const repairTarget = (_a2 = selectRepairTarget(creep)) != null ? _a2 : selectRoutineBarrierMaintenanceRepairTarget(creep);
   if (!repairTarget) {
     return true;

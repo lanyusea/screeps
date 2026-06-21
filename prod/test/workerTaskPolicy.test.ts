@@ -451,6 +451,32 @@ describe('worker surplus controller progress policy', () => {
     expect(selectWorkerTask(candidate)).toEqual({ type: 'upgrade', targetId: controller.id });
   });
 
+  it('repairs uncovered critical infrastructure before assigning surplus controller progress', () => {
+    const controller = { ...makeController(), level: 4 } as StructureController;
+    const storage = makeStorage('storage1', () => 525_000);
+    const criticalContainer = makeRepairTarget('container-critical', 'container', {
+      hits: 900,
+      hitsMax: 2_000
+    });
+    const room = makeSurplusProgressRoom({
+      controller,
+      storage,
+      constructionSites: [],
+      structures: [storage as unknown as AnyStructure, criticalContainer]
+    });
+    const candidate = makeLoadedWorker(room, 'Candidate', 50);
+    (candidate.pos.getRangeTo as jest.Mock).mockReturnValue(8);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 303,
+      creeps: { Candidate: candidate }
+    };
+
+    expect(selectWorkerTask(candidate)).toEqual({
+      type: 'repair',
+      targetId: criticalContainer.id as Id<Structure>
+    });
+  });
+
   it('refills a priority tower before assigning surplus controller progress', () => {
     const controller = { ...makeController(), level: 4 } as StructureController;
     const storage = makeStorage('storage1', () => 525_000);
@@ -888,12 +914,16 @@ function makeConstructionSite(id: string, structureType: StructureConstant): Con
   } as unknown as ConstructionSite;
 }
 
-function makeRepairTarget(id: string, structureType: StructureConstant): AnyStructure {
+function makeRepairTarget(
+  id: string,
+  structureType: StructureConstant,
+  options: { hits?: number; hitsMax?: number } = {}
+): AnyStructure {
   return {
     id,
     structureType,
-    hits: 4_000,
-    hitsMax: 5_000,
+    hits: options.hits ?? 4_000,
+    hitsMax: options.hitsMax ?? 5_000,
     pos: makeRoomPosition(21, 21)
   } as unknown as AnyStructure;
 }

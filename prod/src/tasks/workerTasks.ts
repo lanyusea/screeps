@@ -9080,6 +9080,11 @@ function hasOwnedConstructionDemand(constructionSites: ConstructionSite[]): bool
 }
 
 function hasCoveredRoutineRepairDemandForSurplusProgress(creep: Creep): boolean {
+  const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
+  if (criticalRepairTarget) {
+    return hasSameRoomLoadedRepairCoverage(creep);
+  }
+
   const repairTarget = selectRepairTarget(creep) ?? selectRoutineBarrierMaintenanceRepairTarget(creep);
   if (!repairTarget) {
     return true;
