@@ -1,6 +1,7 @@
 import {
   buildRuntimeCpuBudget,
   buildRuntimeCpuTelemetrySummary,
+  CONSTRUCTION_LOW_BUCKET_RECOVERY_THRESHOLD,
   getRuntimeCpuBudget,
   isRuntimeCpuBucketCritical,
   isRuntimeCpuBucketLow,
@@ -140,6 +141,78 @@ describe('runtime CPU budget policy', () => {
         })
       )
     ).toBe(true);
+  });
+
+  it('keeps optional work paused but runs construction recovery above the low-bucket construction floor', () => {
+    const budgets = [
+      { tick: 2461915, used: 12.233448999992106, bucket: 786 },
+      { tick: 2461935, used: 17.77628489997005, bucket: 870 },
+      { tick: 2461936, used: 18, bucket: CONSTRUCTION_LOW_BUCKET_RECOVERY_THRESHOLD }
+    ].map((sample) =>
+      buildRuntimeCpuBudget({
+        ...sample,
+        limit: 70,
+        tickLimit: 500
+      })
+    );
+
+    for (const budget of budgets) {
+      expect(budget).toMatchObject({
+        pressure: 'degraded',
+        degraded: true,
+        critical: false,
+        lowCpuLimit: false,
+        reasons: ['lowBucket']
+      });
+      expect(shouldRunOptionalCpuWork(budget, 'economy-global-optional')).toBe(false);
+      expect(shouldRunOptionalCpuRoomWork(budget, 'E29N57')).toBe(false);
+      expect(shouldShedNonessentialCpuWork(budget)).toBe(true);
+      expect(shouldRunConstructionCpuWork(budget)).toBe(true);
+    }
+  });
+
+  it('keeps construction guarded below the low-bucket construction floor', () => {
+    const budget = buildRuntimeCpuBudget({
+      tick: 2461914,
+      used: 18,
+      limit: 70,
+      bucket: CONSTRUCTION_LOW_BUCKET_RECOVERY_THRESHOLD - 1,
+      tickLimit: 500
+    });
+
+    expect(budget).toMatchObject({
+      pressure: 'degraded',
+      degraded: true,
+      critical: false,
+      lowCpuLimit: false,
+      reasons: ['lowBucket']
+    });
+    expect(shouldRunOptionalCpuWork(budget, 'economy-global-optional')).toBe(false);
+    expect(shouldRunOptionalCpuRoomWork(budget, 'E29N57')).toBe(false);
+    expect(shouldShedNonessentialCpuWork(budget)).toBe(true);
+    expect(shouldRunConstructionCpuWork(budget)).toBe(false);
+  });
+
+  it('keeps construction guarded when low-bucket CPU is already over limit', () => {
+    const budget = buildRuntimeCpuBudget({
+      tick: 2461916,
+      used: 71,
+      limit: 70,
+      bucket: 870,
+      tickLimit: 500
+    });
+
+    expect(budget).toMatchObject({
+      pressure: 'degraded',
+      degraded: true,
+      critical: false,
+      lowCpuLimit: false,
+      reasons: ['lowBucket', 'usedOverLimit']
+    });
+    expect(shouldRunOptionalCpuWork(budget, 'economy-global-optional')).toBe(false);
+    expect(shouldRunOptionalCpuRoomWork(budget, 'E29N57')).toBe(false);
+    expect(shouldShedNonessentialCpuWork(budget)).toBe(true);
+    expect(shouldRunConstructionCpuWork(budget)).toBe(false);
   });
 
   it('sheds optional work but keeps construction enabled during safe low-bucket recovery', () => {
