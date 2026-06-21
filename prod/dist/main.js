@@ -28062,16 +28062,15 @@ function selectCriticalCpuWorkerTask(creep, cpuBudget) {
   }
   const loadedControllerProgressTask = selectNonCriticalCpuLoadedControllerProgressTask(
     creep,
-    cpuBudget,
-    constructionSites
+    cpuBudget
   );
   if (loadedControllerProgressTask) {
     return applyMinimumUsefulLoadPolicy(creep, loadedControllerProgressTask);
   }
   return null;
 }
-function selectNonCriticalCpuLoadedControllerProgressTask(creep, cpuBudget, constructionSites) {
-  if (cpuBudget.critical || getUsedEnergy2(creep) <= 0 || constructionSites.length > 0 || hasVisibleHostilePresence3(creep.room) || !hasFullRoomEnergyForControllerProgress(creep.room)) {
+function selectNonCriticalCpuLoadedControllerProgressTask(creep, cpuBudget) {
+  if (cpuBudget.critical || !shouldRunConstructionCpuWork(cpuBudget) || getUsedEnergy2(creep) <= 0 || hasVisibleHostilePresence3(creep.room) || !hasFullRoomEnergyForControllerProgress(creep.room)) {
     return null;
   }
   const controller = creep.room.controller;
