@@ -530,6 +530,10 @@ function shouldRunWorkerForShedCpu(
     return false;
   }
 
+  if (isPlainLocalWorkerOutsideOwnedColony(creep)) {
+    return true;
+  }
+
   if (
     creep.memory?.spawnSupport !== undefined ||
     creep.memory?.task != null ||
@@ -554,6 +558,27 @@ function shouldRunWorkerForShedCpu(
 function getWorkerShedCpuProbeRoomName(creep: Creep): string | null {
   const roomName = creep.room?.name ?? creep.memory?.colony;
   return typeof roomName === 'string' && roomName.length > 0 ? roomName : null;
+}
+
+function isPlainLocalWorkerOutsideOwnedColony(creep: Creep): boolean {
+  const memory = creep.memory;
+  const colonyRoomName = memory?.colony;
+  const currentRoomName = creep.room?.name;
+  return (
+    memory?.role === 'worker' &&
+    isNonEmptyString(colonyRoomName) &&
+    currentRoomName !== colonyRoomName &&
+    memory.controllerSustain === undefined &&
+    memory.controllerUpgrade === undefined &&
+    memory.interRoomEnergyHaul === undefined &&
+    memory.spawnSupport === undefined &&
+    memory.territory === undefined &&
+    getVisibleOwnedRoomController(colonyRoomName)?.my === true
+  );
+}
+
+function getVisibleOwnedRoomController(roomName: string): StructureController | undefined {
+  return (globalThis as unknown as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName]?.controller;
 }
 
 function shouldRunShedCpuColonyPlanning(

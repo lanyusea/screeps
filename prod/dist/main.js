@@ -53975,6 +53975,9 @@ function shouldRunWorkerForShedCpu(creep, shedCpuIdleWorkerProbeRooms) {
   if (((_b = creep.memory) == null ? void 0 : _b.territory) !== void 0) {
     return false;
   }
+  if (isPlainLocalWorkerOutsideOwnedColony(creep)) {
+    return true;
+  }
   if (((_c = creep.memory) == null ? void 0 : _c.spawnSupport) !== void 0 || ((_d = creep.memory) == null ? void 0 : _d.task) != null || shedCpuIdleWorkerProbeRooms === void 0) {
     return true;
   }
@@ -53992,6 +53995,17 @@ function getWorkerShedCpuProbeRoomName(creep) {
   var _a2, _b, _c;
   const roomName = (_c = (_a2 = creep.room) == null ? void 0 : _a2.name) != null ? _c : (_b = creep.memory) == null ? void 0 : _b.colony;
   return typeof roomName === "string" && roomName.length > 0 ? roomName : null;
+}
+function isPlainLocalWorkerOutsideOwnedColony(creep) {
+  var _a2, _b;
+  const memory = creep.memory;
+  const colonyRoomName = memory == null ? void 0 : memory.colony;
+  const currentRoomName = (_a2 = creep.room) == null ? void 0 : _a2.name;
+  return (memory == null ? void 0 : memory.role) === "worker" && isNonEmptyString44(colonyRoomName) && currentRoomName !== colonyRoomName && memory.controllerSustain === void 0 && memory.controllerUpgrade === void 0 && memory.interRoomEnergyHaul === void 0 && memory.spawnSupport === void 0 && memory.territory === void 0 && ((_b = getVisibleOwnedRoomController(colonyRoomName)) == null ? void 0 : _b.my) === true;
+}
+function getVisibleOwnedRoomController(roomName) {
+  var _a2, _b, _c;
+  return (_c = (_b = (_a2 = globalThis.Game) == null ? void 0 : _a2.rooms) == null ? void 0 : _b[roomName]) == null ? void 0 : _c.controller;
 }
 function shouldRunShedCpuColonyPlanning(colony, roleCounts, survivalAssessment) {
   if (hasSpawnPresentLocalWorkerRecoveryShortfall2(colony, survivalAssessment)) {

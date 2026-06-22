@@ -214,6 +214,42 @@ describe('runEconomy', () => {
     ).toBe(true);
   });
 
+  it('runs stranded local workers toward their owned colony under critical CPU bucket pressure', () => {
+    const criticalBudget = buildRuntimeCpuBudget({
+      tick: 127,
+      used: 21,
+      limit: 70,
+      bucket: 1,
+      tickLimit: 500
+    });
+    const currentRoom = {
+      name: 'W1N1',
+      controller: { my: true, ticksToDowngrade: CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS + 1 } as StructureController
+    } as Room;
+    const colonyRoom = {
+      name: 'W2N1',
+      controller: { my: true, ticksToDowngrade: CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS + 1 } as StructureController
+    } as Room;
+    const previousGame = (globalThis as unknown as { Game?: Partial<Game> }).Game;
+    (globalThis as unknown as { Game?: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: colonyRoom
+      } as unknown as Game['rooms']
+    };
+    const probedRooms = new Set<string>(['W1N1']);
+    const strandedWorker = {
+      name: 'worker-W2N1-stranded',
+      memory: { role: 'worker', colony: 'W2N1' },
+      room: currentRoom
+    } as unknown as Creep;
+
+    try {
+      expect(shouldRunCreepForCpuBudget(strandedWorker, criticalBudget, probedRooms)).toBe(true);
+    } finally {
+      (globalThis as unknown as { Game?: Partial<Game> }).Game = previousGame;
+    }
+  });
+
   it('sheds nonessential creep roles during noncritical low-bucket recovery', () => {
     const lowBucketBudget = buildRuntimeCpuBudget({
       tick: 126,
