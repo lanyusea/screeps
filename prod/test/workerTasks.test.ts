@@ -15523,6 +15523,81 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(upgradeCandidate)).toEqual({ type: 'upgrade', targetId: 'controller-e29n56' });
   });
 
+  it('keeps one surplus worker upgrading during low-bucket recovery when build and critical repair are covered', () => {
+    const fullSpawn = makeFullSpawnEnergyStructure('spawn-full');
+    const site = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 4_700,
+      progressTotal: 5_000,
+      pos: makeRoomPosition(24, 24)
+    } as ConstructionSite;
+    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 560_000, {
+      my: true,
+      pos: makeRoomPosition(20, 20)
+    });
+    const criticalContainer = makeStructure(
+      'container-critical',
+      'container' as StructureConstant,
+      900,
+      2_000
+    );
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [site],
+      controller,
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300,
+      myStructures: [fullSpawn as AnyOwnedStructure],
+      structures: [fullSpawn as AnyStructure, storage as AnyStructure, criticalContainer]
+    });
+    const upgradeCandidate = {
+      name: 'UpgradeCandidate',
+      memory: { role: 'worker', colony: 'W1N1' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    const coveredBuilder = {
+      name: 'CoveredBuilder',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'build', targetId: 'road-site1' as Id<ConstructionSite> }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    const coveredRepairer = {
+      name: 'CoveredRepairer',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'repair', targetId: 'container-critical' as Id<Structure> }
+      },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({
+      UpgradeCandidate: upgradeCandidate,
+      CoveredBuilder: coveredBuilder,
+      CoveredRepairer: coveredRepairer
+    });
+    setCpuBucket(758);
+
+    expect(selectWorkerTask(upgradeCandidate)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
   it('suppresses generic construction recovery during critical CPU bucket pressure', () => {
     const fullSpawn = makeFullSpawnEnergyStructure('spawn-full', 'E29N55');
     const site = {
