@@ -16218,6 +16218,54 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'container-site1' });
   });
 
+  it('uses loaded source-container recovery energy when room energy is exactly the worker spawn reserve', () => {
+    const source = makeSource('source1', 20, 20, 'E29N57');
+    const site = {
+      id: 'container-site1',
+      structureType: 'container',
+      progress: 500,
+      progressTotal: 1_279,
+      pos: makeRoomPosition(20, 21, 'E29N57')
+    } as ConstructionSite;
+    const spawn = makeEnergySinkWithEnergy(
+      'spawn1',
+      'spawn' as StructureConstant,
+      MINIMUM_WORKER_SPAWN_ENERGY,
+      TEST_FULL_SPAWN_ENERGY - MINIMUM_WORKER_SPAWN_ENERGY
+    );
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      constructionSites: [site],
+      controller,
+      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY,
+      energyCapacityAvailable: 1_800,
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [source],
+      structures: [spawn as unknown as AnyStructure]
+    });
+    const builder = {
+      name: 'worker-E29N57-loaded',
+      memory: { role: 'worker', colony: 'E29N57' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 16 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 34 : 0))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Builder: builder });
+    setGameObjectsById([site, spawn, source], { rooms: { E29N57: room }, time: 2_482_131 });
+    setCpuBucket(618);
+
+    expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'container-site1' });
+  });
+
   it('does not tag fallback construction withdraws for targets without a store', () => {
     const source = makeSource('source1', 20, 20, 'E29N57');
     const site = {

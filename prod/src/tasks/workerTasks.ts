@@ -620,7 +620,7 @@ function canUseEnergyStarvedSourceLogisticsConstructionRecovery(creep: Creep): b
     !hasActiveSpawningSpawn(creep.room) &&
     !hasOtherSameRoomBuildCoverageWorker(creep) &&
     roomEnergy !== null &&
-    roomEnergy - carriedEnergy >= MINIMUM_WORKER_SPAWN_ENERGY
+    roomEnergy >= MINIMUM_WORKER_SPAWN_ENERGY
   );
 }
 
