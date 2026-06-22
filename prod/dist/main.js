@@ -28114,7 +28114,7 @@ function canUseEnergyStarvedSourceLogisticsConstructionRecovery(creep) {
   var _a2;
   const carriedEnergy = getUsedEnergy2(creep);
   const roomEnergy = getRoomEnergyAvailable11(creep.room);
-  return carriedEnergy > 0 && getActiveWorkParts2(creep) > 0 && ((_a2 = creep.room.controller) == null ? void 0 : _a2.my) === true && !hasVisibleHostilePresence3(creep.room) && !shouldGuardControllerDowngrade2(creep.room.controller) && !hasActiveSpawningSpawn(creep.room) && !hasOtherSameRoomBuildCoverageWorker(creep) && roomEnergy !== null && roomEnergy >= MINIMUM_WORKER_SPAWN_ENERGY;
+  return carriedEnergy > 0 && getActiveWorkParts2(creep) > 0 && ((_a2 = creep.room.controller) == null ? void 0 : _a2.my) === true && !hasVisibleHostilePresence3(creep.room) && !shouldGuardControllerDowngrade2(creep.room.controller) && !isNearTermSpawnCompletionBlockedWithoutLowLoadEnergy(creep) && !hasOtherSameRoomBuildCoverageWorker(creep) && roomEnergy !== null && roomEnergy >= MINIMUM_WORKER_SPAWN_ENERGY;
 }
 function selectConstructionRecoveryCpuWorkerTask(creep) {
   var _a2;

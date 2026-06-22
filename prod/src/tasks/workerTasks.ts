@@ -617,7 +617,7 @@ function canUseEnergyStarvedSourceLogisticsConstructionRecovery(creep: Creep): b
     creep.room.controller?.my === true &&
     !hasVisibleHostilePresence(creep.room) &&
     !shouldGuardControllerDowngrade(creep.room.controller) &&
-    !hasActiveSpawningSpawn(creep.room) &&
+    !isNearTermSpawnCompletionBlockedWithoutLowLoadEnergy(creep) &&
     !hasOtherSameRoomBuildCoverageWorker(creep) &&
     roomEnergy !== null &&
     roomEnergy >= MINIMUM_WORKER_SPAWN_ENERGY

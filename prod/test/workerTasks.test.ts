@@ -16218,7 +16218,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'container-site1' });
   });
 
-  it('uses loaded source-container recovery energy when room energy is exactly the worker spawn reserve', () => {
+  it('uses loaded source-container recovery energy during active spawning when the worker spawn reserve is covered', () => {
     const source = makeSource('source1', 20, 20, 'E29N57');
     const site = {
       id: 'container-site1',
@@ -16231,7 +16231,8 @@ describe('selectWorkerTask', () => {
       'spawn1',
       'spawn' as StructureConstant,
       MINIMUM_WORKER_SPAWN_ENERGY,
-      TEST_FULL_SPAWN_ENERGY - MINIMUM_WORKER_SPAWN_ENERGY
+      TEST_FULL_SPAWN_ENERGY - MINIMUM_WORKER_SPAWN_ENERGY,
+      { spawning: { remainingTime: 25 } }
     );
     const controller = {
       id: 'controller1',
