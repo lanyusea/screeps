@@ -15704,6 +15704,110 @@ describe('selectWorkerTask', () => {
     });
   });
 
+  it('uses owned storage below reserve for single-worker construction recovery when spawn energy is safe', () => {
+    const fullSpawn = makeFullSpawnEnergyStructure('spawn-full', 'E29N57');
+    const site = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 0,
+      progressTotal: 1_564,
+      pos: makeRoomPosition(32, 20, 'E29N57')
+    } as ConstructionSite;
+    const storage = makeStoredEnergyStructure('storage-low', 'storage' as StructureConstant, 720, {
+      my: true,
+      pos: makeRoomPosition(35, 27, 'E29N57')
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      constructionSites: [site],
+      controller,
+      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY,
+      energyCapacityAvailable: 1_800,
+      myStructures: [fullSpawn as AnyOwnedStructure],
+      structures: [fullSpawn as AnyStructure, storage as AnyStructure]
+    });
+    const worker = {
+      name: 'RecoveryWorker',
+      memory: { role: 'worker', colony: 'E29N57' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === 'work' ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(100)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'storage-low': 2,
+            'road-site1': 6
+          };
+          return ranges[String(target.id)] ?? 99;
+        })
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ RecoveryWorker: worker });
+    setCpuBucket(748);
+
+    expect(selectWorkerTask(worker)).toEqual({
+      type: 'withdraw',
+      targetId: 'storage-low',
+      constructionSiteId: 'road-site1'
+    });
+  });
+
+  it('spends carried energy on single-worker construction recovery at the spawn energy floor', () => {
+    const fullSpawn = makeFullSpawnEnergyStructure('spawn-full', 'E29N57');
+    const site = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 0,
+      progressTotal: 1_564,
+      pos: makeRoomPosition(32, 20, 'E29N57')
+    } as ConstructionSite;
+    const storage = makeStoredEnergyStructure('storage-low', 'storage' as StructureConstant, 720, {
+      my: true,
+      pos: makeRoomPosition(35, 27, 'E29N57')
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      constructionSites: [site],
+      controller,
+      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY,
+      energyCapacityAvailable: 1_800,
+      myStructures: [fullSpawn as AnyOwnedStructure],
+      structures: [fullSpawn as AnyStructure, storage as AnyStructure]
+    });
+    const worker = {
+      name: 'RecoveryBuilder',
+      memory: { role: 'worker', colony: 'E29N57' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === 'work' ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(100),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ RecoveryBuilder: worker });
+    setCpuBucket(748);
+
+    expect(canSpendWorkerEnergyOnConstructionSite(worker, site)).toBe(true);
+    expect(selectWorkerTask(worker)).toEqual({ type: 'build', targetId: 'road-site1' });
+  });
+
   it('suppresses generic construction acquisition during critical CPU bucket pressure', () => {
     const fullSpawn = makeFullSpawnEnergyStructure('spawn-full', 'E29N56');
     const site = {
