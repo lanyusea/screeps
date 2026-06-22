@@ -6268,12 +6268,16 @@ function canUseFallbackConstructionWithdrawTask(
 
 function getVisibleStoreStructureById(room: Room, targetId: string): AnyStoreStructure | null {
   const gameObject = getGameObjectById<AnyStoreStructure>(targetId);
-  if (gameObject) {
+  if (isStoreStructure(gameObject)) {
     return gameObject;
   }
 
   const visibleStructure = findVisibleRoomStructures(room).find((structure) => String(structure.id) === targetId);
-  return visibleStructure ? (visibleStructure as AnyStoreStructure) : null;
+  return isStoreStructure(visibleStructure) ? visibleStructure : null;
+}
+
+function isStoreStructure(structure: RoomObject | null | undefined): structure is AnyStoreStructure {
+  return Boolean(structure && 'store' in structure);
 }
 
 export function findBuilderEnergyAcquisitionCandidates(

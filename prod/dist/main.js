@@ -31734,11 +31734,14 @@ function canUseFallbackConstructionWithdrawTask(creep, task) {
 }
 function getVisibleStoreStructureById(room, targetId) {
   const gameObject = getGameObjectById4(targetId);
-  if (gameObject) {
+  if (isStoreStructure(gameObject)) {
     return gameObject;
   }
   const visibleStructure = findVisibleRoomStructures(room).find((structure) => String(structure.id) === targetId);
-  return visibleStructure ? visibleStructure : null;
+  return isStoreStructure(visibleStructure) ? visibleStructure : null;
+}
+function isStoreStructure(structure) {
+  return Boolean(structure && "store" in structure);
 }
 function findBuilderEnergyAcquisitionCandidates(creep, constructionSite) {
   const context = {
