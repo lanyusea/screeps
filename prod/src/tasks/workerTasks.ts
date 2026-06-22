@@ -432,6 +432,15 @@ function selectCriticalCpuWorkerTask(creep: Creep, cpuBudget: RuntimeCpuBudget):
     });
   }
 
+  const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
+  const coveredLowBucketControllerProgressTask =
+    controller && !priorityTowerEnergySink && shouldRunConstructionCpuWork(cpuBudget)
+      ? selectCoveredSurplusControllerProgressTask(creep, controller, constructionSites)
+      : null;
+  if (coveredLowBucketControllerProgressTask) {
+    return applyMinimumUsefulLoadPolicy(creep, coveredLowBucketControllerProgressTask);
+  }
+
   const storedProtectedConstructionTask = selectStoredProtectedSourceContainerConstructionTask(creep);
   if (storedProtectedConstructionTask) {
     return applyMinimumUsefulLoadPolicy(creep, storedProtectedConstructionTask);
@@ -475,7 +484,6 @@ function selectCriticalCpuWorkerTask(creep: Creep, cpuBudget: RuntimeCpuBudget):
     };
   }
 
-  const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
   const boundedConstructionBacklogTask = priorityTowerEnergySink
     ? selectBoundedConstructionBacklogTaskBeforeNonCriticalRefill(
       creep,
