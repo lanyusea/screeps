@@ -16150,6 +16150,123 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
+  it('uses loaded E29N57 recovery energy on a post-claim source-container site before noncritical refill under low bucket', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          E29N57: {
+            colony: 'E29N55',
+            roomName: 'E29N57',
+            status: 'spawningWorkers',
+            claimedAt: 1,
+            updatedAt: 2,
+            workerTarget: 4
+          }
+        }
+      }
+    } as Partial<Memory>;
+    const source = makeSource('source1', 20, 20, 'E29N57');
+    const site = {
+      id: 'container-site1',
+      structureType: 'container',
+      progress: 500,
+      progressTotal: 1_279,
+      pos: makeRoomPosition(20, 21, 'E29N57')
+    } as ConstructionSite;
+    const spawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 300, 0);
+    const extension = makeEnergySinkWithEnergy('extension1', 'extension' as StructureConstant, 71, 29);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 371,
+      energyCapacityAvailable: 1_800,
+      myStructures: [spawn as AnyOwnedStructure, extension as AnyOwnedStructure],
+      sources: [source],
+      structures: [spawn as unknown as AnyStructure, extension as unknown as AnyStructure]
+    });
+    const builder = {
+      name: 'worker-E29N57-loaded',
+      memory: { role: 'worker', colony: 'E29N57' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 16 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 34 : 0))
+      },
+      room
+    } as unknown as Creep;
+    const harvester = {
+      name: 'worker-E29N57-harvest',
+      memory: { role: 'worker', colony: 'E29N57', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 10 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 40 : 0))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Builder: builder, Harvester: harvester });
+    setGameObjectsById([site, spawn, extension, source], { rooms: { E29N57: room }, time: 2_482_130 });
+    setCpuBucket(618);
+
+    expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'container-site1' });
+  });
+
+  it('uses loaded source-container recovery energy during active spawning when the worker spawn reserve is covered', () => {
+    const source = makeSource('source1', 20, 20, 'E29N57');
+    const site = {
+      id: 'container-site1',
+      structureType: 'container',
+      progress: 500,
+      progressTotal: 1_279,
+      pos: makeRoomPosition(20, 21, 'E29N57')
+    } as ConstructionSite;
+    const spawn = makeEnergySinkWithEnergy(
+      'spawn1',
+      'spawn' as StructureConstant,
+      MINIMUM_WORKER_SPAWN_ENERGY,
+      TEST_FULL_SPAWN_ENERGY - MINIMUM_WORKER_SPAWN_ENERGY,
+      { spawning: { remainingTime: 25 } }
+    );
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      constructionSites: [site],
+      controller,
+      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY,
+      energyCapacityAvailable: 1_800,
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [source],
+      structures: [spawn as unknown as AnyStructure]
+    });
+    const builder = {
+      name: 'worker-E29N57-loaded',
+      memory: { role: 'worker', colony: 'E29N57' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 16 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 34 : 0))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Builder: builder });
+    setGameObjectsById([site, spawn, source], { rooms: { E29N57: room }, time: 2_482_131 });
+    setCpuBucket(618);
+
+    expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'container-site1' });
+  });
+
   it('does not tag fallback construction withdraws for targets without a store', () => {
     const source = makeSource('source1', 20, 20, 'E29N57');
     const site = {
