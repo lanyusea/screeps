@@ -133,6 +133,7 @@ const WORKER_ENERGY_SURPLUS_SCORE_RATIO = 0.4;
 const HARVEST_ENERGY_PER_WORK_PART = 2;
 const SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_EMPTY_CAPACITY_RATIO = 0.2;
 const SPAWN_EXTENSION_REFILL_STORAGE_WITHDRAWAL_OPTIONS = { allowBelowReserve: true } as const;
+const LOCAL_WORKER_RECOVERY_CONSTRUCTION_STORAGE_WITHDRAWAL_OPTIONS = { allowBelowReserve: true } as const;
 const DEFAULT_BUILD_POWER = 5;
 const REPAIR_HEAVY_CONSTRUCTION_YIELD_MIN_OTHER_LOADED_REPAIRERS = 2;
 const NEARLY_COMPLETE_CONSTRUCTION_SITE_REMAINING_RATIO = 0.2;
@@ -4764,6 +4765,7 @@ function canSpendCreepEnergyOnConstructionSite(
       isCapacityEnablingConstructionSite(site, priorityContext) &&
       checkEnergyBufferForCapacityEnablingConstruction(creep.room, carriedEnergy)) ||
     (carriedEnergy > 0 && canCompleteConstructionSiteWithCarriedEnergy(creep, site)) ||
+    (carriedEnergy > 0 && canUseLocalWorkerRecoveryConstructionEnergy(creep, site)) ||
     (carriedEnergy > 0 && isLowWorkerThroughputRecoveryConstructionAllowed(creep, site)) ||
     (carriedEnergy > 0 &&
       hasMinimumWorkerSpawnEnergyForConstruction(creep.room) &&
@@ -4793,6 +4795,51 @@ function canSpendCarriedSurplusOnBoundedConstruction(creep: Creep, site: Constru
 
 function isLowWorkerThroughputRecoveryConstructionAllowed(creep: Creep, site: ConstructionSite): boolean {
   return site.my !== false && hasLowWorkerThroughputRecoveryPressure(creep);
+}
+
+function canUseLocalWorkerRecoveryConstructionEnergy(creep: Creep, site: ConstructionSite): boolean {
+  const room = creep.room;
+  const controller = room.controller;
+  const energyAvailable = getRoomEnergyAvailable(room);
+  const ownedSpawnCount = getOwnedSpawnCount(room);
+  return (
+    site.my !== false &&
+    isNormalLocalRecoveryWorker(creep) &&
+    getActiveWorkParts(creep) > 0 &&
+    controller?.my === true &&
+    ownedSpawnCount !== 0 &&
+    energyAvailable !== null &&
+    energyAvailable >= MINIMUM_WORKER_SPAWN_ENERGY &&
+    !hasVisibleHostilePresence(room) &&
+    !shouldGuardControllerDowngrade(controller) &&
+    isConstructionSiteInRoom(site, room) &&
+    hasLoneLocalWorkerRecoveryPressure(creep)
+  );
+}
+
+function isNormalLocalRecoveryWorker(creep: Creep): boolean {
+  const memory = creep.memory;
+  return (
+    memory?.role === 'worker' &&
+    memory.controllerSustain === undefined &&
+    memory.controllerUpgrade === undefined &&
+    memory.interRoomEnergyHaul === undefined &&
+    memory.spawnSupport === undefined &&
+    memory.territory === undefined
+  );
+}
+
+function isConstructionSiteInRoom(site: ConstructionSite, room: Room): boolean {
+  const siteRoomName = getPositionRoomName(site);
+  const roomName = getRoomName(room);
+  return siteRoomName === null || roomName === null || siteRoomName === roomName;
+}
+
+function hasLoneLocalWorkerRecoveryPressure(creep: Creep): boolean {
+  return (
+    !hasOtherSameRoomLoadedBuildWorker(creep) &&
+    getSameRoomCreepsIncludingCurrent(creep).filter(isNormalLocalRecoveryWorker).length <= 1
+  );
 }
 
 function isMissingSpawnRecoveryConstructionSite(room: Room, site: ConstructionSite): boolean {
@@ -6346,6 +6393,19 @@ function createUnreservedBuilderStoredEnergyAcquisitionCandidate(
     });
   }
 
+  const recoveryStorageCandidate = createLocalWorkerRecoveryStorageConstructionEnergyCandidate(
+    creep,
+    source,
+    energy,
+    task,
+    reservationContext,
+    minimumEnergy,
+    constructionSite
+  );
+  if (recoveryStorageCandidate) {
+    return recoveryStorageCandidate;
+  }
+
   const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
     creep,
     source,
@@ -6358,6 +6418,52 @@ function createUnreservedBuilderStoredEnergyAcquisitionCandidate(
     minimumEnergy
   );
   return candidate ? toBuilderEnergyAcquisitionCandidate(candidate) : null;
+}
+
+function createLocalWorkerRecoveryStorageConstructionEnergyCandidate(
+  creep: Creep,
+  source: BuilderStoredEnergySource,
+  energy: number,
+  task: Extract<WorkerEnergyAcquisitionTask, { type: 'withdraw' }>,
+  reservationContext: WorkerEnergyAcquisitionReservationContext,
+  minimumEnergy: number,
+  constructionSite: ConstructionSite
+): BuilderEnergyAcquisitionCandidate | null {
+  if (!isStorageStoredEnergySource(source) || !canUseLocalWorkerRecoveryConstructionEnergy(creep, constructionSite)) {
+    return null;
+  }
+
+  const reservedEnergy = getReservedWorkerEnergyAcquisitionAmount(source, reservationContext);
+  const projectedEnergy = Math.max(0, energy - reservedEnergy);
+  const availableEnergy = getStorageEnergyAvailableForWithdrawal(
+    creep.room,
+    source,
+    projectedEnergy,
+    LOCAL_WORKER_RECOVERY_CONSTRUCTION_STORAGE_WITHDRAWAL_OPTIONS
+  );
+  const plannedWithdrawal = Math.min(availableEnergy, getFreeEnergyCapacity(creep));
+  if (
+    availableEnergy < minimumEnergy ||
+    plannedWithdrawal <= 0 ||
+    !withdrawFromStorage(
+      creep.room,
+      plannedWithdrawal,
+      source,
+      projectedEnergy,
+      LOCAL_WORKER_RECOVERY_CONSTRUCTION_STORAGE_WITHDRAWAL_OPTIONS
+    )
+  ) {
+    return null;
+  }
+
+  return createBuilderEnergyAcquisitionCandidate(creep, source, availableEnergy, {
+    ...task,
+    constructionSiteId: constructionSite.id
+  });
+}
+
+function isStorageStoredEnergySource(source: BuilderStoredEnergySource): source is StructureStorage {
+  return matchesStructureType(source.structureType, 'STRUCTURE_STORAGE', 'storage');
 }
 
 function isBuilderConstructionBufferSpawnSource(
