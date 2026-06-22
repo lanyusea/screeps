@@ -2323,10 +2323,15 @@ function hasActiveTerritoryIntentForRoom(colonyRoomName: string, targetRoomName:
   }
 
   return intents.some((intent) =>
+    isRecord(intent) &&
     intent.colony === colonyRoomName &&
     intent.targetRoom === targetRoomName &&
     (intent.status === 'planned' || intent.status === 'active')
   );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function isSpawnSupportMemory(value: unknown): value is CreepSpawnSupportMemory {
