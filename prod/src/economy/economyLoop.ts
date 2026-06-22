@@ -564,21 +564,28 @@ function isPlainLocalWorkerOutsideOwnedColony(creep: Creep): boolean {
   const memory = creep.memory;
   const colonyRoomName = memory?.colony;
   const currentRoomName = creep.room?.name;
+  const colonyController = isNonEmptyString(colonyRoomName)
+    ? getVisibleRoomController(colonyRoomName)
+    : null;
   return (
     memory?.role === 'worker' &&
     isNonEmptyString(colonyRoomName) &&
+    isNonEmptyString(currentRoomName) &&
     currentRoomName !== colonyRoomName &&
     memory.controllerSustain === undefined &&
     memory.controllerUpgrade === undefined &&
     memory.interRoomEnergyHaul === undefined &&
     memory.spawnSupport === undefined &&
     memory.territory === undefined &&
-    getVisibleOwnedRoomController(colonyRoomName)?.my === true
+    (colonyController === undefined || colonyController?.my === true)
   );
 }
 
-function getVisibleOwnedRoomController(roomName: string): StructureController | undefined {
-  return (globalThis as unknown as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName]?.controller;
+function getVisibleRoomController(roomName: string): StructureController | null | undefined {
+  const visibleRoom = (globalThis as unknown as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[
+    roomName
+  ];
+  return visibleRoom === undefined ? undefined : visibleRoom.controller ?? null;
 }
 
 function shouldRunShedCpuColonyPlanning(

@@ -36655,11 +36655,12 @@ function runSpawnSupportMovement(creep) {
 function runAssignedOwnedColonyMovement(creep) {
   var _a2;
   const colonyRoomName = creep.memory.colony;
-  if (!isPlainLocalWorkerAssignment(creep, colonyRoomName) || ((_a2 = creep.room) == null ? void 0 : _a2.name) === colonyRoomName) {
+  const currentRoomName = (_a2 = creep.room) == null ? void 0 : _a2.name;
+  if (!isPlainLocalWorkerAssignment(creep, colonyRoomName) || typeof currentRoomName !== "string" || currentRoomName.length <= 0 || currentRoomName === colonyRoomName) {
     return false;
   }
   const controller = getVisibleRoomController2(colonyRoomName);
-  if ((controller == null ? void 0 : controller.my) !== true) {
+  if (controller !== void 0 && (controller == null ? void 0 : controller.my) !== true) {
     return false;
   }
   clearAssignedTask(creep);
@@ -36719,8 +36720,9 @@ function moveTowardRoom3(creep, roomName) {
   }
 }
 function getVisibleRoomController2(roomName) {
-  var _a2, _b, _c, _d;
-  return (_d = (_c = (_b = (_a2 = globalThis.Game) == null ? void 0 : _a2.rooms) == null ? void 0 : _b[roomName]) == null ? void 0 : _c.controller) != null ? _d : null;
+  var _a2, _b, _c;
+  const visibleRoom = (_b = (_a2 = globalThis.Game) == null ? void 0 : _a2.rooms) == null ? void 0 : _b[roomName];
+  return visibleRoom === void 0 ? void 0 : (_c = visibleRoom.controller) != null ? _c : null;
 }
 function selectControllerSustainHaulerEnergyTask(creep) {
   var _a2, _b;
@@ -53997,15 +53999,17 @@ function getWorkerShedCpuProbeRoomName(creep) {
   return typeof roomName === "string" && roomName.length > 0 ? roomName : null;
 }
 function isPlainLocalWorkerOutsideOwnedColony(creep) {
-  var _a2, _b;
+  var _a2;
   const memory = creep.memory;
   const colonyRoomName = memory == null ? void 0 : memory.colony;
   const currentRoomName = (_a2 = creep.room) == null ? void 0 : _a2.name;
-  return (memory == null ? void 0 : memory.role) === "worker" && isNonEmptyString44(colonyRoomName) && currentRoomName !== colonyRoomName && memory.controllerSustain === void 0 && memory.controllerUpgrade === void 0 && memory.interRoomEnergyHaul === void 0 && memory.spawnSupport === void 0 && memory.territory === void 0 && ((_b = getVisibleOwnedRoomController(colonyRoomName)) == null ? void 0 : _b.my) === true;
+  const colonyController = isNonEmptyString44(colonyRoomName) ? getVisibleRoomController4(colonyRoomName) : null;
+  return (memory == null ? void 0 : memory.role) === "worker" && isNonEmptyString44(colonyRoomName) && isNonEmptyString44(currentRoomName) && currentRoomName !== colonyRoomName && memory.controllerSustain === void 0 && memory.controllerUpgrade === void 0 && memory.interRoomEnergyHaul === void 0 && memory.spawnSupport === void 0 && memory.territory === void 0 && (colonyController === void 0 || (colonyController == null ? void 0 : colonyController.my) === true);
 }
-function getVisibleOwnedRoomController(roomName) {
+function getVisibleRoomController4(roomName) {
   var _a2, _b, _c;
-  return (_c = (_b = (_a2 = globalThis.Game) == null ? void 0 : _a2.rooms) == null ? void 0 : _b[roomName]) == null ? void 0 : _c.controller;
+  const visibleRoom = (_b = (_a2 = globalThis.Game) == null ? void 0 : _a2.rooms) == null ? void 0 : _b[roomName];
+  return visibleRoom === void 0 ? void 0 : (_c = visibleRoom.controller) != null ? _c : null;
 }
 function shouldRunShedCpuColonyPlanning(colony, roleCounts, survivalAssessment) {
   if (hasSpawnPresentLocalWorkerRecoveryShortfall2(colony, survivalAssessment)) {

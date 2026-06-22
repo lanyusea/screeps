@@ -3070,6 +3070,62 @@ describe('runWorker', () => {
     expect(originRoom.find).not.toHaveBeenCalled();
   });
 
+  it('routes a plain worker toward its unseen assigned colony before retaining foreign-room work', () => {
+    const repairTarget = { id: 'road1', structureType: 'road' } as StructureRoad;
+    const originRoom = {
+      name: 'W2N1',
+      find: jest.fn().mockReturnValue([{ id: 'source1' } as Source])
+    } as unknown as Room;
+    const creep = {
+      memory: {
+        role: 'worker',
+        colony: 'W3N1',
+        task: { type: 'repair', targetId: 'road1' as Id<Structure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: originRoom,
+      repair: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    const targetRoomPosition = { x: 25, y: 25, roomName: 'W3N1' } as RoomPosition;
+    const roomPositionCtor = jest.fn(() => targetRoomPosition);
+    const globalWithRoomPosition = globalThis as unknown as {
+      RoomPosition?: new (x: number, y: number, roomName: string) => RoomPosition;
+    };
+    const previousRoomPosition = globalWithRoomPosition.RoomPosition;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: originRoom
+      },
+      creeps: {},
+      getObjectById: jest.fn((id: string) => (id === 'road1' ? repairTarget : null)) as Game['getObjectById']
+    };
+    globalWithRoomPosition.RoomPosition = roomPositionCtor as unknown as new (
+      x: number,
+      y: number,
+      roomName: string
+    ) => RoomPosition;
+
+    try {
+      runWorker(creep);
+    } finally {
+      if (previousRoomPosition === undefined) {
+        delete globalWithRoomPosition.RoomPosition;
+      } else {
+        globalWithRoomPosition.RoomPosition = previousRoomPosition;
+      }
+    }
+
+    expect(creep.memory.task).toBeUndefined();
+    expect(creep.moveTo).toHaveBeenCalledWith(targetRoomPosition);
+    expect(roomPositionCtor).toHaveBeenCalledWith(25, 25, 'W3N1');
+    expect(creep.repair).not.toHaveBeenCalled();
+    expect(originRoom.find).not.toHaveBeenCalled();
+  });
+
   it('routes a plain worker home from foreign-room build work when territory intents are malformed', () => {
     const targetController = { id: 'controller2', my: true } as StructureController;
     const buildSite = { id: 'site1', my: true, structureType: 'extension' } as ConstructionSite;
