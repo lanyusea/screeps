@@ -3032,6 +3032,90 @@ describe('runWorker', () => {
     expect(originRoom.find).not.toHaveBeenCalled();
   });
 
+  it('routes a plain worker back to its visible owned colony before retaining foreign-room work', () => {
+    const targetController = { id: 'controller2', my: true } as StructureController;
+    const repairTarget = { id: 'road1', structureType: 'road' } as StructureRoad;
+    const originRoom = {
+      name: 'W2N1',
+      find: jest.fn().mockReturnValue([{ id: 'source1' } as Source])
+    } as unknown as Room;
+    const creep = {
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'repair', targetId: 'road1' as Id<Structure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: originRoom,
+      repair: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: { name: 'W1N1', controller: targetController } as Room,
+        W2N1: originRoom
+      },
+      creeps: {},
+      getObjectById: jest.fn((id: string) => (id === 'road1' ? repairTarget : null)) as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.moveTo).toHaveBeenCalledWith(targetController);
+    expect(creep.memory.task).toBeUndefined();
+    expect(creep.repair).not.toHaveBeenCalled();
+    expect(originRoom.find).not.toHaveBeenCalled();
+  });
+
+  it('routes a plain worker home from foreign-room build work when territory intents are malformed', () => {
+    const targetController = { id: 'controller2', my: true } as StructureController;
+    const buildSite = { id: 'site1', my: true, structureType: 'extension' } as ConstructionSite;
+    const originRoom = {
+      name: 'W2N1',
+      find: jest.fn().mockReturnValue([{ id: 'source1' } as Source])
+    } as unknown as Room;
+    const creep = {
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: originRoom,
+      build: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          null,
+          { colony: 'W1N1' },
+          { colony: 'W1N1', targetRoom: 'W2N1', status: 'complete' }
+        ]
+      } as unknown as Memory['territory']
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: { name: 'W1N1', controller: targetController } as Room,
+        W2N1: originRoom
+      },
+      creeps: {},
+      getObjectById: jest.fn((id: string) => (id === 'site1' ? buildSite : null)) as Game['getObjectById']
+    };
+
+    expect(() => runWorker(creep)).not.toThrow();
+    expect(creep.moveTo).toHaveBeenCalledWith(targetController);
+    expect(creep.memory.task).toBeUndefined();
+    expect(creep.build).not.toHaveBeenCalled();
+    expect(originRoom.find).not.toHaveBeenCalled();
+  });
+
   it('loads a post-claim energy hauler in the home room before sending it to the claimed room', () => {
     const storage = {
       id: 'storage1',
