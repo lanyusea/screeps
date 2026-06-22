@@ -16095,6 +16095,61 @@ describe('selectWorkerTask', () => {
     });
   });
 
+  it('harvests for E29N57 source-container recovery when spawn construction energy is buffer-blocked under low bucket', () => {
+    const source = makeSource('source1', 20, 20, 'E29N57');
+    const site = {
+      id: 'container-site1',
+      structureType: 'container',
+      progress: 500,
+      progressTotal: 5_000,
+      pos: {
+        ...makeRoomPosition(20, 21, 'E29N57'),
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'spawn1' ? 1 : 99))
+      }
+    } as unknown as ConstructionSite;
+    const spawn = makeFullSpawnEnergyStructure('spawn1', 'E29N57');
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 300,
+      energyCapacityAvailable: 1_800,
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [source],
+      structures: [spawn as unknown as AnyStructure]
+    });
+    const creep = {
+      name: 'EmptyCpuShedBuilder',
+      memory: { role: 'worker', colony: 'E29N57' },
+      getActiveBodyparts: jest.fn((part?: BodyPartConstant) => (part === WORK ? 1 : 0)),
+      pos: {
+        ...makeRoomPosition(20, 20, 'E29N57'),
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          if (target.id === 'spawn1') return 1;
+          if (target.id === 'source1') return 1;
+          return 99;
+        })
+      },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 0 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 50 : 0))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ EmptyCpuShedBuilder: creep });
+    setGameObjectsById([site, spawn, source], { rooms: { E29N57: room }, time: 2_480_290 });
+    setCpuBucket(CONSTRUCTION_LOW_BUCKET_RECOVERY_THRESHOLD + 2);
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
   it('keeps a loaded E29N57 road builder productive during low-bucket shedding when storage protects construction', () => {
     const site = {
       id: 'remote-road-site1',
