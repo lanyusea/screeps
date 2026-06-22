@@ -60,6 +60,7 @@ import {
 } from '../economy/spawnEnergyReservation';
 import {
   createWorkerConstructionWithdrawReservationContext,
+  getSafeWorkerWithdrawEnergyAmount,
   getSpawnConstructionEnergyAvailableForWithdrawal,
   type WorkerConstructionWithdrawReservationContext
 } from '../economy/workerConstructionWithdrawBudget';
@@ -6213,7 +6214,7 @@ export function selectConstructionBacklogEnergyAcquisitionTask(
 
 function selectConstructionBacklogFallbackEnergyAcquisitionTask(
   creep: Creep
-): Extract<CreepTaskMemory, { type: 'withdraw' }> | null {
+): Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' }> | null {
   if (getFreeEnergyCapacity(creep) <= 0 || getActiveWorkParts(creep) <= 0 || hasVisibleHostilePresence(creep.room)) {
     return null;
   }
@@ -6236,14 +6237,47 @@ function selectConstructionBacklogFallbackEnergyAcquisitionTask(
   }
 
   const fallbackTask = selectWorkerEnergyAcquisitionTask(creep);
-  if (fallbackTask?.type !== 'withdraw' || typeof fallbackTask.constructionSiteId === 'string') {
-    return null;
+  if (fallbackTask?.type === 'pickup') {
+    return fallbackTask;
   }
 
-  return {
-    ...fallbackTask,
-    constructionSiteId: constructionSite.id
-  };
+  if (fallbackTask?.type === 'withdraw' && typeof fallbackTask.constructionSiteId !== 'string') {
+    const constructionWithdrawTask = {
+      ...fallbackTask,
+      constructionSiteId: constructionSite.id
+    };
+    if (canUseFallbackConstructionWithdrawTask(creep, constructionWithdrawTask)) {
+      return constructionWithdrawTask;
+    }
+  }
+
+  return selectWorkerHarvestTask(creep, { allowPreHarvest: false });
+}
+
+function canUseFallbackConstructionWithdrawTask(
+  creep: Creep,
+  task: Extract<CreepTaskMemory, { type: 'withdraw' }>
+): boolean {
+  const target = getVisibleStoreStructureById(creep.room, String(task.targetId));
+  if (!target) {
+    return false;
+  }
+
+  return getSafeWorkerWithdrawEnergyAmount(creep, target, getFreeEnergyCapacity(creep), task) > 0;
+}
+
+function getVisibleStoreStructureById(room: Room, targetId: string): AnyStoreStructure | null {
+  const gameObject = getGameObjectById<AnyStoreStructure>(targetId);
+  if (isStoreStructure(gameObject)) {
+    return gameObject;
+  }
+
+  const visibleStructure = findVisibleRoomStructures(room).find((structure) => String(structure.id) === targetId);
+  return isStoreStructure(visibleStructure) ? visibleStructure : null;
+}
+
+function isStoreStructure(structure: RoomObject | null | undefined): structure is AnyStoreStructure {
+  return Boolean(structure && 'store' in structure);
 }
 
 export function findBuilderEnergyAcquisitionCandidates(

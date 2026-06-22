@@ -31711,13 +31711,37 @@ function selectConstructionBacklogFallbackEnergyAcquisitionTask(creep) {
     return null;
   }
   const fallbackTask = selectWorkerEnergyAcquisitionTask(creep);
-  if ((fallbackTask == null ? void 0 : fallbackTask.type) !== "withdraw" || typeof fallbackTask.constructionSiteId === "string") {
-    return null;
+  if ((fallbackTask == null ? void 0 : fallbackTask.type) === "pickup") {
+    return fallbackTask;
   }
-  return {
-    ...fallbackTask,
-    constructionSiteId: constructionSite.id
-  };
+  if ((fallbackTask == null ? void 0 : fallbackTask.type) === "withdraw" && typeof fallbackTask.constructionSiteId !== "string") {
+    const constructionWithdrawTask = {
+      ...fallbackTask,
+      constructionSiteId: constructionSite.id
+    };
+    if (canUseFallbackConstructionWithdrawTask(creep, constructionWithdrawTask)) {
+      return constructionWithdrawTask;
+    }
+  }
+  return selectWorkerHarvestTask(creep, { allowPreHarvest: false });
+}
+function canUseFallbackConstructionWithdrawTask(creep, task) {
+  const target = getVisibleStoreStructureById(creep.room, String(task.targetId));
+  if (!target) {
+    return false;
+  }
+  return getSafeWorkerWithdrawEnergyAmount(creep, target, getFreeEnergyCapacity9(creep), task) > 0;
+}
+function getVisibleStoreStructureById(room, targetId) {
+  const gameObject = getGameObjectById4(targetId);
+  if (isStoreStructure(gameObject)) {
+    return gameObject;
+  }
+  const visibleStructure = findVisibleRoomStructures(room).find((structure) => String(structure.id) === targetId);
+  return isStoreStructure(visibleStructure) ? visibleStructure : null;
+}
+function isStoreStructure(structure) {
+  return Boolean(structure && "store" in structure);
 }
 function findBuilderEnergyAcquisitionCandidates(creep, constructionSite) {
   const context = {
