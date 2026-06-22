@@ -2263,12 +2263,18 @@ function runSpawnSupportMovement(creep: Creep): boolean {
 
 function runAssignedOwnedColonyMovement(creep: Creep): boolean {
   const colonyRoomName = creep.memory.colony;
-  if (!isPlainLocalWorkerAssignment(creep, colonyRoomName) || creep.room?.name === colonyRoomName) {
+  const currentRoomName = creep.room?.name;
+  if (
+    !isPlainLocalWorkerAssignment(creep, colonyRoomName) ||
+    typeof currentRoomName !== 'string' ||
+    currentRoomName.length <= 0 ||
+    currentRoomName === colonyRoomName
+  ) {
     return false;
   }
 
   const controller = getVisibleRoomController(colonyRoomName);
-  if (controller?.my !== true) {
+  if (controller !== undefined && controller?.my !== true) {
     return false;
   }
 
@@ -2370,8 +2376,9 @@ function moveTowardRoom(creep: Creep, roomName: string): void {
   }
 }
 
-function getVisibleRoomController(roomName: string): StructureController | null {
-  return (globalThis as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName]?.controller ?? null;
+function getVisibleRoomController(roomName: string): StructureController | null | undefined {
+  const visibleRoom = (globalThis as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName];
+  return visibleRoom === undefined ? undefined : visibleRoom.controller ?? null;
 }
 
 function selectControllerSustainHaulerEnergyTask(creep: Creep): CreepTaskMemory | null {
