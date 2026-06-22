@@ -35378,6 +35378,9 @@ function runWorker(creep) {
   if (runSpawnSupportMovement(creep)) {
     return;
   }
+  if (runAssignedOwnedColonyMovement(creep)) {
+    return;
+  }
   observeCreepBehaviorTick(creep);
   suppressCurrentBuildTargetIfWorkerIsStuck(creep);
   const currentTask = creep.memory.task;
@@ -36648,6 +36651,46 @@ function runSpawnSupportMovement(creep) {
   clearAssignedTask(creep);
   moveTowardRoom3(creep, support.targetRoom);
   return true;
+}
+function runAssignedOwnedColonyMovement(creep) {
+  var _a2;
+  const colonyRoomName = creep.memory.colony;
+  if (!isPlainLocalWorkerAssignment(creep, colonyRoomName) || ((_a2 = creep.room) == null ? void 0 : _a2.name) === colonyRoomName) {
+    return false;
+  }
+  const controller = getVisibleRoomController2(colonyRoomName);
+  if ((controller == null ? void 0 : controller.my) !== true) {
+    return false;
+  }
+  clearAssignedTask(creep);
+  moveTowardRoom3(creep, colonyRoomName);
+  return true;
+}
+function isPlainLocalWorkerAssignment(creep, colonyRoomName) {
+  const memory = creep.memory;
+  return memory.role === "worker" && typeof colonyRoomName === "string" && colonyRoomName.length > 0 && memory.controllerSustain === void 0 && memory.controllerUpgrade === void 0 && memory.interRoomEnergyHaul === void 0 && memory.spawnSupport === void 0 && memory.territory === void 0 && !hasAssignedTerritoryWorkInCurrentRoom(creep, memory.task);
+}
+function hasAssignedTerritoryWorkInCurrentRoom(creep, task) {
+  var _a2;
+  if (isTerritoryControlTask2(task != null ? task : null)) {
+    return true;
+  }
+  if ((task == null ? void 0 : task.type) !== "build") {
+    return false;
+  }
+  const colonyRoomName = creep.memory.colony;
+  const currentRoomName = (_a2 = creep.room) == null ? void 0 : _a2.name;
+  return typeof colonyRoomName === "string" && typeof currentRoomName === "string" && hasActiveTerritoryIntentForRoom(colonyRoomName, currentRoomName);
+}
+function hasActiveTerritoryIntentForRoom(colonyRoomName, targetRoomName) {
+  var _a2, _b;
+  const intents = (_b = (_a2 = globalThis.Memory) == null ? void 0 : _a2.territory) == null ? void 0 : _b.intents;
+  if (!Array.isArray(intents)) {
+    return false;
+  }
+  return intents.some(
+    (intent) => intent.colony === colonyRoomName && intent.targetRoom === targetRoomName && (intent.status === "planned" || intent.status === "active")
+  );
 }
 function isSpawnSupportMemory2(value) {
   const support = value;
