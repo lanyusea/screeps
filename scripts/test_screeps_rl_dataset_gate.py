@@ -33,6 +33,11 @@ def read_json(path: Path) -> JsonObject:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def read_ndjson(path: Path) -> list[JsonObject]:
+    text = path.read_text(encoding="utf-8")
+    return [json.loads(line) for line in text.splitlines() if line]
+
+
 def runtime_line(payload: JsonObject) -> str:
     return f"#runtime-summary {json.dumps(payload, sort_keys=True)}\n"
 
@@ -390,6 +395,65 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
         self.assertEqual(dead_state["training_eligibility"], "recovery_mode_dataset")
         self.assertEqual(report["quality_checks"]["status"], "pass")
         self.assertTrue(report["quality_checks"]["recovery_mode"])
+
+    def test_recovery_mode_accepts_owned_room_count_collapse_from_export_marker(self) -> None:
+        prior_payload = runtime_payload(2558700, stored_energy=1000)
+        prior_payload["rooms"][0]["roomName"] = "E29N55"
+        prior_payload["rooms"][0]["controller"]["level"] = 4
+        prior_payload["rooms"].append(
+            {
+                "roomName": "E29N56",
+                "workerCount": 2,
+                "spawnStatus": [{"name": "Spawn2", "status": "idle"}],
+                "taskCounts": {"harvest": 1, "upgrade": 0, "none": 0},
+                "controller": {"level": 4, "progress": 1000, "ticksToDowngrade": 10000},
+                "resources": {"storedEnergy": 300, "workerCarriedEnergy": 0},
+                "combat": {"hostileCreepCount": 0, "hostileStructureCount": 0},
+            }
+        )
+        current_payload = runtime_payload(2560700, stored_energy=0)
+        current_room = current_payload["rooms"][0]
+        current_room["roomName"] = "E29N55"
+        current_room["workerCount"] = 1
+        current_room["spawnStatus"] = []
+        current_room["taskCounts"] = {"harvest": 0, "upgrade": 0, "build": 0, "none": 1}
+        current_room["controller"]["level"] = 3
+        current_room["resources"]["storedEnergy"] = 0
+        current_room["resources"]["workerCarriedEnergy"] = 0
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            prior_artifact = root / "runtime-summary-console-20260624T115900Z.log"
+            current_artifact = root / "runtime-summary-console-20260624T131214Z.log"
+            prior_artifact.write_text(runtime_line(prior_payload), encoding="utf-8")
+            current_artifact.write_text(runtime_line(current_payload), encoding="utf-8")
+
+            with mock.patch.dict(gate.os.environ, {"SCREEPS_HOME_ROOM": "E29N55"}, clear=False):
+                report = gate.run_gate(
+                    [str(prior_artifact), str(current_artifact)],
+                    out_dir=root / "gates",
+                    gate_id="gate-recovery-owned-room-collapse",
+                    created_at="2026-06-24T16:30:00Z",
+                    dataset_out_dir=root / "datasets",
+                    skip_shadow_report=True,
+                    bot_commit="f" * 40,
+                    eval_ratio_value=0,
+                    allow_recovery_dead_state_samples=True,
+                    repo_root=Path.cwd(),
+                )
+            rows = read_ndjson(root / "datasets" / report["dataset"]["runId"] / "ticks.ndjson")
+
+        dead_state = report["datasetGate"]["deadStateQuarantine"]
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["quality_checks"]["status"], "pass")
+        self.assertEqual(report["quality_checks"]["samples_rejected"], 0)
+        self.assertEqual(dead_state["owned_room_collapse_samples"], 1)
+        self.assertEqual(dead_state["quarantined_dead_state_samples"], 0)
+        marked_rows = [row for row in rows if isinstance(row.get(gate.dataset_export.DEAD_STATE_SAMPLE_MARKER), dict)]
+        self.assertEqual(len(marked_rows), 1)
+        marker = marked_rows[0][gate.dataset_export.DEAD_STATE_SAMPLE_MARKER]
+        self.assertEqual(marker["reasons"], [gate.dataset_export.DEAD_STATE_OWNED_ROOM_COLLAPSE_REASON])
+        self.assertTrue(marker["ownedRoomCountCollapsed"])
 
     def test_empty_full_gate_input_reports_actionable_source_diagnostics(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

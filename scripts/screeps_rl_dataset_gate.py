@@ -483,11 +483,13 @@ def quality_rejection_reasons(
 
 
 def sample_has_dead_state_evidence(sample: JsonObject, evidence: JsonObject | None = None) -> bool:
-    resolved_evidence = evidence if isinstance(evidence, dict) else quality_evidence(sample)
-    observation = sample.get("observation") if isinstance(sample.get("observation"), dict) else {}
-    controller_level = number_at_path(observation, ("controller", "level"))
-    owned_creeps = finite_number(resolved_evidence.get("ownedCreeps"))
-    return owned_creeps == 0 or (controller_level is not None and controller_level <= 1)
+    marker = sample.get(dataset_export.DEAD_STATE_SAMPLE_MARKER)
+    if not isinstance(marker, dict):
+        return False
+    reasons = marker.get("reasons")
+    if isinstance(reasons, list) and any(isinstance(reason, str) and reason for reason in reasons):
+        return True
+    return marker.get("ownedRoomCountCollapsed") is True
 
 
 def missing_quality_telemetry(evidence: JsonObject) -> bool:

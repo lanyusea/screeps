@@ -48,6 +48,7 @@ DEAD_STATE_RUNTIME_SAMPLE_SKIP_REASON = "dead_state_runtime_sample"
 DEAD_STATE_ZERO_CREEP_REASON = "zero_owned_creeps"
 DEAD_STATE_RCL1_AFTER_STABLE_REASON = "rcl1_after_prior_stable_room"
 DEAD_STATE_OWNED_ROOM_COLLAPSE_REASON = "owned_room_count_collapsed"
+DEAD_STATE_SAMPLE_MARKER = "deadStateQuarantine"
 STABLE_ROOM_RCL_LEVEL = 4
 COLLAPSED_ROOM_RCL_LEVEL = 1
 STALE_CONSOLE_CAPTURE_SOURCE_AGE_HOURS = 24.0
@@ -656,6 +657,15 @@ def record_sort_key(record: ArtifactRecord) -> tuple[str, int, str, str]:
     )
 
 
+def dead_state_processing_sort_key(record: ArtifactRecord) -> tuple[int, datetime, str, tuple[str, int, str, str]]:
+    source_timestamp = record_source_timestamp(record)
+    tick = record.payload.get("tick")
+    tick_text = f"{tick:020}" if isinstance(tick, int) else str(tick)
+    if source_timestamp is None:
+        return (1, datetime.max.replace(tzinfo=timezone.utc), tick_text, record_sort_key(record))
+    return (0, source_timestamp, tick_text, record_sort_key(record))
+
+
 def filter_incomplete_derived_runtime_records(
     scan: ScanResult,
     *,
@@ -828,7 +838,7 @@ def filter_dead_state_runtime_records(
     prior_max_owned_room_count: int | None = None
     filtered_records: list[ArtifactRecord] = []
 
-    for record in scan.records:
+    for record in sorted(scan.records, key=dead_state_processing_sort_key):
         current_owned_room_count = record_owned_room_count(record)
         owned_room_count_collapsed = (
             prior_max_owned_room_count is not None
@@ -886,6 +896,7 @@ def prune_dead_state_runtime_record(
     total_owned_creeps = record_total_owned_creeps(record, rooms)
     kept_rooms: list[JsonObject] = []
     skipped_samples: list[JsonObject] = []
+    rooms_changed = False
     for room in rooms:
         room_name = room.get("roomName")
         if not isinstance(room_name, str) or not room_name:
@@ -911,18 +922,33 @@ def prune_dead_state_runtime_record(
             evidence.owned_room_collapse_samples += 1
             quarantine_reasons.append(DEAD_STATE_OWNED_ROOM_COLLAPSE_REASON)
 
-        if not quarantine_reasons or allow_recovery_dead_state_samples:
+        if not quarantine_reasons:
             kept_rooms.append(room)
+            continue
+        unique_reasons = list(dict.fromkeys(quarantine_reasons))
+        if allow_recovery_dead_state_samples:
+            kept_rooms.append(
+                room_with_dead_state_marker(
+                    room,
+                    quarantine_reasons=unique_reasons,
+                    controller_level=controller_level,
+                    owned_creeps=owned_creeps,
+                    total_owned_creeps=total_owned_creeps,
+                    prior_max_rcl=prior_max_rcl_by_room.get(room_name),
+                    owned_room_count_collapsed=owned_room_count_collapsed,
+                )
+            )
+            rooms_changed = True
             continue
 
         evidence.quarantined_dead_state_samples += 1
-        for reason in dict.fromkeys(quarantine_reasons):
+        for reason in unique_reasons:
             evidence.quarantine_reasons[reason] = evidence.quarantine_reasons.get(reason, 0) + 1
         skipped_samples.append(
             dead_state_skip_entry(
                 record,
                 room,
-                quarantine_reasons=list(dict.fromkeys(quarantine_reasons)),
+                quarantine_reasons=unique_reasons,
                 controller_level=controller_level,
                 owned_creeps=owned_creeps,
                 total_owned_creeps=total_owned_creeps,
@@ -932,7 +958,7 @@ def prune_dead_state_runtime_record(
             )
         )
 
-    if not skipped_samples:
+    if not skipped_samples and not rooms_changed:
         return record, []
     if not kept_rooms:
         return None, skipped_samples
@@ -948,6 +974,30 @@ def prune_dead_state_runtime_record(
         ),
         skipped_samples,
     )
+
+
+def room_with_dead_state_marker(
+    room: JsonObject,
+    *,
+    quarantine_reasons: Sequence[str],
+    controller_level: float | None,
+    owned_creeps: float | None,
+    total_owned_creeps: float | None,
+    prior_max_rcl: float | None,
+    owned_room_count_collapsed: bool,
+) -> JsonObject:
+    marked_room = dict(room)
+    marked_room[DEAD_STATE_SAMPLE_MARKER] = {
+        "classifier": "dead_state_runtime_quarantine",
+        "recoveryMode": True,
+        "reasons": list(quarantine_reasons),
+        "controllerLevel": controller_level,
+        "ownedCreeps": owned_creeps,
+        "totalOwnedCreeps": total_owned_creeps,
+        "priorMaxRcl": prior_max_rcl,
+        "ownedRoomCountCollapsed": owned_room_count_collapsed,
+    }
+    return marked_room
 
 
 def dead_state_skip_entry(
@@ -1320,20 +1370,22 @@ def build_tick_rows(
                 continue
 
             sample_id = build_sample_id(record, record_index, room_name)
-            rows.append(
-                {
-                    "type": "screeps-rl-tick-sample",
-                    "schemaVersion": SCHEMA_VERSION,
-                    "sampleId": sample_id,
-                    "botCommit": bot_commit,
-                    "source": build_row_source(record),
-                    "observation": build_observation(payload, room),
-                    "actionLabels": build_action_labels(room),
-                    "reward": build_reward(payload, room),
-                    "split": assign_split(sample_id, split_seed, eval_ratio_value),
-                    "safety": safety_notes(),
-                }
-            )
+            row = {
+                "type": "screeps-rl-tick-sample",
+                "schemaVersion": SCHEMA_VERSION,
+                "sampleId": sample_id,
+                "botCommit": bot_commit,
+                "source": build_row_source(record),
+                "observation": build_observation(payload, room),
+                "actionLabels": build_action_labels(room),
+                "reward": build_reward(payload, room),
+                "split": assign_split(sample_id, split_seed, eval_ratio_value),
+                "safety": safety_notes(),
+            }
+            dead_state_marker = room.get(DEAD_STATE_SAMPLE_MARKER)
+            if isinstance(dead_state_marker, dict):
+                row[DEAD_STATE_SAMPLE_MARKER] = dead_state_marker
+            rows.append(row)
             if len(rows) >= sample_limit:
                 return rows
     return rows

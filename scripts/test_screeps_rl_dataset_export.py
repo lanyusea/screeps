@@ -566,6 +566,43 @@ class RlDatasetExportTest(unittest.TestCase):
         self.assertFalse(skipped_sample["samplesEligibleForTraining"])
         self.assertEqual(run_manifest["source"]["deadStateQuarantine"], quarantine)
 
+    def test_dead_state_quarantine_uses_source_timestamp_before_path_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            stable_artifact = root / "z-stable" / "runtime-summary-console-20260624T115900Z.log"
+            dead_artifact = root / "a-dead" / "runtime-summary-console-20260624T131214Z.log"
+            stable_artifact.parent.mkdir(parents=True)
+            dead_artifact.parent.mkdir(parents=True)
+            stable_artifact.write_text(runtime_line(active_runtime_payload(2558700, rcl=4)), encoding="utf-8")
+            dead_artifact.write_text(runtime_line(active_runtime_payload(2560700, rcl=1)), encoding="utf-8")
+            out_dir = root / "datasets"
+
+            summary = exporter.build_dataset(
+                [str(root)],
+                out_dir,
+                run_id="dead-state-chronological-run",
+                bot_commit="8" * 40,
+                eval_ratio_value=0,
+                created_at="2026-06-24T16:30:00Z",
+                home_room="E29N55",
+            )
+            rows = read_ndjson(out_dir / "dead-state-chronological-run" / "ticks.ndjson")
+            source_index = read_json(out_dir / "dead-state-chronological-run" / "source_index.json")
+
+        quarantine = summary["deadStateQuarantine"]
+        self.assertEqual(summary["sampleCount"], 1)
+        self.assertEqual(rows[0]["observation"]["controller"]["level"], 4)
+        self.assertEqual(summary["skippedSampleCount"], 1)
+        self.assertEqual(quarantine["quarantined_dead_state_samples"], 1)
+        self.assertEqual(quarantine["zero_creep_samples"], 0)
+        self.assertEqual(quarantine["rcl1_samples"], 1)
+        skipped_sample = source_index["skippedSamples"][0]
+        self.assertEqual(
+            skipped_sample["deadStateReasons"],
+            [exporter.DEAD_STATE_RCL1_AFTER_STABLE_REASON],
+        )
+        self.assertEqual(skipped_sample["priorMaxRcl"], 4)
+
     def test_dead_state_runtime_samples_can_be_kept_for_recovery_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -596,6 +633,19 @@ class RlDatasetExportTest(unittest.TestCase):
         self.assertEqual(quarantine["zero_creep_samples"], 1)
         self.assertEqual(quarantine["rcl1_samples"], 1)
         self.assertEqual(quarantine["training_eligibility"], "recovery_mode_dataset")
+        dead_state_rows = [
+            row
+            for row in rows
+            if row["observation"]["controller"]["level"] == exporter.COLLAPSED_ROOM_RCL_LEVEL
+        ]
+        self.assertEqual(len(dead_state_rows), 1)
+        self.assertEqual(
+            dead_state_rows[0][exporter.DEAD_STATE_SAMPLE_MARKER]["reasons"],
+            [
+                exporter.DEAD_STATE_ZERO_CREEP_REASON,
+                exporter.DEAD_STATE_RCL1_AFTER_STABLE_REASON,
+            ],
+        )
 
     def test_owned_room_count_collapse_quarantines_current_window_samples(self) -> None:
         prior_payload = active_runtime_payload(2558700, room_name="E29N55", rcl=6)
