@@ -114,6 +114,90 @@ def write_text(path: Path, text: str = "ok\n") -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def write_room_busy_known_fix_harness(root: Path) -> None:
+    write_text(
+        root / runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_FIX_HARNESS_REL,
+        '''
+def _self_heal_fixture_place_spawn_room_busy(
+    smoke,
+    compose,
+    cfg,
+    *,
+    map_source_file,
+    room,
+    worker_index,
+    variant_id,
+):
+    return _adopt_private_fixture_owner(
+        smoke,
+        compose,
+        cfg,
+        map_source_file=map_source_file,
+        room=room,
+        worker_index=worker_index,
+        variant_id=variant_id,
+        phase="place-spawn-room-busy-self-heal",
+        debug_message="place-spawn room busy; adopting private fixture owner",
+    )
+
+
+def _initialize_spawn_for_private_simulator(
+    smoke,
+    cfg,
+    token,
+    *,
+    compose,
+    map_source_file,
+    room,
+    worker_index,
+    variant_id,
+):
+    return _place_spawn_with_retry(
+        smoke,
+        cfg,
+        token,
+        worker_index=worker_index,
+        variant_id=variant_id,
+        room_busy_self_healer=lambda attempt, summary: _self_heal_fixture_place_spawn_room_busy(
+            smoke,
+            compose,
+            cfg,
+            map_source_file=map_source_file,
+            room=room,
+            worker_index=worker_index,
+            variant_id=variant_id,
+        ),
+    )
+''',
+    )
+
+
+def write_room_busy_known_fix_absent_harness(root: Path) -> None:
+    write_text(
+        root / runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_FIX_HARNESS_REL,
+        '''
+def _initialize_spawn_for_private_simulator(
+    smoke,
+    cfg,
+    token,
+    *,
+    compose,
+    map_source_file,
+    room,
+    worker_index,
+    variant_id,
+):
+    return _place_spawn_with_retry(
+        smoke,
+        cfg,
+        token,
+        worker_index=worker_index,
+        variant_id=variant_id,
+    )
+''',
+    )
+
+
 def write_ready_runtime_scorecard_artifact(root: Path) -> None:
     write_text(root / "remote" / READY_RUNTIME_SCORECARD_PATH, "{}\n")
 
@@ -3987,6 +4071,67 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             evidence = runner.paid_failure_recurrence_evidence_from_summary(summary, summary_path)
 
         self.assertIsNone(evidence)
+
+    def test_paid_failure_known_fix_accepts_room_busy_content_equivalent_when_merge_unreachable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            write_room_busy_known_fix_harness(root)
+
+            with (
+                mock.patch.object(runner, "REPO_ROOT", root),
+                mock.patch.object(runner, "git_ref_is_ancestor_of_head", return_value=False),
+            ):
+                status = runner.paid_failure_recurrence_known_fix_status(
+                    runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE
+                )
+
+        self.assertTrue(status["present"])
+        self.assertIn("merge commit 95f960b2 is not reachable from HEAD", status["evidence"])
+        self.assertIn("content-equivalent room-busy self-heal verified", status["evidence"])
+        self.assertEqual(status["contentVerification"]["method"], "content_equivalence")
+        self.assertTrue(status["contentVerification"]["present"])
+
+    def test_paid_failure_known_fix_rejects_room_busy_without_commit_or_content(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            write_room_busy_known_fix_absent_harness(root)
+
+            with (
+                mock.patch.object(runner, "REPO_ROOT", root),
+                mock.patch.object(runner, "git_ref_is_ancestor_of_head", return_value=False),
+            ):
+                status = runner.paid_failure_recurrence_known_fix_status(
+                    runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE
+                )
+
+        self.assertFalse(status["present"])
+        self.assertIn("merge commit 95f960b2 is not reachable from HEAD", status["evidence"])
+        self.assertIn("content-equivalent room-busy self-heal missing", status["evidence"])
+        self.assertFalse(status["contentVerification"]["present"])
+
+    def test_paid_failure_known_fix_detection_uses_only_local_git_and_harness_read(self) -> None:
+        commands: list[list[str]] = []
+
+        def fake_subprocess_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            commands.append(cmd)
+            if cmd != ["git", "merge-base", "--is-ancestor", "95f960b2", "HEAD"]:
+                raise AssertionError(f"unexpected subprocess command: {cmd}")
+            return subprocess.CompletedProcess(cmd, 1, "", "")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            write_room_busy_known_fix_harness(root)
+
+            with (
+                mock.patch.object(runner, "REPO_ROOT", root),
+                mock.patch.object(runner.subprocess, "run", side_effect=fake_subprocess_run),
+            ):
+                status = runner.paid_failure_recurrence_known_fix_status(
+                    runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE
+                )
+
+        self.assertTrue(status["present"])
+        self.assertEqual(commands, [["git", "merge-base", "--is-ancestor", "95f960b2", "HEAD"]])
 
     def test_paid_failure_recurrence_guard_allows_dispatch_below_threshold(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
