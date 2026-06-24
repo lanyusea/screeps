@@ -226,6 +226,11 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
         self.assertEqual(report["quality_checks"]["status"], "pass")
         self.assertEqual(report["quality_checks"]["samples_rejected"], 0)
         self.assertEqual(summary["qualityChecksStatus"], "pass")
+        self.assertEqual(report["datasetGate"]["deadStateQuarantine"]["quarantined_dead_state_samples"], 0)
+        self.assertEqual(report["datasetGate"]["deadStateQuarantine"]["zero_creep_samples"], 0)
+        self.assertEqual(report["datasetGate"]["deadStateQuarantine"]["rcl1_samples"], 0)
+        self.assertTrue(report["datasetGate"]["deadStateQuarantine"]["samples_remain_eligible_for_training"])
+        self.assertEqual(summary["deadStateQuarantine"], report["datasetGate"]["deadStateQuarantine"])
         self.assertEqual(report["shadowEvaluation"]["status"], "pass")
         self.assertEqual(report["historicalValidation"]["status"], "pass")
         self.assertEqual(report["predefinedMetricGate"]["status"], "pass")
@@ -290,6 +295,101 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
             self.assertEqual(baseline_metrics[metric]["source"], "current_runtime_kpi_window")
             self.assertEqual(baseline_metrics[metric]["target"], expected_value)
         self.assertFalse(rollout_decision_exists)
+
+    def test_run_quarantines_dead_state_samples_and_reports_training_eligibility(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            stable_artifact = root / "runtime-summary-console-20260624T115900Z.log"
+            dead_artifact = root / "runtime-summary-console-20260624T131214Z.log"
+            stable_payload = runtime_payload(2558700, stored_energy=1000)
+            stable_payload["rooms"][0]["roomName"] = "E29N55"
+            stable_payload["rooms"][0]["controller"]["level"] = 4
+            dead_payload = runtime_payload(2560700, stored_energy=2430)
+            dead_room = dead_payload["rooms"][0]
+            dead_room["roomName"] = "E29N55"
+            dead_room["workerCount"] = 0
+            dead_room["spawnStatus"] = []
+            dead_room["taskCounts"] = {"harvest": 0, "upgrade": 0, "build": 0, "none": 0}
+            dead_room["controller"]["level"] = 1
+            dead_room["controller"]["progress"] = 0
+            dead_room["resources"]["workerCarriedEnergy"] = 0
+            stable_artifact.write_text(runtime_line(stable_payload), encoding="utf-8")
+            dead_artifact.write_text(runtime_line(dead_payload), encoding="utf-8")
+
+            with mock.patch.dict(gate.os.environ, {"SCREEPS_HOME_ROOM": "E29N55"}, clear=False):
+                report = gate.run_gate(
+                    [str(stable_artifact), str(dead_artifact)],
+                    out_dir=root / "gates",
+                    gate_id="gate-dead-state-quarantine",
+                    created_at="2026-06-24T16:30:00Z",
+                    dataset_out_dir=root / "datasets",
+                    skip_shadow_report=True,
+                    bot_commit="d" * 40,
+                    eval_ratio_value=0,
+                    repo_root=Path.cwd(),
+                )
+            summary = read_json(root / "gates" / "gate-dead-state-quarantine" / "gate_summary.json")
+
+        dead_state = report["datasetGate"]["deadStateQuarantine"]
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["dataset"]["sampleCount"], 1)
+        self.assertEqual(
+            report["dataset"]["skippedSampleReasons"],
+            {gate.dataset_export.DEAD_STATE_RUNTIME_SAMPLE_SKIP_REASON: 1},
+        )
+        self.assertEqual(report["quality_checks"]["status"], "pass")
+        self.assertEqual(dead_state["quarantined_dead_state_samples"], 1)
+        self.assertEqual(dead_state["zero_creep_samples"], 1)
+        self.assertEqual(dead_state["rcl1_samples"], 1)
+        self.assertEqual(
+            dead_state["source_time_range"],
+            {"min": "2026-06-24T11:59:00Z", "max": "2026-06-24T13:12:14Z"},
+        )
+        self.assertTrue(dead_state["samples_remain_eligible_for_training"])
+        self.assertEqual(dead_state["training_eligibility"], "eligible_samples_remain_after_quarantine")
+        self.assertEqual(report["datasetGate"]["diagnostics"]["deadStateQuarantine"], dead_state)
+        self.assertEqual(summary["deadStateQuarantine"], dead_state)
+
+    def test_run_keeps_dead_state_samples_for_explicit_recovery_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact = root / "runtime-summary-console-20260624T131214Z.log"
+            dead_payload = runtime_payload(2560700, stored_energy=2430)
+            dead_room = dead_payload["rooms"][0]
+            dead_room["roomName"] = "E29N55"
+            dead_room["workerCount"] = 0
+            dead_room["spawnStatus"] = []
+            dead_room["taskCounts"] = {"harvest": 0, "upgrade": 0, "build": 0, "none": 0}
+            dead_room["controller"]["level"] = 1
+            dead_room["controller"]["progress"] = 0
+            dead_room["resources"]["workerCarriedEnergy"] = 0
+            artifact.write_text(runtime_line(dead_payload), encoding="utf-8")
+
+            with mock.patch.dict(gate.os.environ, {"SCREEPS_HOME_ROOM": "E29N55"}, clear=False):
+                report = gate.run_gate(
+                    [str(artifact)],
+                    out_dir=root / "gates",
+                    gate_id="gate-recovery-dead-state",
+                    created_at="2026-06-24T16:30:00Z",
+                    dataset_out_dir=root / "datasets",
+                    skip_shadow_report=True,
+                    bot_commit="e" * 40,
+                    eval_ratio_value=0,
+                    allow_recovery_dead_state_samples=True,
+                    repo_root=Path.cwd(),
+                )
+
+        dead_state = report["datasetGate"]["deadStateQuarantine"]
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["dataset"]["sampleCount"], 1)
+        self.assertEqual(report["dataset"]["skippedSampleCount"], 0)
+        self.assertTrue(dead_state["recovery_mode"])
+        self.assertEqual(dead_state["quarantined_dead_state_samples"], 0)
+        self.assertEqual(dead_state["zero_creep_samples"], 1)
+        self.assertEqual(dead_state["rcl1_samples"], 1)
+        self.assertEqual(dead_state["training_eligibility"], "recovery_mode_dataset")
+        self.assertEqual(report["quality_checks"]["status"], "pass")
+        self.assertTrue(report["quality_checks"]["recovery_mode"])
 
     def test_empty_full_gate_input_reports_actionable_source_diagnostics(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -567,7 +667,7 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
                 self.assertEqual(cadence["captureCommandArgs"][-2:], ["--out-dir", expected_source_root])
                 self.assertNotEqual(cadence["captureCommandArgs"][-1], input_paths[0].rstrip("/"))
 
-    def test_run_rejects_dead_room_dataset_samples(self) -> None:
+    def test_run_quarantines_dead_room_dataset_samples(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             artifact = root / "runtime-summary-console-20260517T000000Z.log"
@@ -598,17 +698,26 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
 
         self.assertFalse(report["ok"])
         self.assertFalse(saved_report["ok"])
-        self.assertEqual(report["datasetGate"]["status"], "pass")
-        self.assertEqual(report["quality_checks"]["status"], "fail")
+        self.assertEqual(report["datasetGate"]["status"], "fail")
+        self.assertEqual(report["datasetGate"]["sampleCount"], 0)
+        self.assertEqual(
+            report["datasetGate"]["diagnostics"]["classification"],
+            "all_runtime_samples_quarantined_dead_state",
+        )
+        self.assertEqual(
+            report["dataset"]["skippedSampleReasons"],
+            {gate.dataset_export.DEAD_STATE_RUNTIME_SAMPLE_SKIP_REASON: 1},
+        )
+        self.assertEqual(report["datasetGate"]["deadStateQuarantine"]["quarantined_dead_state_samples"], 1)
+        self.assertEqual(report["datasetGate"]["deadStateQuarantine"]["zero_creep_samples"], 1)
+        self.assertEqual(report["datasetGate"]["deadStateQuarantine"]["rcl1_samples"], 0)
+        self.assertFalse(report["datasetGate"]["deadStateQuarantine"]["samples_remain_eligible_for_training"])
+        self.assertEqual(report["quality_checks"]["status"], "pass")
         self.assertEqual(report["quality_checks"]["samples_accepted"], 0)
-        self.assertEqual(report["quality_checks"]["samples_rejected"], 1)
-        self.assertIn("no_harvest_or_upgrade_task", report["quality_checks"]["rejection_reasons"])
-        self.assertIn("no_room_energy", report["quality_checks"]["rejection_reasons"])
-        self.assertIn("no_owned_creeps", report["quality_checks"]["rejection_reasons"])
-        self.assertIn("no_owned_spawns", report["quality_checks"]["rejection_reasons"])
-        self.assertTrue(any(reason["gate"] == "quality_checks" for reason in report["blockingReasons"]))
+        self.assertEqual(report["quality_checks"]["samples_rejected"], 0)
+        self.assertTrue(any(reason["gate"] == "dataset" for reason in report["blockingReasons"]))
 
-    def test_run_rejects_dead_room_console_capture_under_postdeploy_directory(self) -> None:
+    def test_run_quarantines_dead_room_console_capture_under_postdeploy_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             artifact = root / "postdeploy" / "runtime-summary-console-20260517T000000Z.log"
@@ -637,11 +746,19 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
             )
 
         self.assertFalse(report["ok"])
-        self.assertEqual(report["dataset"]["sampleCount"], 1)
-        self.assertEqual(report["quality_checks"]["status"], "fail")
-        self.assertEqual(report["quality_checks"]["samples_rejected"], 1)
-        self.assertIn("no_room_energy", report["quality_checks"]["rejection_reasons"])
-        self.assertIn("no_harvest_or_upgrade_task", report["quality_checks"]["rejection_reasons"])
+        self.assertEqual(report["dataset"]["sampleCount"], 0)
+        self.assertEqual(
+            report["dataset"]["skippedSampleReasons"],
+            {gate.dataset_export.DEAD_STATE_RUNTIME_SAMPLE_SKIP_REASON: 1},
+        )
+        self.assertEqual(
+            report["datasetGate"]["diagnostics"]["classification"],
+            "all_runtime_samples_quarantined_dead_state",
+        )
+        self.assertEqual(report["datasetGate"]["deadStateQuarantine"]["quarantined_dead_state_samples"], 1)
+        self.assertEqual(report["datasetGate"]["deadStateQuarantine"]["zero_creep_samples"], 1)
+        self.assertEqual(report["quality_checks"]["status"], "pass")
+        self.assertEqual(report["quality_checks"]["samples_rejected"], 0)
 
     def test_run_excludes_stale_non_current_console_capture_before_quality_acceptance(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
