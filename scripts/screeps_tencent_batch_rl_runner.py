@@ -12,6 +12,7 @@ No secret values are printed or persisted in controller summaries.
 from __future__ import annotations
 
 import argparse
+import ast
 import base64
 import copy
 import datetime as dt
@@ -136,6 +137,13 @@ PAID_FAILURE_RECURRENCE_GUARD_NEXT_ACTIONS = {
         "ship and verify the room-busy root fix tracked by #1501 / PR #1504 before launching another paid rerun"
     ),
 }
+PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_FIX_HARNESS_REL = Path("scripts/screeps_rl_simulator_harness.py")
+PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SELF_HEAL_FN = "_self_heal_fixture_place_spawn_room_busy"
+PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_INIT_FN = "_initialize_spawn_for_private_simulator"
+PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SELF_HEAL_PHASE = "place-spawn-room-busy-self-heal"
+PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SELF_HEAL_MESSAGE = (
+    "place-spawn room busy; adopting private fixture owner"
+)
 PAID_FAILURE_SIGNATURE_TEXT_KEYS = frozenset(
     {
         "classification",
@@ -4310,12 +4318,157 @@ def paid_failure_recurrence_known_fix_status(signature: str) -> dict[str, Any]:
         evidence = f"merge commit {merge_commit} is not reachable from HEAD"
     else:
         evidence = f"could not verify whether merge commit {merge_commit} is reachable from HEAD"
-    return {
+    content_status = paid_failure_recurrence_known_fix_content_status(signature)
+    result_present: bool | None = present
+    if content_status is not None:
+        result_present = present is True or bool(content_status["present"])
+        evidence = f"{evidence}; {content_status['evidence']}"
+    result = {
         **fix,
         "signature": signature,
-        "present": present,
+        "present": result_present,
         "evidence": evidence,
     }
+    if content_status is not None:
+        result["contentVerification"] = content_status
+    return result
+
+
+def paid_failure_recurrence_known_fix_content_status(signature: str) -> dict[str, Any] | None:
+    if signature == PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE:
+        return paid_failure_recurrence_room_busy_fix_content_status()
+    return None
+
+
+def paid_failure_recurrence_room_busy_fix_content_status() -> dict[str, Any]:
+    rel_path = PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_FIX_HARNESS_REL
+    harness_path = REPO_ROOT / rel_path
+    try:
+        source = harness_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return {
+            "method": "content_equivalence",
+            "path": str(rel_path),
+            "present": False,
+            "evidence": (
+                "content-equivalent room-busy self-heal could not be verified in "
+                f"{rel_path}: read failed with {type(exc).__name__}"
+            ),
+        }
+    try:
+        module = ast.parse(source, filename=str(harness_path))
+    except SyntaxError as exc:
+        return {
+            "method": "content_equivalence",
+            "path": str(rel_path),
+            "present": False,
+            "evidence": (
+                "content-equivalent room-busy self-heal could not be verified in "
+                f"{rel_path}: parse failed at line {exc.lineno or 'unknown'}"
+            ),
+        }
+
+    functions = {
+        node.name: node
+        for node in module.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    missing: list[str] = []
+    self_heal_fn = functions.get(PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SELF_HEAL_FN)
+    if self_heal_fn is None:
+        missing.append(f"{PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SELF_HEAL_FN} function")
+    elif not room_busy_self_heal_adopts_fixture_owner(self_heal_fn):
+        missing.append("fixture-owner adoption self-heal call")
+
+    init_fn = functions.get(PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_INIT_FN)
+    if init_fn is None:
+        missing.append(f"{PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_INIT_FN} function")
+    elif not room_busy_spawn_retry_hook_calls_self_heal(init_fn):
+        missing.append("place-spawn retry hook calling the room-busy self-heal")
+
+    if missing:
+        return {
+            "method": "content_equivalence",
+            "path": str(rel_path),
+            "present": False,
+            "evidence": (
+                "content-equivalent room-busy self-heal missing from "
+                f"{rel_path}: {', '.join(missing)}"
+            ),
+        }
+    return {
+        "method": "content_equivalence",
+        "path": str(rel_path),
+        "present": True,
+        "evidence": (
+            "content-equivalent room-busy self-heal verified in "
+            f"{rel_path}: fixture-owner adoption self-heal and place-spawn retry hook are present"
+        ),
+    }
+
+
+def room_busy_self_heal_adopts_fixture_owner(function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    for node in ast.walk(function):
+        if not isinstance(node, ast.Call):
+            continue
+        if ast_call_name(node) != "_adopt_private_fixture_owner":
+            continue
+        if (
+            ast_keyword_constant_string(node, "phase")
+            != PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SELF_HEAL_PHASE
+        ):
+            continue
+        if (
+            ast_keyword_constant_string(node, "debug_message")
+            != PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SELF_HEAL_MESSAGE
+        ):
+            continue
+        return True
+    return False
+
+
+def room_busy_spawn_retry_hook_calls_self_heal(function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    for node in ast.walk(function):
+        if not isinstance(node, ast.Call):
+            continue
+        if ast_call_name(node) != "_place_spawn_with_retry":
+            continue
+        hook = ast_keyword_value(node, "room_busy_self_healer")
+        if hook is not None and ast_contains_call_name(
+            hook,
+            PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SELF_HEAL_FN,
+        ):
+            return True
+    return False
+
+
+def ast_call_name(call: ast.Call) -> str | None:
+    if isinstance(call.func, ast.Name):
+        return call.func.id
+    if isinstance(call.func, ast.Attribute):
+        return call.func.attr
+    return None
+
+
+def ast_keyword_value(call: ast.Call, keyword: str) -> ast.AST | None:
+    for item in call.keywords:
+        if item.arg == keyword:
+            return item.value
+    return None
+
+
+def ast_keyword_constant_string(call: ast.Call, keyword: str) -> str | None:
+    value = ast_keyword_value(call, keyword)
+    if isinstance(value, ast.Constant) and isinstance(value.value, str):
+        return value.value
+    return None
+
+
+def ast_contains_call_name(node: ast.AST, call_name: str) -> bool:
+    return any(
+        isinstance(child, ast.Call) and ast_call_name(child) == call_name
+        for child in ast.walk(node)
+    )
 
 
 def git_ref_is_ancestor_of_head(ref: str) -> bool | None:
