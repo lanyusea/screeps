@@ -4091,6 +4091,24 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(status["contentVerification"]["method"], "content_equivalence")
         self.assertTrue(status["contentVerification"]["present"])
 
+    def test_paid_failure_known_fix_keeps_reachable_merge_when_room_busy_content_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            write_room_busy_known_fix_absent_harness(root)
+
+            with (
+                mock.patch.object(runner, "REPO_ROOT", root),
+                mock.patch.object(runner, "git_ref_is_ancestor_of_head", return_value=True),
+            ):
+                status = runner.paid_failure_recurrence_known_fix_status(
+                    runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE
+                )
+
+        self.assertTrue(status["present"])
+        self.assertIn("merge commit 95f960b2 is reachable from HEAD", status["evidence"])
+        self.assertIn("content-equivalent room-busy self-heal missing", status["evidence"])
+        self.assertFalse(status["contentVerification"]["present"])
+
     def test_paid_failure_known_fix_rejects_room_busy_without_commit_or_content(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

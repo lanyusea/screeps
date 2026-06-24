@@ -4321,7 +4321,7 @@ def paid_failure_recurrence_known_fix_status(signature: str) -> dict[str, Any]:
     content_status = paid_failure_recurrence_known_fix_content_status(signature)
     result_present: bool | None = present
     if content_status is not None:
-        result_present = bool(content_status["present"])
+        result_present = present is True or bool(content_status["present"])
         evidence = f"{evidence}; {content_status['evidence']}"
     result = {
         **fix,
