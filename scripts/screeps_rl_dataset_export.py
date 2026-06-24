@@ -44,6 +44,13 @@ DEFAULT_SAMPLE_LIMIT = 200
 DEFAULT_EVAL_RATIO = 0.2
 INCOMPLETE_DERIVED_RUNTIME_SUMMARY_SKIP_REASON = "incomplete_derived_runtime_summary"
 STALE_NON_CURRENT_CONSOLE_CAPTURE_SKIP_REASON = "stale_non_current_room_console_capture"
+DEAD_STATE_RUNTIME_SAMPLE_SKIP_REASON = "dead_state_runtime_sample"
+DEAD_STATE_ZERO_CREEP_REASON = "zero_owned_creeps"
+DEAD_STATE_RCL1_AFTER_STABLE_REASON = "rcl1_after_prior_stable_room"
+DEAD_STATE_OWNED_ROOM_COLLAPSE_REASON = "owned_room_count_collapsed"
+DEAD_STATE_SAMPLE_MARKER = "deadStateQuarantine"
+STABLE_ROOM_RCL_LEVEL = 4
+COLLAPSED_ROOM_RCL_LEVEL = 1
 STALE_CONSOLE_CAPTURE_SOURCE_AGE_HOURS = 24.0
 SKIPPED_FILE_LOG_LIMIT = 100
 SKIPPED_SAMPLE_LOG_LIMIT = 50
@@ -90,6 +97,19 @@ class ArtifactRecord:
 
 
 @dataclass
+class DeadStateQuarantineEvidence:
+    recovery_mode: bool = False
+    inspected_samples: int = 0
+    zero_creep_samples: int = 0
+    rcl1_samples: int = 0
+    owned_room_collapse_samples: int = 0
+    quarantined_dead_state_samples: int = 0
+    quarantine_reasons: dict[str, int] = field(default_factory=dict)
+    source_time_min: datetime | None = None
+    source_time_max: datetime | None = None
+
+
+@dataclass
 class ScanResult:
     input_paths: list[str]
     source_files: dict[str, SourceFile] = field(default_factory=dict)
@@ -97,6 +117,7 @@ class ScanResult:
     strategy_shadow_reports: list[JsonObject] = field(default_factory=list)
     skipped_files: list[JsonObject] = field(default_factory=list)
     skipped_samples: list[JsonObject] = field(default_factory=list)
+    dead_state_quarantine: DeadStateQuarantineEvidence = field(default_factory=DeadStateQuarantineEvidence)
     scanned_files: int = 0
 
     def skip(self, path: Path | str, reason: str, **details: Any) -> None:
@@ -636,10 +657,26 @@ def record_sort_key(record: ArtifactRecord) -> tuple[str, int, str, str]:
     )
 
 
-def filter_incomplete_derived_runtime_records(scan: ScanResult) -> None:
+def dead_state_processing_sort_key(record: ArtifactRecord) -> tuple[int, datetime, str, tuple[str, int, str, str]]:
+    source_timestamp = record_source_timestamp(record)
+    tick = record.payload.get("tick")
+    tick_text = f"{tick:020}" if isinstance(tick, int) else str(tick)
+    if source_timestamp is None:
+        return (1, datetime.max.replace(tzinfo=timezone.utc), tick_text, record_sort_key(record))
+    return (0, source_timestamp, tick_text, record_sort_key(record))
+
+
+def filter_incomplete_derived_runtime_records(
+    scan: ScanResult,
+    *,
+    allow_recovery_dead_state_samples: bool = False,
+) -> None:
     filtered_records: list[ArtifactRecord] = []
     for record in scan.records:
-        filtered_record, skipped_rooms = prune_incomplete_derived_runtime_record(record)
+        filtered_record, skipped_rooms = prune_incomplete_derived_runtime_record(
+            record,
+            allow_recovery_dead_state_samples=allow_recovery_dead_state_samples,
+        )
         if not skipped_rooms:
             filtered_records.append(record)
             continue
@@ -659,7 +696,11 @@ def filter_incomplete_derived_runtime_records(scan: ScanResult) -> None:
     scan.records = filtered_records
 
 
-def prune_incomplete_derived_runtime_record(record: ArtifactRecord) -> tuple[ArtifactRecord | None, list[str]]:
+def prune_incomplete_derived_runtime_record(
+    record: ArtifactRecord,
+    *,
+    allow_recovery_dead_state_samples: bool = False,
+) -> tuple[ArtifactRecord | None, list[str]]:
     if not is_derived_postdeploy_or_monitor_record(record):
         return record, []
 
@@ -672,7 +713,9 @@ def prune_incomplete_derived_runtime_record(record: ArtifactRecord) -> tuple[Art
     for room in rooms:
         if not isinstance(room, dict):
             continue
-        if derived_room_has_console_gate_fields(room):
+        if derived_room_has_console_gate_fields(room) or (
+            allow_recovery_dead_state_samples and room_has_dead_state_evidence(room)
+        ):
             kept_rooms.append(room)
             continue
         room_name = room.get("roomName")
@@ -693,6 +736,14 @@ def prune_incomplete_derived_runtime_record(record: ArtifactRecord) -> tuple[Art
             line_number=record.line_number,
         ),
         skipped_rooms,
+    )
+
+
+def room_has_dead_state_evidence(room: JsonObject) -> bool:
+    owned_creeps = room_owned_creep_count(room)
+    controller_level = room_controller_level(room)
+    return owned_creeps == 0 or (
+        controller_level is not None and controller_level <= COLLAPSED_ROOM_RCL_LEVEL
     )
 
 
@@ -774,6 +825,301 @@ def filter_stale_non_current_console_capture_records(
             filtered_records.append(filtered_record)
 
     scan.records = filtered_records
+
+
+def filter_dead_state_runtime_records(
+    scan: ScanResult,
+    *,
+    allow_recovery_dead_state_samples: bool = False,
+) -> None:
+    evidence = scan.dead_state_quarantine
+    evidence.recovery_mode = allow_recovery_dead_state_samples
+    prior_max_rcl_by_room: dict[str, float] = {}
+    prior_max_owned_room_count: int | None = None
+    filtered_records: list[ArtifactRecord] = []
+
+    for record in sorted(scan.records, key=dead_state_processing_sort_key):
+        current_owned_room_count = record_owned_room_count(record)
+        owned_room_count_collapsed = (
+            prior_max_owned_room_count is not None
+            and current_owned_room_count is not None
+            and current_owned_room_count < prior_max_owned_room_count
+        )
+        filtered_record, skipped_samples = prune_dead_state_runtime_record(
+            record,
+            prior_max_rcl_by_room=prior_max_rcl_by_room,
+            owned_room_count_collapsed=owned_room_count_collapsed,
+            allow_recovery_dead_state_samples=allow_recovery_dead_state_samples,
+            evidence=evidence,
+        )
+        scan.skipped_samples.extend(skipped_samples)
+        if filtered_record is not None:
+            filtered_records.append(filtered_record)
+
+        if current_owned_room_count is not None:
+            prior_max_owned_room_count = (
+                current_owned_room_count
+                if prior_max_owned_room_count is None
+                else max(prior_max_owned_room_count, current_owned_room_count)
+            )
+        for room in record_rooms(record):
+            room_name = room.get("roomName")
+            if not isinstance(room_name, str) or not room_name:
+                continue
+            controller_level = room_controller_level(room)
+            if controller_level is None:
+                continue
+            prior_max_rcl_by_room[room_name] = max(
+                prior_max_rcl_by_room.get(room_name, controller_level),
+                controller_level,
+            )
+
+    scan.records = filtered_records
+
+
+def prune_dead_state_runtime_record(
+    record: ArtifactRecord,
+    *,
+    prior_max_rcl_by_room: dict[str, float],
+    owned_room_count_collapsed: bool,
+    allow_recovery_dead_state_samples: bool,
+    evidence: DeadStateQuarantineEvidence,
+) -> tuple[ArtifactRecord | None, list[JsonObject]]:
+    rooms = record_rooms(record)
+    if not rooms:
+        return record, []
+
+    source_timestamp = record_source_timestamp(record)
+    if source_timestamp is not None:
+        update_dead_state_source_range(evidence, source_timestamp)
+
+    total_owned_creeps = record_total_owned_creeps(record, rooms)
+    kept_rooms: list[JsonObject] = []
+    skipped_samples: list[JsonObject] = []
+    rooms_changed = False
+    for room in rooms:
+        room_name = room.get("roomName")
+        if not isinstance(room_name, str) or not room_name:
+            kept_rooms.append(room)
+            continue
+
+        evidence.inspected_samples += 1
+        controller_level = room_controller_level(room)
+        owned_creeps = room_owned_creep_count(room)
+        zero_creeps = owned_creeps == 0 or (owned_creeps is None and total_owned_creeps == 0)
+        rcl1_or_lower = controller_level is not None and controller_level <= COLLAPSED_ROOM_RCL_LEVEL
+        prior_stable_room = prior_max_rcl_by_room.get(room_name, 0) >= STABLE_ROOM_RCL_LEVEL
+        quarantine_reasons: list[str] = []
+
+        if zero_creeps:
+            evidence.zero_creep_samples += 1
+            quarantine_reasons.append(DEAD_STATE_ZERO_CREEP_REASON)
+        if rcl1_or_lower:
+            evidence.rcl1_samples += 1
+            if prior_stable_room or owned_room_count_collapsed:
+                quarantine_reasons.append(DEAD_STATE_RCL1_AFTER_STABLE_REASON)
+        if owned_room_count_collapsed:
+            evidence.owned_room_collapse_samples += 1
+            quarantine_reasons.append(DEAD_STATE_OWNED_ROOM_COLLAPSE_REASON)
+
+        if not quarantine_reasons:
+            kept_rooms.append(room)
+            continue
+        unique_reasons = list(dict.fromkeys(quarantine_reasons))
+        if allow_recovery_dead_state_samples:
+            kept_rooms.append(
+                room_with_dead_state_marker(
+                    room,
+                    quarantine_reasons=unique_reasons,
+                    controller_level=controller_level,
+                    owned_creeps=owned_creeps,
+                    total_owned_creeps=total_owned_creeps,
+                    prior_max_rcl=prior_max_rcl_by_room.get(room_name),
+                    owned_room_count_collapsed=owned_room_count_collapsed,
+                )
+            )
+            rooms_changed = True
+            continue
+
+        evidence.quarantined_dead_state_samples += 1
+        for reason in unique_reasons:
+            evidence.quarantine_reasons[reason] = evidence.quarantine_reasons.get(reason, 0) + 1
+        skipped_samples.append(
+            dead_state_skip_entry(
+                record,
+                room,
+                quarantine_reasons=unique_reasons,
+                controller_level=controller_level,
+                owned_creeps=owned_creeps,
+                total_owned_creeps=total_owned_creeps,
+                source_timestamp=source_timestamp,
+                prior_max_rcl=prior_max_rcl_by_room.get(room_name),
+                owned_room_count_collapsed=owned_room_count_collapsed,
+            )
+        )
+
+    if not skipped_samples and not rooms_changed:
+        return record, []
+    if not kept_rooms:
+        return None, skipped_samples
+
+    payload = dict(record.payload)
+    payload["rooms"] = kept_rooms
+    return (
+        ArtifactRecord(
+            source=record.source,
+            artifact_kind=record.artifact_kind,
+            payload=payload,
+            line_number=record.line_number,
+        ),
+        skipped_samples,
+    )
+
+
+def room_with_dead_state_marker(
+    room: JsonObject,
+    *,
+    quarantine_reasons: Sequence[str],
+    controller_level: float | None,
+    owned_creeps: float | None,
+    total_owned_creeps: float | None,
+    prior_max_rcl: float | None,
+    owned_room_count_collapsed: bool,
+) -> JsonObject:
+    marked_room = dict(room)
+    marked_room[DEAD_STATE_SAMPLE_MARKER] = {
+        "classifier": "dead_state_runtime_quarantine",
+        "recoveryMode": True,
+        "reasons": list(quarantine_reasons),
+        "controllerLevel": controller_level,
+        "ownedCreeps": owned_creeps,
+        "totalOwnedCreeps": total_owned_creeps,
+        "priorMaxRcl": prior_max_rcl,
+        "ownedRoomCountCollapsed": owned_room_count_collapsed,
+    }
+    return marked_room
+
+
+def dead_state_skip_entry(
+    record: ArtifactRecord,
+    room: JsonObject,
+    *,
+    quarantine_reasons: Sequence[str],
+    controller_level: float | None,
+    owned_creeps: float | None,
+    total_owned_creeps: float | None,
+    source_timestamp: datetime | None,
+    prior_max_rcl: float | None,
+    owned_room_count_collapsed: bool,
+) -> JsonObject:
+    return {
+        "reason": DEAD_STATE_RUNTIME_SAMPLE_SKIP_REASON,
+        "deadStateReasons": list(quarantine_reasons),
+        "path": record.source.display_path,
+        "artifactKind": record.artifact_kind,
+        "lineNumber": record.line_number,
+        "tick": number_or_none(record.payload.get("tick")),
+        "roomName": room.get("roomName") if isinstance(room.get("roomName"), str) else None,
+        "sourceTimestamp": isoformat_utc(source_timestamp) if source_timestamp is not None else None,
+        "controllerLevel": controller_level,
+        "ownedCreeps": owned_creeps,
+        "totalOwnedCreeps": total_owned_creeps,
+        "priorMaxRcl": prior_max_rcl,
+        "ownedRoomCountCollapsed": owned_room_count_collapsed,
+        "samplesEligibleForTraining": False,
+    }
+
+
+def record_rooms(record: ArtifactRecord) -> list[JsonObject]:
+    rooms = record.payload.get("rooms")
+    if not isinstance(rooms, list):
+        return []
+    return [room for room in rooms if isinstance(room, dict)]
+
+
+def record_owned_room_count(record: ArtifactRecord) -> int | None:
+    payload = record.payload
+    direct = first_number(
+        (
+            nested_get(payload, ("territory", "ownedRoomCount")),
+            nested_get(payload, ("territory", "ownedRooms")),
+            payload.get("ownedRoomCount"),
+            payload.get("ownedRooms"),
+            payload.get("owned_room_count"),
+            payload.get("owned_rooms"),
+        )
+    )
+    if direct is not None:
+        return max(0, int(direct))
+    owned_rooms = nested_get(payload, ("territory", "ownedRooms"))
+    if isinstance(owned_rooms, list):
+        return len([room for room in owned_rooms if isinstance(room, str) and room])
+    rooms = record_rooms(record)
+    if rooms:
+        return len(
+            [
+                room
+                for room in rooms
+                if isinstance(room.get("roomName"), str) and room.get("roomName")
+            ]
+        )
+    return None
+
+
+def record_total_owned_creeps(record: ArtifactRecord, rooms: Sequence[JsonObject]) -> float | None:
+    direct = first_number(
+        (
+            record.payload.get("ownedCreeps"),
+            record.payload.get("ownedCreepCount"),
+            record.payload.get("totalOwnedCreeps"),
+            record.payload.get("total_owned_creeps"),
+            nested_get(record.payload, ("creeps", "owned")),
+            nested_get(record.payload, ("creeps", "ownedCount")),
+            nested_get(record.payload, ("workers", "count")),
+        )
+    )
+    if direct is not None:
+        return direct
+
+    counts = [room_owned_creep_count(room) for room in rooms]
+    numeric_counts = [count for count in counts if count is not None]
+    if numeric_counts and len(numeric_counts) == len(rooms):
+        return sum(numeric_counts)
+    return None
+
+
+def room_owned_creep_count(room: JsonObject) -> float | None:
+    return first_number(
+        (
+            room.get("workerCount"),
+            room.get("ownedCreeps"),
+            room.get("ownedCreepCount"),
+            room.get("creeps"),
+            room.get("owned_creeps"),
+            nested_get(room, ("workers", "count")),
+            nested_get(room, ("workerAssignmentEvidence", "workerCount")),
+            nested_get(room, ("workerAssignmentEvidence", "visibleCreepCount")),
+            nested_get(room, ("resources", "productiveEnergy", "assignedWorkerCount")),
+        )
+    )
+
+
+def room_controller_level(room: JsonObject) -> float | None:
+    return first_number(
+        (
+            nested_get(room, ("controller", "level")),
+            room.get("rclLevel"),
+            room.get("controllerLevel"),
+            room.get("rcl"),
+        )
+    )
+
+
+def update_dead_state_source_range(evidence: DeadStateQuarantineEvidence, source_timestamp: datetime) -> None:
+    if evidence.source_time_min is None or source_timestamp < evidence.source_time_min:
+        evidence.source_time_min = source_timestamp
+    if evidence.source_time_max is None or source_timestamp > evidence.source_time_max:
+        evidence.source_time_max = source_timestamp
 
 
 def prune_stale_non_current_console_capture_record(
@@ -909,6 +1255,7 @@ def build_dataset(
     created_at: str | None = None,
     home_room: str | None = None,
     source_max_age_hours: float | None = None,
+    allow_recovery_dead_state_samples: bool = False,
 ) -> JsonObject:
     repo = repo_root or Path.cwd()
     resolved_bot_commit = bot_commit or git_commit(repo)
@@ -921,8 +1268,15 @@ def build_dataset(
         max_age_hours=source_max_age_hours,
         excluded_directory_names=GENERATED_ARTIFACT_DIRECTORY_NAMES,
     )
-    filter_incomplete_derived_runtime_records(scan)
     filter_stale_non_current_console_capture_records(scan, home_room=resolved_home_room, created_at=created_at)
+    filter_dead_state_runtime_records(
+        scan,
+        allow_recovery_dead_state_samples=allow_recovery_dead_state_samples,
+    )
+    filter_incomplete_derived_runtime_records(
+        scan,
+        allow_recovery_dead_state_samples=allow_recovery_dead_state_samples,
+    )
     rows = build_tick_rows(scan.records, resolved_bot_commit, sample_limit, eval_ratio_value, split_seed)
     resolved_run_id = run_id or deterministic_run_id(scan, rows, resolved_bot_commit, sample_limit, eval_ratio_value, split_seed)
     validate_run_id(resolved_run_id)
@@ -940,7 +1294,7 @@ def build_dataset(
 
     runtime_lines = runtime_lines_from_records(scan.records)
     kpi_windows = reducer.reduce_runtime_kpis(runtime_lines)
-    source_index = build_source_index(scan, source_max_age_hours=source_max_age_hours)
+    source_index = build_source_index(scan, source_max_age_hours=source_max_age_hours, eligible_sample_count=len(rows))
     split_counts = count_splits(rows)
     scenario_manifest = build_scenario_manifest(resolved_run_id, scan, resolved_bot_commit)
     episodes = build_episodes(resolved_run_id, rows, kpi_windows)
@@ -991,6 +1345,7 @@ def build_dataset(
         "skippedFileReasons": count_skipped_file_field(scan, "reason"),
         **optional_source_max_age(source_max_age_hours),
         **build_skipped_sample_summary(scan),
+        "deadStateQuarantine": build_dead_state_quarantine_summary(scan, eligible_sample_count=len(rows)),
         "splitCounts": split_counts,
         "files": files,
     }
@@ -1015,20 +1370,22 @@ def build_tick_rows(
                 continue
 
             sample_id = build_sample_id(record, record_index, room_name)
-            rows.append(
-                {
-                    "type": "screeps-rl-tick-sample",
-                    "schemaVersion": SCHEMA_VERSION,
-                    "sampleId": sample_id,
-                    "botCommit": bot_commit,
-                    "source": build_row_source(record),
-                    "observation": build_observation(payload, room),
-                    "actionLabels": build_action_labels(room),
-                    "reward": build_reward(payload, room),
-                    "split": assign_split(sample_id, split_seed, eval_ratio_value),
-                    "safety": safety_notes(),
-                }
-            )
+            row = {
+                "type": "screeps-rl-tick-sample",
+                "schemaVersion": SCHEMA_VERSION,
+                "sampleId": sample_id,
+                "botCommit": bot_commit,
+                "source": build_row_source(record),
+                "observation": build_observation(payload, room),
+                "actionLabels": build_action_labels(room),
+                "reward": build_reward(payload, room),
+                "split": assign_split(sample_id, split_seed, eval_ratio_value),
+                "safety": safety_notes(),
+            }
+            dead_state_marker = room.get(DEAD_STATE_SAMPLE_MARKER)
+            if isinstance(dead_state_marker, dict):
+                row[DEAD_STATE_SAMPLE_MARKER] = dead_state_marker
+            rows.append(row)
             if len(rows) >= sample_limit:
                 return rows
     return rows
@@ -1317,6 +1674,37 @@ def build_skipped_sample_summary(scan: ScanResult) -> JsonObject:
     }
 
 
+def build_dead_state_quarantine_summary(scan: ScanResult, *, eligible_sample_count: int) -> JsonObject:
+    evidence = scan.dead_state_quarantine
+    quarantined = evidence.quarantined_dead_state_samples
+    samples_remain_eligible = eligible_sample_count > 0
+    if evidence.recovery_mode:
+        eligibility = "recovery_mode_dataset"
+    elif quarantined > 0 and samples_remain_eligible:
+        eligibility = "eligible_samples_remain_after_quarantine"
+    elif quarantined > 0:
+        eligibility = "blocked_no_eligible_samples_after_quarantine"
+    else:
+        eligibility = "standard_training_dataset"
+
+    return {
+        "recovery_mode": evidence.recovery_mode,
+        "inspected_samples": evidence.inspected_samples,
+        "quarantined_dead_state_samples": quarantined,
+        "zero_creep_samples": evidence.zero_creep_samples,
+        "rcl1_samples": evidence.rcl1_samples,
+        "owned_room_collapse_samples": evidence.owned_room_collapse_samples,
+        "quarantine_reasons": dict(sorted(evidence.quarantine_reasons.items())),
+        "source_time_range": {
+            "min": isoformat_utc(evidence.source_time_min) if evidence.source_time_min is not None else None,
+            "max": isoformat_utc(evidence.source_time_max) if evidence.source_time_max is not None else None,
+        },
+        "eligible_sample_count": eligible_sample_count,
+        "samples_remain_eligible_for_training": samples_remain_eligible,
+        "training_eligibility": eligibility,
+    }
+
+
 def build_skipped_file_summary(scan: ScanResult) -> JsonObject:
     skipped_files = sorted_skipped_files(scan)
     return {
@@ -1368,7 +1756,12 @@ def optional_source_max_age(source_max_age_hours: float | None) -> JsonObject:
     return {"sourceMaxAgeHours": source_max_age_hours}
 
 
-def build_source_index(scan: ScanResult, *, source_max_age_hours: float | None = None) -> JsonObject:
+def build_source_index(
+    scan: ScanResult,
+    *,
+    source_max_age_hours: float | None = None,
+    eligible_sample_count: int = 0,
+) -> JsonObject:
     skipped_file_summary = build_skipped_file_summary(scan)
     skipped_sample_summary = build_skipped_sample_summary(scan)
     return {
@@ -1391,6 +1784,7 @@ def build_source_index(scan: ScanResult, *, source_max_age_hours: float | None =
         "strategyShadowReports": scan.strategy_shadow_reports,
         **skipped_file_summary,
         **skipped_sample_summary,
+        "deadStateQuarantine": build_dead_state_quarantine_summary(scan, eligible_sample_count=eligible_sample_count),
     }
 
 
@@ -1494,6 +1888,7 @@ def build_run_manifest(
             "skippedFileCount": len(scan.skipped_files),
             "skippedFileReasons": count_skipped_file_field(scan, "reason"),
             **build_skipped_sample_summary(scan),
+            "deadStateQuarantine": build_dead_state_quarantine_summary(scan, eligible_sample_count=len(rows)),
         },
         "strategy": {
             "registryPath": "prod/src/strategy/strategyRegistry.ts",
@@ -1528,6 +1923,7 @@ def render_dataset_card(run_id: str, run_manifest: JsonObject, episodes: list[Js
     source = run_manifest["source"]
     split = run_manifest["split"]
     strategy = run_manifest["strategy"]
+    dead_state = source.get("deadStateQuarantine") if isinstance(source.get("deadStateQuarantine"), dict) else {}
     episode = episodes[0] if episodes else {}
     rooms = ", ".join(episode.get("rooms", [])) if isinstance(episode.get("rooms"), list) else "none"
     surfaces = ", ".join(strategy["decisionSurfacesObserved"]) or "none observed"
@@ -1546,6 +1942,11 @@ def render_dataset_card(run_id: str, run_manifest: JsonObject, episodes: list[Js
             f"- Matched runtime/monitor artifacts: {source['matchedArtifactCount']}",
             f"- Scanned files: {source['scannedFiles']}",
             f"- Rooms: {rooms or 'none'}",
+            (
+                "- Dead-state quarantine: "
+                f"{dead_state.get('quarantined_dead_state_samples', 0)} quarantined; "
+                f"training eligibility {dead_state.get('training_eligibility', 'unknown')}."
+            ),
             "",
             "## Schema",
             "",
@@ -1745,6 +2146,14 @@ def build_parser() -> argparse.ArgumentParser:
             f"Default: {CONSOLE_CAPTURE_MAX_AGE_HOURS:g} in --console-capture-only mode, otherwise unbounded."
         ),
     )
+    parser.add_argument(
+        "--allow-recovery-dead-state-samples",
+        action="store_true",
+        help=(
+            "Keep zero-creep/RCL1/collapsed-owned-room samples for an explicit recovery-mode dataset. "
+            "By default these live runtime samples are quarantined out of ordinary training datasets."
+        ),
+    )
     return parser
 
 
@@ -1772,6 +2181,7 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: Tex
         eval_ratio_value=args.eval_ratio,
         split_seed=args.split_seed,
         source_max_age_hours=source_max_age_hours,
+        allow_recovery_dead_state_samples=args.allow_recovery_dead_state_samples,
     )
     stdout.write(json.dumps(summary, indent=2, sort_keys=True))
     stdout.write("\n")

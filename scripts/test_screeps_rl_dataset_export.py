@@ -19,6 +19,44 @@ def runtime_line(payload: dict[str, object]) -> str:
     return f"#runtime-summary {json.dumps(payload, sort_keys=True)}\n"
 
 
+def active_runtime_payload(tick: int, *, room_name: str = "E29N55", rcl: int = 4) -> dict[str, object]:
+    return {
+        "type": "runtime-summary",
+        "tick": tick,
+        "rooms": [
+            {
+                "roomName": room_name,
+                "energyAvailable": 300,
+                "workerCount": 4,
+                "spawnStatus": [{"name": "Spawn1", "status": "idle"}],
+                "taskCounts": {"harvest": 1, "upgrade": 1, "none": 0},
+                "controller": {"level": rcl, "progress": 1000, "ticksToDowngrade": 10000},
+                "resources": {"storedEnergy": 500, "workerCarriedEnergy": 25},
+                "combat": {"hostileCreepCount": 0, "hostileStructureCount": 0},
+            }
+        ],
+    }
+
+
+def dead_state_runtime_payload(tick: int, *, room_name: str = "E29N55") -> dict[str, object]:
+    return {
+        "type": "runtime-summary",
+        "source": "screeps-runtime-monitor",
+        "tick": tick,
+        "rooms": [
+            {
+                "roomName": room_name,
+                "rclLevel": 1,
+                "taskCounts": {"harvest": 0, "upgrade": 0, "build": 0, "none": 0},
+                "controller": {"level": 1, "progress": 0, "progressTotal": 0},
+                "resources": {"storedEnergy": 2430, "workerCarriedEnergy": 0},
+                "workerAssignmentEvidence": {"workerCount": 0, "visibleCreepCount": 0},
+                "combat": {"hostileCreepCount": 0, "hostileStructureCount": 0},
+            }
+        ],
+    }
+
+
 def read_json(path: Path) -> object:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -475,7 +513,186 @@ class RlDatasetExportTest(unittest.TestCase):
 
         self.assertEqual(summary["sampleCount"], 1)
         self.assertEqual(summary["skippedSampleCount"], 0)
+        self.assertEqual(summary["deadStateQuarantine"]["quarantined_dead_state_samples"], 0)
+        self.assertEqual(summary["deadStateQuarantine"]["zero_creep_samples"], 0)
+        self.assertEqual(summary["deadStateQuarantine"]["rcl1_samples"], 0)
+        self.assertTrue(summary["deadStateQuarantine"]["samples_remain_eligible_for_training"])
         self.assertEqual(rows[0]["observation"]["roomName"], "E29N55")
+
+    def test_dead_state_runtime_samples_are_quarantined_with_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            stable_artifact = root / "runtime-summary-console-20260624T115900Z.log"
+            dead_artifact = root / "runtime-summary-console-20260624T131214Z.log"
+            stable_artifact.write_text(runtime_line(active_runtime_payload(2558700, rcl=4)), encoding="utf-8")
+            dead_artifact.write_text(runtime_line(dead_state_runtime_payload(2560700)), encoding="utf-8")
+            out_dir = root / "datasets"
+
+            summary = exporter.build_dataset(
+                [str(stable_artifact), str(dead_artifact)],
+                out_dir,
+                run_id="dead-state-quarantine-run",
+                bot_commit="5" * 40,
+                eval_ratio_value=0,
+                created_at="2026-06-24T16:30:00Z",
+                home_room="E29N55",
+            )
+            rows = read_ndjson(out_dir / "dead-state-quarantine-run" / "ticks.ndjson")
+            source_index = read_json(out_dir / "dead-state-quarantine-run" / "source_index.json")
+            run_manifest = read_json(out_dir / "dead-state-quarantine-run" / "run_manifest.json")
+
+        quarantine = summary["deadStateQuarantine"]
+        self.assertEqual(summary["sampleCount"], 1)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["observation"]["controller"]["level"], 4)
+        self.assertEqual(summary["skippedSampleCount"], 1)
+        self.assertEqual(summary["skippedSampleReasons"], {exporter.DEAD_STATE_RUNTIME_SAMPLE_SKIP_REASON: 1})
+        self.assertEqual(quarantine["quarantined_dead_state_samples"], 1)
+        self.assertEqual(quarantine["zero_creep_samples"], 1)
+        self.assertEqual(quarantine["rcl1_samples"], 1)
+        self.assertEqual(quarantine["source_time_range"]["min"], "2026-06-24T11:59:00Z")
+        self.assertEqual(quarantine["source_time_range"]["max"], "2026-06-24T13:12:14Z")
+        self.assertEqual(quarantine["training_eligibility"], "eligible_samples_remain_after_quarantine")
+        self.assertTrue(quarantine["samples_remain_eligible_for_training"])
+        skipped_sample = source_index["skippedSamples"][0]
+        self.assertEqual(skipped_sample["reason"], exporter.DEAD_STATE_RUNTIME_SAMPLE_SKIP_REASON)
+        self.assertEqual(
+            skipped_sample["deadStateReasons"],
+            [
+                exporter.DEAD_STATE_ZERO_CREEP_REASON,
+                exporter.DEAD_STATE_RCL1_AFTER_STABLE_REASON,
+            ],
+        )
+        self.assertFalse(skipped_sample["samplesEligibleForTraining"])
+        self.assertEqual(run_manifest["source"]["deadStateQuarantine"], quarantine)
+
+    def test_dead_state_quarantine_uses_source_timestamp_before_path_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            stable_artifact = root / "z-stable" / "runtime-summary-console-20260624T115900Z.log"
+            dead_artifact = root / "a-dead" / "runtime-summary-console-20260624T131214Z.log"
+            stable_artifact.parent.mkdir(parents=True)
+            dead_artifact.parent.mkdir(parents=True)
+            stable_artifact.write_text(runtime_line(active_runtime_payload(2558700, rcl=4)), encoding="utf-8")
+            dead_artifact.write_text(runtime_line(active_runtime_payload(2560700, rcl=1)), encoding="utf-8")
+            out_dir = root / "datasets"
+
+            summary = exporter.build_dataset(
+                [str(root)],
+                out_dir,
+                run_id="dead-state-chronological-run",
+                bot_commit="8" * 40,
+                eval_ratio_value=0,
+                created_at="2026-06-24T16:30:00Z",
+                home_room="E29N55",
+            )
+            rows = read_ndjson(out_dir / "dead-state-chronological-run" / "ticks.ndjson")
+            source_index = read_json(out_dir / "dead-state-chronological-run" / "source_index.json")
+
+        quarantine = summary["deadStateQuarantine"]
+        self.assertEqual(summary["sampleCount"], 1)
+        self.assertEqual(rows[0]["observation"]["controller"]["level"], 4)
+        self.assertEqual(summary["skippedSampleCount"], 1)
+        self.assertEqual(quarantine["quarantined_dead_state_samples"], 1)
+        self.assertEqual(quarantine["zero_creep_samples"], 0)
+        self.assertEqual(quarantine["rcl1_samples"], 1)
+        skipped_sample = source_index["skippedSamples"][0]
+        self.assertEqual(
+            skipped_sample["deadStateReasons"],
+            [exporter.DEAD_STATE_RCL1_AFTER_STABLE_REASON],
+        )
+        self.assertEqual(skipped_sample["priorMaxRcl"], 4)
+
+    def test_dead_state_runtime_samples_can_be_kept_for_recovery_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            stable_artifact = root / "runtime-summary-console-20260624T115900Z.log"
+            dead_artifact = root / "runtime-summary-console-20260624T131214Z.log"
+            stable_artifact.write_text(runtime_line(active_runtime_payload(2558700, rcl=4)), encoding="utf-8")
+            dead_artifact.write_text(runtime_line(dead_state_runtime_payload(2560700)), encoding="utf-8")
+            out_dir = root / "datasets"
+
+            summary = exporter.build_dataset(
+                [str(stable_artifact), str(dead_artifact)],
+                out_dir,
+                run_id="dead-state-recovery-run",
+                bot_commit="6" * 40,
+                eval_ratio_value=0,
+                created_at="2026-06-24T16:30:00Z",
+                home_room="E29N55",
+                allow_recovery_dead_state_samples=True,
+            )
+            rows = read_ndjson(out_dir / "dead-state-recovery-run" / "ticks.ndjson")
+
+        quarantine = summary["deadStateQuarantine"]
+        self.assertEqual(summary["sampleCount"], 2)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(summary["skippedSampleCount"], 0)
+        self.assertTrue(quarantine["recovery_mode"])
+        self.assertEqual(quarantine["quarantined_dead_state_samples"], 0)
+        self.assertEqual(quarantine["zero_creep_samples"], 1)
+        self.assertEqual(quarantine["rcl1_samples"], 1)
+        self.assertEqual(quarantine["training_eligibility"], "recovery_mode_dataset")
+        dead_state_rows = [
+            row
+            for row in rows
+            if row["observation"]["controller"]["level"] == exporter.COLLAPSED_ROOM_RCL_LEVEL
+        ]
+        self.assertEqual(len(dead_state_rows), 1)
+        self.assertEqual(
+            dead_state_rows[0][exporter.DEAD_STATE_SAMPLE_MARKER]["reasons"],
+            [
+                exporter.DEAD_STATE_ZERO_CREEP_REASON,
+                exporter.DEAD_STATE_RCL1_AFTER_STABLE_REASON,
+            ],
+        )
+
+    def test_owned_room_count_collapse_quarantines_current_window_samples(self) -> None:
+        prior_payload = active_runtime_payload(2558700, room_name="E29N55", rcl=6)
+        prior_payload["rooms"].append(
+            {
+                "roomName": "E29N56",
+                "energyAvailable": 300,
+                "workerCount": 2,
+                "spawnStatus": [{"name": "Spawn2", "status": "idle"}],
+                "taskCounts": {"harvest": 1, "upgrade": 0, "none": 0},
+                "controller": {"level": 4, "progress": 1000, "ticksToDowngrade": 10000},
+                "resources": {"storedEnergy": 300, "workerCarriedEnergy": 0},
+                "combat": {"hostileCreepCount": 0, "hostileStructureCount": 0},
+            }
+        )
+        current_payload = active_runtime_payload(2560700, room_name="E29N55", rcl=3)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            prior_artifact = root / "runtime-summary-console-20260624T115900Z.log"
+            current_artifact = root / "runtime-summary-console-20260624T131214Z.log"
+            prior_artifact.write_text(runtime_line(prior_payload), encoding="utf-8")
+            current_artifact.write_text(runtime_line(current_payload), encoding="utf-8")
+            out_dir = root / "datasets"
+
+            summary = exporter.build_dataset(
+                [str(prior_artifact), str(current_artifact)],
+                out_dir,
+                run_id="owned-room-collapse-run",
+                bot_commit="7" * 40,
+                eval_ratio_value=0,
+                created_at="2026-06-24T16:30:00Z",
+                home_room="E29N55",
+            )
+            rows = read_ndjson(out_dir / "owned-room-collapse-run" / "ticks.ndjson")
+            source_index = read_json(out_dir / "owned-room-collapse-run" / "source_index.json")
+
+        quarantine = summary["deadStateQuarantine"]
+        self.assertEqual(summary["sampleCount"], 2)
+        self.assertEqual({row["observation"]["roomName"] for row in rows}, {"E29N55", "E29N56"})
+        self.assertEqual(summary["skippedSampleReasons"], {exporter.DEAD_STATE_RUNTIME_SAMPLE_SKIP_REASON: 1})
+        self.assertEqual(quarantine["quarantined_dead_state_samples"], 1)
+        self.assertEqual(quarantine["owned_room_collapse_samples"], 1)
+        self.assertIn(
+            exporter.DEAD_STATE_OWNED_ROOM_COLLAPSE_REASON,
+            source_index["skippedSamples"][0]["deadStateReasons"],
+        )
 
     def test_stale_skipped_samples_are_summarized_without_full_source_index_log(self) -> None:
         current_payload = {

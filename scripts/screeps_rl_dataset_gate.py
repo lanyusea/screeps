@@ -135,8 +135,10 @@ def default_gate_id(
     baseline_kpi: Path | None,
     current_kpi: Path | None,
     bot_commit: str,
+    allow_recovery_dead_state_samples: bool = False,
 ) -> str:
     seed = {
+        "allowRecoveryDeadStateSamples": allow_recovery_dead_state_samples,
         "baselineKpi": dataset_export.display_path(baseline_kpi) if baseline_kpi else None,
         "botCommit": bot_commit,
         "candidateConfig": dataset_export.display_path(candidate_config) if candidate_config else None,
@@ -189,6 +191,15 @@ def build_contract() -> JsonObject:
                 "default": DEFAULT_HOME_ROOM,
                 "contract": "only the configured home room is expected to have owned spawns",
             },
+            "recoveryDeadStateSamples": {
+                "flag": "--allow-recovery-dead-state-samples",
+                "required": False,
+                "default": False,
+                "contract": (
+                    "ordinary gates quarantine zero-creep, RCL1-after-stable, or owned-room-collapse live "
+                    "runtime samples; this flag keeps them only for explicit recovery-mode datasets"
+                ),
+            },
             "conclusionRegistry": {
                 "flag": "--conclusion-registry",
                 "required": False,
@@ -215,6 +226,10 @@ def build_contract() -> JsonObject:
         "gateChecks": {
             "dataset": "dataset run exists, has at least the configured sample count, has manifest/source/tick/KPI files, and preserves offline safety flags",
             "qualityChecks": "dataset samples must show active harvest/upgrade work, room energy, owned creeps, and home-room owned spawns; non-home rooms may have no owned spawns",
+            "deadStateQuarantine": (
+                "ordinary training datasets must quarantine live runtime samples with zero owned creeps, "
+                "RCL <= 1 after prior stable/collapse evidence, or owned-room-count collapse"
+            ),
             "shadowEvaluation": "strategy-shadow report generation succeeds unless explicitly skipped",
             "historicalValidation": "candidate report must pass when --candidate-config is supplied",
             "predefinedMetrics": (
@@ -424,9 +439,16 @@ def quality_evidence(sample: JsonObject) -> JsonObject:
     }
 
 
-def quality_rejection_reasons(sample: JsonObject, *, home_room: str | None = None) -> list[str]:
+def quality_rejection_reasons(
+    sample: JsonObject,
+    *,
+    home_room: str | None = None,
+    recovery_mode: bool = False,
+) -> list[str]:
     resolved_home_room = home_room or configured_home_room()
     evidence = quality_evidence(sample)
+    if recovery_mode and sample_has_dead_state_evidence(sample, evidence):
+        return []
     room_name = sample_room_name(sample)
     reasons: list[str] = []
     room_energy_present = (
@@ -458,6 +480,16 @@ def quality_rejection_reasons(sample: JsonObject, *, home_room: str | None = Non
     if room_name == resolved_home_room and not positive_value(evidence["ownedSpawns"]):
         reasons.append("no_owned_spawns")
     return reasons
+
+
+def sample_has_dead_state_evidence(sample: JsonObject, evidence: JsonObject | None = None) -> bool:
+    marker = sample.get(dataset_export.DEAD_STATE_SAMPLE_MARKER)
+    if not isinstance(marker, dict):
+        return False
+    reasons = marker.get("reasons")
+    if isinstance(reasons, list) and any(isinstance(reason, str) and reason for reason in reasons):
+        return True
+    return marker.get("ownedRoomCountCollapsed") is True
 
 
 def missing_quality_telemetry(evidence: JsonObject) -> bool:
@@ -581,7 +613,13 @@ def build_quality_tail_classification(
     }
 
 
-def evaluate_quality_checks(ticks_path: Path, *, home_room: str | None = None, created_at: str | None = None) -> JsonObject:
+def evaluate_quality_checks(
+    ticks_path: Path,
+    *,
+    home_room: str | None = None,
+    created_at: str | None = None,
+    recovery_mode: bool = False,
+) -> JsonObject:
     resolved_home_room = home_room or configured_home_room()
     samples_accepted = 0
     samples_rejected = 0
@@ -626,7 +664,11 @@ def evaluate_quality_checks(ticks_path: Path, *, home_room: str | None = None, c
                 reasons = ["invalid_sample_json"]
             else:
                 reasons = (
-                    quality_rejection_reasons(sample, home_room=resolved_home_room)
+                    quality_rejection_reasons(
+                        sample,
+                        home_room=resolved_home_room,
+                        recovery_mode=recovery_mode,
+                    )
                     if isinstance(sample, dict)
                     else ["invalid_sample_json"]
                 )
@@ -720,6 +762,7 @@ def evaluate_quality_checks(ticks_path: Path, *, home_room: str | None = None, c
         "rejected_sample_log_limit": QUALITY_REJECTED_SAMPLE_LOG_LIMIT,
         "rejected_samples_truncated": max(0, samples_rejected - len(rejected_samples)),
         "home_room": resolved_home_room,
+        "recovery_mode": recovery_mode,
         "checks": checks,
     }
 
@@ -899,6 +942,11 @@ def dataset_source_diagnostics(
     min_samples: int,
 ) -> JsonObject:
     source = run_manifest.get("source") if isinstance(run_manifest.get("source"), dict) else {}
+    dead_state_quarantine = (
+        dataset_summary.get("deadStateQuarantine")
+        if isinstance(dataset_summary.get("deadStateQuarantine"), dict)
+        else source.get("deadStateQuarantine") if isinstance(source.get("deadStateQuarantine"), dict) else {}
+    )
     input_paths = source.get("inputPaths") if isinstance(source.get("inputPaths"), list) else []
     source_artifact_count = dataset_summary.get("sourceArtifactCount")
     runtime_summary_count = dataset_summary.get("runtimeSummaryArtifactCount")
@@ -914,6 +962,7 @@ def dataset_source_diagnostics(
             "status": "pass",
             "classification": "sample_floor_satisfied",
             "inputPaths": input_paths,
+            "deadStateQuarantine": dead_state_quarantine,
         }
 
     sample_cadence = build_runtime_sample_cadence_diagnostics(
@@ -942,17 +991,25 @@ def dataset_source_diagnostics(
             "Point the full E1 gate at runtime-summary source artifacts, such as "
             "runtime-artifacts/runtime-summary-console, instead of an empty or generated gate-data directory."
         )
+    elif isinstance(skipped_sample_count, int) and skipped_sample_count > 0 and sample_count == 0:
+        quarantined_dead_state = dead_state_quarantine.get("quarantined_dead_state_samples")
+        if isinstance(quarantined_dead_state, int) and quarantined_dead_state > 0:
+            classification = "all_runtime_samples_quarantined_dead_state"
+            recommended_action = (
+                "Collect post-recovery runtime summaries before using this ordinary E1 training gate, "
+                "or rerun with --allow-recovery-dead-state-samples only for an explicit recovery-mode dataset."
+            )
+        else:
+            classification = "all_runtime_samples_filtered"
+            recommended_action = (
+                "Refresh or narrow the runtime-summary source window so the full gate has current samples "
+                "for the configured home room."
+            )
     elif runtime_summary_count == 0:
         classification = "no_runtime_summary_artifacts"
         recommended_action = (
             "Use the same runtime-summary console source window that feeds the passing E1-lite gate; "
             "generated gate-data and dataset directories are outputs, not full-gate input evidence."
-        )
-    elif isinstance(skipped_sample_count, int) and skipped_sample_count > 0 and sample_count == 0:
-        classification = "all_runtime_samples_filtered"
-        recommended_action = (
-            "Refresh or narrow the runtime-summary source window so the full gate has current samples "
-            "for the configured home room."
         )
     else:
         classification = "insufficient_runtime_samples"
@@ -987,6 +1044,7 @@ def dataset_source_diagnostics(
         "skippedFileReasons": skipped_file_reasons,
         "skippedSampleCount": skipped_sample_count,
         "skippedSampleReasons": skipped_sample_reasons,
+        "deadStateQuarantine": dead_state_quarantine,
         "sampleCadence": sample_cadence,
     }
 
@@ -1010,6 +1068,11 @@ def evaluate_dataset_readiness(
         run_manifest,
         sample_count=sample_count,
         min_samples=min_samples,
+    )
+    dead_state_quarantine = (
+        dataset_summary.get("deadStateQuarantine")
+        if isinstance(dataset_summary.get("deadStateQuarantine"), dict)
+        else diagnostics.get("deadStateQuarantine") if isinstance(diagnostics.get("deadStateQuarantine"), dict) else {}
     )
     files_to_check = ("scenarioManifest", "runManifest", "sourceIndex", "ticks", "kpiWindows", "episodes", "datasetCard")
     checks: list[JsonObject] = [
@@ -1067,6 +1130,7 @@ def evaluate_dataset_readiness(
         "strategyShadowReportCount": dataset_summary.get("strategyShadowReportCount"),
         "skippedSampleCount": dataset_summary.get("skippedSampleCount"),
         "skippedSampleReasons": dataset_summary.get("skippedSampleReasons"),
+        "deadStateQuarantine": dead_state_quarantine,
         "splitCounts": dataset_summary.get("splitCounts"),
         "runId": dataset_summary.get("runId"),
         "runDir": dataset_export.display_path(file_paths["runDir"]),
@@ -1407,6 +1471,11 @@ def collect_blocking_reasons(report: JsonObject) -> list[JsonObject]:
 def build_summary(report: JsonObject) -> JsonObject:
     dataset_gate = report.get("datasetGate") if isinstance(report.get("datasetGate"), dict) else {}
     dataset = report.get("dataset") if isinstance(report.get("dataset"), dict) else {}
+    dead_state = (
+        dataset_gate.get("deadStateQuarantine")
+        if isinstance(dataset_gate.get("deadStateQuarantine"), dict)
+        else dataset.get("deadStateQuarantine") if isinstance(dataset.get("deadStateQuarantine"), dict) else {}
+    )
     quality = report.get("quality_checks") if isinstance(report.get("quality_checks"), dict) else {}
     shadow = report.get("shadowEvaluation") if isinstance(report.get("shadowEvaluation"), dict) else {}
     historical = report.get("historicalValidation") if isinstance(report.get("historicalValidation"), dict) else {}
@@ -1422,6 +1491,7 @@ def build_summary(report: JsonObject) -> JsonObject:
         "datasetRunId": dataset.get("runId"),
         "datasetPath": dataset.get("outDir"),
         "sampleCount": dataset_gate.get("sampleCount"),
+        "deadStateQuarantine": dead_state,
         "qualityChecksStatus": quality.get("status"),
         "samplesAccepted": quality.get("samples_accepted"),
         "samplesRejected": quality.get("samples_rejected"),
@@ -1631,6 +1701,7 @@ def run_gate(
     min_owned_rooms: float | None = None,
     min_resource_score: float | None = None,
     min_kills_score: float | None = None,
+    allow_recovery_dead_state_samples: bool = False,
     conclusion_registry_path: Path | None = None,
     repo_root: Path | None = None,
 ) -> JsonObject:
@@ -1647,6 +1718,7 @@ def run_gate(
         baseline_kpi=baseline_kpi,
         current_kpi=current_kpi,
         bot_commit=resolved_bot_commit,
+        allow_recovery_dead_state_samples=allow_recovery_dead_state_samples,
     )
     validate_gate_id(resolved_gate_id)
 
@@ -1692,6 +1764,7 @@ def run_gate(
         repo_root=repo,
         created_at=created,
         home_room=resolved_home_room,
+        allow_recovery_dead_state_samples=allow_recovery_dead_state_samples,
     )
     file_paths = dataset_file_paths(resolved_dataset_out_dir, str(dataset_summary["runId"]), dataset_summary["files"])
     run_manifest = load_json(file_paths["runManifest"])
@@ -1706,7 +1779,12 @@ def run_gate(
         ticks_count,
         min_samples=min_samples,
     )
-    quality_checks = evaluate_quality_checks(file_paths["ticks"], home_room=resolved_home_room, created_at=created)
+    quality_checks = evaluate_quality_checks(
+        file_paths["ticks"],
+        home_room=resolved_home_room,
+        created_at=created,
+        recovery_mode=allow_recovery_dead_state_samples,
+    )
     floors = metric_floors(
         min_reliability=min_reliability,
         min_owned_rooms=min_owned_rooms,
@@ -1752,6 +1830,7 @@ def run_gate(
             "baselineKpi": dataset_export.display_path(baseline_kpi) if baseline_kpi is not None else None,
             "currentKpi": dataset_export.display_path(current_kpi_path),
             "botCommit": resolved_bot_commit,
+            "allowRecoveryDeadStateSamples": allow_recovery_dead_state_samples,
         },
         "dataset": dataset_summary,
         "datasetGate": dataset_gate,
@@ -1862,6 +1941,14 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--min-resource-score", type=non_negative_number, help="Optional current resource-score floor.")
     run.add_argument("--min-kills-score", type=non_negative_number, help="Optional current kills-score floor.")
     run.add_argument(
+        "--allow-recovery-dead-state-samples",
+        action="store_true",
+        help=(
+            "Keep zero-creep/RCL1/collapsed-owned-room samples for an explicit recovery-mode dataset. "
+            "Ordinary E1 gates quarantine them before training eligibility."
+        ),
+    )
+    run.add_argument(
         "--conclusion-registry",
         type=Path,
         help=(
@@ -1900,6 +1987,7 @@ def cli_failure_gate_id(args: argparse.Namespace, repo: Path, created_at: str) -
         baseline_kpi=getattr(args, "baseline_kpi", None),
         current_kpi=getattr(args, "current_kpi", None),
         bot_commit=bot_commit,
+        allow_recovery_dead_state_samples=bool(getattr(args, "allow_recovery_dead_state_samples", False)),
     )
 
 
@@ -1962,6 +2050,7 @@ def build_cli_failure_report(
             if getattr(args, "current_kpi", None) is not None
             else None,
             "botCommit": bot_commit,
+            "allowRecoveryDeadStateSamples": bool(getattr(args, "allow_recovery_dead_state_samples", False)),
         },
         "datasetGate": {
             "status": "fail",
@@ -2097,6 +2186,7 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: Tex
                 min_owned_rooms=args.min_owned_rooms,
                 min_resource_score=args.min_resource_score,
                 min_kills_score=args.min_kills_score,
+                allow_recovery_dead_state_samples=args.allow_recovery_dead_state_samples,
                 conclusion_registry_path=args.conclusion_registry,
                 repo_root=args.repo_root,
             )
