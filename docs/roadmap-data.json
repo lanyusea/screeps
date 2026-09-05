@@ -3,8 +3,8 @@
     "logo": "assets/screeps-community-logo.png"
   },
   "format": "roadmap-portrait-kpi-kanban-v5",
-  "generatedAt": "2026-06-24T20:09:21Z",
-  "generatedAtCst": "2026-06-25T04:09:21+08:00",
+  "generatedAt": "2026-09-05T20:21:05Z",
+  "generatedAtCst": "2026-09-06T04:21:05+08:00",
   "github": {
     "fetchErrors": [],
     "fetched": true,
@@ -44,9 +44,9 @@
         "priority": "P2",
         "state": "OPEN",
         "status": "Ready",
-        "title": "P2: Agent OS: Continuation worker must dispatch Ready P1 gameplay issues when no P0 blocker active",
+        "title": "P0: Agent OS: Continuation worker must dispatch Ready P0/P1 gameplay issues into Codex lanes",
         "type": "Issue",
-        "updatedAt": "2026-06-23T17:18:41Z",
+        "updatedAt": "2026-06-25T01:36:34Z",
         "url": "https://github.com/lanyusea/screeps/issues/2019"
       },
       {
@@ -266,7 +266,7 @@
         "status": "Ready",
         "title": "P0: Bot capability: Recover E29N55 zero-creep Spawn1 state after RCL reset",
         "type": "Issue",
-        "updatedAt": "2026-06-24T15:49:52Z",
+        "updatedAt": "2026-06-25T03:31:31Z",
         "url": "https://github.com/lanyusea/screeps/issues/1988"
       },
       {
@@ -855,7 +855,25 @@
         {
           "domain": "Agent OS",
           "domainSource": "project",
-          "evidence": "2026-06-24T18:22Z recheck: latest runtime-alert output 1df5ef0c3835/2026-06-25_02-10-56.md delivered an active P0 alert instead of Broken pipe; recurring Broken pipe finalization remains open as a hardening issue from earlier failed runs.",
+          "evidence": "",
+          "kind": "ops",
+          "lane": "Agent OS",
+          "nextAction": "",
+          "number": 2019,
+          "priority": "P0",
+          "projectDomain": "Agent OS",
+          "state": "",
+          "status": "Ready",
+          "title": "P0: Agent OS: Continuation worker must dispatch Ready P0/P1 gameplay issues into Codex lanes",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/2019",
+          "visionLayer": "resources"
+        },
+        {
+          "domain": "Agent OS",
+          "domainSource": "project",
+          "evidence": "2026-06-24T23:13Z controller audit: cron registry PASS, but latest compact watcher request dumps show max_retries_exhausted ReadError Broken pipe for runtime alert 1df5ef0c3835 (mtime 2026-06-24T20:01Z), P0 ops monitor 75cedbb77150 (09:28Z), and gameplay review c7b3dda8f1ac (last 2026-06-13T16:15Z). No active Codex/dev process or PR.",
           "kind": "bug",
           "lane": "Agent OS",
           "nextAction": "",
@@ -905,24 +923,6 @@
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/1954",
           "visionLayer": "foundation blocker"
-        },
-        {
-          "domain": "Agent OS",
-          "domainSource": "project",
-          "evidence": "",
-          "kind": "ops",
-          "lane": "Agent OS",
-          "nextAction": "",
-          "number": 2019,
-          "priority": "P2",
-          "projectDomain": "Agent OS",
-          "state": "",
-          "status": "Ready",
-          "title": "P2: Agent OS: Continuation worker must dispatch Ready P1 gameplay issues when no P0 blocker active",
-          "type": "Issue",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/issues/2019",
-          "visionLayer": "resources"
         },
         {
           "domain": "Agent OS",
@@ -2781,6 +2781,24 @@
         {
           "domain": "Agent OS",
           "domainSource": "project",
+          "evidence": "2026-06-24T20:27Z PR #2029 merged after gate PASS; mergeCommit=49f64cb, head=96cf26a, checks=4/4 pass, threads=0, elapsed>15m, project evidence recorded before merge.",
+          "kind": "docs",
+          "lane": "Agent OS",
+          "nextAction": "",
+          "number": 2029,
+          "priority": "P1",
+          "projectDomain": "Agent OS",
+          "state": "",
+          "status": "Done",
+          "title": "chore(roadmap): refresh Pages artifacts",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/2029",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "domainSource": "project",
           "evidence": "Merged PR #1124 at 2026-05-16T04:29:07Z as squash commit c71b63552eadbadfdc9dfcc4f2d2f27c53d54140; issue #1123 closed at 2026-05-16T04:29:08Z. Pre-merge gate PASS in same run: elapsed 1014s >=15m, checks pass (CodeRabbit + prod CI), unresolved review threads=0, mergeStateStatus CLEAN, Project fields current. Automated feedback triaged by Codex: Gemini E48S28 finding RESOLVE_STALE_OR_OUTDATED, CodeRabbit verification warning RESOLVE_FALSE_POSITIVE.",
           "kind": "ops",
           "lane": "Agent OS",
@@ -4311,7 +4329,7 @@
         {
           "domain": "Runtime monitor",
           "domainSource": "project",
-          "evidence": "2026-06-24T18:22Z recheck: latest runtime-alert output is active and compact for E29N55 zero-creep; stale/noisy-output risk remains tracked because earlier runs missed/failed finalization during active alerts.",
+          "evidence": "2026-06-25T01:25Z controller audit: latest runtime-alert artifact 1df5ef0c3835/2026-06-25_09-05-44.md reported token-expired/401 using stale 08:48 data, but direct /api/user/overview auth check returned 200; controller monitor summary then timed out at 45s. Treat as runtime-alert reliability/timeout classification defect, not owner credential rotation.",
           "kind": "bug",
           "lane": "Runtime monitor",
           "nextAction": "",
@@ -7353,7 +7371,7 @@
         {
           "domain": "Bot capability",
           "domainSource": "project",
-          "evidence": "2026-06-24T19:09Z controller recheck: current runtime summary still has E29N55 at RCL1 with 0 creeps; gameplay review c7b3dda8f1ac/2026-06-25_00-17-34.md confirms RCL6/3-room to single-room collapse. Root-cause investigation remains parallel/after #1988.",
+          "evidence": "2026-06-25T01:25Z controller recheck: E29N55 collapse/zero-creep state remains live by latest successful runtime-alert summary (owned_spawns=1, owned_creeps=0, RCL1, storedEnergy=300). Open PRs=0; no active Codex/dev process. Immediate Spawn1 recovery #1988 is the gameplay P0; RCA remains parallel but should not delay recovery.",
           "kind": "bug",
           "lane": "Bot capability",
           "nextAction": "",
@@ -7367,6 +7385,24 @@
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/2026",
           "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Bot capability",
+          "domainSource": "project",
+          "evidence": "",
+          "kind": "bug",
+          "lane": "Bot capability",
+          "nextAction": "",
+          "number": 1988,
+          "priority": "P0",
+          "projectDomain": "Bot capability",
+          "state": "",
+          "status": "Ready",
+          "title": "P0: Bot capability: Recover E29N55 zero-creep Spawn1 state after RCL reset",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/1988",
+          "visionLayer": "resources"
         },
         {
           "domain": "Bot capability",
@@ -15358,24 +15394,6 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/2010",
-          "visionLayer": "territory"
-        },
-        {
-          "domain": "Territory/Economy",
-          "domainSource": "project",
-          "evidence": "2026-06-24T19:09Z controller recheck: latest runtime health summary-20260624T190616Z alert=true for shardX/E29N55; owned_spawns=1, owned_creeps=0, hostiles=0, RCL1, storedEnergy=2300, cpuBucket=764. No open PR; PR #2028 is merged; recovery remains self-actionable.",
-          "kind": "bug",
-          "lane": "Territory/Economy",
-          "nextAction": "",
-          "number": 1988,
-          "priority": "P0",
-          "projectDomain": "Territory/Economy",
-          "state": "",
-          "status": "Ready",
-          "title": "P0: Bot capability: Recover E29N55 zero-creep Spawn1 state after RCL reset",
-          "type": "Issue",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/issues/1988",
           "visionLayer": "territory"
         },
         {
@@ -26325,7 +26343,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-06-24T19:20Z first canary still blocked: latest policy advantage 20260624T175746Z deployability=BLOCKED onlineUtility=UNPROVEN rolloutGate=BLOCKED/online KPI evidence missing; baselineWindow=null validationWindow=null regressions=0; E1 191814 pass is offline/quarantine evidence only; #1233 preflight no-compute.",
+          "evidence": "2026-06-25T00:34Z first canary still blocked: policy advantage 20260624T235758Z deployability=BLOCKED onlineUtility=UNPROVEN rolloutGate=BLOCKED reason=online KPI evidence missing; baselineWindow=null validationWindow=null regressions=0 scorecard=ready. Gameplay Review 2026-06-25T00:15Z requires a measurable online KPI window within 14 days or structural E2\u2192E3 redesign.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -26343,7 +26361,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-06-24T19:20Z Tencent preflight cron-batch-preflight-20260624t19201782300028z final=post_fix_validation_plan_required_no_compute; guard=paid_failure_recurrence_guard simulator_place_spawn_room_busy 39/10; validationPlanRequired=true; compute/paid/scaleOut/remoteTraining/report=false; ASG desired/inservice/instances=0/0/0; billing ok total_cny=0.02844990.",
+          "evidence": "2026-06-25T00:34Z Tencent preflight cron-batch-preflight-20260625t00291782318584z final=post_fix_validation_plan_required_no_compute rc=4; guard=paid_failure_recurrence_guard simulator_place_spawn_room_busy 39/10; validationPlanRequired=true; compute/paid/scaleOut/remoteTraining/report=false; ASG desired/inservice/instances=0/0/0; billing ok total_cny=0.02844990.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -26361,7 +26379,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-06-24T19:20Z RL artifacts refreshed: E1 e1-lite-gate-20260624T191814Z pass sample=100 train/eval=50/50 skipped=20 dead-state quarantined=20 (zero=18 rcl1=18 collapse=18) liveEffect=false officialMmoWrites=false; E2 20260624T185524Z RUN_VALIDATED dataGroup=1 samples=200 episodes=80 updates=1; Tencent preflight no-compute.",
+          "evidence": "2026-06-25T00:34Z RL artifacts: E1 e1-lite-gate-20260625T000610Z pass sample=100 train/eval=48/52 skipped=32; dead-state quarantine inspected=402 quarantined=32 zero=30 rcl1=30 collapse=30 eligible=true recovery=false liveEffect=false officialMmoWrites=false. E2 20260624T234638Z RUN_VALIDATED dataGroup=1 samples=200 env=80/80/80/0 episodes=80 ticks=160000 updates=1 anomalies=0.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -36543,7 +36561,25 @@
                 {
                   "domain": "Agent OS",
                   "domainSource": "project",
-                  "evidence": "2026-06-24T18:22Z recheck: latest runtime-alert output 1df5ef0c3835/2026-06-25_02-10-56.md delivered an active P0 alert instead of Broken pipe; recurring Broken pipe finalization remains open as a hardening issue from earlier failed runs.",
+                  "evidence": "",
+                  "kind": "ops",
+                  "lane": "Agent OS",
+                  "nextAction": "",
+                  "number": 2019,
+                  "priority": "P0",
+                  "projectDomain": "Agent OS",
+                  "state": "",
+                  "status": "Ready",
+                  "title": "P0: Agent OS: Continuation worker must dispatch Ready P0/P1 gameplay issues into Codex lanes",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/2019",
+                  "visionLayer": "resources"
+                },
+                {
+                  "domain": "Agent OS",
+                  "domainSource": "project",
+                  "evidence": "2026-06-24T23:13Z controller audit: cron registry PASS, but latest compact watcher request dumps show max_retries_exhausted ReadError Broken pipe for runtime alert 1df5ef0c3835 (mtime 2026-06-24T20:01Z), P0 ops monitor 75cedbb77150 (09:28Z), and gameplay review c7b3dda8f1ac (last 2026-06-13T16:15Z). No active Codex/dev process or PR.",
                   "kind": "bug",
                   "lane": "Agent OS",
                   "nextAction": "",
@@ -36593,24 +36629,6 @@
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/1954",
                   "visionLayer": "foundation blocker"
-                },
-                {
-                  "domain": "Agent OS",
-                  "domainSource": "project",
-                  "evidence": "",
-                  "kind": "ops",
-                  "lane": "Agent OS",
-                  "nextAction": "",
-                  "number": 2019,
-                  "priority": "P2",
-                  "projectDomain": "Agent OS",
-                  "state": "",
-                  "status": "Ready",
-                  "title": "P2: Agent OS: Continuation worker must dispatch Ready P1 gameplay issues when no P0 blocker active",
-                  "type": "Issue",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/issues/2019",
-                  "visionLayer": "resources"
                 },
                 {
                   "domain": "Agent OS",
@@ -38357,6 +38375,24 @@
                 {
                   "domain": "Agent OS",
                   "domainSource": "project",
+                  "evidence": "2026-06-24T20:27Z PR #2029 merged after gate PASS; mergeCommit=49f64cb, head=96cf26a, checks=4/4 pass, threads=0, elapsed>15m, project evidence recorded before merge.",
+                  "kind": "docs",
+                  "lane": "Agent OS",
+                  "nextAction": "",
+                  "number": 2029,
+                  "priority": "P1",
+                  "projectDomain": "Agent OS",
+                  "state": "",
+                  "status": "Done",
+                  "title": "chore(roadmap): refresh Pages artifacts",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/2029",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "domainSource": "project",
                   "evidence": "Merged PR #1124 at 2026-05-16T04:29:07Z as squash commit c71b63552eadbadfdc9dfcc4f2d2f27c53d54140; issue #1123 closed at 2026-05-16T04:29:08Z. Pre-merge gate PASS in same run: elapsed 1014s >=15m, checks pass (CodeRabbit + prod CI), unresolved review threads=0, mergeStateStatus CLEAN, Project fields current. Automated feedback triaged by Codex: Gemini E48S28 finding RESOLVE_STALE_OR_OUTDATED, CodeRabbit verification warning RESOLVE_FALSE_POSITIVE.",
                   "kind": "ops",
                   "lane": "Agent OS",
@@ -39029,7 +39065,7 @@
                 {
                   "domain": "Runtime monitor",
                   "domainSource": "project",
-                  "evidence": "2026-06-24T18:22Z recheck: latest runtime-alert output is active and compact for E29N55 zero-creep; stale/noisy-output risk remains tracked because earlier runs missed/failed finalization during active alerts.",
+                  "evidence": "2026-06-25T01:25Z controller audit: latest runtime-alert artifact 1df5ef0c3835/2026-06-25_09-05-44.md reported token-expired/401 using stale 08:48 data, but direct /api/user/overview auth check returned 200; controller monitor summary then timed out at 45s. Treat as runtime-alert reliability/timeout classification defect, not owner credential rotation.",
                   "kind": "bug",
                   "lane": "Runtime monitor",
                   "nextAction": "",
@@ -41966,7 +42002,7 @@
                 {
                   "domain": "Bot capability",
                   "domainSource": "project",
-                  "evidence": "2026-06-24T19:09Z controller recheck: current runtime summary still has E29N55 at RCL1 with 0 creeps; gameplay review c7b3dda8f1ac/2026-06-25_00-17-34.md confirms RCL6/3-room to single-room collapse. Root-cause investigation remains parallel/after #1988.",
+                  "evidence": "2026-06-25T01:25Z controller recheck: E29N55 collapse/zero-creep state remains live by latest successful runtime-alert summary (owned_spawns=1, owned_creeps=0, RCL1, storedEnergy=300). Open PRs=0; no active Codex/dev process. Immediate Spawn1 recovery #1988 is the gameplay P0; RCA remains parallel but should not delay recovery.",
                   "kind": "bug",
                   "lane": "Bot capability",
                   "nextAction": "",
@@ -41980,6 +42016,24 @@
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/2026",
                   "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Bot capability",
+                  "domainSource": "project",
+                  "evidence": "",
+                  "kind": "bug",
+                  "lane": "Bot capability",
+                  "nextAction": "",
+                  "number": 1988,
+                  "priority": "P0",
+                  "projectDomain": "Bot capability",
+                  "state": "",
+                  "status": "Ready",
+                  "title": "P0: Bot capability: Recover E29N55 zero-creep Spawn1 state after RCL reset",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/1988",
+                  "visionLayer": "resources"
                 },
                 {
                   "domain": "Bot capability",
@@ -48658,24 +48712,6 @@
                   "type": "Issue",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/2010",
-                  "visionLayer": "territory"
-                },
-                {
-                  "domain": "Territory/Economy",
-                  "domainSource": "project",
-                  "evidence": "2026-06-24T19:09Z controller recheck: latest runtime health summary-20260624T190616Z alert=true for shardX/E29N55; owned_spawns=1, owned_creeps=0, hostiles=0, RCL1, storedEnergy=2300, cpuBucket=764. No open PR; PR #2028 is merged; recovery remains self-actionable.",
-                  "kind": "bug",
-                  "lane": "Territory/Economy",
-                  "nextAction": "",
-                  "number": 1988,
-                  "priority": "P0",
-                  "projectDomain": "Territory/Economy",
-                  "state": "",
-                  "status": "Ready",
-                  "title": "P0: Bot capability: Recover E29N55 zero-creep Spawn1 state after RCL reset",
-                  "type": "Issue",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/issues/1988",
                   "visionLayer": "territory"
                 },
                 {
@@ -56230,7 +56266,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-06-24T19:20Z first canary still blocked: latest policy advantage 20260624T175746Z deployability=BLOCKED onlineUtility=UNPROVEN rolloutGate=BLOCKED/online KPI evidence missing; baselineWindow=null validationWindow=null regressions=0; E1 191814 pass is offline/quarantine evidence only; #1233 preflight no-compute.",
+                  "evidence": "2026-06-25T00:34Z first canary still blocked: policy advantage 20260624T235758Z deployability=BLOCKED onlineUtility=UNPROVEN rolloutGate=BLOCKED reason=online KPI evidence missing; baselineWindow=null validationWindow=null regressions=0 scorecard=ready. Gameplay Review 2026-06-25T00:15Z requires a measurable online KPI window within 14 days or structural E2\u2192E3 redesign.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -56248,7 +56284,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-06-24T19:20Z Tencent preflight cron-batch-preflight-20260624t19201782300028z final=post_fix_validation_plan_required_no_compute; guard=paid_failure_recurrence_guard simulator_place_spawn_room_busy 39/10; validationPlanRequired=true; compute/paid/scaleOut/remoteTraining/report=false; ASG desired/inservice/instances=0/0/0; billing ok total_cny=0.02844990.",
+                  "evidence": "2026-06-25T00:34Z Tencent preflight cron-batch-preflight-20260625t00291782318584z final=post_fix_validation_plan_required_no_compute rc=4; guard=paid_failure_recurrence_guard simulator_place_spawn_room_busy 39/10; validationPlanRequired=true; compute/paid/scaleOut/remoteTraining/report=false; ASG desired/inservice/instances=0/0/0; billing ok total_cny=0.02844990.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -56266,7 +56302,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-06-24T19:20Z RL artifacts refreshed: E1 e1-lite-gate-20260624T191814Z pass sample=100 train/eval=50/50 skipped=20 dead-state quarantined=20 (zero=18 rcl1=18 collapse=18) liveEffect=false officialMmoWrites=false; E2 20260624T185524Z RUN_VALIDATED dataGroup=1 samples=200 episodes=80 updates=1; Tencent preflight no-compute.",
+                  "evidence": "2026-06-25T00:34Z RL artifacts: E1 e1-lite-gate-20260625T000610Z pass sample=100 train/eval=48/52 skipped=32; dead-state quarantine inspected=402 quarantined=32 zero=30 rcl1=30 collapse=30 eligible=true recovery=false liveEffect=false officialMmoWrites=false. E2 20260624T234638Z RUN_VALIDATED dataGroup=1 samples=200 env=80/80/80/0 episodes=80 ticks=160000 updates=1 anomalies=0.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -65531,7 +65567,7 @@
       {
         "instrumented": true,
         "label": "Open PRs",
-        "value": 0
+        "value": 1
       },
       {
         "instrumented": true,
@@ -65541,7 +65577,7 @@
       {
         "instrumented": true,
         "label": "Project cards",
-        "value": 1986
+        "value": 1987
       },
       {
         "instrumented": true,
@@ -86754,7 +86790,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-06-24T19:20Z RL artifacts refreshed: E1 e1-lite-gate-20260624T191814Z pass sample=100 train/eval=50/50 skipped=20 dead-state quarantined=20 (zero=18 rcl1=18 collapse=18) liveEffect=false officialMmoWrites=false; E2 20260624T185524Z RUN_VALIDATED dataGroup=1 samples=200 episodes=80 updates=1; Tencent preflight no-compute.",
+        "evidence": "2026-06-25T00:34Z RL artifacts: E1 e1-lite-gate-20260625T000610Z pass sample=100 train/eval=48/52 skipped=32; dead-state quarantine inspected=402 quarantined=32 zero=30 rcl1=30 collapse=30 eligible=true recovery=false liveEffect=false officialMmoWrites=false. E2 20260624T234638Z RUN_VALIDATED dataGroup=1 samples=200 env=80/80/80/0 episodes=80 ticks=160000 updates=1 anomalies=0.",
         "kind": "ops",
         "labels": [
           "blocked",
@@ -91142,7 +91178,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-06-24T19:20Z Tencent preflight cron-batch-preflight-20260624t19201782300028z final=post_fix_validation_plan_required_no_compute; guard=paid_failure_recurrence_guard simulator_place_spawn_room_busy 39/10; validationPlanRequired=true; compute/paid/scaleOut/remoteTraining/report=false; ASG desired/inservice/instances=0/0/0; billing ok total_cny=0.02844990.",
+        "evidence": "2026-06-25T00:34Z Tencent preflight cron-batch-preflight-20260625t00291782318584z final=post_fix_validation_plan_required_no_compute rc=4; guard=paid_failure_recurrence_guard simulator_place_spawn_room_busy 39/10; validationPlanRequired=true; compute/paid/scaleOut/remoteTraining/report=false; ASG desired/inservice/instances=0/0/0; billing ok total_cny=0.02844990.",
         "kind": "ops",
         "labels": [
           "blocked",
@@ -98645,7 +98681,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-06-24T19:20Z first canary still blocked: latest policy advantage 20260624T175746Z deployability=BLOCKED onlineUtility=UNPROVEN rolloutGate=BLOCKED/online KPI evidence missing; baselineWindow=null validationWindow=null regressions=0; E1 191814 pass is offline/quarantine evidence only; #1233 preflight no-compute.",
+        "evidence": "2026-06-25T00:34Z first canary still blocked: policy advantage 20260624T235758Z deployability=BLOCKED onlineUtility=UNPROVEN rolloutGate=BLOCKED reason=online KPI evidence missing; baselineWindow=null validationWindow=null regressions=0 scorecard=ready. Gameplay Review 2026-06-25T00:15Z requires a measurable online KPI window within 14 days or structural E2\u2192E3 redesign.",
         "kind": "ops",
         "labels": [
           "blocked",
@@ -106352,7 +106388,7 @@
         "blockedBy": "",
         "domain": "Runtime monitor",
         "domainSource": "project",
-        "evidence": "2026-06-24T18:22Z recheck: latest runtime-alert output is active and compact for E29N55 zero-creep; stale/noisy-output risk remains tracked because earlier runs missed/failed finalization during active alerts.",
+        "evidence": "2026-06-25T01:25Z controller audit: latest runtime-alert artifact 1df5ef0c3835/2026-06-25_09-05-44.md reported token-expired/401 using stale 08:48 data, but direct /api/user/overview auth check returned 200; controller monitor summary then timed out at 45s. Treat as runtime-alert reliability/timeout classification defect, not owner credential rotation.",
         "kind": "bug",
         "labels": [
           "kind:bug",
@@ -107317,9 +107353,9 @@
       },
       {
         "blockedBy": "",
-        "domain": "Territory/Economy",
+        "domain": "Bot capability",
         "domainSource": "project",
-        "evidence": "2026-06-24T19:09Z controller recheck: latest runtime health summary-20260624T190616Z alert=true for shardX/E29N55; owned_spawns=1, owned_creeps=0, hostiles=0, RCL1, storedEnergy=2300, cpuBucket=764. No open PR; PR #2028 is merged; recovery remains self-actionable.",
+        "evidence": "",
         "kind": "bug",
         "labels": [
           "kind:bug",
@@ -107330,7 +107366,7 @@
         "nextAction": "",
         "number": 1988,
         "priority": "P0",
-        "projectDomain": "Territory/Economy",
+        "projectDomain": "Bot capability",
         "state": "",
         "status": "Ready",
         "title": "P0: Bot capability: Recover E29N55 zero-creep Spawn1 state after RCL reset",
@@ -107487,7 +107523,7 @@
         "blockedBy": "",
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-06-24T18:22Z recheck: latest runtime-alert output 1df5ef0c3835/2026-06-25_02-10-56.md delivered an active P0 alert instead of Broken pipe; recurring Broken pipe finalization remains open as a hardening issue from earlier failed runs.",
+        "evidence": "2026-06-24T23:13Z controller audit: cron registry PASS, but latest compact watcher request dumps show max_retries_exhausted ReadError Broken pipe for runtime alert 1df5ef0c3835 (mtime 2026-06-24T20:01Z), P0 ops monitor 75cedbb77150 (09:28Z), and gameplay review c7b3dda8f1ac (last 2026-06-13T16:15Z). No active Codex/dev process or PR.",
         "kind": "bug",
         "labels": [
           "kind:bug",
@@ -107969,11 +108005,11 @@
         "milestone": "",
         "nextAction": "",
         "number": 2019,
-        "priority": "P2",
+        "priority": "P0",
         "projectDomain": "Agent OS",
         "state": "",
         "status": "Ready",
-        "title": "P2: Agent OS: Continuation worker must dispatch Ready P1 gameplay issues when no P0 blocker active",
+        "title": "P0: Agent OS: Continuation worker must dispatch Ready P0/P1 gameplay issues into Codex lanes",
         "type": "Issue",
         "updatedAt": "",
         "url": "https://github.com/lanyusea/screeps/issues/2019"
@@ -108096,7 +108132,7 @@
         "blockedBy": "",
         "domain": "Bot capability",
         "domainSource": "project",
-        "evidence": "2026-06-24T19:09Z controller recheck: current runtime summary still has E29N55 at RCL1 with 0 creeps; gameplay review c7b3dda8f1ac/2026-06-25_00-17-34.md confirms RCL6/3-room to single-room collapse. Root-cause investigation remains parallel/after #1988.",
+        "evidence": "2026-06-25T01:25Z controller recheck: E29N55 collapse/zero-creep state remains live by latest successful runtime-alert summary (owned_spawns=1, owned_creeps=0, RCL1, storedEnergy=300). Open PRs=0; no active Codex/dev process. Immediate Spawn1 recovery #1988 is the gameplay P0; RCA remains parallel but should not delay recovery.",
         "kind": "bug",
         "labels": [
           "kind:bug",
@@ -108159,6 +108195,25 @@
         "type": "PullRequest",
         "updatedAt": "",
         "url": "https://github.com/lanyusea/screeps/pull/2028"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Agent OS",
+        "domainSource": "project",
+        "evidence": "2026-06-24T20:27Z PR #2029 merged after gate PASS; mergeCommit=49f64cb, head=96cf26a, checks=4/4 pass, threads=0, elapsed>15m, project evidence recorded before merge.",
+        "kind": "docs",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 2029,
+        "priority": "P1",
+        "projectDomain": "Agent OS",
+        "state": "",
+        "status": "Done",
+        "title": "chore(roadmap): refresh Pages artifacts",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/2029"
       }
     ],
     "projectItemsCompleteness": {
@@ -108167,9 +108222,9 @@
       "complete": true,
       "limit": 2000,
       "limitMode": "broad",
-      "returnedCount": 1986,
+      "returnedCount": 1987,
       "safeLimit": 100,
-      "totalCount": 1986
+      "totalCount": 1987
     },
     "projectItemsSource": "live",
     "projectTextFieldHydration": {
@@ -108189,10 +108244,35 @@
           "observedKeys": []
         }
       },
-      "itemsInspected": 1986,
+      "itemsInspected": 1987,
       "source": "gh project item-list"
     },
-    "pullRequests": [],
+    "pullRequests": [
+      {
+        "checks": {
+          "failure": 1,
+          "pending": 0,
+          "success": 3,
+          "total": 4
+        },
+        "createdAt": "2026-06-25T04:35:31Z",
+        "domain": "Bot capability",
+        "domainSource": "heuristic",
+        "isDraft": false,
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "number": 2030,
+        "priority": "P1",
+        "reviewDecision": "CHANGES_REQUESTED",
+        "state": "OPEN",
+        "status": "In review",
+        "title": "chore(roadmap): refresh Pages artifacts",
+        "type": "PullRequest",
+        "updatedAt": "2026-09-05T15:19:49Z",
+        "url": "https://github.com/lanyusea/screeps/pull/2030"
+      }
+    ],
     "roadmapCards": [
       {
         "domain": "Agent OS",
@@ -108242,7 +108322,7 @@
       {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-06-24T19:20Z first canary still blocked: latest policy advantage 20260624T175746Z deployability=BLOCKED onlineUtility=UNPROVEN rolloutGate=BLOCKED/online KPI evidence missing; baselineWindow=null validationWindow=null regressions=0; E1 191814 pass is offline/quarantine evidence only; #1233 preflight no-compute.",
+        "evidence": "2026-06-25T00:34Z first canary still blocked: policy advantage 20260624T235758Z deployability=BLOCKED onlineUtility=UNPROVEN rolloutGate=BLOCKED reason=online KPI evidence missing; baselineWindow=null validationWindow=null regressions=0 scorecard=ready. Gameplay Review 2026-06-25T00:15Z requires a measurable online KPI window within 14 days or structural E2\u2192E3 redesign.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1583,
@@ -108272,7 +108352,7 @@
       {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-06-24T19:20Z Tencent preflight cron-batch-preflight-20260624t19201782300028z final=post_fix_validation_plan_required_no_compute; guard=paid_failure_recurrence_guard simulator_place_spawn_room_busy 39/10; validationPlanRequired=true; compute/paid/scaleOut/remoteTraining/report=false; ASG desired/inservice/instances=0/0/0; billing ok total_cny=0.02844990.",
+        "evidence": "2026-06-25T00:34Z Tencent preflight cron-batch-preflight-20260625t00291782318584z final=post_fix_validation_plan_required_no_compute rc=4; guard=paid_failure_recurrence_guard simulator_place_spawn_room_busy 39/10; validationPlanRequired=true; compute/paid/scaleOut/remoteTraining/report=false; ASG desired/inservice/instances=0/0/0; billing ok total_cny=0.02844990.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1233,
@@ -108287,7 +108367,7 @@
       {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-06-24T19:20Z RL artifacts refreshed: E1 e1-lite-gate-20260624T191814Z pass sample=100 train/eval=50/50 skipped=20 dead-state quarantined=20 (zero=18 rcl1=18 collapse=18) liveEffect=false officialMmoWrites=false; E2 20260624T185524Z RUN_VALIDATED dataGroup=1 samples=200 episodes=80 updates=1; Tencent preflight no-compute.",
+        "evidence": "2026-06-25T00:34Z RL artifacts: E1 e1-lite-gate-20260625T000610Z pass sample=100 train/eval=48/52 skipped=32; dead-state quarantine inspected=402 quarantined=32 zero=30 rcl1=30 collapse=30 eligible=true recovery=false liveEffect=false officialMmoWrites=false. E2 20260624T234638Z RUN_VALIDATED dataGroup=1 samples=200 env=80/80/80/0 episodes=80 ticks=160000 updates=1 anomalies=0.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1032,
@@ -108347,7 +108427,22 @@
       {
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-06-24T18:22Z recheck: latest runtime-alert output 1df5ef0c3835/2026-06-25_02-10-56.md delivered an active P0 alert instead of Broken pipe; recurring Broken pipe finalization remains open as a hardening issue from earlier failed runs.",
+        "evidence": "",
+        "milestone": "",
+        "nextAction": "",
+        "number": 2019,
+        "priority": "P0",
+        "projectDomain": "Agent OS",
+        "status": "Ready",
+        "title": "P0: Agent OS: Continuation worker must dispatch Ready P0/P1 gameplay issues into Codex lanes",
+        "type": "Issue",
+        "url": "https://github.com/lanyusea/screeps/issues/2019",
+        "visionLayer": "resources"
+      },
+      {
+        "domain": "Agent OS",
+        "domainSource": "project",
+        "evidence": "2026-06-24T23:13Z controller audit: cron registry PASS, but latest compact watcher request dumps show max_retries_exhausted ReadError Broken pipe for runtime alert 1df5ef0c3835 (mtime 2026-06-24T20:01Z), P0 ops monitor 75cedbb77150 (09:28Z), and gameplay review c7b3dda8f1ac (last 2026-06-13T16:15Z). No active Codex/dev process or PR.",
         "milestone": "",
         "nextAction": "",
         "number": 1996,
@@ -108357,21 +108452,6 @@
         "title": "P0: Agent OS: Repair recurring Broken pipe cron finalization across telemetry/reporting jobs",
         "type": "Issue",
         "url": "https://github.com/lanyusea/screeps/issues/1996",
-        "visionLayer": "foundation blocker"
-      },
-      {
-        "domain": "Bot capability",
-        "domainSource": "project",
-        "evidence": "2026-06-24T19:09Z controller recheck: current runtime summary still has E29N55 at RCL1 with 0 creeps; gameplay review c7b3dda8f1ac/2026-06-25_00-17-34.md confirms RCL6/3-room to single-room collapse. Root-cause investigation remains parallel/after #1988.",
-        "milestone": "",
-        "nextAction": "",
-        "number": 2026,
-        "priority": "P0",
-        "projectDomain": "Bot capability",
-        "status": "Ready",
-        "title": "P0: Bot capability: Investigate E29N55 RCL6\u2192RCL1 collapse root cause",
-        "type": "Issue",
-        "url": "https://github.com/lanyusea/screeps/issues/2026",
         "visionLayer": "foundation blocker"
       }
     ],
@@ -108457,7 +108537,7 @@
             "categoryLabel": "Territory",
             "description": "Sum of latest room controller levels.",
             "details": {},
-            "formattedValue": "1",
+            "formattedValue": "8",
             "instrumented": true,
             "key": "controller_level_sum",
             "label": "Controller level sum",
@@ -108468,7 +108548,7 @@
             "source": "runtime-summary controller fields",
             "status": "observed",
             "unit": "RCL",
-            "value": 1
+            "value": 8
           },
           {
             "category": "territory",
@@ -108500,7 +108580,7 @@
             "categoryLabel": "Resources / Economy",
             "description": "Energy held in room stores in the latest runtime KPI window.",
             "details": {},
-            "formattedValue": "2300",
+            "formattedValue": "100409",
             "instrumented": true,
             "key": "stored_energy",
             "label": "Stored energy",
@@ -108511,7 +108591,7 @@
             "source": "runtime-summary resource fields",
             "status": "observed",
             "unit": "energy",
-            "value": 2300
+            "value": 100409
           },
           {
             "category": "resources",
@@ -109023,119 +109103,7 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "not instrumented",
           "value": null
         },
@@ -109143,7 +109111,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -109163,119 +109131,7 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "not instrumented",
           "value": null
         },
@@ -109283,7 +109139,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -109303,119 +109159,7 @@
         {
           "instrumented": true,
           "observed": false,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "not observed",
           "value": null
         },
@@ -109423,7 +109167,7 @@
           "instrumented": true,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -109443,119 +109187,7 @@
         {
           "instrumented": true,
           "observed": false,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "not observed",
           "value": null
         },
@@ -109563,7 +109195,7 @@
           "instrumented": true,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -109583,119 +109215,7 @@
         {
           "instrumented": true,
           "observed": false,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "not observed",
           "value": null
         },
@@ -109703,7 +109223,7 @@
           "instrumented": true,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -109723,127 +109243,15 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-19T05:25:07Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "observed",
-          "value": 15.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "observed",
-          "value": 15.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "observed",
-          "value": 15.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "observed",
-          "value": 15.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "observed",
-          "value": 15.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "observed",
-          "value": 15.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "observed",
-          "value": 15.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "observed",
-          "value": 15.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "observed",
-          "value": 14.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "observed",
-          "value": 14.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "observed",
-          "value": 13.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "observed",
-          "value": 13.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "observed",
-          "value": 13.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "observed",
-          "value": 12.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "observed",
-          "value": 12.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T20:09:21Z",
-          "status": "observed",
-          "value": 1.0
+          "value": 8.0
         },
         {
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -109856,126 +109264,14 @@
           },
           "sourceKind": "runtime-summary-artifact",
           "status": "observed",
-          "value": 1
+          "value": 8
         }
       ],
       "controller_progress_delta": [
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "observed",
           "value": 0.0
         },
@@ -109983,7 +109279,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -110003,119 +109299,7 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "not instrumented",
           "value": null
         },
@@ -110123,7 +109307,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -110143,119 +109327,7 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "not instrumented",
           "value": null
         },
@@ -110263,7 +109335,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -110283,119 +109355,7 @@
         {
           "instrumented": true,
           "observed": false,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "not observed",
           "value": null
         },
@@ -110403,7 +109363,7 @@
           "instrumented": true,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -110423,119 +109383,7 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "observed",
           "value": 0.0
         },
@@ -110543,7 +109391,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -110563,119 +109411,7 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "not instrumented",
           "value": null
         },
@@ -110683,7 +109419,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -110703,119 +109439,7 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "not instrumented",
           "value": null
         },
@@ -110823,7 +109447,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -110843,119 +109467,7 @@
         {
           "instrumented": true,
           "observed": false,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "not observed",
           "value": null
         },
@@ -110963,7 +109475,7 @@
           "instrumented": true,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -110983,119 +109495,7 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "observed",
           "value": 0.0
         },
@@ -111103,7 +109503,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -111123,119 +109523,7 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "observed",
           "value": 0.0
         },
@@ -111243,7 +109531,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -111263,119 +109551,7 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "observed",
           "value": 1.0
         },
@@ -111383,7 +109559,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -111403,119 +109579,7 @@
         {
           "instrumented": true,
           "observed": false,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "not observed",
           "value": null
         },
@@ -111523,7 +109587,7 @@
           "instrumented": true,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -111543,119 +109607,7 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "not instrumented",
           "value": null
         },
@@ -111663,7 +109615,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -111683,119 +109635,7 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "observed",
           "value": 0.0
         },
@@ -111803,7 +109643,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -111823,119 +109663,7 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "observed",
-          "value": 3.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "observed",
-          "value": 3.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "observed",
-          "value": 3.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "observed",
-          "value": 3.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "observed",
-          "value": 3.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "observed",
-          "value": 3.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "observed",
-          "value": 3.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "observed",
-          "value": 3.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "observed",
-          "value": 3.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "observed",
-          "value": 3.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "observed",
-          "value": 3.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "observed",
-          "value": 3.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "observed",
-          "value": 3.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "observed",
-          "value": 3.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "observed",
-          "value": 3.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "observed",
           "value": 1.0
         },
@@ -111943,7 +109671,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -111963,119 +109691,7 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "not instrumented",
           "value": null
         },
@@ -112083,7 +109699,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -112103,119 +109719,7 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "not instrumented",
           "value": null
         },
@@ -112223,7 +109727,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -112243,119 +109747,7 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "observed",
           "value": 1.0
         },
@@ -112363,7 +109755,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -112383,119 +109775,7 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "observed",
-          "value": 4.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "observed",
-          "value": 4.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "observed",
-          "value": 4.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "observed",
-          "value": 4.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "observed",
-          "value": 4.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "observed",
-          "value": 4.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "observed",
-          "value": 4.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "observed",
-          "value": 4.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "observed",
-          "value": 4.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "observed",
-          "value": 4.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "observed",
-          "value": 4.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "observed",
-          "value": 4.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "observed",
-          "value": 4.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "observed",
-          "value": 4.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "observed",
-          "value": 4.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "observed",
-          "value": 2.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "observed",
           "value": 2.0
         },
@@ -112503,7 +109783,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -112523,119 +109803,7 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "not instrumented",
           "value": null
         },
@@ -112643,7 +109811,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -112663,119 +109831,7 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "not instrumented",
           "value": null
         },
@@ -112783,7 +109839,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -112803,127 +109859,15 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-19T05:25:07Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "observed",
-          "value": 614838.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "observed",
-          "value": 593343.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "observed",
-          "value": 537051.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "observed",
-          "value": 541902.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "observed",
-          "value": 555188.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "observed",
-          "value": 563952.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "observed",
-          "value": 658274.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "observed",
-          "value": 619008.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "observed",
-          "value": 659529.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "observed",
-          "value": 605224.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "observed",
-          "value": 589584.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "observed",
-          "value": 566765.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "observed",
-          "value": 589497.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "observed",
-          "value": 539787.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "observed",
-          "value": 576127.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "observed",
-          "value": 2430.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T20:09:21Z",
-          "status": "observed",
-          "value": 2300.0
+          "value": 100409.0
         },
         {
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -112936,126 +109880,14 @@
           },
           "sourceKind": "runtime-summary-artifact",
           "status": "observed",
-          "value": 2300
+          "value": 100409
         }
       ],
       "stored_energy_delta": [
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "observed",
           "value": 0.0
         },
@@ -113063,7 +109895,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -113083,119 +109915,7 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "not instrumented",
           "value": null
         },
@@ -113203,7 +109923,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -113223,119 +109943,7 @@
         {
           "instrumented": true,
           "observed": false,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "not observed",
           "value": null
         },
@@ -113343,7 +109951,7 @@
           "instrumented": true,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -113363,119 +109971,7 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "observed",
-          "value": 1231.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "observed",
-          "value": 557.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "observed",
-          "value": 478.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "observed",
-          "value": 1437.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "observed",
-          "value": 1084.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "observed",
-          "value": 1061.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "observed",
-          "value": 563.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "observed",
-          "value": 268.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "observed",
-          "value": 320.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "observed",
-          "value": 922.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "observed",
-          "value": 213.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "observed",
-          "value": 810.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "observed",
-          "value": 780.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "observed",
-          "value": 195.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "observed",
-          "value": 1169.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "observed",
           "value": 0.0
         },
@@ -113483,7 +109979,7 @@
           "instrumented": true,
           "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -113503,119 +109999,7 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-06-19T05:25:07Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T10:57:12Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-19T15:43:20Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-20T19:57:06Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T05:18:52Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T10:05:16Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-21T20:02:53Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T12:26:05Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-22T21:13:36Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T04:20:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T10:02:57Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T15:24:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-23T20:22:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T04:36:04Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T09:50:59Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T15:08:56Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "status": "not instrumented",
           "value": null
         },
@@ -113623,7 +110007,7 @@
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-06-24T20:09:21Z",
+          "sampledAt": "2026-09-05T20:21:05Z",
           "scope": {
             "observedRooms": [
               "E29N55"
@@ -113748,7 +110132,7 @@
         "itemLimit": 4,
         "items": [
           {
-            "description": "Ready \u00b7 Runtime monitor \u00b7 2026-06-24T18:22Z recheck: latest runtime-alert output is active and compact for E2...",
+            "description": "Ready \u00b7 Runtime monitor \u00b7 2026-06-25T01:25Z controller audit: latest runtime-alert artifact 1df5ef0c3835/2026...",
             "domain": "Runtime monitor",
             "number": 1943,
             "priority": "P0",
@@ -113796,11 +110180,20 @@
         "visibleItems": 2
       },
       {
-        "activeItems": 4,
+        "activeItems": 5,
         "itemLimit": 4,
         "items": [
           {
-            "description": "Ready \u00b7 Bot capability \u00b7 2026-06-24T19:09Z controller recheck: current runtime summary still has E29N55 at RC...",
+            "description": "Ready \u00b7 Bot capability \u00b7 2026-06-25T03:31:31Z P0: Bot capability: Recover E29N55 zero-creep Spawn1 state afte...",
+            "domain": "Bot capability",
+            "number": 1988,
+            "priority": "P0",
+            "status": "Ready",
+            "title": "#1988 P0: Bot capability: Recover E29N55 zero-creep Spawn1 state afte...",
+            "url": "https://github.com/lanyusea/screeps/issues/1988"
+          },
+          {
+            "description": "Ready \u00b7 Bot capability \u00b7 2026-06-25T01:25Z controller recheck: E29N55 collapse/zero-creep state remains live...",
             "domain": "Bot capability",
             "number": 2026,
             "priority": "P0",
@@ -113825,15 +110218,6 @@
             "status": "Ready",
             "title": "#2013 P1: Bot capability: Diagnose CPU bucket drain below recovery floor",
             "url": "https://github.com/lanyusea/screeps/issues/2013"
-          },
-          {
-            "description": "Ready \u00b7 Bot capability \u00b7 2026-06-23T00:11Z scheduler issueified c7b3 08:09 P2 telemetry recommendation; #906...",
-            "domain": "Bot capability",
-            "number": 2015,
-            "priority": "P2",
-            "status": "Ready",
-            "title": "#2015 P2: Bot capability: Add spawn/upgrade suppression debug telemetry",
-            "url": "https://github.com/lanyusea/screeps/issues/2015"
           }
         ],
         "title": "Bot capability",
@@ -113847,18 +110231,9 @@
         "visibleItems": 0
       },
       {
-        "activeItems": 6,
+        "activeItems": 5,
         "itemLimit": 4,
         "items": [
-          {
-            "description": "Ready \u00b7 Territory/Economy \u00b7 2026-06-24T19:09Z controller recheck: latest runtime health summary-20260624T1906...",
-            "domain": "Territory/Economy",
-            "number": 1988,
-            "priority": "P0",
-            "status": "Ready",
-            "title": "#1988 P0: Bot capability: Recover E29N55 zero-creep Spawn1 state afte...",
-            "url": "https://github.com/lanyusea/screeps/issues/1988"
-          },
           {
             "description": "Ready \u00b7 Territory/Economy \u00b7 2026-06-24T12:24Z controller: #1996 Broken pipe finalization remains active; late...",
             "domain": "Territory/Economy",
@@ -113885,6 +110260,15 @@
             "status": "Ready",
             "title": "#2009 P1: Territory/Economy: Diagnose persistent E29N56 upgrade suppr...",
             "url": "https://github.com/lanyusea/screeps/issues/2009"
+          },
+          {
+            "description": "Ready \u00b7 Territory/Economy \u00b7 Created by c7b3dda8f1ac Gameplay Evolution Review 2026-06-23. E29N55 energy buffe...",
+            "domain": "Territory/Economy",
+            "number": 2011,
+            "priority": "P1",
+            "status": "Ready",
+            "title": "#2011 P1: Territory/Economy: E29N55 energy buffer at 607/2300 while s...",
+            "url": "https://github.com/lanyusea/screeps/issues/2011"
           }
         ],
         "title": "Territory/Economy",
@@ -113921,7 +110305,7 @@
         "itemLimit": 4,
         "items": [
           {
-            "description": "In progress \u00b7 RL flywheel \u00b7 2026-06-24T19:20Z RL artifacts refreshed: E1 e1-lite-gate-20260624T191814Z pass s...",
+            "description": "In progress \u00b7 RL flywheel \u00b7 2026-06-25T00:34Z RL artifacts: E1 e1-lite-gate-20260625T000610Z pass sample=100...",
             "domain": "RL flywheel",
             "number": 1032,
             "priority": "P0",
@@ -113930,7 +110314,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/1032"
           },
           {
-            "description": "In progress \u00b7 RL flywheel \u00b7 2026-06-24T19:20Z Tencent preflight cron-batch-preflight-20260624t19201782300028z...",
+            "description": "In progress \u00b7 RL flywheel \u00b7 2026-06-25T00:34Z Tencent preflight cron-batch-preflight-20260625t00291782318584z...",
             "domain": "RL flywheel",
             "number": 1233,
             "priority": "P0",
@@ -113939,7 +110323,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/1233"
           },
           {
-            "description": "In progress \u00b7 RL flywheel \u00b7 2026-06-24T19:20Z first canary still blocked: latest policy advantage 20260624T17...",
+            "description": "In progress \u00b7 RL flywheel \u00b7 2026-06-25T00:34Z first canary still blocked: policy advantage 20260624T235758Z d...",
             "domain": "RL flywheel",
             "number": 1583,
             "priority": "P0",
@@ -113972,29 +110356,29 @@
     "kpiCards": [
       {
         "dates": [
-          "6/19",
-          "6/20",
-          "6/21",
-          "6/22",
-          "6/23",
-          "6/24",
-          "6/25"
+          "8/31",
+          "9/1",
+          "9/2",
+          "9/3",
+          "9/4",
+          "9/5",
+          "9/6"
         ],
-        "footer": "History collecting (6/7 days observed; insufficient for a complete 7d trend); missing buckets stay blank.",
+        "footer": "History collecting (1/7 days observed; insufficient for a complete 7d trend); missing buckets stay blank.",
         "history": {
           "insufficient": true,
           "missingDateLabels": [
-            "6/20"
+            "8/31",
+            "9/1",
+            "9/2",
+            "9/3",
+            "9/4",
+            "9/5"
           ],
           "observedDateLabels": [
-            "6/19",
-            "6/21",
-            "6/22",
-            "6/23",
-            "6/24",
-            "6/25"
+            "9/6"
           ],
-          "observedDays": 6,
+          "observedDays": 1,
           "source": {
             "runtimeArtifacts": {
               "dailyBucketDays": 1,
@@ -114028,7 +110412,7 @@
           "windowDays": 7
         },
         "key": "territory",
-        "max": 20,
+        "max": 8,
         "pill": "rooms/RCL",
         "series": [
           {
@@ -114036,21 +110420,21 @@
             "label": "Owned rooms",
             "metric": "owned_rooms",
             "statuses": [
-              "observed",
               "missing",
-              "observed",
-              "observed",
-              "observed",
-              "observed",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
               "observed"
             ],
             "values": [
-              3,
               null,
-              3,
-              3,
-              3,
-              1,
+              null,
+              null,
+              null,
+              null,
+              null,
               1
             ],
             "width": 4
@@ -114060,22 +110444,22 @@
             "label": "RCL",
             "metric": "controller_level_sum",
             "statuses": [
-              "observed",
               "missing",
-              "observed",
-              "observed",
-              "observed",
-              "observed",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
               "observed"
             ],
             "values": [
-              15,
               null,
-              15,
-              15,
-              13,
-              1,
-              1
+              null,
+              null,
+              null,
+              null,
+              null,
+              8
             ],
             "width": 4
           },
@@ -114085,21 +110469,21 @@
             "label": "Room gain",
             "metric": "owned_room_delta",
             "statuses": [
-              "observed",
               "missing",
-              "observed",
-              "observed",
-              "observed",
-              "observed",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
               "observed"
             ],
             "values": [
-              0,
               null,
-              0,
-              0,
-              0,
-              0,
+              null,
+              null,
+              null,
+              null,
+              null,
               0
             ],
             "width": 3
@@ -114108,36 +110492,36 @@
         "subtitle": "owned rooms \u00b7 RCL \u00b7 room gain",
         "ticks": [
           0,
-          10.0,
-          20
+          4.0,
+          8
         ],
         "title": "Territory"
       },
       {
         "dates": [
-          "6/19",
-          "6/20",
-          "6/21",
-          "6/22",
-          "6/23",
-          "6/24",
-          "6/25"
+          "8/31",
+          "9/1",
+          "9/2",
+          "9/3",
+          "9/4",
+          "9/5",
+          "9/6"
         ],
-        "footer": "History collecting (6/7 days observed; insufficient for a complete 7d trend); missing buckets stay blank.",
+        "footer": "History collecting (1/7 days observed; insufficient for a complete 7d trend); missing buckets stay blank.",
         "history": {
           "insufficient": true,
           "missingDateLabels": [
-            "6/20"
+            "8/31",
+            "9/1",
+            "9/2",
+            "9/3",
+            "9/4",
+            "9/5"
           ],
           "observedDateLabels": [
-            "6/19",
-            "6/21",
-            "6/22",
-            "6/23",
-            "6/24",
-            "6/25"
+            "9/6"
           ],
-          "observedDays": 6,
+          "observedDays": 1,
           "source": {
             "runtimeArtifacts": {
               "dailyBucketDays": 1,
@@ -114171,7 +110555,7 @@
           "windowDays": 7
         },
         "key": "resources",
-        "max": 700000,
+        "max": 200000,
         "pill": "energy",
         "series": [
           {
@@ -114179,22 +110563,22 @@
             "label": "Stored energy",
             "metric": "stored_energy",
             "statuses": [
-              "observed",
               "missing",
-              "observed",
-              "observed",
-              "observed",
-              "observed",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
               "observed"
             ],
             "values": [
-              537051,
               null,
-              563952,
-              619008,
-              566765,
-              2430,
-              2300
+              null,
+              null,
+              null,
+              null,
+              null,
+              100409
             ],
             "width": 2
           },
@@ -114203,12 +110587,12 @@
             "label": "Harvest delta",
             "metric": "harvested_energy",
             "statuses": [
-              "not observed",
               "missing",
-              "not observed",
-              "not observed",
-              "not observed",
-              "not observed",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
               "not observed"
             ],
             "values": [
@@ -114228,21 +110612,21 @@
             "label": "Worker carried",
             "metric": "worker_carried_energy",
             "statuses": [
-              "observed",
               "missing",
-              "observed",
-              "observed",
-              "observed",
-              "observed",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
               "observed"
             ],
             "values": [
-              478,
               null,
-              1061,
-              268,
-              810,
-              0,
+              null,
+              null,
+              null,
+              null,
+              null,
               0
             ],
             "width": 3
@@ -114251,36 +110635,36 @@
         "subtitle": "stored energy \u00b7 harvest delta \u00b7 carried energy",
         "ticks": [
           0,
-          350000.0,
-          700000
+          100000.0,
+          200000
         ],
         "title": "Resources"
       },
       {
         "dates": [
-          "6/19",
-          "6/20",
-          "6/21",
-          "6/22",
-          "6/23",
-          "6/24",
-          "6/25"
+          "8/31",
+          "9/1",
+          "9/2",
+          "9/3",
+          "9/4",
+          "9/5",
+          "9/6"
         ],
-        "footer": "History collecting (6/7 days observed; insufficient for a complete 7d trend); missing buckets stay blank.",
+        "footer": "History collecting (1/7 days observed; insufficient for a complete 7d trend); missing buckets stay blank.",
         "history": {
           "insufficient": true,
           "missingDateLabels": [
-            "6/20"
+            "8/31",
+            "9/1",
+            "9/2",
+            "9/3",
+            "9/4",
+            "9/5"
           ],
           "observedDateLabels": [
-            "6/19",
-            "6/21",
-            "6/22",
-            "6/23",
-            "6/24",
-            "6/25"
+            "9/6"
           ],
-          "observedDays": 6,
+          "observedDays": 1,
           "source": {
             "runtimeArtifacts": {
               "dailyBucketDays": 1,
@@ -114322,12 +110706,12 @@
             "label": "Enemy kills",
             "metric": "enemy_kills",
             "statuses": [
-              "not instrumented",
               "missing",
-              "not instrumented",
-              "not instrumented",
-              "not instrumented",
-              "not instrumented",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
               "not instrumented"
             ],
             "values": [
@@ -114346,21 +110730,21 @@
             "label": "Hostiles seen",
             "metric": "hostile_creeps",
             "statuses": [
-              "observed",
               "missing",
-              "observed",
-              "observed",
-              "observed",
-              "observed",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
               "observed"
             ],
             "values": [
-              0,
               null,
-              0,
-              0,
-              0,
-              0,
+              null,
+              null,
+              null,
+              null,
+              null,
               0
             ],
             "width": 4
@@ -114371,12 +110755,12 @@
             "label": "Own loss",
             "metric": "own_losses",
             "statuses": [
-              "not instrumented",
               "missing",
-              "not instrumented",
-              "not instrumented",
-              "not instrumented",
-              "not instrumented",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
               "not instrumented"
             ],
             "values": [
@@ -114402,15 +110786,15 @@
     ],
     "processCards": [
       {
-        "delta": "+2",
+        "delta": "+1",
         "detail": "git rev-list --count HEAD",
         "label": "Commits",
-        "rawValue": 1247,
+        "rawValue": 1248,
         "source": "git rev-list --count HEAD",
-        "value": 1247
+        "value": 1248
       },
       {
-        "delta": "+2",
+        "delta": "+0",
         "detail": "37 open",
         "label": "Issues",
         "rawValue": 947,
@@ -114419,7 +110803,7 @@
       },
       {
         "delta": "+0",
-        "detail": "988 merged",
+        "detail": "987 merged",
         "label": "PRs",
         "rawValue": 1000,
         "source": "github",
@@ -114451,8 +110835,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-06-24T20:09:21Z",
-            "start": "2026-06-17T20:09:21Z"
+            "end": "2026-09-05T20:21:05Z",
+            "start": "2026-08-29T20:21:05Z"
           }
         },
         "source": "unavailable",
@@ -114484,8 +110868,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-06-24T20:09:21Z",
-            "start": "2026-06-17T20:09:21Z"
+            "end": "2026-09-05T20:21:05Z",
+            "start": "2026-08-29T20:21:05Z"
           }
         },
         "source": "unavailable",
@@ -114517,8 +110901,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-06-24T20:09:21Z",
-            "start": "2026-06-17T20:09:21Z"
+            "end": "2026-09-05T20:21:05Z",
+            "start": "2026-08-29T20:21:05Z"
           }
         },
         "source": "local cache",
@@ -114550,8 +110934,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-06-24T20:09:21Z",
-            "start": "2026-06-17T20:09:21Z"
+            "end": "2026-09-05T20:21:05Z",
+            "start": "2026-08-29T20:21:05Z"
           }
         },
         "source": "local cache",
@@ -114583,8 +110967,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-06-24T20:09:21Z",
-            "start": "2026-06-17T20:09:21Z"
+            "end": "2026-09-05T20:21:05Z",
+            "start": "2026-08-29T20:21:05Z"
           }
         },
         "source": "local cache",
@@ -114619,8 +111003,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-06-24T20:09:21Z",
-            "start": "2026-06-17T20:09:21Z"
+            "end": "2026-09-05T20:21:05Z",
+            "start": "2026-08-29T20:21:05Z"
           }
         },
         "source": "local cache",
@@ -114652,8 +111036,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-06-24T20:09:21Z",
-            "start": "2026-06-17T20:09:21Z"
+            "end": "2026-09-05T20:21:05Z",
+            "start": "2026-08-29T20:21:05Z"
           }
         },
         "source": "local cache",
@@ -114664,14 +111048,14 @@
       {
         "activeItems": 9,
         "domain": "Agent OS",
-        "doneItems": 112,
+        "doneItems": 113,
         "goal": "Keep autonomous scheduling, routing, review, and handoff operations healthy.",
         "kanbanItemLimit": 4,
         "next": "Current: #1028 In progress - 2026-06-23T08:19Z latest Gameplay Review c7b3dda8f1ac/2026-06-23...",
         "progress": 93,
-        "status": "121 Project items \u00b7 9 non-done \u00b7 4 shown in board \u00b7 112 done",
+        "status": "122 Project items \u00b7 9 non-done \u00b7 4 shown in board \u00b7 113 done",
         "title": "Agent OS",
-        "totalItems": 121,
+        "totalItems": 122,
         "url": "https://github.com/lanyusea/screeps/issues/1028",
         "visibleActiveItems": 4
       },
@@ -114695,7 +111079,7 @@
         "doneItems": 125,
         "goal": "Turn live Screeps telemetry into reliable KPI, alert, and report evidence.",
         "kanbanItemLimit": 4,
-        "next": "Current: #1943 Ready - 2026-06-24T18:22Z recheck: latest runtime-alert output is active and c...",
+        "next": "Current: #1943 Ready - 2026-06-25T01:25Z controller audit: latest runtime-alert artifact 1df5...",
         "progress": 98,
         "status": "127 Project items \u00b7 2 non-done \u00b7 125 done",
         "title": "Runtime monitor",
@@ -114718,17 +111102,17 @@
         "visibleActiveItems": 2
       },
       {
-        "activeItems": 4,
+        "activeItems": 5,
         "domain": "Bot capability",
         "doneItems": 306,
         "goal": "Ship general gameplay behavior that advances the bot beyond single-slice fixes.",
         "kanbanItemLimit": 4,
-        "next": "Current: #2026 Ready - 2026-06-24T19:09Z controller recheck: current runtime summary still ha...",
-        "progress": 99,
-        "status": "310 Project items \u00b7 4 non-done \u00b7 306 done",
+        "next": "Current: #1988 Ready - P0: Bot capability: Recover E29N55 zero-creep Spawn1 state after RCL r...",
+        "progress": 98,
+        "status": "311 Project items \u00b7 5 non-done \u00b7 4 shown in board \u00b7 306 done",
         "title": "Bot capability",
-        "totalItems": 310,
-        "url": "https://github.com/lanyusea/screeps/issues/2026",
+        "totalItems": 311,
+        "url": "https://github.com/lanyusea/screeps/issues/1988",
         "visibleActiveItems": 4
       },
       {
@@ -114746,17 +111130,17 @@
         "visibleActiveItems": 0
       },
       {
-        "activeItems": 6,
+        "activeItems": 5,
         "domain": "Territory/Economy",
         "doneItems": 402,
         "goal": "Advance expansion, controller pressure, worker efficiency, and resource throughput.",
         "kanbanItemLimit": 4,
-        "next": "Current: #1988 Ready - 2026-06-24T19:09Z controller recheck: latest runtime health summary-20...",
+        "next": "Current: #2010 Ready - 2026-06-24T12:24Z controller: #1996 Broken pipe finalization remains a...",
         "progress": 99,
-        "status": "408 Project items \u00b7 6 non-done \u00b7 4 shown in board \u00b7 402 done",
+        "status": "407 Project items \u00b7 5 non-done \u00b7 4 shown in board \u00b7 402 done",
         "title": "Territory/Economy",
-        "totalItems": 408,
-        "url": "https://github.com/lanyusea/screeps/issues/1988",
+        "totalItems": 407,
+        "url": "https://github.com/lanyusea/screeps/issues/2010",
         "visibleActiveItems": 4
       },
       {
@@ -114779,7 +111163,7 @@
         "doneItems": 448,
         "goal": "Drive offline/simulator/data/training/validation work for safe strategy self-evolution.",
         "kanbanItemLimit": 4,
-        "next": "Current: #1032 In progress - 2026-06-24T19:20Z RL artifacts refreshed: E1 e1-lite-gate-202606...",
+        "next": "Current: #1032 In progress - 2026-06-25T00:34Z RL artifacts: E1 e1-lite-gate-20260625T000610Z...",
         "progress": 99,
         "status": "454 Project items \u00b7 6 non-done \u00b7 4 shown in board \u00b7 448 done",
         "title": "RL flywheel",
@@ -114801,8 +111185,8 @@
       "skippedFileCount": 0
     },
     "window": {
-      "firstTick": 2571129,
-      "latestTick": 2571129
+      "firstTick": 5427576,
+      "latestTick": 5427576
     }
   },
   "schemaVersion": 1,
